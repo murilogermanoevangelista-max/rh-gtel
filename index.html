@@ -1366,7 +1366,7 @@ async function renderFerias(){
   await loadFerias();
   const hoje=new Date();hoje.setHours(0,0,0,0);
 
-  // ── 1. Agrupar por matrícula e ordenar períodos por data asc ──────────────
+  // Agrupar por matrícula, ordenar por periodo_aquisitivo_inicio asc
   const byMat={};
   feriasData.forEach(f=>{
     const mat=f.matricula||'?';
@@ -1378,175 +1378,137 @@ async function renderFerias(){
     const db=parseDate(b.periodo_aquisitivo_inicio)||new Date(0);
     return da-db;
   }));
+
   const totalFuncs=Object.keys(byMat).length;
   const totalPeriodos=feriasData.length;
 
-  // ── 2. Stats por período (1º período = primeiro row, 2º = segundo row) ─────
-  // 1º Período = dt_limite_ideal do row mais antigo
-  // 2º Período = dt_limite_ideal do segundo row
+  // Stats
   let progCount=0,naoProgCount=0;
   let per1Vencidas=0,per1Vencendo60=0;
   let per2Vencidas=0,per2Vencendo60=0;
-  let vencidas=0,vencendo30=0; // para alertas
+  let alertaVencidas=0,alertaVencendo30=0;
 
   Object.values(byMat).forEach(arr=>{
     if(arr.some(f=>f.programado))progCount++;
     if(arr.some(f=>!f.programado))naoProgCount++;
-
-    const p1=arr[0]; // 1º período aquisitivo
-    const p2=arr[1]; // 2º período aquisitivo (pode não existir)
-
-    // 1º período — limite ideal
+    const p1=arr[0],p2=arr[1];
+    // 1º período
     if(p1&&!p1.programado){
       const lim=parseDate(p1.dt_limite_ideal);
-      if(lim){
-        const d=Math.floor((lim-hoje)/86400000);
-        if(d<0)per1Vencidas++;
-        else if(d<=60)per1Vencendo60++;
-      }
-      // Para alerta geral: vencimento máximo
+      if(lim){const d=Math.floor((lim-hoje)/86400000);
+        if(d<0)per1Vencidas++;else if(d<=60)per1Vencendo60++;}
       const limMax=parseDate(p1.dt_limite_maxima);
-      if(limMax&&limMax<hoje)vencidas++;
-      else if(lim){
-        const d=Math.floor((lim-hoje)/86400000);
-        if(d>=0&&d<=30)vencendo30++;
-      }
+      if(limMax&&limMax<hoje)alertaVencidas++;
+      else if(lim){const d=Math.floor((lim-hoje)/86400000);if(d>=0&&d<=30)alertaVencendo30++;}
     }
-    // 2º período — limite ideal
+    // 2º período
     if(p2&&!p2.programado){
       const lim=parseDate(p2.dt_limite_ideal);
-      if(lim){
-        const d=Math.floor((lim-hoje)/86400000);
-        if(d<0)per2Vencidas++;
-        else if(d<=60)per2Vencendo60++;
-      }
+      if(lim){const d=Math.floor((lim-hoje)/86400000);
+        if(d<0)per2Vencidas++;else if(d<=60)per2Vencendo60++;}
     }
   });
 
-  // ── 3. Filtros ──────────────────────────────────────────────────────────────
-  function getStatusFunc(arr){
-    const p=arr.find(f=>!f.programado);
-    if(!p)return'programado';
+  // Status por funcionário para ordenação/filtro
+  function getStatus(arr){
+    const p=arr.find(f=>!f.programado);if(!p)return'ok';
     const limMax=parseDate(p.dt_limite_maxima);
-    const limIdeal=parseDate(p.dt_limite_ideal);
     if(limMax&&limMax<hoje)return'vencida';
-    if(limIdeal){const d=Math.floor((limIdeal-hoje)/86400000);if(d>=0&&d<=60)return'vencendo';}
+    const limId=parseDate(p.dt_limite_ideal);
+    if(limId){const d=Math.floor((limId-hoje)/86400000);if(d>=0&&d<=60)return'vencendo';}
     return'ok';
   }
 
+  // Filtros
   let listaFuncs=Object.values(byMat);
-
-  if(feriasBusca){
-    listaFuncs=listaFuncs.filter(arr=>{
-      const f=arr[0];
-      return(f.funcionario?.nome_completo||f.matricula||'').toLowerCase().includes(feriasBusca.toLowerCase())||
-             (f.matricula||'').includes(feriasBusca);
-    });
-  }
-  if(feriasObraFiltro){
-    listaFuncs=listaFuncs.filter(arr=>arr[0].funcionario?.obra?.codigo===feriasObraFiltro);
-  }
+  if(feriasBusca)listaFuncs=listaFuncs.filter(arr=>{
+    const f=arr[0];
+    return(f.funcionario?.nome_completo||'').toLowerCase().includes(feriasBusca.toLowerCase())||(f.matricula||'').includes(feriasBusca);
+  });
+  if(feriasObraFiltro)listaFuncs=listaFuncs.filter(arr=>arr[0].funcionario?.obra?.codigo===feriasObraFiltro);
   if(feriasFiltro==='programado')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>f.programado));
   if(feriasFiltro==='naoprog')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>!f.programado));
-  if(feriasFiltro==='per1vencida')listaFuncs=listaFuncs.filter(arr=>{
-    const p=arr[0];if(!p||p.programado)return false;
-    const lim=parseDate(p.dt_limite_ideal);return lim&&lim<hoje;
-  });
-  if(feriasFiltro==='per1vencendo')listaFuncs=listaFuncs.filter(arr=>{
-    const p=arr[0];if(!p||p.programado)return false;
-    const lim=parseDate(p.dt_limite_ideal);if(!lim)return false;
-    const d=Math.floor((lim-hoje)/86400000);return d>=0&&d<=60;
-  });
-  if(feriasFiltro==='per2vencida')listaFuncs=listaFuncs.filter(arr=>{
-    const p=arr[1];if(!p||p.programado)return false;
-    const lim=parseDate(p.dt_limite_ideal);return lim&&lim<hoje;
-  });
-  if(feriasFiltro==='per2vencendo')listaFuncs=listaFuncs.filter(arr=>{
-    const p=arr[1];if(!p||p.programado)return false;
-    const lim=parseDate(p.dt_limite_ideal);if(!lim)return false;
-    const d=Math.floor((lim-hoje)/86400000);return d>=0&&d<=60;
-  });
+  if(feriasFiltro==='per1vencida')listaFuncs=listaFuncs.filter(arr=>{const p=arr[0];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_ideal);return l&&l<hoje;});
+  if(feriasFiltro==='per1vencendo')listaFuncs=listaFuncs.filter(arr=>{const p=arr[0];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_ideal);if(!l)return false;const d=Math.floor((l-hoje)/86400000);return d>=0&&d<=60;});
+  if(feriasFiltro==='per2vencida')listaFuncs=listaFuncs.filter(arr=>{const p=arr[1];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_ideal);return l&&l<hoje;});
+  if(feriasFiltro==='per2vencendo')listaFuncs=listaFuncs.filter(arr=>{const p=arr[1];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_ideal);if(!l)return false;const d=Math.floor((l-hoje)/86400000);return d>=0&&d<=60;});
 
-  // Ordenar: vencidas → vencendo → ok → programados
-  const stOrd={vencida:0,vencendo:1,ok:2,programado:3};
+  // Ordenar: vencidas → vencendo → ok
+  const stOrd={vencida:0,vencendo:1,ok:2};
   listaFuncs.sort((a,b)=>{
-    const sa=stOrd[getStatusFunc(a)]??3,sb=stOrd[getStatusFunc(b)]??3;
+    const sa=stOrd[getStatus(a)]??2,sb=stOrd[getStatus(b)]??2;
     if(sa!==sb)return sa-sb;
     const la=parseDate(a[0]?.dt_limite_ideal)||new Date(9999,0);
     const lb=parseDate(b[0]?.dt_limite_ideal)||new Date(9999,0);
     return la-lb;
   });
 
-  // ── 4. Alertas ──────────────────────────────────────────────────────────────
+  // Alertas
   const alertas=[];
-  if(vencidas>0)alertas.push(`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:6px;background:var(--danger-light);border:1px solid #FCA5A5;color:#991B1B"><i class="ti ti-alert-triangle" style="font-size:18px;flex-shrink:0"></i><span style="font-weight:500">${vencidas} funcionário(s) com férias vencidas — risco legal, ação necessária</span></div>`);
-  if(vencendo30>0)alertas.push(`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:6px;background:var(--warning-light);border:1px solid #FCD34D;color:#92400E"><i class="ti ti-clock" style="font-size:18px;flex-shrink:0"></i><span style="font-weight:500">${vencendo30} férias vencendo em 30 dias — programar com urgência</span></div>`);
+  if(alertaVencidas>0)alertas.push(`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:6px;background:var(--danger-light);border:1px solid #FCA5A5;color:#991B1B"><i class="ti ti-alert-triangle" style="font-size:18px;flex-shrink:0"></i><strong>${alertaVencidas} funcionário(s) com férias vencidas — risco legal</strong></div>`);
+  if(alertaVencendo30>0)alertas.push(`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:6px;background:var(--warning-light);border:1px solid #FCD34D;color:#92400E"><i class="ti ti-clock" style="font-size:18px;flex-shrink:0"></i><strong>${alertaVencendo30} vencendo em 30 dias — programar urgente</strong></div>`);
 
-  // ── 5. Obras para filtro ────────────────────────────────────────────────────
+  // Obras
   const obrasUnicas=[...new Set(feriasData.map(f=>f.funcionario?.obra?.codigo).filter(Boolean))];
   const obraFilterOpts=obrasUnicas.map(c=>`<option value="${c}" ${feriasObraFiltro===c?'selected':''}>${c}</option>`).join('');
 
-  // ── 6. Helper célula de período ─────────────────────────────────────────────
-  function periodoCell(f,labelNum){
-    if(!f)return`<td style="color:var(--text-muted);font-size:12px;text-align:center">—</td><td style="color:var(--text-muted);font-size:12px;text-align:center">—</td>`;
+  // Helper: bloco compacto de período
+  function blocoPeríodo(f){
+    if(!f)return`<td colspan="2" style="text-align:center;color:var(--text-muted);font-size:12px">—</td>`;
     const limIdeal=parseDate(f.dt_limite_ideal);
     const limMax=parseDate(f.dt_limite_maxima);
-    const perStr=`${formatDate(f.periodo_aquisitivo_inicio)} → ${formatDate(f.periodo_aquisitivo_fim)}`;
-    const diasDir=f.dias_direito||30;
+    const perAqui=`${formatDate(f.periodo_aquisitivo_inicio)} → ${formatDate(f.periodo_aquisitivo_fim)}`;
+    const dias=f.dias_direito||30;
 
-    // Calcular contagens para limite ideal
-    const dIdeal=limIdeal?Math.floor((limIdeal-hoje)/86400000):null;
-    const isIdealVenc=limIdeal&&limIdeal<hoje&&!f.programado;
-    const isIdealWarn=!isIdealVenc&&dIdeal!==null&&dIdeal<=60&&!f.programado;
-    const corIdeal=f.programado?'var(--success)':isIdealVenc?'var(--danger)':isIdealWarn?'var(--warning)':'var(--text-muted)';
-    const bgIdeal=f.programado?'var(--success-light)':isIdealVenc?'var(--danger-light)':isIdealWarn?'var(--warning-light)':'var(--bg)';
-    const txtIdeal=f.programado?'✓':dIdeal===null?'—':dIdeal<0?`${Math.abs(dIdeal)}d atrás`:`${dIdeal}d`;
+    // Limite Ideal
+    const dI=limIdeal?Math.floor((limIdeal-hoje)/86400000):null;
+    const vencIdeal=limIdeal&&limIdeal<hoje&&!f.programado;
+    const warnIdeal=!vencIdeal&&dI!==null&&dI<=60&&!f.programado;
+    const corIdeal=f.programado?'var(--success)':vencIdeal?'var(--danger)':warnIdeal?'var(--warning)':'var(--text)';
+    const bgIdeal=f.programado?'var(--success-light)':vencIdeal?'var(--danger-light)':warnIdeal?'var(--warning-light)':'transparent';
+    const txtIdealCount=f.programado?'✓ Prog.':dI===null?'—':dI<0?`${Math.abs(dI)}d atrás`:`${dI}d`;
 
-    // Calcular contagens para limite máximo
-    const dMax=limMax?Math.floor((limMax-hoje)/86400000):null;
-    const isMaxVenc=limMax&&limMax<hoje&&!f.programado;
-    const isMaxWarn=!isMaxVenc&&dMax!==null&&dMax<=60&&!f.programado;
-    const corMax=f.programado?'var(--success)':isMaxVenc?'var(--danger)':isMaxWarn?'var(--warning)':'var(--text-muted)';
-    const bgMax=f.programado?'var(--success-light)':isMaxVenc?'var(--danger-light)':isMaxWarn?'var(--warning-light)':'var(--bg)';
-    const txtMax=f.programado?'✓':dMax===null?'—':dMax<0?`${Math.abs(dMax)}d atrás`:`${dMax}d`;
+    // Limite Máximo
+    const dM=limMax?Math.floor((limMax-hoje)/86400000):null;
+    const vencMax=limMax&&limMax<hoje&&!f.programado;
+    const warnMax=!vencMax&&dM!==null&&dM<=60&&!f.programado;
+    const corMax=f.programado?'var(--success)':vencMax?'var(--danger)':warnMax?'var(--warning)':'var(--text-muted)';
+    const bgMax=f.programado?'var(--success-light)':vencMax?'var(--danger-light)':warnMax?'var(--warning-light)':'transparent';
+    const txtMaxCount=f.programado?'✓':dM===null?'—':dM<0?`${Math.abs(dM)}d atrás`:`${dM}d`;
 
-    return`<td>
-      <div style="background:${bgIdeal};border-radius:6px;padding:6px 8px;min-width:130px">
-        <div style="font-size:10px;color:var(--text-muted);margin-bottom:1px">${perStr}</div>
-        <div style="font-size:13px;font-weight:600">${formatDate(limIdeal)||'—'}</div>
-        <div style="display:flex;gap:6px;align-items:center;margin-top:2px">
-          <span style="font-size:11px;font-weight:700;color:${corIdeal}">${txtIdeal}</span>
-          <span style="font-size:10px;color:var(--text-muted)">${diasDir}d</span>
+    return`<td style="padding:8px 12px">
+      <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;white-space:nowrap">${perAqui}</div>
+      <div style="background:${bgIdeal};border-radius:6px;padding:5px 8px;display:inline-block;min-width:110px">
+        <div style="font-size:12px;font-weight:700;color:${corIdeal}">${formatDate(limIdeal)||'—'}</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:1px">
+          <span style="font-size:11px;font-weight:600;color:${corIdeal}">${txtIdealCount}</span>
+          <span style="font-size:10px;color:var(--text-muted)">${dias}d</span>
         </div>
       </div>
-    </td><td>
-      <div style="background:${bgMax};border-radius:6px;padding:6px 8px;min-width:130px">
-        <div style="font-size:10px;color:var(--text-muted);margin-bottom:1px">Máx. legal</div>
-        <div style="font-size:13px;font-weight:600">${formatDate(limMax)||'—'}</div>
-        <div style="font-size:11px;font-weight:700;color:${corMax};margin-top:2px">${txtMax}</div>
+    </td><td style="padding:8px 12px">
+      <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">Máx. legal</div>
+      <div style="background:${bgMax};border-radius:6px;padding:5px 8px;display:inline-block;min-width:110px">
+        <div style="font-size:12px;font-weight:700;color:${corMax}">${formatDate(limMax)||'—'}</div>
+        <div style="font-size:11px;font-weight:600;color:${corMax};margin-top:1px">${txtMaxCount}</div>
       </div>
     </td>`;
   }
 
-  // ── 7. Tabela ───────────────────────────────────────────────────────────────
+  // Tabela
   const rows=listaFuncs.map(arr=>{
     const f0=arr[0];
     const nomeFunc=f0.funcionario?.nome_completo||f0.matricula||'—';
     const obraFunc=f0.funcionario?.obra?.codigo
       ?`${f0.funcionario.obra.codigo} — ${f0.funcionario.obra.nome||''}`
       :f0.funcionario?.obra?.nome||'—';
-
-    const per1=arr[0]||null; // 1º período aquisitivo (mais antigo)
-    const per2=arr[1]||null; // 2º período aquisitivo
-
-    const st=getStatusFunc(arr);
+    const per1=arr[0]||null;
+    const per2=arr[1]||null;
+    const st=getStatus(arr);
     const rowStyle=st==='vencida'?'border-left:4px solid var(--danger)':st==='vencendo'?'border-left:4px solid var(--warning)':'';
-
     const pendente=arr.find(f=>!f.programado);
     const btnProg=pendente
       ?`<button class="prog-btn" onclick="openModalProgramarFerias('${pendente.id}')">📅 Programar</button>`
       :`<button class="prog-btn programada" onclick="openModalProgramarFerias('${per1.id}')">✓ Programada</button>`;
-
     const progResume=arr.filter(f=>f.programado).map(f=>
       `<div style="font-size:11px;color:var(--success)">✓ ${f.dias_programados||'?'}d: ${formatDate(f.data_inicio_programada)} → ${formatDate(f.data_fim_programada)}</div>`
     ).join('')||'<span style="color:var(--text-muted);font-size:12px">—</span>';
@@ -1556,18 +1518,17 @@ async function renderFerias(){
         <div class="avatar">${initials(nomeFunc)}</div>
         <div><div style="font-weight:500">${nomeFunc}</div><div style="font-size:11px;color:var(--text-muted)">${f0.matricula||'—'}</div></div>
       </div></td>
-      <td style="font-size:12px">${obraFunc}</td>
-      ${periodoCell(per1,'1')}
-      ${per2?periodoCell(per2,'2'):`<td style="color:var(--text-muted);font-size:12px;text-align:center">—</td><td style="color:var(--text-muted);font-size:12px;text-align:center">—</td>`}
+      <td style="font-size:12px;white-space:nowrap">${obraFunc}</td>
+      ${blocoPeríodo(per1)}
+      ${per2?blocoPeríodo(per2):`<td colspan="2" style="text-align:center;color:var(--text-muted);font-size:12px">—</td>`}
       <td>${progResume}</td>
       <td>${btnProg}</td>
     </tr>`;
   }).join('')||`<tr><td colspan="8"><div class="empty-state"><i class="ti ti-palm-tree"></i><div>Nenhum registro encontrado</div><div style="font-size:12px;margin-top:8px">Importe a planilha do DP para começar</div></div></td></tr>`;
 
-  // ── 8. Render ───────────────────────────────────────────────────────────────
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
-      <div><div class="page-title">Controle de Férias</div><div class="page-subtitle">${totalFuncs} funcionários · ${totalPeriodos} períodos importados</div></div>
+      <div><div class="page-title">Controle de Férias</div><div class="page-subtitle">${totalFuncs} funcionários · ${totalPeriodos} períodos</div></div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-sm" onclick="exportFeriasExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
         <button class="btn btn-sm btn-success" onclick="exportFeriasPDF()"><i class="ti ti-file-type-pdf"></i> PDF</button>
@@ -1576,9 +1537,9 @@ async function renderFerias(){
     </div>
     ${alertas.length?`<div style="margin-bottom:16px">${alertas.join('')}</div>`:''}
 
-    <!-- Cards: linha 1 — geral -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:10px">
-      <div class="ferias-card ${feriasFiltro==='todos'?'active':''}" onclick="feriasFiltro='todos';renderFerias()" style="grid-column:span 1">
+    <!-- Cards linha 1: geral -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
+      <div class="ferias-card ${feriasFiltro==='todos'?'active':''}" onclick="feriasFiltro='todos';renderFerias()">
         <div class="ferias-card-value" style="color:var(--text)">${totalFuncs}</div>
         <div class="ferias-card-label">Funcionários</div>
       </div>
@@ -1592,37 +1553,35 @@ async function renderFerias(){
       </div>
     </div>
 
-    <!-- Cards: linha 2 — por período -->
+    <!-- Cards linha 2: por período -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px">
-      <!-- 1º Período -->
-      <div style="background:var(--surface);border:1px solid #BFDBFE;border-radius:var(--radius-lg);padding:14px">
-        <div style="font-size:12px;font-weight:700;color:#1E40AF;margin-bottom:10px;display:flex;align-items:center;gap:6px">
-          <i class="ti ti-calendar-1" style="font-size:16px"></i> 1º PERÍODO (Limite Ideal)
+      <div style="background:var(--surface);border:2px solid #BFDBFE;border-radius:var(--radius-lg);padding:14px">
+        <div style="font-size:11px;font-weight:700;color:#1E40AF;margin-bottom:10px;letter-spacing:.5px">
+          📅 1º PERÍODO AQUISITIVO
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <div style="background:var(--danger-light);border-radius:var(--radius);padding:10px;text-align:center;cursor:pointer" onclick="feriasFiltro='per1vencida';renderFerias()">
-            <div style="font-size:24px;font-weight:700;color:var(--danger)">${per1Vencidas}</div>
-            <div style="font-size:10px;color:var(--danger);font-weight:600;text-transform:uppercase">🔴 Vencidas</div>
+          <div style="background:var(--danger-light);border-radius:var(--radius);padding:10px;text-align:center;cursor:pointer;border:2px solid ${feriasFiltro==='per1vencida'?'var(--danger)':'transparent'}" onclick="feriasFiltro='per1vencida';renderFerias()">
+            <div style="font-size:26px;font-weight:700;color:var(--danger)">${per1Vencidas}</div>
+            <div style="font-size:10px;color:var(--danger);font-weight:600;text-transform:uppercase">Vencidas</div>
           </div>
-          <div style="background:var(--warning-light);border-radius:var(--radius);padding:10px;text-align:center;cursor:pointer" onclick="feriasFiltro='per1vencendo';renderFerias()">
-            <div style="font-size:24px;font-weight:700;color:var(--warning)">${per1Vencendo60}</div>
-            <div style="font-size:10px;color:var(--warning);font-weight:600;text-transform:uppercase">🟡 Vencendo 60d</div>
+          <div style="background:var(--warning-light);border-radius:var(--radius);padding:10px;text-align:center;cursor:pointer;border:2px solid ${feriasFiltro==='per1vencendo'?'var(--warning)':'transparent'}" onclick="feriasFiltro='per1vencendo';renderFerias()">
+            <div style="font-size:26px;font-weight:700;color:var(--warning)">${per1Vencendo60}</div>
+            <div style="font-size:10px;color:var(--warning);font-weight:600;text-transform:uppercase">Vencendo 60d</div>
           </div>
         </div>
       </div>
-      <!-- 2º Período -->
-      <div style="background:var(--surface);border:1px solid #FED7AA;border-radius:var(--radius-lg);padding:14px">
-        <div style="font-size:12px;font-weight:700;color:#C2410C;margin-bottom:10px;display:flex;align-items:center;gap:6px">
-          <i class="ti ti-calendar-2" style="font-size:16px"></i> 2º PERÍODO (Limite Ideal)
+      <div style="background:var(--surface);border:2px solid #FED7AA;border-radius:var(--radius-lg);padding:14px">
+        <div style="font-size:11px;font-weight:700;color:#C2410C;margin-bottom:10px;letter-spacing:.5px">
+          📅 2º PERÍODO AQUISITIVO
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <div style="background:var(--danger-light);border-radius:var(--radius);padding:10px;text-align:center;cursor:pointer" onclick="feriasFiltro='per2vencida';renderFerias()">
-            <div style="font-size:24px;font-weight:700;color:var(--danger)">${per2Vencidas}</div>
-            <div style="font-size:10px;color:var(--danger);font-weight:600;text-transform:uppercase">🔴 Vencidas</div>
+          <div style="background:var(--danger-light);border-radius:var(--radius);padding:10px;text-align:center;cursor:pointer;border:2px solid ${feriasFiltro==='per2vencida'?'var(--danger)':'transparent'}" onclick="feriasFiltro='per2vencida';renderFerias()">
+            <div style="font-size:26px;font-weight:700;color:var(--danger)">${per2Vencidas}</div>
+            <div style="font-size:10px;color:var(--danger);font-weight:600;text-transform:uppercase">Vencidas</div>
           </div>
-          <div style="background:var(--warning-light);border-radius:var(--radius);padding:10px;text-align:center;cursor:pointer" onclick="feriasFiltro='per2vencendo';renderFerias()">
-            <div style="font-size:24px;font-weight:700;color:var(--warning)">${per2Vencendo60}</div>
-            <div style="font-size:10px;color:var(--warning);font-weight:600;text-transform:uppercase">🟡 Vencendo 60d</div>
+          <div style="background:var(--warning-light);border-radius:var(--radius);padding:10px;text-align:center;cursor:pointer;border:2px solid ${feriasFiltro==='per2vencendo'?'var(--warning)':'transparent'}" onclick="feriasFiltro='per2vencendo';renderFerias()">
+            <div style="font-size:26px;font-weight:700;color:var(--warning)">${per2Vencendo60}</div>
+            <div style="font-size:10px;color:var(--warning);font-weight:600;text-transform:uppercase">Vencendo 60d</div>
           </div>
         </div>
       </div>
@@ -1641,22 +1600,22 @@ async function renderFerias(){
     <div class="table-container" style="overflow-x:auto"><table>
       <thead>
         <tr>
-          <th rowspan="2" style="min-width:200px">Funcionário</th>
+          <th rowspan="2" style="min-width:180px">Funcionário</th>
           <th rowspan="2">Obra / C. Custo</th>
-          <th colspan="2" style="text-align:center;background:#EFF6FF;color:#1E40AF;border-bottom:2px solid #BFDBFE">
+          <th colspan="2" style="text-align:center;background:#EFF6FF;color:#1E40AF;border-bottom:2px solid #BFDBFE;padding:8px">
             1º Período Aquisitivo
           </th>
-          <th colspan="2" style="text-align:center;background:#FFF7ED;color:#C2410C;border-bottom:2px solid #FED7AA">
+          <th colspan="2" style="text-align:center;background:#FFF7ED;color:#C2410C;border-bottom:2px solid #FED7AA;padding:8px">
             2º Período Aquisitivo
           </th>
           <th rowspan="2">Programação</th>
           <th rowspan="2"></th>
         </tr>
         <tr>
-          <th style="background:#EFF6FF;color:#1E40AF;font-size:11px">Limite Ideal</th>
-          <th style="background:#EFF6FF;color:#1E40AF;font-size:11px">Limite Máximo Legal</th>
-          <th style="background:#FFF7ED;color:#C2410C;font-size:11px">Limite Ideal</th>
-          <th style="background:#FFF7ED;color:#C2410C;font-size:11px">Limite Máximo Legal</th>
+          <th style="background:#EFF6FF;color:#1E40AF;font-size:10px;font-weight:700">Limite Ideal</th>
+          <th style="background:#EFF6FF;color:#1E40AF;font-size:10px;font-weight:700">Limite Máx. Legal</th>
+          <th style="background:#FFF7ED;color:#C2410C;font-size:10px;font-weight:700">Limite Ideal</th>
+          <th style="background:#FFF7ED;color:#C2410C;font-size:10px;font-weight:700">Limite Máx. Legal</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
