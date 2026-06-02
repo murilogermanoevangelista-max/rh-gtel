@@ -303,7 +303,7 @@ const UFS=['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA'
 
 async function loadAll(){
   const [f,o,e,fn]=await Promise.all([
-    sb.from('funcionarios').select('*,funcao:funcoes!funcionarios_funcao_id_fkey(nome),empresa:empresas!funcionarios_empresa_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo,centro_custo),obra_transferencia:obras!funcionarios_obra_transferencia_id_fkey(nome,codigo)').order('nome_completo'),
+    sb.from('funcionarios').select('*,funcao:funcoes!funcionarios_funcao_id_fkey(nome),empresa:empresas!funcionarios_empresa_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo),obra_transferencia:obras!funcionarios_obra_transferencia_id_fkey(nome,codigo)').order('nome_completo'),
     sb.from('obras').select('*,empresa:empresas(nome)').order('nome'),
     sb.from('empresas').select('*').order('nome'),
     sb.from('funcoes').select('*').order('nome'),
