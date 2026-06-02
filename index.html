@@ -340,13 +340,13 @@ async function renderDashboard(){
 
   // Alertas críticos
   const alertas=[];
-  if(expVencidas>0) alertas.push({tipo:'danger',icon:'ti-certificate',msg:`${expVencidas} experiência(s) vencida(s) — ação necessária`,action:`expFiltro='vencida';expView='operacional';showPage('experiencia')`});
-  if(folgasVencidas>0) alertas.push({tipo:'danger',icon:'ti-beach',msg:`${folgasVencidas} folga(s) vencida(s) — colaboradores sem folga`,action:`folgasFiltro='danger';showPage('folgas')`});
-  if(expVencendo>0) alertas.push({tipo:'warning',icon:'ti-certificate',msg:`${expVencendo} experiência(s) vencendo em 15 dias`,action:`expFiltro='vencendo';expView='operacional';showPage('experiencia')`});
-  if(folgasVencendo>0) alertas.push({tipo:'warning',icon:'ti-beach',msg:`${folgasVencendo} folga(s) vencendo em 15 dias`,action:`folgasFiltro='warn';showPage('folgas')`});
+  if(expVencidas>0) alertas.push({tipo:'danger',icon:'ti-certificate',msg:`${expVencidas} experiência(s) vencida(s) — ação necessária`,link:'experiencia'});
+  if(folgasVencidas>0) alertas.push({tipo:'danger',icon:'ti-beach',msg:`${folgasVencidas} folga(s) vencida(s) — colaboradores sem folga`,link:'folgas'});
+  if(expVencendo>0) alertas.push({tipo:'warning',icon:'ti-certificate',msg:`${expVencendo} experiência(s) vencendo em 15 dias`,link:'experiencia'});
+  if(folgasVencendo>0) alertas.push({tipo:'warning',icon:'ti-beach',msg:`${folgasVencendo} folga(s) vencendo em 15 dias`,link:'folgas'});
 
   const alertasHtml = alertas.map(a=>`
-    <div onclick="${a.action}" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);cursor:pointer;margin-bottom:6px;
+    <div onclick="showPage('${a.link}')" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);cursor:pointer;margin-bottom:6px;
       background:${a.tipo==='danger'?'var(--danger-light)':'var(--warning-light)'};
       border:1px solid ${a.tipo==='danger'?'#FCA5A5':'#FCD34D'};
       color:${a.tipo==='danger'?'#991B1B':'#92400E'}">
@@ -1752,13 +1752,25 @@ async function renderExperiencia() {
     );
   }
 
+  // Ordenação: vencidas → vencendo → em exp (por dias restantes asc) → efetivados (por dias desc)
+  const statusOrder = {vencida:0, vencendo:1, exp2:2, exp1:3, efetivado:4};
+  filtrados = [...filtrados].sort((a, b) => {
+    const sa = statusOrder[a._exp.status] ?? 5;
+    const sb = statusOrder[b._exp.status] ?? 5;
+    if (sa !== sb) return sa - sb;
+    if (a._exp.status === 'efetivado') return b._exp.dias - a._exp.dias;
+    const ra = a._exp.restantes ?? 9999;
+    const rb = b._exp.restantes ?? 9999;
+    return ra - rb;
+  });
+
   // Alerta
   let alertHtml = '';
   if (vencidas.length > 0) {
-    alertHtml += `<div class="exp-alert danger" style="cursor:pointer" onclick="expFiltro='vencida';expView='operacional';renderExperiencia()"><i class="ti ti-alert-circle" style="font-size:24px;flex-shrink:0"></i><div><strong>${vencidas.length} experiência(s) vencida(s)</strong> — ação necessária imediata</div><i class="ti ti-chevron-right" style="margin-left:auto;font-size:18px;flex-shrink:0"></i></div>`;
+    alertHtml += `<div class="exp-alert danger"><i class="ti ti-alert-circle" style="font-size:24px;flex-shrink:0"></i><div><strong>${vencidas.length} experiência(s) vencida(s)</strong> — ação necessária imediata</div></div>`;
   }
   if (vencendo.length > 0) {
-    alertHtml += `<div class="exp-alert warning" style="cursor:pointer" onclick="expFiltro='vencendo';expView='operacional';renderExperiencia()"><i class="ti ti-clock" style="font-size:24px;flex-shrink:0"></i><div><strong>${vencendo.length} experiência(s) vencendo em até 15 dias</strong></div><i class="ti ti-chevron-right" style="margin-left:auto;font-size:18px;flex-shrink:0"></i></div>`;
+    alertHtml += `<div class="exp-alert warning"><i class="ti ti-clock" style="font-size:24px;flex-shrink:0"></i><div><strong>${vencendo.length} experiência(s) vencendo em até 15 dias</strong></div></div>`;
   }
 
   // Tabela operacional
