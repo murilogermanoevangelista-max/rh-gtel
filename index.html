@@ -1637,70 +1637,124 @@ function processImportFile(file){
   const reader=new FileReader();
   reader.onload=e=>{
     try{
-      const wb=XLSX.read(e.target.result,{type:'array',cellDates:false});
-      // Procurar sheet "Cabeçalho de Férias" ou primeira sheet
-      const sheetName=wb.SheetNames.find(n=>n.includes('Férias')||n.includes('Ferias')||n.includes('Cabeçalho'))||wb.SheetNames[0];
+      // cellDates:true para que XLSX já converta serial → Date
+      const wb=XLSX.read(e.target.result,{type:'array',cellDates:true,dateNF:'yyyy-mm-dd'});
+      // Sheet: "1-Cabeçalho de Férias" ou primeira
+      const sheetName=wb.SheetNames.find(n=>n.toLowerCase().includes('cabe'))||wb.SheetNames[0];
       const ws=wb.Sheets[sheetName];
-      const data=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
-      // Encontrar linha de cabeçalho
+      const data=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:'',dateNF:'yyyy-mm-dd'});
+
+      // Estrutura conhecida da planilha GTEL:
+      // Row 0: "Cabeçalho de Férias" (título)
+      // Row 1: Filial | Centro Custo | Matricula | Nome | Data Admis. | Data Base Ferias |
+      //         Periodo Aquisitivo | Dt.Limite Ideal | Dt.Limite Maxima | Ferias Vencidas |
+      //         D.Abat.Faltas | Ferias Proporc. | Faltas Proporc. | TOTAL Ferias | PROGFER | DIASFER ...
+      // Row 2+: dados
+
+      // Encontrar linha de cabeçalho buscando "Matricula" ou "Filial"
       let headerRow=-1;
-      for(let i=0;i<Math.min(data.length,10);i++){
-        if(data[i].some(c=>String(c).toLowerCase().includes('matricula')||String(c).toLowerCase().includes('matrícula')||String(c).toLowerCase().includes('nome'))){
+      for(let i=0;i<Math.min(data.length,5);i++){
+        const rowStr=data[i].map(c=>String(c||'').toLowerCase()).join('|');
+        if(rowStr.includes('matricula')||rowStr.includes('matrícula')||rowStr.includes('filial')){
           headerRow=i;break;
         }
       }
-      if(headerRow===-1){showToast('Formato de planilha não reconhecido','error');return;}
-      const headers=data[headerRow].map(h=>String(h||'').toLowerCase().trim());
-      // Mapeamento de colunas
-      const colMatricula=headers.findIndex(h=>h.includes('matricula')||h.includes('matrícula'));
-      const colNome=headers.findIndex(h=>h.includes('nome'));
-      const colCentroCusto=headers.findIndex(h=>h.includes('centro')||h.includes('custo'));
-      const colPeriodoAqui=headers.findIndex(h=>h.includes('aquisitivo')||h.includes('periodo')||h.includes('período'));
-      const colDtLimiteIdeal=headers.findIndex(h=>h.includes('ideal'));
-      const colDtLimiteMaxima=headers.findIndex(h=>h.includes('max')||h.includes('máxima'));
-      const colDiasFerias=headers.findIndex(h=>h.includes('total')||h.includes('dias'));
-      const colFeriasVencidas=headers.findIndex(h=>h.includes('vencida'));
-      if(colMatricula===-1||colNome===-1){showToast('Colunas Matrícula/Nome não encontradas','error');return;}
-      // Processar linhas
-      const rows=data.slice(headerRow+1).filter(r=>r[colMatricula]&&String(r[colMatricula]).trim());
-      // Agrupar por matrícula (cada funcionário tem múltiplos períodos)
+      if(headerRow===-1){showToast('Formato de planilha não reconhecido — linha de cabeçalho não encontrada','error');return;}
+
+      const headers=data[headerRow].map(h=>String(h||'').toLowerCase().replace(/\s+/g,' ').trim());
+
+      // Mapeamento por posição — busca flexível nos cabeçalhos
+      function findCol(...terms){
+        return headers.findIndex(h=>terms.some(t=>h.includes(t)));
+      }
+      const COL={
+        centroCusto: findCol('centro','custo'),         // col 1
+        matricula:   findCol('matricula','matrícula'),   // col 2
+        nome:        findCol('nome'),                    // col 3
+        periodoAqui: findCol('aquisitivo','periodo a'),  // col 6 — string "DD/MM/YYYY  DD/MM/YYYY"
+        dtIdeal:     findCol('ideal'),                   // col 7 — Date
+        dtMaxima:    findCol('maxima','máxima','max'),    // col 8 — Date
+        feriasVenc:  findCol('vencidas'),                // col 9
+        totalFerias: findCol('total'),                   // col 13
+      };
+
+      // Fallback: se busca por texto falhou use posições fixas conhecidas
+      if(COL.matricula===-1) COL.matricula=2;
+      if(COL.nome===-1)      COL.nome=3;
+      if(COL.centroCusto===-1) COL.centroCusto=1;
+      if(COL.periodoAqui===-1) COL.periodoAqui=6;
+      if(COL.dtIdeal===-1)   COL.dtIdeal=7;
+      if(COL.dtMaxima===-1)  COL.dtMaxima=8;
+      if(COL.feriasVenc===-1) COL.feriasVenc=9;
+      if(COL.totalFerias===-1) COL.totalFerias=13;
+
+      // Helper: converte qualquer valor de célula em Date
+      function cellToDate(val){
+        if(!val||val==='')return null;
+        // cellDates:true já entrega string ISO "yyyy-mm-dd" ou Date object
+        if(typeof val==='string'){
+          // ISO yyyy-mm-dd
+          if(/^\d{4}-\d{2}-\d{2}/.test(val)){
+            const d=new Date(val+'T12:00:00');
+            return isNaN(d)?null:d;
+          }
+          // DD/MM/YYYY
+          const m=val.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+          if(m)return new Date(`${m[3]}-${m[2]}-${m[1]}T12:00:00`);
+        }
+        if(val instanceof Date&&!isNaN(val))return val;
+        // número serial (fallback)
+        if(typeof val==='number'){
+          const d=new Date(Math.round((val-25569)*86400*1000));
+          return isNaN(d)?null:d;
+        }
+        return null;
+      }
+
+      // Processar linhas de dados
+      const dataRows=data.slice(headerRow+1).filter(r=>{
+        const mat=String(r[COL.matricula]||'').trim();
+        return mat&&mat.length>=3&&!/filial|centro|matricula/i.test(mat);
+      });
+
+      // Agrupar por matrícula
       const byMat={};
-      rows.forEach(r=>{
-        const mat=String(r[colMatricula]).trim().padStart(6,'0');
+      dataRows.forEach(r=>{
+        // Normalizar matrícula: remover zeros à esquerda e repaddar a 6
+        const matRaw=String(r[COL.matricula]||'').trim();
+        const mat=matRaw.padStart(6,'0');
         if(!byMat[mat])byMat[mat]=[];
         byMat[mat].push(r);
       });
+
       // Cruzar com funcionários cadastrados
       const encontrados=[],naoEncontrados=[];
       Object.entries(byMat).forEach(([mat,periodos])=>{
-        // Tentar encontrar com e sem zeros à esquerda
-        const func=funcionarios.find(f=>
-          f.matricula===mat||
-          f.matricula===mat.replace(/^0+/,'')||
-          (f.matricula||'').padStart(6,'0')===mat
-        );
+        const func=funcionarios.find(f=>{
+          const fm=String(f.matricula||'').trim();
+          return fm===mat||fm===mat.replace(/^0+/,'')||fm.padStart(6,'0')===mat;
+        });
         if(func){
           periodos.forEach(r=>{
-            // Interpretar período aquisitivo do campo PROGFER (ex: "02/03/2025  01/03/2026")
-            let periodoStr=colPeriodoAqui>=0?String(r[colPeriodoAqui]||''):'';
+            // Período aquisitivo: string "DD/MM/YYYY  DD/MM/YYYY"
+            const periodoStr=String(r[COL.periodoAqui]||'');
             let periodoInicio=null,periodoFim=null;
             const matchPer=periodoStr.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})/);
             if(matchPer){
-              periodoInicio=parseDPDate(matchPer[1]);
-              periodoFim=parseDPDate(matchPer[2]);
+              periodoInicio=new Date(`${matchPer[1].split('/').reverse().join('-')}T12:00:00`);
+              periodoFim  =new Date(`${matchPer[2].split('/').reverse().join('-')}T12:00:00`);
             }
-            const dtIdeal=colDtLimiteIdeal>=0?parseDPDate(r[colDtLimiteIdeal]):null;
-            const dtMaxima=colDtLimiteMaxima>=0?parseDPDate(r[colDtLimiteMaxima]):null;
-            const diasDir=colDiasFerias>=0?parseFloat(r[colDiasFerias])||30:30;
-            const diasVenc=colFeriasVencidas>=0?parseFloat(r[colFeriasVencidas])||0:0;
-            encontrados.push({
-              func,mat,periodoInicio,periodoFim,dtIdeal,dtMaxima,diasDir,diasVenc,
-              nomeDP:String(r[colNome]||''),centroCusto:colCentroCusto>=0?String(r[colCentroCusto]||''):''
-            });
+            const dtIdeal =cellToDate(r[COL.dtIdeal]);
+            const dtMaxima=cellToDate(r[COL.dtMaxima]);
+            const diasDir =parseFloat(r[COL.totalFerias])||30;
+            const diasVenc=parseFloat(r[COL.feriasVenc])||0;
+            const cc      =String(r[COL.centroCusto]||'').trim();
+            encontrados.push({func,mat,periodoInicio,periodoFim,dtIdeal,dtMaxima,diasDir,diasVenc,
+              nomeDP:String(r[COL.nome]||''),centroCusto:cc});
           });
         }else{
-          const nomeDP=periodos.length>0?String(periodos[0][colNome]||''):'';
-          const cc=periodos.length>0&&colCentroCusto>=0?String(periodos[0][colCentroCusto]||''):'';
+          const nomeDP=periodos.length>0?String(periodos[0][COL.nome]||''):'';
+          const cc=periodos.length>0?String(periodos[0][COL.centroCusto]||''):'';
           naoEncontrados.push({mat,nome:nomeDP,cc,qtd:periodos.length});
         }
       });
