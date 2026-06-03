@@ -168,7 +168,7 @@ input:focus,select:focus{border-color:var(--primary)}
 .obs-modal{max-width:480px}
 /* FOLGAS */
 .folga-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:12px}
-.folga-row{display:grid;grid-template-columns:220px 100px 120px 100px repeat(5,1fr);gap:0;align-items:stretch;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px;overflow:hidden}
+.folga-row{display:grid;grid-template-columns:260px 100px 120px 100px repeat(5,1fr);gap:0;align-items:stretch;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px;overflow:hidden}
 .folga-cell{padding:10px 12px;border-right:1px solid var(--border);display:flex;flex-direction:column;justify-content:center;font-size:13px}
 .folga-cell:last-child{border-right:none}
 .folga-cell-header{font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
@@ -179,7 +179,7 @@ input:focus,select:focus{border-color:var(--primary)}
 .folga-venc.future{background:var(--bg);color:var(--text-muted)}
 .folga-saida-real{font-size:11px;color:var(--primary);cursor:pointer;text-decoration:underline}
 .folga-saida-proj{font-size:11px;color:var(--text-muted)}
-.folga-header-row{display:grid;grid-template-columns:220px 100px 120px 100px repeat(5,1fr);gap:0;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0;margin-bottom:0;overflow:hidden}
+.folga-header-row{display:grid;grid-template-columns:260px 100px 120px 100px repeat(5,1fr);gap:0;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0;margin-bottom:0;overflow:hidden}
 .folga-header-cell{padding:8px 12px;font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;border-right:1px solid var(--border)}
 .folga-header-cell:last-child{border-right:none}
 .folga-func-name{font-weight:600;font-size:13px}
@@ -1332,14 +1332,12 @@ async function renderFolgas(){
       ${!f.tipo_passagem_aerea&&!f.tipo_passagem_terrestre?'<span class="passagem-badge passagem-nao">—</span>':''}`;
     return`<div class="folga-row">
       <div class="folga-cell">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:4px">
-          <div class="folga-func-name">${f.funcionario?.nome_completo||'—'}</div>
-          <div style="display:flex;gap:3px;flex-shrink:0">
-            <button class="btn btn-sm" title="Editar" onclick="openModalFolga('${f.id}')" style="padding:3px 6px"><i class="ti ti-edit" style="font-size:13px"></i></button>
-            <button class="btn btn-sm btn-danger" title="Excluir" onclick="deleteFolgaConfirm('${f.id}')" style="padding:3px 6px"><i class="ti ti-trash" style="font-size:13px"></i></button>
-          </div>
-        </div>
+        <div class="folga-func-name">${f.funcionario?.nome_completo||'—'}</div>
         <div class="folga-func-sub">${f.funcionario?.matricula||''} · ${f.funcionario?.obra?.nome||'—'}</div>
+        <div style="display:flex;gap:4px;margin-top:6px">
+          <button class="btn btn-sm" title="Editar" onclick="openModalFolga('${f.id}')" style="padding:3px 8px;font-size:11px"><i class="ti ti-edit"></i> Editar</button>
+          <button class="btn btn-sm btn-danger" title="Excluir" onclick="deleteFolgaConfirm('${f.id}')" style="padding:3px 8px;font-size:11px"><i class="ti ti-trash"></i></button>
+        </div>
         <div style="margin-top:4px">${passagemBadges}</div>
         ${f.cidade_origem?`<div style="font-size:11px;color:var(--text-muted);margin-top:2px">📍 ${f.cidade_origem}</div>`:''}
       </div>
