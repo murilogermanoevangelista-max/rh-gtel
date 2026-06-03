@@ -1484,6 +1484,28 @@ async function renderFerias(){
     </td>`;
   }
 
+  // Projetar 2º período no padrão TOTVS quando não existe na planilha
+  function projetarPer2(per1){
+    const fimPer1=parseDate(per1.periodo_aquisitivo_fim);
+    if(!fimPer1)return null;
+    const inicioPer2=new Date(fimPer1);inicioPer2.setDate(inicioPer2.getDate()+1);
+    const fimPer2=new Date(inicioPer2);fimPer2.setFullYear(fimPer2.getFullYear()+1);fimPer2.setDate(fimPer2.getDate()-1);
+    // Limite Máx. Legal do 2º = mesmo do 1º projetado +1 ano
+    const limMaxPer1=parseDate(per1.dt_limite_maxima);
+    const limMaxPer2=limMaxPer1?new Date(limMaxPer1.getFullYear()+1,limMaxPer1.getMonth(),limMaxPer1.getDate()):null;
+    return{
+      _projetado:true,
+      matricula:per1.matricula,
+      funcionario:per1.funcionario,
+      programado:false,
+      dias_direito:per1.dias_direito||30,
+      periodo_aquisitivo_inicio:toISO(inicioPer2),
+      periodo_aquisitivo_fim:toISO(fimPer2),
+      dt_limite_maxima:toISO(limMaxPer2),
+      dt_limite_ideal:null,
+    };
+  }
+
   // Tabela
   const rows=listaFuncs.map(arr=>{
     const f0=arr[0];
@@ -1492,7 +1514,7 @@ async function renderFerias(){
       ?`${f0.funcionario.obra.codigo} — ${f0.funcionario.obra.nome||''}`
       :f0.funcionario?.obra?.nome||'—';
     const per1=arr[0]||null;
-    const per2=arr[1]||null;
+    const per2=arr[1]||( per1?projetarPer2(per1):null );
     const st=getStatus(arr);
     const rowStyle=st==='vencida'?'border-left:4px solid var(--danger)':st==='vencendo'?'border-left:4px solid var(--warning)':'';
     const pendente=arr.find(f=>!f.programado);
@@ -1510,7 +1532,7 @@ async function renderFerias(){
       </div></td>
       <td style="font-size:12px;white-space:nowrap">${obraFunc}</td>
       ${blocoPeríodo(per1)}
-      ${per2?blocoPeríodo(per2):`<td style="text-align:center;color:var(--text-muted);font-size:12px;padding:8px 12px">—</td>`}
+      ${blocoPeríodo(per2)}
       <td>${progResume}</td>
       <td>${btnProg}</td>
     </tr>`;
@@ -2015,9 +2037,21 @@ function exportFeriasExcel(){
       const status=dM===null?'—':dM<0?`VENCIDA (${Math.abs(dM)}d atrás)`:`VENCENDO (${dM}d)`;
       const perAquiUrgente=pUrgente?`${formatDate(pUrgente.periodo_aquisitivo_inicio)} → ${formatDate(pUrgente.periodo_aquisitivo_fim)}`:'—';
 
-      // 2º período
-      const per2Str=per2?`${formatDate(per2.periodo_aquisitivo_inicio)} → ${formatDate(per2.periodo_aquisitivo_fim)}`:'—';
-      const per2Lim=per2?formatDate(per2.dt_limite_maxima):'—';
+      // 2º período — real ou projetado
+      const per2real=arr[1]||null;
+      let per2exp=per2real;
+      if(!per2exp&&per1){
+        const fimP1=parseDate(per1.periodo_aquisitivo_fim);
+        if(fimP1){
+          const ini2=new Date(fimP1);ini2.setDate(ini2.getDate()+1);
+          const fim2=new Date(ini2);fim2.setFullYear(fim2.getFullYear()+1);fim2.setDate(fim2.getDate()-1);
+          const lm1=parseDate(per1.dt_limite_maxima);
+          const lm2=lm1?new Date(lm1.getFullYear()+1,lm1.getMonth(),lm1.getDate()):null;
+          per2exp={periodo_aquisitivo_inicio:toISO(ini2),periodo_aquisitivo_fim:toISO(fim2),dt_limite_maxima:toISO(lm2),_projetado:true};
+        }
+      }
+      const per2Str=per2exp?`${formatDate(per2exp.periodo_aquisitivo_inicio)} → ${formatDate(per2exp.periodo_aquisitivo_fim)}`:'—';
+      const per2Lim=per2exp?formatDate(per2exp.dt_limite_maxima):'—';
 
       // Programação
       const prog=arr.filter(f=>f.programado).map(f=>`${f.dias_programados||'?'}d: ${formatDate(f.data_inicio_programada)} → ${formatDate(f.data_fim_programada)}`).join(' | ')||'Não programada';
