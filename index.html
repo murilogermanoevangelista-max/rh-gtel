@@ -630,11 +630,53 @@ function calcFeriasStats(data,hoje){
 // ─── FUNCIONÁRIOS ─────────────────────────────────────────────────────────────
 let filtroSituacao='',filtroObra='',busca='';
 
+let _funcPageRendered=false;
+
 function renderFuncionarios(){
+  // Se a página já está montada, só atualiza o tbody e o subtítulo — sem reconstruir tudo
+  if(_funcPageRendered&&document.getElementById('func-tbody')){
+    _renderFuncRows();
+    return;
+  }
+  _funcPageRendered=false;
+  const obraOptions=obras.map(o=>`<option value="${o.id}" ${filtroObra===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title">Funcionários</div><div class="page-subtitle" id="func-subtitle">${funcionarios.length} de ${funcionarios.length} registros</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="exportFuncionariosExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
+        <button class="btn btn-primary" onclick="openModalFuncionario()"><i class="ti ti-plus"></i> Novo funcionário</button>
+      </div>
+    </div>
+    <div class="filters">
+      <div class="search-box"><i class="ti ti-search"></i>
+        <input id="func-search" placeholder="Buscar por nome ou matrícula..." value="${busca}"
+          oninput="busca=this.value;_renderFuncRows()">
+      </div>
+      <select class="filter-select" onchange="filtroSituacao=this.value;_renderFuncRows()">
+        <option value="">Todas situações</option>
+        <option value="ativo" ${filtroSituacao==='ativo'?'selected':''}>Ativo</option>
+        <option value="inativo" ${filtroSituacao==='inativo'?'selected':''}>Inativo</option>
+        <option value="transferido" ${filtroSituacao==='transferido'?'selected':''}>Transferido</option>
+      </select>
+      <select class="filter-select" onchange="filtroObra=this.value;_renderFuncRows()">
+        <option value="">Todas obras</option>${obraOptions}
+      </select>
+      <button class="btn btn-sm" onclick="filtroSituacao='';filtroObra='';busca='';document.getElementById('func-search').value='';_renderFuncRows()"><i class="ti ti-x"></i> Limpar</button>
+    </div>
+    <div class="table-container"><table>
+      <thead><tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Empresa</th><th>Admissão</th><th>Situação</th><th></th></tr></thead>
+      <tbody id="func-tbody"></tbody>
+    </table></div>`;
+  _funcPageRendered=true;
+  _renderFuncRows();
+}
+
+function _renderFuncRows(){
   let lista=funcionarios;
   if(filtroSituacao)lista=lista.filter(f=>f.situacao===filtroSituacao);
   if(filtroObra)lista=lista.filter(f=>f.obra_id===filtroObra);
-  if(busca)lista=lista.filter(f=>f.nome_completo?.toLowerCase().includes(busca.toLowerCase())||f.matricula?.includes(busca));
+  if(busca){const b=busca.toLowerCase();lista=lista.filter(f=>f.nome_completo?.toLowerCase().includes(b)||f.matricula?.includes(busca));}
   const rows=lista.length?lista.map(f=>{
     const funcaoNome=f.funcao?.nome||f.funcao_manual||'—';
     const avatarContent=f.foto_url?`<img src="${f.foto_url}" alt="">`:initials(f.nome_completo);
@@ -655,34 +697,11 @@ function renderFuncionarios(){
       </div></td>
     </tr>`;}).join('')
   :`<tr><td colspan="7"><div class="empty-state"><i class="ti ti-users"></i><div>Nenhum funcionário encontrado</div></div></td></tr>`;
-  const obraOptions=obras.map(o=>`<option value="${o.id}" ${filtroObra===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
-  document.getElementById('main-content').innerHTML=`
-    <div class="page-header">
-      <div><div class="page-title">Funcionários</div><div class="page-subtitle">${lista.length} de ${funcionarios.length} registros</div></div>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-sm" onclick="exportFuncionariosExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
-        <button class="btn btn-primary" onclick="openModalFuncionario()"><i class="ti ti-plus"></i> Novo funcionário</button>
-      </div>
-    </div>
-    <div class="filters">
-      <div class="search-box"><i class="ti ti-search"></i>
-        <input placeholder="Buscar por nome ou matrícula..." value="${busca}" oninput="busca=this.value;renderFuncionarios()">
-      </div>
-      <select class="filter-select" onchange="filtroSituacao=this.value;renderFuncionarios()">
-        <option value="">Todas situações</option>
-        <option value="ativo" ${filtroSituacao==='ativo'?'selected':''}>Ativo</option>
-        <option value="inativo" ${filtroSituacao==='inativo'?'selected':''}>Inativo</option>
-        <option value="transferido" ${filtroSituacao==='transferido'?'selected':''}>Transferido</option>
-      </select>
-      <select class="filter-select" onchange="filtroObra=this.value;renderFuncionarios()">
-        <option value="">Todas obras</option>${obraOptions}
-      </select>
-      <button class="btn btn-sm" onclick="filtroSituacao='';filtroObra='';busca='';renderFuncionarios()"><i class="ti ti-x"></i> Limpar</button>
-    </div>
-    <div class="table-container"><table>
-      <thead><tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Empresa</th><th>Admissão</th><th>Situação</th><th></th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>`;
+  const tbody=document.getElementById('func-tbody');
+  if(tbody)tbody.innerHTML=rows;
+  const sub=document.getElementById('func-subtitle');
+  if(sub)sub.textContent=`${lista.length} de ${funcionarios.length} registros`;
+}
 }
 
 function exportFuncionariosExcel(){
@@ -1044,14 +1063,14 @@ async function saveFuncionario(id){
   const{error}=id?await sb.from('funcionarios').update(payload).eq('id',id):await sb.from('funcionarios').insert(payload);
   if(error){showToast('Erro ao salvar: '+error.message,'error');return;}
   showToast(id?'Funcionário atualizado!':'Funcionário cadastrado!');
-  closeModal('modal-func');showPage('funcionarios');
+  closeModal('modal-func');_funcPageRendered=false;showPage('funcionarios');
 }
 
 async function deleteFuncionario(id,nome){
   if(!confirm(`Excluir ${nome}? Esta ação não pode ser desfeita.`))return;
   const{error}=await sb.from('funcionarios').delete().eq('id',id);
   if(error){showToast('Erro ao excluir: '+error.message,'error');return;}
-  showToast('Funcionário excluído.');showPage('funcionarios');
+  showToast('Funcionário excluído.');_funcPageRendered=false;showPage('funcionarios');
 }
 
 // ─── EXPERIÊNCIA ──────────────────────────────────────────────────────────────
