@@ -347,6 +347,8 @@ async function loadAlojamentos(){
 }
 
 async function showPage(page){
+  // Garantir que supabase está pronto
+  if(!sb){setTimeout(()=>showPage(page),100);return;}
   document.querySelectorAll('.nav-item').forEach(el=>{
     const t=el.textContent.trim().toLowerCase();
     el.classList.toggle('active',
@@ -2794,7 +2796,7 @@ function exportAlojamentosExcel(){
 }
 
 // Init
-document.addEventListener('DOMContentLoaded', ()=>{ showPage('dashboard'); });
+showPage('dashboard');
 </script>
 </body>
 </html>
