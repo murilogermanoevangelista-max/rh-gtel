@@ -1431,6 +1431,8 @@ async function renderFerias(){
   if(feriasObraFiltro)listaFuncs=listaFuncs.filter(arr=>arr[0].funcionario?.obra?.codigo===feriasObraFiltro);
   if(feriasFiltro==='programado')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>f.programado));
   if(feriasFiltro==='naoprog')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>!f.programado));
+  if(feriasFiltro==='vencidas')listaFuncs=listaFuncs.filter(arr=>{const p=getPeriodoUrgente(arr);if(!p)return false;const l=parseDate(p.dt_limite_maxima);return l&&l<hoje;});
+  if(feriasFiltro==='vencendo60')listaFuncs=listaFuncs.filter(arr=>{const p=getPeriodoUrgente(arr);if(!p)return false;const l=parseDate(p.dt_limite_maxima);if(!l)return false;const d=Math.floor((l-hoje)/86400000);return d>=0&&d<=60;});
   if(feriasFiltro==='per1vencida')listaFuncs=listaFuncs.filter(arr=>{const p=arr[0];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);return l&&l<hoje;});
   if(feriasFiltro==='per1vencendo')listaFuncs=listaFuncs.filter(arr=>{const p=arr[0];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);if(!l)return false;const d=Math.floor((l-hoje)/86400000);return d>=0&&d<=60;});
   if(feriasFiltro==='per2vencida')listaFuncs=listaFuncs.filter(arr=>{const p=arr[1];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);return l&&l<hoje;});
@@ -1446,10 +1448,10 @@ async function renderFerias(){
     return la-lb;
   });
 
-  // Alertas
+  // Alertas — clicáveis para filtrar a tabela
   const alertas=[];
-  if(alertaVencidas>0)alertas.push(`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:6px;background:var(--danger-light);border:1px solid #FCA5A5;color:#991B1B"><i class="ti ti-alert-triangle" style="font-size:18px;flex-shrink:0"></i><strong>${alertaVencidas} funcionário(s) com férias vencidas — risco legal</strong></div>`);
-  if(alertaVencendo30>0)alertas.push(`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:6px;background:var(--warning-light);border:1px solid #FCD34D;color:#92400E"><i class="ti ti-clock" style="font-size:18px;flex-shrink:0"></i><strong>${alertaVencendo30} vencendo em 30 dias — programar urgente</strong></div>`);
+  if(alertaVencidas>0)alertas.push(`<div onclick="feriasFiltro='vencidas';renderFerias()" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:6px;background:var(--danger-light);border:1px solid #FCA5A5;color:#991B1B;cursor:pointer"><i class="ti ti-alert-triangle" style="font-size:18px;flex-shrink:0"></i><strong>${alertaVencidas} funcionário(s) com férias vencidas — risco legal</strong><i class="ti ti-chevron-right" style="margin-left:auto;opacity:.5"></i></div>`);
+  if(alertaVencendo30>0)alertas.push(`<div onclick="feriasFiltro='vencendo60';renderFerias()" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:6px;background:var(--warning-light);border:1px solid #FCD34D;color:#92400E;cursor:pointer"><i class="ti ti-clock" style="font-size:18px;flex-shrink:0"></i><strong>${alertaVencendo30} vencendo em 60 dias — programar urgente</strong><i class="ti ti-chevron-right" style="margin-left:auto;opacity:.5"></i></div>`);
 
   // Obras
   const obrasUnicas=[...new Set(feriasData.map(f=>f.funcionario?.obra?.codigo).filter(Boolean))];
