@@ -2793,7 +2793,8 @@ function exportAlojamentosExcel(){
   showToast('Excel exportado!');
 }
 
-
+// Init — aguarda loadAll antes de renderizar
+(async()=>{ await loadAll(); showPage('dashboard'); })();
 </script>
 </body>
 </html>
