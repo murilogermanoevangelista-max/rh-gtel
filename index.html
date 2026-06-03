@@ -213,7 +213,23 @@ input:focus,select:focus{border-color:var(--primary)}
 .prog-btn:hover{background:#C8E6C9}
 .prog-btn.programada{background:#DBEAFE;color:#1E40AF;border-color:#93C5FD}
 .prog-btn.programada:hover{background:#BFDBFE}
-.import-drop-area{border:2px dashed var(--border);border-radius:var(--radius-lg);padding:40px;text-align:center;cursor:pointer;transition:all .2s;background:var(--bg)}
+/* ALOJAMENTOS */
+.aloj-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:0;overflow:hidden;transition:box-shadow .2s}
+.aloj-card:hover{box-shadow:0 4px 16px rgba(0,0,0,.08)}
+.aloj-card-header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--bg)}
+.aloj-card-body{padding:14px 16px}
+.aloj-vagas-bar{height:8px;border-radius:4px;background:var(--border);margin:6px 0;overflow:hidden}
+.aloj-vagas-fill{height:100%;border-radius:4px;background:var(--primary);transition:width .3s}
+.aloj-vagas-fill.full{background:var(--danger)}
+.aloj-vagas-fill.warn{background:var(--warning)}
+.conta-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
+.conta-row:last-child{border-bottom:none}
+.conta-status{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:500}
+.conta-status.pendente{background:#FFFBEB;color:#92400E;border:1px solid #FCD34D}
+.conta-status.enviado{background:#E6F1FB;color:#185FA5;border:1px solid #93C5FD}
+.conta-status.pago{background:var(--success-light);color:var(--success)}
+.morador-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;background:var(--bg);border:1px solid var(--border);font-size:12px;margin:3px}
+
 .import-drop-area:hover,.import-drop-area.drag-over{border-color:var(--primary);background:var(--primary-light)}
 .import-drop-area i{font-size:48px;color:var(--text-muted);opacity:.4;margin-bottom:12px;display:block}
 .nao-encontrado-row td{background:#FFFBEB;color:#92400E;font-size:12px}
@@ -231,7 +247,8 @@ input:focus,select:focus{border-color:var(--primary)}
     <div class="nav-item" onclick="showPage('funcionarios')"><i class="ti ti-users"></i> Funcionários</div>
     <div class="nav-item" onclick="showPage('experiencia')"><i class="ti ti-certificate"></i> Experiência</div>
     <div class="nav-item" onclick="showPage('folgas')"><i class="ti ti-beach"></i> Folgas de Campo</div>
-    <div class="nav-item" onclick="showPage('ferias')"><i class="ti ti-palm-tree"></i> Férias</div>
+    <div class="nav-item" onclick="showPage('ferias')"><i class="ti ti-sunglasses"></i> Férias</div>
+    <div class="nav-item" onclick="showPage('alojamentos')"><i class="ti ti-home-2"></i> Alojamentos</div>
     <div class="nav-section">Cadastros</div>
     <div class="nav-item" onclick="showPage('obras')"><i class="ti ti-building-skyscraper"></i> Obras / Contratos</div>
     <div class="nav-item" onclick="showPage('empresas')"><i class="ti ti-briefcase"></i> Empresas</div>
@@ -246,7 +263,7 @@ const SUPABASE_URL='https://lqggoshphakeuufibdno.supabase.co';
 const SUPABASE_KEY='sb_publishable_QlnJaa5xdUXePvXFV6QFwQ_AmMk639T';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[];
+let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[];
 
 function showToast(msg,type='success'){
   const t=document.getElementById('toast');
@@ -321,6 +338,14 @@ async function loadFerias(){
   feriasData=data||[];
 }
 
+async function loadAlojamentos(){
+  const [a,c]=await Promise.all([
+    sb.from('alojamentos').select('*,obra:obras(nome,codigo)').order('nome'),
+    sb.from('alojamentos_contas').select('*').order('ano desc,mes desc'),
+  ]);
+  alojamentos=a.data||[];alojamentosContas=c.data||[];
+}
+
 async function showPage(page){
   document.querySelectorAll('.nav-item').forEach(el=>{
     const t=el.textContent.trim().toLowerCase();
@@ -330,6 +355,7 @@ async function showPage(page){
       (page==='experiencia'&&t.includes('experiência'))||
       (page==='folgas'&&t.includes('folga'))||
       (page==='ferias'&&t.includes('férias'))||
+      (page==='alojamentos'&&t.includes('alojamento'))||
       (page==='obras'&&t.includes('obra'))||
       (page==='empresas'&&t.includes('empresa'))
     );
@@ -337,10 +363,11 @@ async function showPage(page){
   document.getElementById('main-content').innerHTML='<div class="loading"><i class="ti ti-loader ti-spin"></i> Carregando...</div>';
   await loadAll();
   if(page==='dashboard')renderDashboard();
-  else if(page==='funcionarios')renderFuncionarios();
+  else if(page==='funcionarios'){_funcPageRendered=false;renderFuncionarios();}
   else if(page==='experiencia')renderExperiencia();
   else if(page==='folgas')renderFolgas();
   else if(page==='ferias')renderFerias();
+  else if(page==='alojamentos'){await loadAlojamentos();renderAlojamentos();}
   else if(page==='obras')renderObras();
   else if(page==='empresas')renderEmpresas();
 }
@@ -1532,11 +1559,23 @@ async function renderFerias(){
     const vencMax=limMax&&limMax<hoje&&!f.programado;
     const warnMax=!vencMax&&dM!==null&&dM<=60&&!f.programado;
 
+    // Data de alerta = 60 dias antes do limite máx.
+    const dataAlerta=limMax?new Date(limMax.getTime()-60*86400000):null;
+
     const cor=f.programado?'var(--success)':vencMax?'var(--danger)':warnMax?'var(--warning)':'var(--text)';
     const bg=f.programado?'var(--success-light)':vencMax?'var(--danger-light)':warnMax?'var(--warning-light)':'transparent';
     const border=f.programado?'none':vencMax?'1px solid #FCA5A5':warnMax?'1px solid #FCD34D':'none';
     const txtCount=f.programado?'✓ Prog.':dM===null?'—':dM<0?`${Math.abs(dM)}d atrás`:`${dM}d restantes`;
     const icon=f.programado?'':vencMax?'⚠️ ':warnMax?'⏰ ':'';
+
+    // Linha de admissão do funcionário
+    const admissao=f.funcionario?.data_admissao||f.data_admissao;
+    const admissaoStr=admissao?`<div style="font-size:10px;color:var(--text-muted);margin-top:2px">Admissão: ${formatDate(admissao)}</div>`:'';
+
+    // Linha "programar até" (60 dias antes do vencimento)
+    const alertaStr=dataAlerta&&!f.programado
+      ?`<div style="font-size:10px;color:var(--text-muted);margin-top:2px">Programar até: <strong style="color:${warnMax||vencMax?cor:'var(--text-muted)'}">${formatDate(dataAlerta)}</strong></div>`
+      :'';
 
     return`<td style="padding:8px 12px">
       <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;white-space:nowrap">${perAqui}</div>
@@ -1546,7 +1585,9 @@ async function renderFerias(){
           <span style="font-size:11px;font-weight:600;color:${cor}">${txtCount}</span>
           <span style="font-size:10px;color:var(--text-muted)">${dias}d</span>
         </div>
+        ${alertaStr}
       </div>
+      ${admissaoStr}
     </td>`;
   }
 
@@ -1594,7 +1635,11 @@ async function renderFerias(){
     return`<tr style="${rowStyle}">
       <td><div class="name-cell">
         <div class="avatar">${initials(nomeFunc)}</div>
-        <div><div style="font-weight:500">${nomeFunc}</div><div style="font-size:11px;color:var(--text-muted)">${f0.matricula||'—'}</div></div>
+        <div>
+          <div style="font-weight:500">${nomeFunc}</div>
+          <div style="font-size:11px;color:var(--text-muted)">${f0.matricula||'—'}</div>
+          ${f0.funcionario?.data_admissao?`<div style="font-size:10px;color:var(--text-muted);margin-top:1px">Admissão: ${formatDate(f0.funcionario.data_admissao)}</div>`:''}
+        </div>
       </div></td>
       <td style="font-size:12px;white-space:nowrap">${obraFunc}</td>
       ${blocoPeríodo(per1)}
@@ -2336,8 +2381,373 @@ function closeModal(id){
   if(el)el.remove();
 }
 
-// Init
-showPage('dashboard');
+
+// ─── ALOJAMENTOS ─────────────────────────────────────────────────────────────
+
+function renderAlojamentos(){
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  const totalVagas=alojamentos.reduce((s,a)=>s+(a.vagas_total||0),0);
+  const totalOcup=funcionarios.filter(f=>f.alojamento_id&&f.situacao==='ativo').reduce((s,_)=>s+1,0);
+  const totalDisp=totalVagas-totalOcup;
+  const totalAluguel=alojamentos.reduce((s,a)=>s+(a.custo_mensal||0),0);
+  const totalContas=alojamentosContas.filter(c=>c.mes===hoje.getMonth()+1&&c.ano===hoje.getFullYear()).reduce((s,c)=>s+(c.valor||0),0);
+  const contasPend=alojamentosContas.filter(c=>c.status==='pendente'&&c.mes===hoje.getMonth()+1&&c.ano===hoje.getFullYear()).length;
+
+  // Vencimentos próximos (60 dias)
+  const vencProx=alojamentos.filter(a=>{const d=parseDate(a.data_termino);return d&&Math.floor((d-hoje)/86400000)<=60&&Math.floor((d-hoje)/86400000)>=0;}).length;
+  const vencidos=alojamentos.filter(a=>{const d=parseDate(a.data_termino);return d&&d<hoje;}).length;
+
+  const cards=alojamentos.map(a=>{
+    const moradores=funcionarios.filter(f=>f.alojamento_id===a.id&&f.situacao==='ativo');
+    const ocup=moradores.length;
+    const total=a.vagas_total||0;
+    const disp=total-ocup;
+    const pct=total?Math.round(ocup/total*100):0;
+    const fillClass=pct>=100?'full':pct>=80?'warn':'';
+    const termino=parseDate(a.data_termino);
+    const diasTerm=termino?Math.floor((termino-hoje)/86400000):null;
+    const termClass=diasTerm===null?'':diasTerm<0?'danger':diasTerm<=60?'warn':'ok';
+    const contasMes=alojamentosContas.filter(c=>c.alojamento_id===a.id&&c.mes===hoje.getMonth()+1&&c.ano===hoje.getFullYear());
+    const totalMes=contasMes.reduce((s,c)=>s+(c.valor||0),0)+(a.custo_mensal||0);
+    const pendMes=contasMes.filter(c=>c.status==='pendente').length;
+
+    return`<div class="aloj-card">
+      <div class="aloj-card-header">
+        <div>
+          <div style="font-weight:600;font-size:14px">${a.nome}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px"><i class="ti ti-map-pin" style="font-size:11px"></i> ${a.endereco||'—'}</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm" title="Moradores" onclick="openModalMoradores('${a.id}')"><i class="ti ti-users"></i></button>
+          <button class="btn btn-sm" title="Contas" onclick="openModalContas('${a.id}')"><i class="ti ti-receipt"></i></button>
+          <button class="btn btn-sm" title="Editar" onclick="openModalAlojamento('${a.id}')"><i class="ti ti-edit"></i></button>
+          <button class="btn btn-sm btn-danger" title="Excluir" onclick="deleteAlojamento('${a.id}','${(a.nome||'').replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i></button>
+        </div>
+      </div>
+      <div class="aloj-card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+          <div style="text-align:center">
+            <div style="font-size:22px;font-weight:700;color:var(--text)">${total}</div>
+            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Vagas</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:22px;font-weight:700;color:var(--primary-dark)">${ocup}</div>
+            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Ocupadas</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:22px;font-weight:700;color:${disp===0?'var(--danger)':disp<=2?'var(--warning)':'var(--success)'}">${disp}</div>
+            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Disponíveis</div>
+          </div>
+        </div>
+        <div class="aloj-vagas-bar"><div class="aloj-vagas-fill ${fillClass}" style="width:${pct}%"></div></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:12px">
+          <span style="color:var(--text-muted)"><i class="ti ti-building-bank" style="font-size:12px"></i> ${a.imobiliaria||'—'}</span>
+          <span style="color:var(--text-muted)">${a.obra?.codigo||'—'}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:12px">
+          <span class="${termClass==='danger'?'badge badge-red':termClass==='warn'?'badge badge-amber':''}">
+            ${termino?`Término: ${formatDate(a.data_termino)}${diasTerm!==null&&diasTerm<=60?' ('+diasTerm+'d)':''}`:' —'}
+          </span>
+          <span style="font-weight:600;color:var(--text)">R$ ${totalMes.toLocaleString('pt-BR',{minimumFractionDigits:2})}${pendMes?`<span class="badge badge-amber" style="margin-left:4px">${pendMes} pend.</span>`:''}</span>
+        </div>
+        ${a.contrato_url||a.laudo_url||a.fotos_url?`<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+          ${a.contrato_url?`<a href="${a.contrato_url}" target="_blank" class="btn btn-sm"><i class="ti ti-file-text"></i> Contrato</a>`:''}
+          ${a.laudo_url?`<a href="${a.laudo_url}" target="_blank" class="btn btn-sm"><i class="ti ti-clipboard-check"></i> Laudo</a>`:''}
+          ${a.fotos_url?`<a href="${a.fotos_url}" target="_blank" class="btn btn-sm"><i class="ti ti-photo"></i> Fotos</a>`:''}
+        </div>`:''}
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title"><i class="ti ti-home-2"></i> Alojamentos</div>
+        <div class="page-subtitle">${alojamentos.length} alojamento(s)</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="exportAlojamentosExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
+        <button class="btn btn-primary" onclick="openModalAlojamento()"><i class="ti ti-plus"></i> Novo alojamento</button>
+      </div>
+    </div>
+
+    ${vencidos>0?`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:var(--danger-light);border:1px solid #FCA5A5;color:#991B1B"><i class="ti ti-alert-triangle" style="font-size:18px"></i><strong>${vencidos} contrato(s) vencido(s) — providenciar renovação!</strong></div>`:''}
+    ${vencProx>0?`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:var(--warning-light);border:1px solid #FCD34D;color:#92400E"><i class="ti ti-clock" style="font-size:18px"></i><strong>${vencProx} contrato(s) vencendo em 60 dias</strong></div>`:''}
+    ${contasPend>0?`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:#E6F1FB;border:1px solid #93C5FD;color:#185FA5"><i class="ti ti-receipt" style="font-size:18px"></i><strong>${contasPend} conta(s) pendente(s) de envio este mês</strong></div>`:''}
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+      <div class="metric-card"><div class="metric-label">Total Vagas</div><div class="metric-value">${totalVagas}</div></div>
+      <div class="metric-card green"><div class="metric-label">Ocupadas</div><div class="metric-value">${totalOcup}</div></div>
+      <div class="metric-card ${totalDisp===0?'red':totalDisp<=3?'amber':''}"><div class="metric-label">Disponíveis</div><div class="metric-value">${totalDisp}</div></div>
+      <div class="metric-card"><div class="metric-label">Custo Mensal Total</div><div class="metric-value" style="font-size:16px">R$ ${(totalAluguel+totalContas).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px">
+      ${cards||'<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-home-off" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum alojamento cadastrado</div>'}
+    </div>`;
+}
+
+function openModalAlojamento(id){
+  const a=id?alojamentos.find(x=>x.id===id):null;
+  const isEdit=!!a;
+  const obraOpts=obras.map(o=>`<option value="${o.id}" ${a?.obra_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
+  insertModal('modal-aloj',`
+    <div class="modal" style="max-width:760px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-home-2"></i> ${isEdit?'Editar Alojamento':'Novo Alojamento'}</span>
+        <button class="btn btn-sm" onclick="closeModal('modal-aloj')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group"><label>Nome / Descrição *</label><input id="aloj-nome" value="${a?.nome||''}"></div>
+          <div class="form-group"><label>Obra vinculada</label><select id="aloj-obra"><option value="">— Selecione —</option>${obraOpts}</select></div>
+          <div class="form-group full"><label>Endereço completo</label><input id="aloj-end" value="${a?.endereco||''}"></div>
+          <div class="form-group"><label>Vagas totais</label><input id="aloj-vagas" type="number" min="1" value="${a?.vagas_total||''}"></div>
+          <div class="form-group"><label>Imobiliária</label><input id="aloj-imob" value="${a?.imobiliaria||''}"></div>
+          <div class="form-group"><label>Contato imobiliária</label><input id="aloj-contato" value="${a?.contato_imobiliaria||''}"></div>
+          <div class="form-group"><label>Aluguel mensal (R$)</label><input id="aloj-aluguel" type="number" step="0.01" value="${a?.custo_mensal||''}"></div>
+          <div class="form-group"><label>Condomínio (R$)</label><input id="aloj-cond" type="number" step="0.01" value="${a?.condominio||''}"></div>
+          <div class="form-group"><label>IPTU mensal (R$)</label><input id="aloj-iptu" type="number" step="0.01" value="${a?.iptu||''}"></div>
+          <div class="form-group"><label>Seguro incêndio (R$)</label><input id="aloj-seguro" type="number" step="0.01" value="${a?.seguro||''}"></div>
+          <div class="form-group"><label>Início do contrato</label><input id="aloj-inicio" type="date" value="${a?.data_inicio||''}"></div>
+          <div class="form-group"><label>Término do contrato</label><input id="aloj-termino" type="date" value="${a?.data_termino||''}"></div>
+          <div class="form-group"><label>Prazo isenção multa (meses)</label><input id="aloj-isencao" type="number" value="${a?.isencao_meses||''}"></div>
+          <div class="form-group"><label>Índice de reajuste</label><input id="aloj-indice" value="${a?.indice_reajuste||'IVAR'}"></div>
+          <div class="form-group full"><label>Observações</label><textarea id="aloj-obs" rows="2">${a?.observacoes||''}</textarea></div>
+          <div class="form-group"><label>URL Contrato (PDF)</label><input id="aloj-contrato" placeholder="https://..." value="${a?.contrato_url||''}"></div>
+          <div class="form-group"><label>URL Laudo de Vistoria</label><input id="aloj-laudo" placeholder="https://..." value="${a?.laudo_url||''}"></div>
+          <div class="form-group"><label>URL Fotos Iniciais</label><input id="aloj-fotos" placeholder="https://..." value="${a?.fotos_url||''}"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal('modal-aloj')">Cancelar</button>
+        <button class="btn btn-primary" onclick="saveAlojamento(${isEdit?`'${a.id}'`:'null'})"><i class="ti ti-check"></i> ${isEdit?'Salvar':'Cadastrar'}</button>
+      </div>
+    </div>`);
+}
+
+async function saveAlojamento(id){
+  const nome=document.getElementById('aloj-nome').value.trim();
+  if(!nome){showToast('Nome é obrigatório','error');return;}
+  const payload={
+    nome,
+    obra_id:document.getElementById('aloj-obra').value||null,
+    endereco:document.getElementById('aloj-end').value.trim()||null,
+    vagas_total:parseInt(document.getElementById('aloj-vagas').value)||null,
+    imobiliaria:document.getElementById('aloj-imob').value.trim()||null,
+    contato_imobiliaria:document.getElementById('aloj-contato').value.trim()||null,
+    custo_mensal:parseFloat(document.getElementById('aloj-aluguel').value)||null,
+    condominio:parseFloat(document.getElementById('aloj-cond').value)||null,
+    iptu:parseFloat(document.getElementById('aloj-iptu').value)||null,
+    seguro:parseFloat(document.getElementById('aloj-seguro').value)||null,
+    data_inicio:document.getElementById('aloj-inicio').value||null,
+    data_termino:document.getElementById('aloj-termino').value||null,
+    isencao_meses:parseInt(document.getElementById('aloj-isencao').value)||null,
+    indice_reajuste:document.getElementById('aloj-indice').value.trim()||null,
+    observacoes:document.getElementById('aloj-obs').value.trim()||null,
+    contrato_url:document.getElementById('aloj-contrato').value.trim()||null,
+    laudo_url:document.getElementById('aloj-laudo').value.trim()||null,
+    fotos_url:document.getElementById('aloj-fotos').value.trim()||null,
+  };
+  const{error}=id?await sb.from('alojamentos').update(payload).eq('id',id):await sb.from('alojamentos').insert(payload);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast(id?'Alojamento atualizado!':'Alojamento cadastrado!');
+  closeModal('modal-aloj');await loadAlojamentos();renderAlojamentos();
+}
+
+async function deleteAlojamento(id,nome){
+  if(!confirm(`Excluir alojamento "${nome}"?`))return;
+  const{error}=await sb.from('alojamentos').delete().eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Alojamento excluído.');await loadAlojamentos();renderAlojamentos();
+}
+
+function openModalMoradores(alojId){
+  const a=alojamentos.find(x=>x.id===alojId);
+  const moradores=funcionarios.filter(f=>f.alojamento_id===alojId&&f.situacao==='ativo');
+  const disponiveis=funcionarios.filter(f=>(!f.alojamento_id||f.alojamento_id!==alojId)&&f.situacao==='ativo');
+  const dispOpts=disponiveis.map(f=>`<option value="${f.id}">${f.nome_completo} (${f.matricula})</option>`).join('');
+  insertModal('modal-moradores',`
+    <div class="modal" style="max-width:600px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-users"></i> Moradores — ${a?.nome||''}</span>
+        <button class="btn btn-sm" onclick="closeModal('modal-moradores')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="margin-bottom:16px;padding:12px;background:var(--bg);border-radius:var(--radius);display:flex;gap:8px;align-items:flex-end">
+          <div class="form-group" style="flex:1;margin:0"><label>Adicionar funcionário ao alojamento</label>
+            <select id="add-morador-sel" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius)">
+              <option value="">— Selecione —</option>${dispOpts}
+            </select>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="addMorador('${alojId}')"><i class="ti ti-plus"></i> Adicionar</button>
+        </div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase">
+          ${moradores.length} morador(es) — ${(a?.vagas_total||0)-moradores.length} vaga(s) livre(s)
+        </div>
+        <div id="moradores-list">
+          ${moradores.length?moradores.map(f=>`
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px">
+              <div class="name-cell">
+                <div class="avatar">${initials(f.nome_completo)}</div>
+                <div><div style="font-weight:500;font-size:13px">${f.nome_completo}</div>
+                  <div style="font-size:11px;color:var(--text-muted)">${f.matricula} · ${f.funcao?.nome||'—'}</div></div>
+              </div>
+              <button class="btn btn-sm btn-danger" onclick="removeMorador('${f.id}','${alojId}','${(f.nome_completo||'').replace(/'/g,"\\'")}')"><i class="ti ti-x"></i> Remover</button>
+            </div>`).join('')
+          :`<div style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum morador cadastrado</div>`}
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeModal('modal-moradores')">Fechar</button></div>
+    </div>`);
+}
+
+async function addMorador(alojId){
+  const funcId=document.getElementById('add-morador-sel').value;
+  if(!funcId){showToast('Selecione um funcionário','error');return;}
+  const{error}=await sb.from('funcionarios').update({alojamento_id:alojId}).eq('id',funcId);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Funcionário adicionado ao alojamento!');
+  await loadAll();await loadAlojamentos();
+  closeModal('modal-moradores');openModalMoradores(alojId);renderAlojamentos();
+}
+
+async function removeMorador(funcId,alojId,nome){
+  if(!confirm(`Remover ${nome} do alojamento?`))return;
+  const{error}=await sb.from('funcionarios').update({alojamento_id:null}).eq('id',funcId);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Removido do alojamento.');
+  await loadAll();await loadAlojamentos();
+  closeModal('modal-moradores');openModalMoradores(alojId);renderAlojamentos();
+}
+
+function openModalContas(alojId){
+  const a=alojamentos.find(x=>x.id===alojId);
+  const hoje=new Date();
+  const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const tipos=['agua','energia','gas','condominio','outros'];
+  const tiposLabel={agua:'🚿 Água',energia:'⚡ Energia',gas:'🔥 Gás',condominio:'🏢 Condomínio',outros:'📄 Outros'};
+
+  // Últimos 6 meses de contas
+  const contasAloj=alojamentosContas.filter(c=>c.alojamento_id===alojId).sort((a,b)=>b.ano-a.ano||b.mes-a.mes);
+
+  // Agrupar por ano/mês
+  const grupos={};
+  contasAloj.forEach(c=>{
+    const k=`${c.ano}-${String(c.mes).padStart(2,'0')}`;
+    if(!grupos[k])grupos[k]={ano:c.ano,mes:c.mes,contas:[]};
+    grupos[k].contas.push(c);
+  });
+  const gruposHtml=Object.values(grupos).slice(0,6).map(g=>{
+    const totalG=g.contas.reduce((s,c)=>s+(c.valor||0),0);
+    return`<div style="background:var(--bg);border-radius:var(--radius);padding:12px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <strong>${meses[g.mes-1]}/${g.ano}</strong>
+        <span style="font-weight:600">R$ ${totalG.toLocaleString('pt-BR',{minimumFractionDigits:2})}</span>
+      </div>
+      ${g.contas.map(c=>`
+        <div class="conta-row">
+          <span>${tiposLabel[c.tipo]||c.tipo}</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-weight:500">R$ ${(c.valor||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</span>
+            <span class="conta-status ${c.status}">${c.status==='pendente'?'⏳ Pendente':c.status==='enviado'?'📤 Enviado':'✅ Pago'}</span>
+            <button class="btn btn-sm" onclick="toggleContaStatus('${c.id}','${c.status}','${alojId}')"><i class="ti ti-refresh"></i></button>
+            <button class="btn btn-sm btn-danger" onclick="deleteConta('${c.id}','${alojId}')"><i class="ti ti-trash"></i></button>
+          </div>
+        </div>`).join('')}
+    </div>`;
+  }).join('');
+
+  insertModal('modal-contas',`
+    <div class="modal" style="max-width:620px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-receipt"></i> Contas — ${a?.nome||''}</span>
+        <button class="btn btn-sm" onclick="closeModal('modal-contas')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="background:var(--primary-light);border-radius:var(--radius);padding:12px;margin-bottom:16px">
+          <div style="font-size:12px;font-weight:600;color:var(--primary-dark);margin-bottom:8px">LANÇAR NOVA CONTA</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 80px;gap:8px;align-items:flex-end">
+            <div class="form-group" style="margin:0"><label>Mês</label>
+              <select id="c-mes" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius)">
+                ${meses.map((m,i)=>`<option value="${i+1}" ${i+1===hoje.getMonth()+1?'selected':''}>${m}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group" style="margin:0"><label>Ano</label>
+              <input id="c-ano" type="number" value="${hoje.getFullYear()}" style="padding:8px;border:1px solid var(--border);border-radius:var(--radius);width:100%">
+            </div>
+            <div class="form-group" style="margin:0"><label>Tipo</label>
+              <select id="c-tipo" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius)">
+                ${tipos.map(t=>`<option value="${t}">${tiposLabel[t]}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group" style="margin:0"><label>Valor R$</label>
+              <input id="c-valor" type="number" step="0.01" placeholder="0,00" style="padding:8px;border:1px solid var(--border);border-radius:var(--radius);width:100%">
+            </div>
+          </div>
+          <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="saveConta('${alojId}')"><i class="ti ti-plus"></i> Lançar</button>
+        </div>
+        <div id="contas-historico">
+          ${gruposHtml||'<div style="text-align:center;padding:20px;color:var(--text-muted)">Nenhuma conta lançada</div>'}
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeModal('modal-contas')">Fechar</button></div>
+    </div>`);
+}
+
+async function saveConta(alojId){
+  const mes=parseInt(document.getElementById('c-mes').value);
+  const ano=parseInt(document.getElementById('c-ano').value);
+  const tipo=document.getElementById('c-tipo').value;
+  const valor=parseFloat(document.getElementById('c-valor').value);
+  if(!valor){showToast('Informe o valor','error');return;}
+  const{error}=await sb.from('alojamentos_contas').insert({alojamento_id:alojId,mes,ano,tipo,valor,status:'pendente'});
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Conta lançada!');
+  await loadAlojamentos();closeModal('modal-contas');openModalContas(alojId);renderAlojamentos();
+}
+
+async function toggleContaStatus(id,status,alojId){
+  const next=status==='pendente'?'enviado':status==='enviado'?'pago':'pendente';
+  const{error}=await sb.from('alojamentos_contas').update({status:next}).eq('id',id);
+  if(error){showToast('Erro','error');return;}
+  await loadAlojamentos();closeModal('modal-contas');openModalContas(alojId);renderAlojamentos();
+}
+
+async function deleteConta(id,alojId){
+  if(!confirm('Excluir este lançamento?'))return;
+  await sb.from('alojamentos_contas').delete().eq('id',id);
+  await loadAlojamentos();closeModal('modal-contas');openModalContas(alojId);renderAlojamentos();
+}
+
+function exportAlojamentosExcel(){
+  const hoje=new Date();
+  const rows=[];
+  rows.push(['RELATÓRIO DE ALOJAMENTOS — GTEL','','','','','','','','']);
+  rows.push([`Emitido em: ${hoje.toLocaleDateString('pt-BR')}  ·  ${alojamentos.length} alojamento(s)`,'','','','','','','','']);
+  rows.push([]);
+  rows.push(['NOME','ENDEREÇO','OBRA','VAGAS','OCUPADAS','DISPONÍVEIS','ALUGUEL','INÍCIO','TÉRMINO','IMOBILIÁRIA']);
+  alojamentos.forEach(a=>{
+    const ocup=funcionarios.filter(f=>f.alojamento_id===a.id&&f.situacao==='ativo').length;
+    rows.push([a.nome||'—',a.endereco||'—',a.obra?.codigo||'—',a.vagas_total||0,ocup,(a.vagas_total||0)-ocup,a.custo_mensal||0,formatDate(a.data_inicio),formatDate(a.data_termino),a.imobiliaria||'—']);
+  });
+  rows.push([]);
+  rows.push(['MORADORES POR ALOJAMENTO','','','','','','','','','']);
+  alojamentos.forEach(a=>{
+    const moradores=funcionarios.filter(f=>f.alojamento_id===a.id&&f.situacao==='ativo');
+    if(moradores.length){
+      rows.push([a.nome,'NOME','MATRÍCULA','FUNÇÃO','','','','','','']);
+      moradores.forEach((f,i)=>rows.push(['',f.nome_completo,f.matricula,f.funcao?.nome||'—','','','','','','']));
+    }
+  });
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[{wch:28},{wch:40},{wch:12},{wch:8},{wch:10},{wch:12},{wch:14},{wch:12},{wch:12},{wch:28}];
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:9}},{s:{r:1,c:0},e:{r:1,c:9}}];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Alojamentos');
+  XLSX.writeFile(wb,`Alojamentos_GTEL_${hoje.toLocaleDateString('pt-BR').replace(/\//g,'-')}.xlsx`);
+  showToast('Excel exportado!');
+}
+
+
 </script>
 </body>
 </html>
