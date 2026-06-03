@@ -2519,11 +2519,11 @@ function openModalAlojamento(id){
           <div class="form-group"><label>Vagas totais</label><input id="aloj-vagas" type="number" min="1" value="${a?.vagas_total||''}"></div>
           <div class="form-group"><label>Imobiliária</label><input id="aloj-imob" value="${a?.imobiliaria||''}"></div>
           <div class="form-group"><label>Contato imobiliária</label><input id="aloj-contato" value="${a?.contato_imobiliaria||''}"></div>
-          <div class="form-group"><label>Aluguel mensal (R$)</label><input id="aloj-aluguel" type="number" step="0.01" value="${a?.custo_mensal||''}"></div>
-          <div class="form-group"><label>Condomínio (R$)</label><input id="aloj-cond" type="number" step="0.01" value="${a?.condominio||''}"></div>
-          <div class="form-group"><label>IPTU mensal (R$)</label><input id="aloj-iptu" type="number" step="0.01" value="${a?.iptu||''}"></div>
-          <div class="form-group"><label>Seguro incêndio (R$)</label><input id="aloj-seguro" type="number" step="0.01" value="${a?.seguro||''}"></div>
-          <div class="form-group"><label>Caução (R$)</label><input id="aloj-caucao" type="number" step="0.01" value="${a?.caucao||''}"></div>
+          <div class="form-group"><label>Aluguel mensal (R$)</label><input id="aloj-aluguel" type="text" inputmode="decimal" placeholder="0,00" value="${a?.custo_mensal?String(a.custo_mensal).replace('.',','):''}"></div>
+          <div class="form-group"><label>Condomínio (R$)</label><input id="aloj-cond" type="text" inputmode="decimal" placeholder="0,00" value="${a?.condominio?String(a.condominio).replace('.',','):''}"></div>
+          <div class="form-group"><label>IPTU mensal (R$)</label><input id="aloj-iptu" type="text" inputmode="decimal" placeholder="0,00" value="${a?.iptu?String(a.iptu).replace('.',','):''}"></div>
+          <div class="form-group"><label>Seguro incêndio (R$)</label><input id="aloj-seguro" type="text" inputmode="decimal" placeholder="0,00" value="${a?.seguro?String(a.seguro).replace('.',','):''}"></div>
+          <div class="form-group"><label>Caução (R$)</label><input id="aloj-caucao" type="text" inputmode="decimal" placeholder="0,00" value="${a?.caucao?String(a.caucao).replace('.',','):''}"></div>
           <div class="form-group"><label>Início do contrato</label><input id="aloj-inicio" type="date" value="${a?.data_inicio||''}"></div>
           <div class="form-group"><label>Término do contrato</label><input id="aloj-termino" type="date" value="${a?.data_termino||''}"></div>
           <div class="form-group"><label>Prazo isenção multa (meses)</label><input id="aloj-isencao" type="number" value="${a?.isencao_meses||''}"></div>
@@ -2579,7 +2579,7 @@ async function saveAlojamento(id){
   const laudoUrl=await uploadPDF('aloj-laudo-file','laudos')||existente?.laudo_url||null;
   const fotosUrl=await uploadPDF('aloj-fotos-file','fotos')||existente?.fotos_url||null;
 
-  function parseBRL(v){if(!v)return null;return parseFloat(String(v).replace(/\./g,'').replace(',','.'))||null;}
+  function parseBRL(v){if(!v&&v!==0)return null;const s=String(v).trim();if(s.includes(',')){return parseFloat(s.replace(/\./g,'').replace(',','.'))||null;}return parseFloat(s)||null;}
   const payload={
     nome,
     obra_id:document.getElementById('aloj-obra').value||null,
