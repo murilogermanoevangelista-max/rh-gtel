@@ -326,6 +326,8 @@ async function loadAll(){
     sb.from('funcoes').select('*').order('nome'),
   ]);
   funcionarios=f.data||[];obras=o.data||[];empresas=e.data||[];funcoes=fn.data||[];
+  // Garantir alojamentos carregados para contagem de moradores
+  if(!alojamentos.length)await loadAlojamentos();
 }
 
 async function loadFolgas(){
@@ -2459,7 +2461,7 @@ function renderAlojamentos(){
           <span class="${termClass==='danger'?'badge badge-red':termClass==='warn'?'badge badge-amber':''}">
             ${termino?`Término: ${formatDate(a.data_termino)}${diasTerm!==null&&diasTerm<=60?' ('+diasTerm+'d)':''}`:' —'}
           </span>
-          <span style="font-weight:600;color:var(--text)">R$ ${totalMes.toLocaleString('pt-BR',{minimumFractionDigits:2})}${pendMes?`<span class="badge badge-amber" style="margin-left:4px">${pendMes} pend.</span>`:''}</span>
+          <span style="font-weight:600;color:var(--text)">R$ ${Number(totalMes).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}${pendMes?`<span class="badge badge-amber" style="margin-left:4px">${pendMes} pend.</span>`:''}</span>
         </div>
         ${a.contrato_url||a.laudo_url||a.fotos_url?`<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
           ${a.contrato_url?`<a href="${a.contrato_url}" target="_blank" class="btn btn-sm"><i class="ti ti-file-text"></i> Contrato</a>`:''}
@@ -2523,9 +2525,26 @@ function openModalAlojamento(id){
           <div class="form-group"><label>Prazo isenção multa (meses)</label><input id="aloj-isencao" type="number" value="${a?.isencao_meses||''}"></div>
           <div class="form-group"><label>Índice de reajuste</label><input id="aloj-indice" value="${a?.indice_reajuste||'IVAR'}"></div>
           <div class="form-group full"><label>Observações</label><textarea id="aloj-obs" rows="2">${a?.observacoes||''}</textarea></div>
-          <div class="form-group"><label>URL Contrato (PDF)</label><input id="aloj-contrato" placeholder="https://..." value="${a?.contrato_url||''}"></div>
-          <div class="form-group"><label>URL Laudo de Vistoria</label><input id="aloj-laudo" placeholder="https://..." value="${a?.laudo_url||''}"></div>
-          <div class="form-group"><label>URL Fotos Iniciais</label><input id="aloj-fotos" placeholder="https://..." value="${a?.fotos_url||''}"></div>
+        </div>
+        <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:4px">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:12px">Anexos</div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>📄 Contrato (PDF)</label>
+              ${a?.contrato_url?`<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px"><a href="${a.contrato_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-eye"></i> Ver atual</a><span style="font-size:11px;color:var(--text-muted)">Enviar novo para substituir</span></div>`:''}
+              <input type="file" id="aloj-contrato-file" accept=".pdf" style="font-size:12px">
+            </div>
+            <div class="form-group">
+              <label>🔍 Laudo de Vistoria (PDF)</label>
+              ${a?.laudo_url?`<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px"><a href="${a.laudo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-eye"></i> Ver atual</a><span style="font-size:11px;color:var(--text-muted)">Enviar novo para substituir</span></div>`:''}
+              <input type="file" id="aloj-laudo-file" accept=".pdf" style="font-size:12px">
+            </div>
+            <div class="form-group">
+              <label>📷 Fotos Iniciais (PDF)</label>
+              ${a?.fotos_url?`<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px"><a href="${a.fotos_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-eye"></i> Ver atual</a><span style="font-size:11px;color:var(--text-muted)">Enviar novo para substituir</span></div>`:''}
+              <input type="file" id="aloj-fotos-file" accept=".pdf" style="font-size:12px">
+            </div>
+          </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -2538,6 +2557,23 @@ function openModalAlojamento(id){
 async function saveAlojamento(id){
   const nome=document.getElementById('aloj-nome').value.trim();
   if(!nome){showToast('Nome é obrigatório','error');return;}
+
+  // Upload PDFs se selecionados
+  async function uploadPDF(inputId,folder){
+    const input=document.getElementById(inputId);
+    if(!input||!input.files||!input.files[0])return null;
+    const file=input.files[0];
+    const path=`${folder}/${Date.now()}_${file.name.replace(/\s/g,'_')}`;
+    const{error}=await sb.storage.from('alojamentos').upload(path,file,{contentType:'application/pdf',upsert:true});
+    if(error){showToast('Erro no upload: '+error.message,'error');return null;}
+    return sb.storage.from('alojamentos').getPublicUrl(path).data.publicUrl;
+  }
+
+  const existente=id?alojamentos.find(x=>x.id===id):null;
+  const contratoUrl=await uploadPDF('aloj-contrato-file','contratos')||existente?.contrato_url||null;
+  const laudoUrl=await uploadPDF('aloj-laudo-file','laudos')||existente?.laudo_url||null;
+  const fotosUrl=await uploadPDF('aloj-fotos-file','fotos')||existente?.fotos_url||null;
+
   const payload={
     nome,
     obra_id:document.getElementById('aloj-obra').value||null,
@@ -2554,9 +2590,9 @@ async function saveAlojamento(id){
     isencao_meses:parseInt(document.getElementById('aloj-isencao').value)||null,
     indice_reajuste:document.getElementById('aloj-indice').value.trim()||null,
     observacoes:document.getElementById('aloj-obs').value.trim()||null,
-    contrato_url:document.getElementById('aloj-contrato').value.trim()||null,
-    laudo_url:document.getElementById('aloj-laudo').value.trim()||null,
-    fotos_url:document.getElementById('aloj-fotos').value.trim()||null,
+    contrato_url:contratoUrl,
+    laudo_url:laudoUrl,
+    fotos_url:fotosUrl,
   };
   const{error}=id?await sb.from('alojamentos').update(payload).eq('id',id):await sb.from('alojamentos').insert(payload);
   if(error){showToast('Erro: '+error.message,'error');return;}
