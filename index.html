@@ -657,13 +657,15 @@ function calcFeriasStats(data,hoje){
 // ─── FUNCIONÁRIOS ─────────────────────────────────────────────────────────────
 let filtroSituacao='',filtroObra='',busca='';
 
-function renderFuncionarios(){
-  const obraOptions=obras.map(o=>`<option value="${o.id}" ${filtroObra===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
+function getFuncionariosFiltrados(){
   let lista=funcionarios;
   if(filtroSituacao)lista=lista.filter(f=>f.situacao===filtroSituacao);
   if(filtroObra)lista=lista.filter(f=>f.obra_id===filtroObra);
-  if(busca){const b=busca.toLowerCase();lista=lista.filter(f=>f.nome_completo?.toLowerCase().includes(b)||f.matricula?.includes(busca));}
-  const rows=lista.length?lista.map(f=>{
+  if(busca){const b=busca.toLowerCase();lista=lista.filter(f=>f.nome_completo?.toLowerCase().includes(b)||f.matricula?.toLowerCase().includes(b));}
+  return lista;
+}
+function getFuncionariosRows(lista){
+  return lista.length?lista.map(f=>{
     const funcaoNome=f.funcao?.nome||f.funcao_manual||'—';
     const avatarContent=f.foto_url?`<img src="${f.foto_url}" alt="">`:initials(f.nome_completo);
     return`<tr>
@@ -679,13 +681,24 @@ function renderFuncionarios(){
       <td><div class="action-btns">
         <button class="btn btn-sm btn-info" title="Visualizar ficha" onclick="verFicha('${f.id}')"><i class="ti ti-eye"></i></button>
         <button class="btn btn-sm" title="Editar" onclick="editFuncionario('${f.id}')"><i class="ti ti-edit"></i></button>
-        <button class="btn btn-sm btn-danger" title="Excluir" onclick="deleteFuncionario('${f.id}','${(f.nome_completo||'').replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i></button>
+        <button class="btn btn-sm btn-danger" title="Excluir" onclick="deleteFuncionario('${f.id}','${(f.nome_completo||'').replace(/'/g,"\\'")}')" ><i class="ti ti-trash"></i></button>
       </div></td>
     </tr>`;}).join('')
   :`<tr><td colspan="7"><div class="empty-state"><i class="ti ti-users"></i><div>Nenhum funcionário encontrado</div></div></td></tr>`;
+}
+function atualizarTabelaFuncionarios(){
+  const lista=getFuncionariosFiltrados();
+  const sub=document.getElementById('func-subtitle');
+  const tbody=document.getElementById('func-tbody');
+  if(sub)sub.textContent=lista.length+' de '+funcionarios.length+' registros';
+  if(tbody)tbody.innerHTML=getFuncionariosRows(lista);
+}
+function renderFuncionarios(){
+  const obraOptions=obras.map(o=>`<option value="${o.id}" ${filtroObra===o.id?'selected':''}}>${o.codigo} — ${o.nome}</option>`).join('');
+  const lista=getFuncionariosFiltrados();
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
-      <div><div class="page-title">Funcionários</div><div class="page-subtitle">${lista.length} de ${funcionarios.length} registros</div></div>
+      <div><div class="page-title">Funcionários</div><div class="page-subtitle" id="func-subtitle">${lista.length} de ${funcionarios.length} registros</div></div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-sm" onclick="exportFuncionariosExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
         <button class="btn btn-primary" onclick="openModalFuncionario()"><i class="ti ti-plus"></i> Novo funcionário</button>
@@ -693,24 +706,25 @@ function renderFuncionarios(){
     </div>
     <div class="filters">
       <div class="search-box"><i class="ti ti-search"></i>
-        <input placeholder="Buscar por nome ou matrícula..." value="${busca}" oninput="busca=this.value;renderFuncionarios()">
+        <input id="func-busca" placeholder="Buscar por nome ou matrícula..." value="${busca}" oninput="busca=this.value;atualizarTabelaFuncionarios()">
       </div>
-      <select class="filter-select" onchange="filtroSituacao=this.value;renderFuncionarios()">
+      <select class="filter-select" onchange="filtroSituacao=this.value;atualizarTabelaFuncionarios()">
         <option value="">Todas situações</option>
         <option value="ativo" ${filtroSituacao==='ativo'?'selected':''}>Ativo</option>
         <option value="inativo" ${filtroSituacao==='inativo'?'selected':''}>Inativo</option>
         <option value="transferido" ${filtroSituacao==='transferido'?'selected':''}>Transferido</option>
       </select>
-      <select class="filter-select" onchange="filtroObra=this.value;renderFuncionarios()">
+      <select class="filter-select" onchange="filtroObra=this.value;atualizarTabelaFuncionarios()">
         <option value="">Todas obras</option>${obraOptions}
       </select>
-      <button class="btn btn-sm" onclick="filtroSituacao='';filtroObra='';busca='';renderFuncionarios()"><i class="ti ti-x"></i> Limpar</button>
+      <button class="btn btn-sm" onclick="filtroSituacao='';filtroObra='';busca='';document.getElementById('func-busca').value='';atualizarTabelaFuncionarios()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div class="table-container"><table>
       <thead><tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Empresa</th><th>Admissão</th><th>Situação</th><th></th></tr></thead>
-      <tbody>${rows}</tbody>
+      <tbody id="func-tbody">${getFuncionariosRows(lista)}</tbody>
     </table></div>`;
 }
+
 
 function exportFuncionariosExcel(){
   const hoje=new Date();
@@ -2589,9 +2603,9 @@ async function deleteAlojamento(id,nome){
 }
 
 function openModalMoradores(alojId){
-  const a=alojamentos.find(x=>x.id===alojId);
-  const moradores=funcionarios.filter(f=>f.alojamento_id===alojId&&f.situacao==='ativo');
-  const disponiveis=funcionarios.filter(f=>(!f.alojamento_id||f.alojamento_id!==alojId)&&f.situacao==='ativo');
+  const a=alojamentos.find(x=>String(x.id)===String(alojId));
+  const moradores=funcionarios.filter(f=>String(f.alojamento_id)===String(alojId)&&f.situacao!=='inativo');
+  const disponiveis=funcionarios.filter(f=>(!f.alojamento_id||String(f.alojamento_id)!==String(alojId))&&f.situacao!=='inativo');
   const dispOpts=disponiveis.map(f=>`<option value="${f.id}">${f.nome_completo} (${f.matricula})</option>`).join('');
   insertModal('modal-moradores',`
     <div class="modal" style="max-width:600px">
