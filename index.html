@@ -2421,7 +2421,7 @@ function renderAlojamentos(){
     const diasTerm=termino?Math.floor((termino-hoje)/86400000):null;
     const termClass=diasTerm===null?'':diasTerm<0?'danger':diasTerm<=60?'warn':'ok';
     const contasMes=alojamentosContas.filter(c=>c.alojamento_id===a.id&&c.mes===hoje.getMonth()+1&&c.ano===hoje.getFullYear());
-    const totalMes=contasMes.reduce((s,c)=>s+(c.valor||0),0)+(a.custo_mensal||0);
+    const totalMes=contasMes.reduce((s,c)=>s+Number(c.valor||0),0)+Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0);
     const pendMes=contasMes.filter(c=>c.status==='pendente').length;
 
     return`<div class="aloj-card">
@@ -2574,6 +2574,7 @@ async function saveAlojamento(id){
   const laudoUrl=await uploadPDF('aloj-laudo-file','laudos')||existente?.laudo_url||null;
   const fotosUrl=await uploadPDF('aloj-fotos-file','fotos')||existente?.fotos_url||null;
 
+  function parseBRL(v){if(!v)return null;return parseFloat(String(v).replace(/\./g,'').replace(',','.'))||null;}
   const payload={
     nome,
     obra_id:document.getElementById('aloj-obra').value||null,
@@ -2581,10 +2582,10 @@ async function saveAlojamento(id){
     vagas_total:parseInt(document.getElementById('aloj-vagas').value)||null,
     imobiliaria:document.getElementById('aloj-imob').value.trim()||null,
     contato_imobiliaria:document.getElementById('aloj-contato').value.trim()||null,
-    custo_mensal:parseFloat(document.getElementById('aloj-aluguel').value)||null,
-    condominio:parseFloat(document.getElementById('aloj-cond').value)||null,
-    iptu:parseFloat(document.getElementById('aloj-iptu').value)||null,
-    seguro:parseFloat(document.getElementById('aloj-seguro').value)||null,
+    custo_mensal:parseBRL(document.getElementById('aloj-aluguel').value),
+    condominio:parseBRL(document.getElementById('aloj-cond').value),
+    iptu:parseBRL(document.getElementById('aloj-iptu').value),
+    seguro:parseBRL(document.getElementById('aloj-seguro').value),
     data_inicio:document.getElementById('aloj-inicio').value||null,
     data_termino:document.getElementById('aloj-termino').value||null,
     isencao_meses:parseInt(document.getElementById('aloj-isencao').value)||null,
