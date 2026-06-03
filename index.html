@@ -1409,8 +1409,13 @@ async function renderFerias(){
   });
 
   // Status por funcionário para ordenação/filtro
+  // Status sempre pelo período mais antigo não programado (1º vence antes → gera multa)
+  function getPeriodoUrgente(arr){
+    // Retorna o registro não programado mais antigo (o que vence primeiro)
+    return arr.find(f=>!f.programado)||null;
+  }
   function getStatus(arr){
-    const p=arr.find(f=>!f.programado);if(!p)return'ok';
+    const p=getPeriodoUrgente(arr);if(!p)return'ok';
     const limMax=parseDate(p.dt_limite_maxima);
     if(limMax&&limMax<hoje)return'vencida';
     if(limMax){const d=Math.floor((limMax-hoje)/86400000);if(d>=0&&d<=60)return'vencendo';}
@@ -1431,13 +1436,13 @@ async function renderFerias(){
   if(feriasFiltro==='per2vencida')listaFuncs=listaFuncs.filter(arr=>{const p=arr[1];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);return l&&l<hoje;});
   if(feriasFiltro==='per2vencendo')listaFuncs=listaFuncs.filter(arr=>{const p=arr[1];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);if(!l)return false;const d=Math.floor((l-hoje)/86400000);return d>=0&&d<=60;});
 
-  // Ordenar: vencidas → vencendo → ok
+  // Ordenar: vencidas → vencendo → ok; dentro de cada grupo, data mais próxima primeiro
   const stOrd={vencida:0,vencendo:1,ok:2};
   listaFuncs.sort((a,b)=>{
     const sa=stOrd[getStatus(a)]??2,sb=stOrd[getStatus(b)]??2;
     if(sa!==sb)return sa-sb;
-    const la=parseDate(a[0]?.dt_limite_ideal)||new Date(9999,0);
-    const lb=parseDate(b[0]?.dt_limite_ideal)||new Date(9999,0);
+    const la=parseDate(getPeriodoUrgente(a)?.dt_limite_maxima)||new Date(9999,0);
+    const lb=parseDate(getPeriodoUrgente(b)?.dt_limite_maxima)||new Date(9999,0);
     return la-lb;
   });
 
@@ -1926,32 +1931,135 @@ async function confirmarImportFerias(){
 }
 
 function exportFeriasExcel(){
-  const rows=[['Funcionário','Matrícula','Obra','C. Custo','Período Aquisitivo','Dias','Limite Ideal','Limite Máximo','Status','Dias Progr.','Início Prog.','Fim Prog.']];
   const hoje=new Date();hoje.setHours(0,0,0,0);
+
+  // Agrupar por matrícula igual ao render
+  const byMat={};
   feriasData.forEach(f=>{
-    const lim2=parseDate(f.dt_limite_maxima);
-    let status='Dentro do prazo';
-    if(f.programado)status='Programada';
-    else if(lim2&&lim2<hoje)status='Vencida';
-    rows.push([
-      f.funcionario?.nome_completo||f.matricula||'—',
-      f.matricula||'—',
-      f.funcionario?.obra?.nome||'—',
-      f.funcionario?.obra?.centro_custo||'—',
-      `${formatDate(f.periodo_aquisitivo_inicio)} → ${formatDate(f.periodo_aquisitivo_fim)}`,
-      f.dias_direito||30,
-      formatDate(f.dt_limite_ideal),
-      formatDate(f.dt_limite_maxima),
-      status,
-      f.dias_programados||'—',
-      f.programado?formatDate(f.data_inicio_programada):'—',
-      f.programado?formatDate(f.data_fim_programada):'—',
-    ]);
+    const mat=f.matricula||'?';
+    if(!byMat[mat])byMat[mat]=[];
+    byMat[mat].push(f);
   });
-  const ws=XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=[{wch:30},{wch:12},{wch:20},{wch:12},{wch:28},{wch:6},{wch:14},{wch:14},{wch:14},{wch:10},{wch:14},{wch:14}];
-  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Férias');
-  XLSX.writeFile(wb,'Controle_Ferias.xlsx');showToast('Excel exportado!');
+  Object.values(byMat).forEach(arr=>arr.sort((a,b)=>{
+    const da=parseDate(a.periodo_aquisitivo_inicio)||new Date(0);
+    const db=parseDate(b.periodo_aquisitivo_inicio)||new Date(0);
+    return da-db;
+  }));
+
+  // Filtrar só alertas (vencido ou vencendo 60d no período mais urgente)
+  function getPeriodoUrgenteExp(arr){return arr.find(f=>!f.programado)||null;}
+  function getStatusExp(arr){
+    const p=getPeriodoUrgenteExp(arr);if(!p)return'ok';
+    const lim=parseDate(p.dt_limite_maxima);
+    if(lim&&lim<hoje)return'vencida';
+    if(lim){const d=Math.floor((lim-hoje)/86400000);if(d>=0&&d<=60)return'vencendo';}
+    return'ok';
+  }
+
+  let listaAlerta=Object.values(byMat).filter(arr=>['vencida','vencendo'].includes(getStatusExp(arr)));
+
+  // Aplicar filtro de obra ativo na tela
+  if(feriasObraFiltro)listaAlerta=listaAlerta.filter(arr=>arr[0].funcionario?.obra?.codigo===feriasObraFiltro);
+
+  // Ordenar: vencidas → vencendo → data mais próxima
+  listaAlerta.sort((a,b)=>{
+    const ord={vencida:0,vencendo:1};
+    const sa=ord[getStatusExp(a)]??1,sb=ord[getStatusExp(b)]??1;
+    if(sa!==sb)return sa-sb;
+    const la=parseDate(getPeriodoUrgenteExp(a)?.dt_limite_maxima)||new Date(9999,0);
+    const lb=parseDate(getPeriodoUrgenteExp(b)?.dt_limite_maxima)||new Date(9999,0);
+    return la-lb;
+  });
+
+  if(!listaAlerta.length){showToast('Nenhum funcionário em alerta para exportar.','error');return;}
+
+  // Agrupar por obra para abas separadas
+  const porObra={};
+  listaAlerta.forEach(arr=>{
+    const obraKey=arr[0].funcionario?.obra?.codigo
+      ?`${arr[0].funcionario.obra.codigo} — ${arr[0].funcionario.obra.nome||''}`.trim()
+      :'Sem Obra';
+    if(!porObra[obraKey])porObra[obraKey]=[];
+    porObra[obraKey].push(arr);
+  });
+
+  const wb=XLSX.utils.book_new();
+  const dataEmissao=new Date().toLocaleDateString('pt-BR');
+
+  Object.entries(porObra).forEach(([obraKey,funcs])=>{
+    const rows=[];
+
+    // Cabeçalho do relatório
+    rows.push([`RELATÓRIO DE FÉRIAS EM ALERTA — ${obraKey.toUpperCase()}`,'','','','','','','','','']);
+    rows.push([`Emitido em: ${dataEmissao}  ·  ${funcs.length} funcionário(s) em alerta`,'','','','','','','','','']);
+    rows.push([]);
+
+    // Cabeçalho da tabela
+    rows.push([
+      'FUNCIONÁRIO','MATRÍCULA','CENTRO DE CUSTO',
+      'PER. AQUISITIVO URGENTE','LIMITE MÁX. LEGAL','DIAS RESTANTES','STATUS',
+      '2º PERÍODO (se houver)','LIMITE MÁX. 2º PER.',
+      'PROGRAMAÇÃO'
+    ]);
+
+    funcs.forEach(arr=>{
+      const f0=arr[0];
+      const nome=f0.funcionario?.nome_completo||f0.matricula||'—';
+      const mat=f0.matricula||'—';
+      const cc=f0.funcionario?.obra?.centro_custo||'—';
+      const per1=arr[0];
+      const per2=arr[1]||null;
+      const pUrgente=getPeriodoUrgenteExp(arr);
+      const limMax=parseDate(pUrgente?.dt_limite_maxima);
+      const dM=limMax?Math.floor((limMax-hoje)/86400000):null;
+      const status=dM===null?'—':dM<0?`VENCIDA (${Math.abs(dM)}d atrás)`:`VENCENDO (${dM}d)`;
+      const perAquiUrgente=pUrgente?`${formatDate(pUrgente.periodo_aquisitivo_inicio)} → ${formatDate(pUrgente.periodo_aquisitivo_fim)}`:'—';
+
+      // 2º período
+      const per2Str=per2?`${formatDate(per2.periodo_aquisitivo_inicio)} → ${formatDate(per2.periodo_aquisitivo_fim)}`:'—';
+      const per2Lim=per2?formatDate(per2.dt_limite_maxima):'—';
+
+      // Programação
+      const prog=arr.filter(f=>f.programado).map(f=>`${f.dias_programados||'?'}d: ${formatDate(f.data_inicio_programada)} → ${formatDate(f.data_fim_programada)}`).join(' | ')||'Não programada';
+
+      rows.push([nome,mat,cc,perAquiUrgente,formatDate(limMax),dM===null?'—':dM<0?`${Math.abs(dM)}d atrás`:`${dM}d`,status,per2Str,per2Lim,prog]);
+    });
+
+    const ws=XLSX.utils.aoa_to_sheet(rows);
+
+    // Larguras das colunas
+    ws['!cols']=[{wch:32},{wch:12},{wch:16},{wch:26},{wch:18},{wch:14},{wch:22},{wch:26},{wch:18},{wch:34}];
+
+    // Mesclar título
+    ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:9}},{s:{r:1,c:0},e:{r:1,c:9}}];
+
+    // Nome da aba: máx 31 chars, sem caracteres inválidos
+    const abaName=obraKey.replace(/[\\/:?*[\]]/g,'').substring(0,31);
+    XLSX.utils.book_append_sheet(wb,ws,abaName||'Obras');
+  });
+
+  // Aba resumo se houver múltiplas obras
+  if(Object.keys(porObra).length>1){
+    const resumoRows=[
+      [`RESUMO GERAL — FÉRIAS EM ALERTA`,'','',''],
+      [`Emitido em: ${dataEmissao}`,'','',''],
+      [],
+      ['OBRA / C. CUSTO','VENCIDAS','VENCENDO 60d','TOTAL ALERTA'],
+    ];
+    Object.entries(porObra).forEach(([obraKey,funcs])=>{
+      const venc=funcs.filter(a=>getStatusExp(a)==='vencida').length;
+      const vendo=funcs.filter(a=>getStatusExp(a)==='vencendo').length;
+      resumoRows.push([obraKey,venc,vendo,venc+vendo]);
+    });
+    const wsRes=XLSX.utils.aoa_to_sheet(resumoRows);
+    wsRes['!cols']=[{wch:40},{wch:12},{wch:14},{wch:14}];
+    wsRes['!merges']=[{s:{r:0,c:0},e:{r:0,c:3}},{s:{r:1,c:0},e:{r:1,c:3}}];
+    XLSX.utils.book_append_sheet(wb,wsRes,'RESUMO');
+  }
+
+  const obraLabel=feriasObraFiltro?`_${feriasObraFiltro}`:'_TodasObras';
+  XLSX.writeFile(wb,`Ferias_Alerta${obraLabel}_${dataEmissao.replace(/\//g,'-')}.xlsx`);
+  showToast(`Excel exportado — ${listaAlerta.length} funcionário(s) em alerta!`);
 }
 
 function exportFeriasPDF(){
