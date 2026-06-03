@@ -2390,7 +2390,10 @@ function closeModal(id){
 }
 
 
-// ─── ALOJAMENTOS ─────────────────────────────────────────────────────────────
+function insertModal(id,html){
+  const old=document.getElementById(id);if(old)old.remove();
+  document.body.insertAdjacentHTML('beforeend',`<div class="modal-overlay" id="${id}" onclick="if(event.target===this)closeModal('${id}')">${html}</div>`);
+}
 
 function renderAlojamentos(){
   const hoje=new Date();hoje.setHours(0,0,0,0);
