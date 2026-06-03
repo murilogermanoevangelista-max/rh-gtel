@@ -659,7 +659,10 @@ function renderFuncionarios(){
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div><div class="page-title">Funcionários</div><div class="page-subtitle">${lista.length} de ${funcionarios.length} registros</div></div>
-      <button class="btn btn-primary" onclick="openModalFuncionario()"><i class="ti ti-plus"></i> Novo funcionário</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="exportFuncionariosExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
+        <button class="btn btn-primary" onclick="openModalFuncionario()"><i class="ti ti-plus"></i> Novo funcionário</button>
+      </div>
     </div>
     <div class="filters">
       <div class="search-box"><i class="ti ti-search"></i>
@@ -680,6 +683,49 @@ function renderFuncionarios(){
       <thead><tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Empresa</th><th>Admissão</th><th>Situação</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
+}
+
+function exportFuncionariosExcel(){
+  const hoje=new Date();
+  const dataEmissao=hoje.toLocaleDateString('pt-BR');
+
+  // Usar a lista filtrada atual (respeita busca, situação e obra)
+  let lista=funcionarios;
+  if(filtroSituacao)lista=lista.filter(f=>f.situacao===filtroSituacao);
+  if(filtroObra)lista=lista.filter(f=>f.obra_id===filtroObra);
+  if(busca)lista=lista.filter(f=>f.nome_completo?.toLowerCase().includes(busca.toLowerCase())||f.matricula?.includes(busca));
+
+  if(!lista.length){showToast('Nenhum funcionário para exportar.','error');return;}
+
+  // Título dinâmico conforme filtros ativos
+  const obraLabel=filtroObra?obras.find(o=>o.id===filtroObra)?.codigo||'':'Todas as Obras';
+  const situLabel=filtroSituacao?filtroSituacao.charAt(0).toUpperCase()+filtroSituacao.slice(1):'Todas Situações';
+
+  const rows=[];
+  rows.push([`LISTA DE EFETIVO — GTEL`,'','','','','']);
+  rows.push([`Emitido em: ${dataEmissao}  ·  ${obraLabel}  ·  ${situLabel}  ·  ${lista.length} funcionário(s)`,'','','','','']);
+  rows.push([]);
+  rows.push(['NOME','MATRÍCULA','FUNÇÃO','OBRA / CONTRATO','EMPRESA','ADMISSÃO','SITUAÇÃO']);
+
+  lista.forEach(f=>{
+    const funcao=f.funcao?.nome||f.funcao_manual||'—';
+    const obra=f.obra?.codigo?`${f.obra.codigo} — ${f.obra.nome||''}`.trim():f.obra?.nome||'—';
+    const empresa=f.empresa?.nome||'—';
+    const admissao=f.data_admissao?new Date(f.data_admissao+'T12:00:00').toLocaleDateString('pt-BR'):'—';
+    const situacao=f.situacao?f.situacao.charAt(0).toUpperCase()+f.situacao.slice(1):'—';
+    rows.push([f.nome_completo||'—',f.matricula||'—',funcao,obra,empresa,admissao,situacao]);
+  });
+
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[{wch:36},{wch:12},{wch:30},{wch:30},{wch:36},{wch:14},{wch:14}];
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:6}},{s:{r:1,c:0},e:{r:1,c:6}}];
+
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Efetivo');
+
+  const sufixo=filtroObra?`_${obras.find(o=>o.id===filtroObra)?.codigo||'filtro'}`:'';
+  XLSX.writeFile(wb,`Efetivo_GTEL${sufixo}_${dataEmissao.replace(/\//g,'-')}.xlsx`);
+  showToast(`Excel exportado — ${lista.length} funcionário(s)!`);
 }
 
 // ─── FICHA DO FUNCIONÁRIO ─────────────────────────────────────────────────────
