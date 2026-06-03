@@ -486,19 +486,19 @@ async function renderDashboard(){
       </div>
     </div>`).join('')||'<div style="color:var(--text-muted);font-size:13px;padding:12px 0">Nenhuma pendente</div>';
 
-  // Próximas férias (60 dias)
+  // Próximas férias (60 dias) — baseado no Limite Máx. Legal
   const proximasFerias=[];
   feriasData.forEach(f=>{
-    const lim1=parseDate(f.dt_limite_ideal);
-    const lim2=parseDate(f.dt_limite_maxima);
-    [lim1,lim2].forEach((lim,idx)=>{
-      if(!lim)return;
-      if(f.programado)return;
-      const diff=Math.floor((lim-hoje)/86400000);
-      if(diff>=0&&diff<=60){
-        proximasFerias.push({nome:f.funcionario?.nome_completo||f.matricula,mat:f.matricula,lim,diff,per:idx+1});
-      }
-    });
+    const limMax=parseDate(f.dt_limite_maxima);
+    if(!limMax)return;
+    if(f.programado)return;
+    const diff=Math.floor((limMax-hoje)/86400000);
+    if(diff>=0&&diff<=60){
+      // descobrir se é 1º ou 2º período
+      const byMatArr=feriasData.filter(x=>x.matricula===f.matricula).sort((a,b)=>(parseDate(a.periodo_aquisitivo_inicio)||new Date(0))-(parseDate(b.periodo_aquisitivo_inicio)||new Date(0)));
+      const per=byMatArr.indexOf(f)+1;
+      proximasFerias.push({nome:f.funcionario?.nome_completo||f.matricula,mat:f.matricula,lim:limMax,diff,per});
+    }
   });
   proximasFerias.sort((a,b)=>a.diff-b.diff);
   const feriasRows=proximasFerias.slice(0,6).map(f=>`
@@ -617,13 +617,11 @@ function calcFeriasStats(data,hoje){
   let feriasVencidas=0,feriasVencendo60=0,feriasProgTotal=0;
   data.forEach(f=>{
     if(f.programado)feriasProgTotal++;
-    const lim1=parseDate(f.dt_limite_ideal);
-    const lim2=parseDate(f.dt_limite_maxima);
-    // Vencido = passou dt_limite_maxima sem programação
-    if(lim2&&lim2<hoje&&!f.programado)feriasVencidas++;
-    else if(lim1&&!f.programado){
-      const diff=Math.floor((lim1-hoje)/86400000);
-      if(diff>=0&&diff<=60)feriasVencendo60++;
+    const limMax=parseDate(f.dt_limite_maxima);
+    if(!f.programado&&limMax){
+      const diff=Math.floor((limMax-hoje)/86400000);
+      if(diff<0)feriasVencidas++;
+      else if(diff<=60)feriasVencendo60++;
     }
   });
   return{feriasVencidas,feriasVencendo60,feriasProgTotal};
@@ -1392,20 +1390,21 @@ async function renderFerias(){
     if(arr.some(f=>f.programado))progCount++;
     if(arr.some(f=>!f.programado))naoProgCount++;
     const p1=arr[0],p2=arr[1];
-    // 1º período
+    // 1º período — alerta pelo Limite Máx. Legal
     if(p1&&!p1.programado){
-      const lim=parseDate(p1.dt_limite_ideal);
-      if(lim){const d=Math.floor((lim-hoje)/86400000);
-        if(d<0)per1Vencidas++;else if(d<=60)per1Vencendo60++;}
       const limMax=parseDate(p1.dt_limite_maxima);
-      if(limMax&&limMax<hoje)alertaVencidas++;
-      else if(lim){const d=Math.floor((lim-hoje)/86400000);if(d>=0&&d<=30)alertaVencendo30++;}
+      if(limMax){const d=Math.floor((limMax-hoje)/86400000);
+        if(d<0){per1Vencidas++;alertaVencidas++;}
+        else if(d<=60){per1Vencendo60++;alertaVencendo30++;}
+      }
     }
-    // 2º período
+    // 2º período — alerta pelo Limite Máx. Legal
     if(p2&&!p2.programado){
-      const lim=parseDate(p2.dt_limite_ideal);
-      if(lim){const d=Math.floor((lim-hoje)/86400000);
-        if(d<0)per2Vencidas++;else if(d<=60)per2Vencendo60++;}
+      const limMax=parseDate(p2.dt_limite_maxima);
+      if(limMax){const d=Math.floor((limMax-hoje)/86400000);
+        if(d<0){per2Vencidas++;alertaVencidas++;}
+        else if(d<=60){per2Vencendo60++;alertaVencendo30++;}
+      }
     }
   });
 
@@ -1414,8 +1413,7 @@ async function renderFerias(){
     const p=arr.find(f=>!f.programado);if(!p)return'ok';
     const limMax=parseDate(p.dt_limite_maxima);
     if(limMax&&limMax<hoje)return'vencida';
-    const limId=parseDate(p.dt_limite_ideal);
-    if(limId){const d=Math.floor((limId-hoje)/86400000);if(d>=0&&d<=60)return'vencendo';}
+    if(limMax){const d=Math.floor((limMax-hoje)/86400000);if(d>=0&&d<=60)return'vencendo';}
     return'ok';
   }
 
@@ -1428,10 +1426,10 @@ async function renderFerias(){
   if(feriasObraFiltro)listaFuncs=listaFuncs.filter(arr=>arr[0].funcionario?.obra?.codigo===feriasObraFiltro);
   if(feriasFiltro==='programado')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>f.programado));
   if(feriasFiltro==='naoprog')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>!f.programado));
-  if(feriasFiltro==='per1vencida')listaFuncs=listaFuncs.filter(arr=>{const p=arr[0];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_ideal);return l&&l<hoje;});
-  if(feriasFiltro==='per1vencendo')listaFuncs=listaFuncs.filter(arr=>{const p=arr[0];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_ideal);if(!l)return false;const d=Math.floor((l-hoje)/86400000);return d>=0&&d<=60;});
-  if(feriasFiltro==='per2vencida')listaFuncs=listaFuncs.filter(arr=>{const p=arr[1];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_ideal);return l&&l<hoje;});
-  if(feriasFiltro==='per2vencendo')listaFuncs=listaFuncs.filter(arr=>{const p=arr[1];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_ideal);if(!l)return false;const d=Math.floor((l-hoje)/86400000);return d>=0&&d<=60;});
+  if(feriasFiltro==='per1vencida')listaFuncs=listaFuncs.filter(arr=>{const p=arr[0];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);return l&&l<hoje;});
+  if(feriasFiltro==='per1vencendo')listaFuncs=listaFuncs.filter(arr=>{const p=arr[0];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);if(!l)return false;const d=Math.floor((l-hoje)/86400000);return d>=0&&d<=60;});
+  if(feriasFiltro==='per2vencida')listaFuncs=listaFuncs.filter(arr=>{const p=arr[1];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);return l&&l<hoje;});
+  if(feriasFiltro==='per2vencendo')listaFuncs=listaFuncs.filter(arr=>{const p=arr[1];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);if(!l)return false;const d=Math.floor((l-hoje)/86400000);return d>=0&&d<=60;});
 
   // Ordenar: vencidas → vencendo → ok
   const stOrd={vencida:0,vencendo:1,ok:2};
@@ -1452,44 +1450,31 @@ async function renderFerias(){
   const obrasUnicas=[...new Set(feriasData.map(f=>f.funcionario?.obra?.codigo).filter(Boolean))];
   const obraFilterOpts=obrasUnicas.map(c=>`<option value="${c}" ${feriasObraFiltro===c?'selected':''}>${c}</option>`).join('');
 
-  // Helper: bloco compacto de período
+  // Helper: bloco compacto de período — apenas Limite Máx. Legal
   function blocoPeríodo(f){
-    if(!f)return`<td colspan="2" style="text-align:center;color:var(--text-muted);font-size:12px">—</td>`;
-    const limIdeal=parseDate(f.dt_limite_ideal);
+    if(!f)return`<td style="text-align:center;color:var(--text-muted);font-size:12px;padding:8px 12px">—</td>`;
     const limMax=parseDate(f.dt_limite_maxima);
     const perAqui=`${formatDate(f.periodo_aquisitivo_inicio)} → ${formatDate(f.periodo_aquisitivo_fim)}`;
     const dias=f.dias_direito||30;
 
-    // Limite Ideal
-    const dI=limIdeal?Math.floor((limIdeal-hoje)/86400000):null;
-    const vencIdeal=limIdeal&&limIdeal<hoje&&!f.programado;
-    const warnIdeal=!vencIdeal&&dI!==null&&dI<=60&&!f.programado;
-    const corIdeal=f.programado?'var(--success)':vencIdeal?'var(--danger)':warnIdeal?'var(--warning)':'var(--text)';
-    const bgIdeal=f.programado?'var(--success-light)':vencIdeal?'var(--danger-light)':warnIdeal?'var(--warning-light)':'transparent';
-    const txtIdealCount=f.programado?'✓ Prog.':dI===null?'—':dI<0?`${Math.abs(dI)}d atrás`:`${dI}d`;
-
-    // Limite Máximo
     const dM=limMax?Math.floor((limMax-hoje)/86400000):null;
     const vencMax=limMax&&limMax<hoje&&!f.programado;
     const warnMax=!vencMax&&dM!==null&&dM<=60&&!f.programado;
-    const corMax=f.programado?'var(--success)':vencMax?'var(--danger)':warnMax?'var(--warning)':'var(--text-muted)';
-    const bgMax=f.programado?'var(--success-light)':vencMax?'var(--danger-light)':warnMax?'var(--warning-light)':'transparent';
-    const txtMaxCount=f.programado?'✓':dM===null?'—':dM<0?`${Math.abs(dM)}d atrás`:`${dM}d`;
+
+    const cor=f.programado?'var(--success)':vencMax?'var(--danger)':warnMax?'var(--warning)':'var(--text)';
+    const bg=f.programado?'var(--success-light)':vencMax?'var(--danger-light)':warnMax?'var(--warning-light)':'transparent';
+    const border=f.programado?'none':vencMax?'1px solid #FCA5A5':warnMax?'1px solid #FCD34D':'none';
+    const txtCount=f.programado?'✓ Prog.':dM===null?'—':dM<0?`${Math.abs(dM)}d atrás`:`${dM}d restantes`;
+    const icon=f.programado?'':vencMax?'⚠️ ':warnMax?'⏰ ':'';
 
     return`<td style="padding:8px 12px">
       <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;white-space:nowrap">${perAqui}</div>
-      <div style="background:${bgIdeal};border-radius:6px;padding:5px 8px;display:inline-block;min-width:110px">
-        <div style="font-size:12px;font-weight:700;color:${corIdeal}">${formatDate(limIdeal)||'—'}</div>
-        <div style="display:flex;align-items:center;gap:6px;margin-top:1px">
-          <span style="font-size:11px;font-weight:600;color:${corIdeal}">${txtIdealCount}</span>
+      <div style="background:${bg};border:${border};border-radius:6px;padding:6px 10px;display:inline-block;min-width:130px">
+        <div style="font-size:13px;font-weight:700;color:${cor}">${icon}${formatDate(limMax)||'—'}</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
+          <span style="font-size:11px;font-weight:600;color:${cor}">${txtCount}</span>
           <span style="font-size:10px;color:var(--text-muted)">${dias}d</span>
         </div>
-      </div>
-    </td><td style="padding:8px 12px">
-      <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">Máx. legal</div>
-      <div style="background:${bgMax};border-radius:6px;padding:5px 8px;display:inline-block;min-width:110px">
-        <div style="font-size:12px;font-weight:700;color:${corMax}">${formatDate(limMax)||'—'}</div>
-        <div style="font-size:11px;font-weight:600;color:${corMax};margin-top:1px">${txtMaxCount}</div>
       </div>
     </td>`;
   }
@@ -1520,7 +1505,7 @@ async function renderFerias(){
       </div></td>
       <td style="font-size:12px;white-space:nowrap">${obraFunc}</td>
       ${blocoPeríodo(per1)}
-      ${per2?blocoPeríodo(per2):`<td colspan="2" style="text-align:center;color:var(--text-muted);font-size:12px">—</td>`}
+      ${per2?blocoPeríodo(per2):`<td style="text-align:center;color:var(--text-muted);font-size:12px;padding:8px 12px">—</td>`}
       <td>${progResume}</td>
       <td>${btnProg}</td>
     </tr>`;
@@ -1602,20 +1587,18 @@ async function renderFerias(){
         <tr>
           <th rowspan="2" style="min-width:180px">Funcionário</th>
           <th rowspan="2">Obra / C. Custo</th>
-          <th colspan="2" style="text-align:center;background:#EFF6FF;color:#1E40AF;border-bottom:2px solid #BFDBFE;padding:8px">
-            1º Período Aquisitivo
+          <th style="text-align:center;background:#EFF6FF;color:#1E40AF;border-bottom:2px solid #BFDBFE;padding:8px;font-size:10px;font-weight:700;letter-spacing:.5px">
+            1º PERÍODO — LIMITE MÁX. LEGAL
           </th>
-          <th colspan="2" style="text-align:center;background:#FFF7ED;color:#C2410C;border-bottom:2px solid #FED7AA;padding:8px">
-            2º Período Aquisitivo
+          <th style="text-align:center;background:#FFF7ED;color:#C2410C;border-bottom:2px solid #FED7AA;padding:8px;font-size:10px;font-weight:700;letter-spacing:.5px">
+            2º PERÍODO — LIMITE MÁX. LEGAL
           </th>
           <th rowspan="2">Programação</th>
           <th rowspan="2"></th>
         </tr>
         <tr>
-          <th style="background:#EFF6FF;color:#1E40AF;font-size:10px;font-weight:700">Limite Ideal</th>
-          <th style="background:#EFF6FF;color:#1E40AF;font-size:10px;font-weight:700">Limite Máx. Legal</th>
-          <th style="background:#FFF7ED;color:#C2410C;font-size:10px;font-weight:700">Limite Ideal</th>
-          <th style="background:#FFF7ED;color:#C2410C;font-size:10px;font-weight:700">Limite Máx. Legal</th>
+          <th style="background:#EFF6FF;color:#1E40AF;font-size:10px;font-weight:600;padding:5px 12px">⚠️ Alerta 60 dias antes do vencimento</th>
+          <th style="background:#FFF7ED;color:#C2410C;font-size:10px;font-weight:600;padding:5px 12px">⚠️ Alerta 60 dias antes do vencimento</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
