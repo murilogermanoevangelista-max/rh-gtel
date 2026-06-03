@@ -2424,7 +2424,7 @@ function renderAlojamentos(){
     const diasTerm=termino?Math.floor((termino-hoje)/86400000):null;
     const termClass=diasTerm===null?'':diasTerm<0?'danger':diasTerm<=60?'warn':'ok';
     const contasMes=alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===hoje.getMonth()+1&&c.ano===hoje.getFullYear());
-    const totalMes=contasMes.reduce((s,c)=>s+Number(c.valor||0),0)+Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0);
+    const totalMes=contasMes.reduce((s,c)=>s+Number(c.valor||0),0)+Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0)+Number(a.caucao||0);
     const pendMes=contasMes.filter(c=>c.status==='pendente').length;
 
     return`<div class="aloj-card">
@@ -2523,6 +2523,7 @@ function openModalAlojamento(id){
           <div class="form-group"><label>Condomínio (R$)</label><input id="aloj-cond" type="number" step="0.01" value="${a?.condominio||''}"></div>
           <div class="form-group"><label>IPTU mensal (R$)</label><input id="aloj-iptu" type="number" step="0.01" value="${a?.iptu||''}"></div>
           <div class="form-group"><label>Seguro incêndio (R$)</label><input id="aloj-seguro" type="number" step="0.01" value="${a?.seguro||''}"></div>
+          <div class="form-group"><label>Caução (R$)</label><input id="aloj-caucao" type="number" step="0.01" value="${a?.caucao||''}"></div>
           <div class="form-group"><label>Início do contrato</label><input id="aloj-inicio" type="date" value="${a?.data_inicio||''}"></div>
           <div class="form-group"><label>Término do contrato</label><input id="aloj-termino" type="date" value="${a?.data_termino||''}"></div>
           <div class="form-group"><label>Prazo isenção multa (meses)</label><input id="aloj-isencao" type="number" value="${a?.isencao_meses||''}"></div>
@@ -2590,6 +2591,7 @@ async function saveAlojamento(id){
     condominio:parseBRL(document.getElementById('aloj-cond').value),
     iptu:parseBRL(document.getElementById('aloj-iptu').value),
     seguro:parseBRL(document.getElementById('aloj-seguro').value),
+    caucao:parseBRL(document.getElementById('aloj-caucao').value),
     data_inicio:document.getElementById('aloj-inicio').value||null,
     data_termino:document.getElementById('aloj-termino').value||null,
     isencao_meses:parseInt(document.getElementById('aloj-isencao').value)||null,
