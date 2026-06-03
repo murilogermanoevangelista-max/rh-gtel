@@ -326,8 +326,6 @@ async function loadAll(){
     sb.from('funcoes').select('*').order('nome'),
   ]);
   funcionarios=f.data||[];obras=o.data||[];empresas=e.data||[];funcoes=fn.data||[];
-  // Garantir alojamentos carregados para contagem de moradores
-  if(!alojamentos.length)await loadAlojamentos();
 }
 
 async function loadFolgas(){
@@ -2400,10 +2398,10 @@ function insertModal(id,html){
 function renderAlojamentos(){
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const totalVagas=alojamentos.reduce((s,a)=>s+(a.vagas_total||0),0);
-  const totalOcup=funcionarios.filter(f=>f.alojamento_id&&f.situacao==='ativo').reduce((s,_)=>s+1,0);
+  const totalOcup=funcionarios.filter(f=>f.alojamento_id&&f.situacao!=='inativo').length;
   const totalDisp=totalVagas-totalOcup;
-  const totalAluguel=alojamentos.reduce((s,a)=>s+(a.custo_mensal||0),0);
-  const totalContas=alojamentosContas.filter(c=>c.mes===hoje.getMonth()+1&&c.ano===hoje.getFullYear()).reduce((s,c)=>s+(c.valor||0),0);
+  const totalAluguel=alojamentos.reduce((s,a)=>s+Number(a.custo_mensal||0),0);
+  const totalContas=alojamentosContas.filter(c=>c.mes===hoje.getMonth()+1&&c.ano===hoje.getFullYear()).reduce((s,c)=>s+Number(c.valor||0),0);
   const contasPend=alojamentosContas.filter(c=>c.status==='pendente'&&c.mes===hoje.getMonth()+1&&c.ano===hoje.getFullYear()).length;
 
   // Vencimentos próximos (60 dias)
@@ -2411,7 +2409,7 @@ function renderAlojamentos(){
   const vencidos=alojamentos.filter(a=>{const d=parseDate(a.data_termino);return d&&d<hoje;}).length;
 
   const cards=alojamentos.map(a=>{
-    const moradores=funcionarios.filter(f=>f.alojamento_id===a.id&&f.situacao==='ativo');
+    const moradores=funcionarios.filter(f=>f.alojamento_id===a.id&&f.situacao!=='inativo');
     const ocup=moradores.length;
     const total=a.vagas_total||0;
     const disp=total-ocup;
