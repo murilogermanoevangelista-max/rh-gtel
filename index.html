@@ -363,8 +363,8 @@ async function showPage(page){
   });
   document.getElementById('main-content').innerHTML='<div class="loading"><i class="ti ti-loader ti-spin"></i> Carregando...</div>';
   await loadAll();
-  if(page==='dashboard')await renderDashboard();
-  else if(page==='funcionarios'){_funcPageRendered=false;renderFuncionarios();}
+  if(page==='dashboard')renderDashboard();
+  else if(page==='funcionarios')renderFuncionarios();
   else if(page==='experiencia')renderExperiencia();
   else if(page==='folgas')renderFolgas();
   else if(page==='ferias')renderFerias();
@@ -2793,7 +2793,7 @@ function exportAlojamentosExcel(){
 }
 
 // Init
-window.onload = function(){ showPage('dashboard'); };
+showPage('dashboard');
 </script>
 </body>
 </html>
