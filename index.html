@@ -374,7 +374,6 @@ async function showPage(page){
 
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
 async function renderDashboard(){
-  try{
   await loadFolgas();
   await loadFerias();
   const hoje=new Date();hoje.setHours(0,0,0,0);
@@ -639,15 +638,6 @@ async function renderDashboard(){
       </div>
     </div>
   `;
-  }catch(err){
-    console.error('Erro no Dashboard:',err);
-    document.getElementById('main-content').innerHTML=`
-      <div style="padding:40px;text-align:center;color:var(--danger)">
-        <i class="ti ti-alert-triangle" style="font-size:48px;display:block;margin-bottom:12px;opacity:.5"></i>
-        <div style="font-weight:600;margin-bottom:6px">Erro ao carregar o Dashboard</div>
-        <div style="font-size:12px;color:var(--text-muted)">${err.message}</div>
-      </div>`;
-  }
 }
 
 function calcFeriasStats(data,hoje){
@@ -720,7 +710,7 @@ function renderFuncionarios(){
       <thead><tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Empresa</th><th>Admissão</th><th>Situação</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
-
+}
 
 function exportFuncionariosExcel(){
   const hoje=new Date();
