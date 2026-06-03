@@ -829,6 +829,7 @@ function verFicha(id){
               <div class="ficha-field"><div class="ficha-field-label">Função</div><div class="ficha-field-value">${funcaoNome}</div></div>
               <div class="ficha-field"><div class="ficha-field-label">Empresa</div><div class="ficha-field-value">${f.empresa?.nome||'—'}</div></div>
               <div class="ficha-field"><div class="ficha-field-label">Obra / Contrato</div><div class="ficha-field-value">${f.obra?.codigo?f.obra.codigo+' ':''} ${f.obra?.nome||'—'}</div></div>
+              <div class="ficha-field"><div class="ficha-field-label">Alojamento</div><div class="ficha-field-value">${alojamentos.find(a=>a.id===f.alojamento_id)?.nome||'—'}</div></div>
               <div class="ficha-field"><div class="ficha-field-label">Data de Admissão</div><div class="ficha-field-value">${formatDate(f.data_admissao)}</div></div>
               <div class="ficha-field"><div class="ficha-field-label">Data de Integração</div><div class="ficha-field-value">${formatDate(f.data_mobilizacao)}</div></div>
               <div class="ficha-field"><div class="ficha-field-label">Situação</div><div class="ficha-field-value">${f.situacao?.charAt(0).toUpperCase()+f.situacao?.slice(1)||'—'}</div></div>
@@ -997,6 +998,12 @@ function openModalFuncionario(func=null){
           </div>
           <div class="form-group"><label>Empresa</label><select id="f-empresa"><option value="">Selecione...</option>${empresaOptions}</select></div>
           <div class="form-group"><label>Obra / Contrato</label><select id="f-obra"><option value="">Selecione...</option>${obraOptions}</select></div>
+          <div class="form-group"><label>Alojamento</label>
+            <select id="f-alojamento">
+              <option value="">— Nenhum —</option>
+              ${alojamentos.map(a=>`<option value="${a.id}" ${func?.alojamento_id===a.id?'selected':''}>${a.nome}${a.obra?.codigo?' ('+a.obra.codigo+')':''}</option>`).join('')}
+            </select>
+          </div>
           <div class="form-group"><label>Cidade</label><input id="f-cidade" value="${func?.cidade||''}" placeholder="Mogi Guaçu"></div>
           <div class="form-group"><label>UF</label><select id="f-uf"><option value="">—</option>${UFS.map(u=>`<option value="${u}" ${func?.uf===u?'selected':''}>${u}</option>`).join('')}</select></div>
           <!-- TRANSFERÊNCIA -->
@@ -1075,6 +1082,7 @@ async function saveFuncionario(id){
     funcao_id:funcaoId,funcao_manual:funcaoManual,
     empresa_id:document.getElementById('f-empresa').value||null,
     obra_id:document.getElementById('f-obra').value||null,
+    alojamento_id:document.getElementById('f-alojamento').value||null,
     cidade:document.getElementById('f-cidade').value.trim()||null,
     uf:document.getElementById('f-uf').value||null,
     observacao_interna:document.getElementById('f-obs').value.trim()||null,
