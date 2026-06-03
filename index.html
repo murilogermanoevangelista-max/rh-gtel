@@ -362,7 +362,7 @@ async function showPage(page){
   });
   document.getElementById('main-content').innerHTML='<div class="loading"><i class="ti ti-loader ti-spin"></i> Carregando...</div>';
   await loadAll();
-  if(page==='dashboard')renderDashboard();
+  if(page==='dashboard')await renderDashboard();
   else if(page==='funcionarios'){_funcPageRendered=false;renderFuncionarios();}
   else if(page==='experiencia')renderExperiencia();
   else if(page==='folgas')renderFolgas();
@@ -2793,8 +2793,8 @@ function exportAlojamentosExcel(){
   showToast('Excel exportado!');
 }
 
-// Init — aguarda loadAll antes de renderizar
-(async()=>{ await loadAll(); showPage('dashboard'); })();
+// Init
+showPage('dashboard');
 </script>
 </body>
 </html>
