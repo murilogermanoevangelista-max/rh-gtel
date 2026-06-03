@@ -362,12 +362,15 @@ async function showPage(page){
   });
   document.getElementById('main-content').innerHTML='<div class="loading"><i class="ti ti-loader ti-spin"></i> Carregando...</div>';
   await loadAll();
-  if(page==='dashboard'){await loadFolgas();await loadFerias();renderDashboard();}
+  await loadFolgas();
+  await loadFerias();
+  await loadAlojamentos();
+  if(page==='dashboard')renderDashboard();
   else if(page==='funcionarios'){_funcPageRendered=false;renderFuncionarios();}
   else if(page==='experiencia')renderExperiencia();
   else if(page==='folgas')renderFolgas();
   else if(page==='ferias')renderFerias();
-  else if(page==='alojamentos'){await loadAlojamentos();renderAlojamentos();}
+  else if(page==='alojamentos')renderAlojamentos();
   else if(page==='obras')renderObras();
   else if(page==='empresas')renderEmpresas();
 }
