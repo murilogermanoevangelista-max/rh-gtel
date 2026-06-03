@@ -362,7 +362,7 @@ async function showPage(page){
   });
   document.getElementById('main-content').innerHTML='<div class="loading"><i class="ti ti-loader ti-spin"></i> Carregando...</div>';
   await loadAll();
-  if(page==='dashboard')renderDashboard();
+  if(page==='dashboard'){await loadFolgas();await loadFerias();renderDashboard();}
   else if(page==='funcionarios'){_funcPageRendered=false;renderFuncionarios();}
   else if(page==='experiencia')renderExperiencia();
   else if(page==='folgas')renderFolgas();
@@ -374,8 +374,6 @@ async function showPage(page){
 
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
 async function renderDashboard(){
-  await loadFolgas();
-  await loadFerias();
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const ativos=funcionarios.filter(f=>f.situacao==='ativo'||f.situacao==='transferido').length;
   const inativos=funcionarios.filter(f=>f.situacao==='inativo').length;
