@@ -347,8 +347,6 @@ async function loadAlojamentos(){
 }
 
 async function showPage(page){
-  // Garantir que supabase está pronto
-  if(!sb){setTimeout(()=>showPage(page),100);return;}
   document.querySelectorAll('.nav-item').forEach(el=>{
     const t=el.textContent.trim().toLowerCase();
     el.classList.toggle('active',
@@ -364,7 +362,7 @@ async function showPage(page){
   });
   document.getElementById('main-content').innerHTML='<div class="loading"><i class="ti ti-loader ti-spin"></i> Carregando...</div>';
   await loadAll();
-  if(page==='dashboard')await renderDashboard();
+  if(page==='dashboard')renderDashboard();
   else if(page==='funcionarios'){_funcPageRendered=false;renderFuncionarios();}
   else if(page==='experiencia')renderExperiencia();
   else if(page==='folgas')renderFolgas();
