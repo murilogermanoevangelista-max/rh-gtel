@@ -2795,7 +2795,11 @@ function exportAlojamentosExcel(){
 }
 
 // Init
-showPage('dashboard');
+document.getElementById('main-content').innerHTML='<div class="loading"><i class="ti ti-loader ti-spin"></i> Carregando...</div>';
+loadAll().then(()=>loadFolgas()).then(()=>loadFerias()).then(()=>loadAlojamentos()).then(()=>{
+  document.querySelector('.nav-item').classList.add('active');
+  renderDashboard();
+});
 </script>
 </body>
 </html>
