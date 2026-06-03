@@ -2754,13 +2754,13 @@ function exportAlojamentosExcel(){
   rows.push([]);
   rows.push(['NOME','ENDEREÇO','OBRA','VAGAS','OCUPADAS','DISPONÍVEIS','ALUGUEL','INÍCIO','TÉRMINO','IMOBILIÁRIA']);
   alojamentos.forEach(a=>{
-    const ocup=funcionarios.filter(f=>f.alojamento_id===a.id&&f.situacao==='ativo').length;
+    const ocup=funcionarios.filter(f=>f.alojamento_id===a.id&&f.situacao!=='inativo').length;
     rows.push([a.nome||'—',a.endereco||'—',a.obra?.codigo||'—',a.vagas_total||0,ocup,(a.vagas_total||0)-ocup,a.custo_mensal||0,formatDate(a.data_inicio),formatDate(a.data_termino),a.imobiliaria||'—']);
   });
   rows.push([]);
   rows.push(['MORADORES POR ALOJAMENTO','','','','','','','','','']);
   alojamentos.forEach(a=>{
-    const moradores=funcionarios.filter(f=>f.alojamento_id===a.id&&f.situacao==='ativo');
+    const moradores=funcionarios.filter(f=>f.alojamento_id===a.id&&f.situacao!=='inativo');
     if(moradores.length){
       rows.push([a.nome,'NOME','MATRÍCULA','FUNÇÃO','','','','','','']);
       moradores.forEach((f,i)=>rows.push(['',f.nome_completo,f.matricula,f.funcao?.nome||'—','','','','','','']));
