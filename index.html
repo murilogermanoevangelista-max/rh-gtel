@@ -340,7 +340,7 @@ async function loadFerias(){
 
 async function loadAlojamentos(){
   const [a,c]=await Promise.all([
-    sb.from('alojamentos').select('*,obra:obras(nome,codigo)').order('nome'),
+    sb.from('alojamentos').select('*,moradores_avulsos,obra:obras(nome,codigo)').order('nome'),
     sb.from('alojamentos_contas').select('*').order('ano desc,mes desc'),
   ]);
   alojamentos=a.data||[];alojamentosContas=c.data||[];
@@ -2915,10 +2915,15 @@ async function addAvulso(alojId){
   const obs=document.getElementById('avulso-obs').value.trim();
   const a=alojamentos.find(x=>String(x.id)===String(alojId));
   const avulsos=[...(a?.moradores_avulsos||[]),{nome,obs}];
-  const{error}=await sb.from('alojamentos').update({moradores_avulsos:avulsos}).eq('id',alojId);
+  const{error,data}=await sb.from('alojamentos').update({moradores_avulsos:avulsos}).eq('id',alojId).select();
   if(error){showToast('Erro: '+error.message,'error');return;}
+  // Atualiza array local imediatamente sem esperar reload
+  const idx=alojamentos.findIndex(x=>String(x.id)===String(alojId));
+  if(idx>=0)alojamentos[idx]={...alojamentos[idx],moradores_avulsos:avulsos};
   showToast('Prestador adicionado!');
-  await loadAlojamentos();closeModal('modal-moradores');openModalMoradores(alojId);renderAlojamentos();
+  closeModal('modal-moradores');
+  openModalMoradores(alojId);
+  renderAlojamentos();
 }
 
 async function removeAvulso(alojId,idx){
@@ -2926,8 +2931,13 @@ async function removeAvulso(alojId,idx){
   const avulsos=(a?.moradores_avulsos||[]).filter((_,i)=>i!==idx);
   const{error}=await sb.from('alojamentos').update({moradores_avulsos:avulsos}).eq('id',alojId);
   if(error){showToast('Erro: '+error.message,'error');return;}
+  // Atualiza array local imediatamente
+  const ai=alojamentos.findIndex(x=>String(x.id)===String(alojId));
+  if(ai>=0)alojamentos[ai]={...alojamentos[ai],moradores_avulsos:avulsos};
   showToast('Removido.');
-  await loadAlojamentos();closeModal('modal-moradores');openModalMoradores(alojId);renderAlojamentos();
+  closeModal('modal-moradores');
+  openModalMoradores(alojId);
+  renderAlojamentos();
 }
 
 async function saveObsAlojamento(alojId){
