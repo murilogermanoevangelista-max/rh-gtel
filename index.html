@@ -133,6 +133,28 @@ input:focus,select:focus{border-color:var(--primary)}
 .filters{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
 .filter-select{padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text);outline:none}
 @media(max-width:768px){.sidebar{display:none}.main{margin-left:0}.form-grid{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}.ficha-grid{grid-template-columns:1fr}}
+/* LOGIN */
+#login-screen{position:fixed;inset:0;z-index:9999;background:#1a1a2e;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#login-screen .login-bg{position:absolute;inset:0;background:linear-gradient(135deg,#0a2e1a 0%,#1a3a2a 50%,#0d1f1a 100%);opacity:1}
+#login-screen .login-box{position:relative;background:#fff;border-radius:16px;padding:40px 36px;width:100%;max-width:400px;box-shadow:0 24px 80px rgba(0,0,0,.5)}
+#login-screen .login-logo{text-align:center;margin-bottom:8px;font-size:28px;font-weight:800;color:#0F6E56}
+#login-screen .login-title{text-align:center;font-size:18px;font-weight:700;color:#1a1a1a;margin-bottom:4px}
+#login-screen .login-sub{text-align:center;font-size:13px;color:#6B7280;margin-bottom:28px}
+#login-screen .login-field{margin-bottom:16px}
+#login-screen .login-field label{display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:6px}
+#login-screen .login-field input{width:100%;padding:10px 14px;border:1.5px solid #E5E7EB;border-radius:8px;font-size:14px;outline:none;transition:border .15s;color:#1a1a1a}
+#login-screen .login-field input:focus{border-color:#1D9E75}
+#login-screen .login-btn{width:100%;padding:12px;background:#0F6E56;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px;transition:background .15s}
+#login-screen .login-btn:hover{background:#0a5240}
+#login-screen .login-error{background:#FEE2E2;color:#991B1B;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:16px;display:none;text-align:center}
+#login-screen .login-footer{text-align:center;font-size:11px;color:#9CA3AF;margin-top:24px}
+.sidebar-user{padding:10px 16px;border-top:1px solid var(--border);font-size:12px;display:flex;align-items:center;gap:8px;cursor:pointer}
+.sidebar-user:hover{background:var(--bg)}
+.sidebar-user-avatar{width:30px;height:30px;border-radius:50%;background:var(--primary-light);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--primary-dark);flex-shrink:0}
+.sidebar-user-name{font-weight:600;color:var(--text);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sidebar-user-role{font-size:10px;color:var(--text-muted)}
+.user-badge-admin{background:#FEE2E2;color:#991B1B;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+.user-badge-usuario{background:#DBEAFE;color:#1E40AF;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
 /* EXPERIÊNCIA */
 .exp-alert{border-radius:var(--radius-lg);padding:16px 20px;display:flex;align-items:center;gap:16px;margin-bottom:20px;border:1px solid}
 .exp-alert.danger{background:#FFF5F5;border-color:#FED7D7;color:#C53030}
@@ -236,6 +258,20 @@ input:focus,select:focus{border-color:var(--primary)}
 </style>
 </head>
 <body>
+<!-- LOGIN SCREEN -->
+<div id="login-screen">
+  <div class="login-bg"></div>
+  <div class="login-box">
+    <div class="login-logo"><i class="ti ti-building-factory" style="font-size:40px;color:#0F6E56"></i></div>
+    <div class="login-title">RH Manager</div>
+    <div class="login-sub">GTEL — Gestão de Colaboradores</div>
+    <div class="login-error" id="login-error">Usuário ou senha incorretos.</div>
+    <div class="login-field"><label>Usuário</label><input id="login-usuario" type="text" placeholder="Digite seu usuário" autocomplete="username" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <div class="login-field"><label>Senha</label><input id="login-senha" type="password" placeholder="Digite sua senha" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <button class="login-btn" onclick="doLogin()"><i class="ti ti-login"></i> Entrar</button>
+    <div class="login-footer">© 2026 GTEL — Todos os direitos reservados</div>
+  </div>
+</div>
 <aside class="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-logo"><i class="ti ti-building-factory"></i> RH Manager</div>
@@ -252,7 +288,14 @@ input:focus,select:focus{border-color:var(--primary)}
     <div class="nav-section">Cadastros</div>
     <div class="nav-item" onclick="showPage('obras')"><i class="ti ti-building-skyscraper"></i> Obras / Contratos</div>
     <div class="nav-item" onclick="showPage('empresas')"><i class="ti ti-briefcase"></i> Empresas</div>
+    <div class="nav-section admin-only" id="nav-admin-section" style="display:none">Administração</div>
+    <div class="nav-item admin-only" id="nav-usuarios" style="display:none" onclick="showPage('usuarios')"><i class="ti ti-shield-lock"></i> Usuários / Acesso</div>
   </nav>
+  <div class="sidebar-user" onclick="doLogout()" title="Clique para sair">
+    <div class="sidebar-user-avatar" id="sb-avatar">?</div>
+    <div style="flex:1;min-width:0"><div class="sidebar-user-name" id="sb-nome">—</div><div class="sidebar-user-role" id="sb-role">—</div></div>
+    <i class="ti ti-logout" style="font-size:14px;color:var(--text-muted);flex-shrink:0"></i>
+  </div>
 </aside>
 
 <main class="main" id="main-content"></main>
@@ -325,17 +368,31 @@ async function loadAll(){
     sb.from('empresas').select('*').order('nome'),
     sb.from('funcoes').select('*').order('nome'),
   ]);
-  funcionarios=f.data||[];obras=o.data||[];empresas=e.data||[];funcoes=fn.data||[];
+  const todasObras=o.data||[];
+  const permitidas=getObrasPermitidas();
+  obras=permitidas?todasObras.filter(ob=>permitidas.map(String).includes(String(ob.id))):todasObras;
+  funcionarios=filtrarPorObra(f.data||[], f=>f.obra_id);
+  empresas=e.data||[];funcoes=fn.data||[];
 }
 
 async function loadFolgas(){
   const {data}=await sb.from('folgas').select('*,funcionario:funcionarios(nome_completo,matricula,obra:obras!funcionarios_obra_id_fkey(nome,codigo))').order('funcionario_id');
-  folgas=data||[];
+  const todos=data||[];
+  const permitidas=getObrasPermitidas();
+  folgas=permitidas?todos.filter(f=>{
+    const obraId=f.funcionario?.obra?.id||funcionarios.find(x=>x.id===f.funcionario_id)?.obra_id;
+    return permitidas.map(String).includes(String(obraId));
+  }):todos;
 }
 
 async function loadFerias(){
   const {data}=await sb.from('ferias').select('*,funcionario:funcionarios(nome_completo,matricula,obra:obras!funcionarios_obra_id_fkey(nome,codigo,centro_custo))').order('dt_limite_maxima');
-  feriasData=data||[];
+  const todos=data||[];
+  const permitidas=getObrasPermitidas();
+  feriasData=permitidas?todos.filter(f=>{
+    const func=funcionarios.find(x=>x.matricula===f.matricula);
+    return func&&permitidas.map(String).includes(String(func.obra_id));
+  }):todos;
 }
 
 async function loadAlojamentos(){
@@ -343,7 +400,9 @@ async function loadAlojamentos(){
     sb.from('alojamentos').select('*,moradores_avulsos,obra:obras(nome,codigo)').order('nome'),
     sb.from('alojamentos_contas').select('*').order('ano desc,mes desc'),
   ]);
-  alojamentos=a.data||[];alojamentosContas=c.data||[];
+  const permitidas=getObrasPermitidas();
+  alojamentos=permitidas?(a.data||[]).filter(al=>!al.obra_id||permitidas.map(String).includes(String(al.obra_id))):a.data||[];
+  alojamentosContas=c.data||[];
 }
 
 async function showPage(page){
@@ -357,7 +416,8 @@ async function showPage(page){
       (page==='ferias'&&t.includes('férias'))||
       (page==='alojamentos'&&t.includes('alojamento'))||
       (page==='obras'&&t.includes('obra'))||
-      (page==='empresas'&&t.includes('empresa'))
+      (page==='empresas'&&t.includes('empresa'))||
+      (page==='usuarios'&&t.includes('usuário'))
     );
   });
   document.getElementById('main-content').innerHTML='<div class="loading"><i class="ti ti-loader ti-spin"></i> Carregando...</div>';
@@ -369,6 +429,7 @@ async function showPage(page){
   else if(page==='ferias')renderFerias();
   else if(page==='alojamentos'){await loadAlojamentos();renderAlojamentos();}
   else if(page==='obras')renderObras();
+  else if(page==='usuarios')renderUsuarios();
   else if(page==='empresas')renderEmpresas();
 }
 
@@ -3076,8 +3137,192 @@ function exportAlojamentosExcel(){
   showToast('Excel exportado!');
 }
 
+// ─── AUTENTICAÇÃO ─────────────────────────────────────────────────────────────
+let sessaoUsuario = null; // {id, nome, usuario, perfil, obras_ids:[]}
+
+function getObrasPermitidas(){
+  if(!sessaoUsuario||sessaoUsuario.perfil==='admin') return null; // null = tudo
+  return sessaoUsuario.obras_ids||[];
+}
+
+function filtrarPorObra(lista, obraIdFn){
+  const permitidas=getObrasPermitidas();
+  if(!permitidas) return lista;
+  return lista.filter(item=>{
+    const obraId=obraIdFn(item);
+    return permitidas.map(String).includes(String(obraId));
+  });
+}
+
+async function doLogin(){
+  const usuario=document.getElementById('login-usuario').value.trim();
+  const senha=document.getElementById('login-senha').value.trim();
+  const err=document.getElementById('login-error');
+  err.style.display='none';
+  if(!usuario||!senha){err.textContent='Preencha usuário e senha.';err.style.display='block';return;}
+  const {data,error}=await sb.from('usuarios_acesso').select('*').eq('usuario',usuario).eq('senha',senha).eq('ativo',true).single();
+  if(error||!data){err.textContent='Usuário ou senha incorretos.';err.style.display='block';return;}
+  sessaoUsuario={id:data.id,nome:data.nome,usuario:data.usuario,perfil:data.perfil,obras_ids:data.obras_ids||[]};
+  sessionStorage.setItem('rh_sessao',JSON.stringify(sessaoUsuario));
+  aplicarSessao();
+}
+
+function aplicarSessao(){
+  if(!sessaoUsuario) return;
+  // Esconde login
+  document.getElementById('login-screen').style.display='none';
+  // Atualiza sidebar
+  document.getElementById('sb-nome').textContent=sessaoUsuario.nome;
+  document.getElementById('sb-role').textContent=sessaoUsuario.perfil==='admin'?'Administrador':'Usuário';
+  document.getElementById('sb-avatar').textContent=initials(sessaoUsuario.nome);
+  // Menu admin
+  const isAdmin=sessaoUsuario.perfil==='admin';
+  document.getElementById('nav-admin-section').style.display=isAdmin?'':'none';
+  document.getElementById('nav-usuarios').style.display=isAdmin?'':'none';
+  showPage('dashboard');
+}
+
+function doLogout(){
+  if(!confirm('Deseja sair do sistema?')) return;
+  sessaoUsuario=null;
+  sessionStorage.removeItem('rh_sessao');
+  document.getElementById('login-screen').style.display='flex';
+  document.getElementById('login-usuario').value='';
+  document.getElementById('login-senha').value='';
+  document.getElementById('login-error').style.display='none';
+  document.getElementById('main-content').innerHTML='';
+}
+
+// ─── USUÁRIOS / ACESSO ─────────────────────────────────────────────────────────
+let usuariosAcesso=[];
+
+async function loadUsuarios(){
+  const {data}=await sb.from('usuarios_acesso').select('*').order('nome');
+  usuariosAcesso=data||[];
+}
+
+async function renderUsuarios(){
+  if(!sessaoUsuario||sessaoUsuario.perfil!=='admin'){showToast('Acesso negado','error');return;}
+  await loadUsuarios();
+  const rows=usuariosAcesso.map(u=>{
+    const obrasNomes=(u.obras_ids||[]).map(oid=>{
+      const o=obras.find(x=>String(x.id)===String(oid));
+      return o?`<span style="background:var(--primary-light);color:var(--primary-dark);padding:1px 7px;border-radius:20px;font-size:11px;font-weight:500;display:inline-block;margin:1px">${o.codigo||o.nome}</span>`:'';
+    }).join('');
+    const badge=u.perfil==='admin'?'<span class="user-badge-admin">Admin</span>':'<span class="user-badge-usuario">Usuário</span>';
+    const ativo=u.ativo?'<span class="badge badge-green">Ativo</span>':'<span class="badge badge-red">Inativo</span>';
+    return`<tr>
+      <td><div style="font-weight:500">${u.nome}</div><div style="font-size:11px;color:var(--text-muted)">${u.usuario}</div></td>
+      <td><div style="font-family:monospace;background:var(--bg);padding:3px 8px;border-radius:6px;font-size:13px;display:inline-block">${u.senha}</div></td>
+      <td>${badge}</td>
+      <td>${obrasNomes||'<span style="color:var(--text-muted);font-size:12px">Nenhuma obra</span>'}</td>
+      <td>${ativo}</td>
+      <td><div class="action-btns">
+        <button class="btn btn-sm" onclick="editUsuario('${u.id}')"><i class="ti ti-edit"></i></button>
+        <button class="btn btn-sm btn-danger" onclick="deleteUsuario('${u.id}','${(u.nome||'').replace(/'/g,"\'")}')"><i class="ti ti-trash"></i></button>
+      </div></td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="6"><div class="empty-state"><i class="ti ti-shield-lock"></i><div>Nenhum usuário cadastrado</div></div></td></tr>';
+
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title"><i class="ti ti-shield-lock"></i> Usuários / Acesso</div>
+        <div class="page-subtitle">${usuariosAcesso.length} usuário(s) cadastrado(s)</div></div>
+      <button class="btn btn-primary" onclick="openModalUsuario()"><i class="ti ti-plus"></i> Novo usuário</button>
+    </div>
+    <div class="table-container"><table>
+      <thead><tr><th>Nome / Login</th><th>Senha</th><th>Perfil</th><th>Obras com acesso</th><th>Status</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function openModalUsuario(usr=null){
+  const isEdit=!!usr;
+  const obraOpts=obras.map(o=>`
+    <label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:13px;border:1px solid var(--border);margin-bottom:4px;background:var(--surface)">
+      <input type="checkbox" value="${o.id}" ${(usr?.obras_ids||[]).map(String).includes(String(o.id))?'checked':''} style="width:auto">
+      <span><strong>${o.codigo||'—'}</strong> — ${o.nome}</span>
+    </label>`).join('');
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-usuario" onclick="if(event.target===this)closeModal('modal-usuario')">
+      <div class="modal" style="max-width:560px">
+        <div class="modal-header">
+          <span class="modal-title"><i class="ti ti-shield-lock"></i> ${isEdit?'Editar':'Novo'} Usuário</span>
+          <button class="btn btn-sm" onclick="closeModal('modal-usuario')"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body"><div class="form-grid">
+          <div class="form-group full"><label>Nome completo *</label><input id="u-nome" value="${usr?.nome||''}" placeholder="Nome do usuário"></div>
+          <div class="form-group"><label>Login (usuário) *</label><input id="u-usuario" value="${usr?.usuario||''}" placeholder="ex: andre.branco"></div>
+          <div class="form-group"><label>Senha *</label><input id="u-senha" value="${usr?.senha||''}" placeholder="ex: 102030" autocomplete="off"></div>
+          <div class="form-group"><label>Perfil</label>
+            <select id="u-perfil">
+              <option value="usuario" ${(usr?.perfil||'usuario')==='usuario'?'selected':''}>Usuário (por obra)</option>
+              <option value="admin" ${usr?.perfil==='admin'?'selected':''}>Administrador (tudo)</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Status</label>
+            <select id="u-ativo">
+              <option value="true" ${usr?.ativo!==false?'selected':''}>Ativo</option>
+              <option value="false" ${usr?.ativo===false?'selected':''}>Inativo</option>
+            </select>
+          </div>
+          <div class="form-group full">
+            <label>Obras com acesso <span style="color:var(--text-muted);font-weight:400">(selecione uma ou mais)</span></label>
+            <div id="u-obras-list" style="max-height:200px;overflow-y:auto;padding:4px">${obraOpts||'<div style="color:var(--text-muted);font-size:13px">Nenhuma obra cadastrada</div>'}</div>
+          </div>
+        </div></div>
+        <div class="modal-footer">
+          <button class="btn" onclick="closeModal('modal-usuario')">Cancelar</button>
+          <button class="btn btn-primary" onclick="saveUsuario(${isEdit?`'${usr.id}'`:'null'})"><i class="ti ti-check"></i> ${isEdit?'Salvar':'Cadastrar'}</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+function editUsuario(id){
+  const u=usuariosAcesso.find(x=>x.id===id);
+  if(u)openModalUsuario(u);
+}
+
+async function saveUsuario(id){
+  const nome=document.getElementById('u-nome').value.trim();
+  const usuario=document.getElementById('u-usuario').value.trim();
+  const senha=document.getElementById('u-senha').value.trim();
+  if(!nome||!usuario||!senha){showToast('Nome, login e senha são obrigatórios','error');return;}
+  const perfil=document.getElementById('u-perfil').value;
+  const ativo=document.getElementById('u-ativo').value==='true';
+  const obras_ids=[...document.querySelectorAll('#u-obras-list input[type=checkbox]:checked')].map(cb=>cb.value);
+  // Verificar login duplicado
+  if(!id){
+    const {data:dup}=await sb.from('usuarios_acesso').select('id').eq('usuario',usuario);
+    if(dup&&dup.length){showToast('Este login já existe','error');return;}
+  }
+  const payload={nome,usuario,senha,perfil,ativo,obras_ids};
+  const{error}=id?await sb.from('usuarios_acesso').update(payload).eq('id',id):await sb.from('usuarios_acesso').insert(payload);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast(id?'Usuário atualizado!':'Usuário cadastrado!');
+  closeModal('modal-usuario');showPage('usuarios');
+}
+
+async function deleteUsuario(id,nome){
+  if(sessaoUsuario?.id===id){showToast('Não é possível excluir o usuário logado','error');return;}
+  if(!confirm(`Excluir usuário "${nome}"?`)) return;
+  const{error}=await sb.from('usuarios_acesso').delete().eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Usuário excluído.');showPage('usuarios');
+}
+
 // Init
-showPage('dashboard');
+const _sessaoSalva=sessionStorage.getItem('rh_sessao');
+if(_sessaoSalva){
+  try{
+    sessaoUsuario=JSON.parse(_sessaoSalva);
+    aplicarSessao();
+  }catch(e){
+    sessionStorage.removeItem('rh_sessao');
+  }
+}
+// showPage('dashboard'); -- chamado por aplicarSessao após login
 </script>
 </body>
 </html>
