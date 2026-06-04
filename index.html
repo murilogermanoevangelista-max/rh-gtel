@@ -2433,7 +2433,7 @@ function insertModal(id,html){
 function renderAlojamentos(){
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const totalVagas=alojamentos.reduce((s,a)=>s+(a.vagas_total||0),0);
-  const totalOcup=funcionarios.filter(f=>f.alojamento_id&&f.situacao!=='inativo').length;
+  const totalOcup=alojamentos.reduce((s,a)=>{const clt=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length;const avulsos=(a.moradores_avulsos||[]).length;return s+clt+avulsos;},0);
   const totalDisp=totalVagas-totalOcup;
   const totalAluguel=alojamentos.reduce((s,a)=>s+Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0),0);
   const totalCaucao=alojamentos.reduce((s,a)=>s+Number(a.caucao||0),0);
@@ -3045,16 +3045,16 @@ function exportAlojamentosExcel(){
   rows.push([]);
   rows.push(['NOME','ENDEREÇO','OBRA','VAGAS','OCUPADAS','DISPONÍVEIS','ALUGUEL','INÍCIO','TÉRMINO','IMOBILIÁRIA']);
   alojamentos.forEach(a=>{
-    const ocup=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length;
+    const ocup=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length+(a.moradores_avulsos||[]).length;
     rows.push([a.nome||'—',a.endereco||'—',a.obra?.codigo||'—',a.vagas_total||0,ocup,(a.vagas_total||0)-ocup,a.custo_mensal||0,formatDate(a.data_inicio),formatDate(a.data_termino),a.imobiliaria||'—']);
   });
   rows.push([]);
   rows.push(['MORADORES POR ALOJAMENTO','','','','','','','','','']);
   alojamentos.forEach(a=>{
     const moradores=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo');
-    if(moradores.length){
+    if(moradores.length||(a.moradores_avulsos||[]).length){
       rows.push([a.nome,'NOME','MATRÍCULA','FUNÇÃO','','','','','','']);
-      moradores.forEach((f,i)=>rows.push(['',f.nome_completo,f.matricula,f.funcao?.nome||'—','','','','','','']));
+      moradores.forEach((f,i)=>rows.push(['',f.nome_completo,f.matricula,f.funcao?.nome||'—','','','','','','']));(a.moradores_avulsos||[]).forEach(av=>rows.push(['',av.nome+'  (prestador)','—',av.obs||'—','','','','','','']));
     }
   });
   const ws=XLSX.utils.aoa_to_sheet(rows);
