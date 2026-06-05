@@ -1425,6 +1425,7 @@ async function renderFolgas(){
   let totalVenc=0,totalWarn=0;
   folgas.forEach(f=>{const vencs=calcVencimentos(f);vencs.forEach((v,i)=>{const st=vencStatus(v,f[`saida${i+1}_real`]);if(st==='danger')totalVenc++;if(st==='warn')totalWarn++;});});
   const obraOptions=obras.map(o=>`<option value="${o.id}">${o.codigo} — ${o.nome}</option>`).join('');
+  const _filtroMesAtivo=folgasFiltroMes?folgasFiltroMes.split('-').map(Number):null;
   const rows=lista.map(f=>{
     const vencs=calcVencimentos(f);
     const nDias=diasFolga(f.periodo_trabalhado);
@@ -1434,8 +1435,12 @@ async function renderFolgas(){
       const projDate=f[`saida${i+1}_projecao`];
       const diff=Math.floor((v-hoje)/86400000);
       const diffTxt=realDate?'✓':(diff<0?`${Math.abs(diff)}d atrás`:`${diff}d`);
-      return`<div class="folga-cell">
-        <div class="folga-cell-header">Venc.${i+1}</div>
+      // Verificar se esse vencimento é do mês filtrado
+      const doMesFiltrado=_filtroMesAtivo&&v.getFullYear()===_filtroMesAtivo[0]&&v.getMonth()===_filtroMesAtivo[1]-1&&!realDate;
+      const dimmed=_filtroMesAtivo&&!doMesFiltrado&&!realDate;
+      const highlight=doMesFiltrado?'outline:2px solid var(--primary-dark);border-radius:6px;':'';
+      return`<div class="folga-cell" style="opacity:${dimmed?'0.35':'1'};${highlight}">
+        <div class="folga-cell-header">Venc.${i+1}${doMesFiltrado?'<span style="background:var(--primary-dark);color:#fff;font-size:9px;padding:1px 5px;border-radius:10px;margin-left:4px">mês</span>':''}</div>
         <div class="folga-venc ${realDate?'ok':st}">${formatDate(v)}<br><small>${diffTxt}</small></div>
         ${realDate?`<div style="font-size:11px;color:var(--success)">✓ Saiu: ${formatDate(realDate)} <span style="cursor:pointer;color:var(--danger);margin-left:4px" onclick="removeSaidaReal('${f.id}',${i+1})">✕</span></div>`:
         `<div class="folga-saida-proj">Proj: ${formatDate(projDate)||'—'}</div>
