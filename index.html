@@ -1482,13 +1482,13 @@ async function renderFolgas(){
     </div>
     <!-- Cards de mês -->
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
-      ${mesCards.map(c=>`
-        <div class="metric-card" style="cursor:pointer;border-color:${folgasFiltroMes===c.mes?'var(--primary-dark)':'var(--border)'};background:${folgasFiltroMes===c.mes?'var(--primary-light)':'var(--surface)'}"
-          onclick="folgasFiltroMes='${c.mes}';folgasFiltro='todos';renderFolgas()">
+      ${mesCards.map(c=>{const ativo=folgasFiltroMes===c.mes;return`
+        <div class="metric-card" style="cursor:pointer;border-color:${ativo?'var(--primary-dark)':'var(--border)'};background:${ativo?'var(--primary-light)':'var(--surface)'}"
+          onclick="folgasFiltroMes=folgasFiltroMes==='${c.mes}'?'':'${c.mes}';folgasFiltro='todos';renderFolgas()">
           <div class="metric-label" style="display:flex;align-items:center;gap:5px"><i class="ti ti-calendar" style="font-size:12px"></i> ${c.label}</div>
-          <div class="metric-value" style="font-size:22px">${c.count}</div>
-          <div style="font-size:10px;color:var(--text-muted);margin-top:2px">vencimento(s)</div>
-        </div>`).join('')}
+          <div class="metric-value" style="font-size:22px;color:${ativo?'var(--primary-dark)':'var(--text)'}">${c.count}</div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px">vencimento(s) ${ativo?'<strong style=color:var(--primary-dark)>✓ filtrado</strong>':''}</div>
+        </div>`;}).join('')}
     </div>
     <!-- Filtros -->
     <div class="filters" style="flex-wrap:wrap;gap:8px;margin-bottom:12px">
@@ -1496,7 +1496,7 @@ async function renderFolgas(){
       <select style="padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface)"
         onchange="folgasFiltroObra=this.value;renderFolgas()">
         <option value="">Todas as obras</option>
-        ${obraOptions.replace(/value="([^"]+)"/g,(m,id)=>m.replace('value="'+id+'"','value="'+id+'"'+(String(id)===String(folgasFiltroObra)?' selected':'')))}
+        ${obras.map(o=>`<option value="${o.id}" ${String(o.id)===String(folgasFiltroObra)?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('')}
       </select>
       <button class="btn btn-sm" onclick="folgasFiltro='todos';folgasBusca='';folgasFiltroObra='';folgasFiltroMes='';renderFolgas()"><i class="ti ti-x"></i> Limpar</button>
     </div>
