@@ -483,7 +483,8 @@ async function renderDashboard(){
   const byObra={};
   ativosLista.forEach(f=>{
     const key=f.obra?.codigo?`${f.obra.codigo} — ${f.obra.nome}`:'Sem obra';
-    byObra[key]=(byObra[key]||0)+1;
+    if(!byObra[key])byObra[key]={qtd:0,obraId:f.obra_id||null};
+    byObra[key].qtd++;
   });
   const byFuncao={};
   ativosLista.forEach(f=>{
@@ -523,22 +524,28 @@ async function renderDashboard(){
       <i class="ti ti-chevron-right" style="margin-left:auto;opacity:.5"></i>
     </div>`).join('');
 
-  const obraRows=Object.entries(byObra).sort((a,b)=>b[1]-a[1]).map(([obra,qtd])=>`
-    <div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)">
+  const obraRows=Object.entries(byObra).sort((a,b)=>b[1].qtd-a[1].qtd).map(([obra,{qtd,obraId}])=>`
+    <div onclick="${obraId?`filtroObra='${obraId}';showPage('funcionarios')`:'showPage(\'funcionarios\')'}"
+      style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;border-radius:4px;margin:0 -4px;padding-left:4px;padding-right:4px"
+      onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''">
       <div style="font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${obra}</div>
       <div style="font-weight:700;font-size:14px;color:var(--primary-dark);min-width:24px;text-align:right">${qtd}</div>
       <div style="width:100px;background:var(--border);border-radius:4px;height:6px;flex-shrink:0">
         <div style="background:var(--primary);border-radius:4px;height:6px;width:${Math.round(qtd/(ativos||1)*100)}%"></div>
       </div>
+      <i class="ti ti-chevron-right" style="font-size:12px;color:var(--text-muted);flex-shrink:0"></i>
     </div>`).join('');
 
   const funcaoRows=Object.entries(byFuncao).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([fn,qtd])=>`
-    <div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)">
+    <div onclick="filtroFuncao='${fn.replace(/'/g,"\\'")}';showPage('funcionarios')"
+      style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;border-radius:4px;margin:0 -4px;padding-left:4px;padding-right:4px"
+      onmouseover="this.style.background='#EFF6FF'" onmouseout="this.style.background=''">
       <div style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${fn}</div>
       <div style="font-weight:700;font-size:14px;color:var(--info);min-width:24px;text-align:right">${qtd}</div>
       <div style="width:100px;background:var(--border);border-radius:4px;height:6px;flex-shrink:0">
         <div style="background:var(--info);border-radius:4px;height:6px;width:${Math.round(qtd/(ativos||1)*100)}%"></div>
       </div>
+      <i class="ti ti-chevron-right" style="font-size:12px;color:var(--text-muted);flex-shrink:0"></i>
     </div>`).join('');
 
   const admBarras=admissoesMeses.map(m=>`
@@ -746,12 +753,13 @@ function calcFeriasStats(data,hoje){
 }
 
 // ─── FUNCIONÁRIOS ─────────────────────────────────────────────────────────────
-let filtroSituacao='',filtroObra='',busca='';
+let filtroSituacao='',filtroObra='',filtroFuncao='',busca='';
 
 function getFuncionariosFiltrados(){
   let lista=funcionarios;
   if(filtroSituacao)lista=lista.filter(f=>f.situacao===filtroSituacao);
-  if(filtroObra)lista=lista.filter(f=>f.obra_id===filtroObra);
+  if(filtroObra)lista=lista.filter(f=>String(f.obra_id)===String(filtroObra));
+  if(filtroFuncao)lista=lista.filter(f=>(f.funcao?.nome||f.funcao_manual||'Sem função')===filtroFuncao);
   if(busca){const b=busca.toLowerCase();lista=lista.filter(f=>f.nome_completo?.toLowerCase().includes(b)||f.matricula?.toLowerCase().includes(b));}
   return lista;
 }
@@ -808,8 +816,13 @@ function renderFuncionarios(){
       <select class="filter-select" onchange="filtroObra=this.value;atualizarTabelaFuncionarios()">
         <option value="">Todas obras</option>${obraOptions}
       </select>
-      <button class="btn btn-sm" onclick="filtroSituacao='';filtroObra='';busca='';document.getElementById('func-busca').value='';atualizarTabelaFuncionarios()"><i class="ti ti-x"></i> Limpar</button>
+      <button class="btn btn-sm" onclick="filtroSituacao='';filtroObra='';filtroFuncao='';busca='';document.getElementById('func-busca').value='';atualizarTabelaFuncionarios()"><i class="ti ti-x"></i> Limpar</button>
     </div>
+    ${filtroFuncao?`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:8px 12px;background:#EFF6FF;border-radius:var(--radius);font-size:13px;border:1px solid #BFDBFE">
+      <i class="ti ti-tool" style="color:var(--info)"></i>
+      <span>Filtrando por função: <strong>${filtroFuncao}</strong></span>
+      <button onclick="filtroFuncao='';atualizarTabelaFuncionarios()" style="margin-left:auto;background:none;border:none;cursor:pointer;color:var(--danger);font-size:13px"><i class="ti ti-x"></i> Remover filtro</button>
+    </div>`:''}
     <div class="table-container"><table>
       <thead><tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Empresa</th><th>Admissão</th><th>Situação</th><th></th></tr></thead>
       <tbody id="func-tbody">${getFuncionariosRows(lista)}</tbody>
@@ -824,7 +837,8 @@ function exportFuncionariosExcel(){
   // Usar a lista filtrada atual (respeita busca, situação e obra)
   let lista=funcionarios;
   if(filtroSituacao)lista=lista.filter(f=>f.situacao===filtroSituacao);
-  if(filtroObra)lista=lista.filter(f=>f.obra_id===filtroObra);
+  if(filtroObra)lista=lista.filter(f=>String(f.obra_id)===String(filtroObra));
+  if(filtroFuncao)lista=lista.filter(f=>(f.funcao?.nome||f.funcao_manual||'Sem função')===filtroFuncao);
   if(busca)lista=lista.filter(f=>f.nome_completo?.toLowerCase().includes(busca.toLowerCase())||f.matricula?.includes(busca));
 
   if(!lista.length){showToast('Nenhum funcionário para exportar.','error');return;}
