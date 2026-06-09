@@ -1574,9 +1574,15 @@ async function renderFerias(){
   await loadFerias();
   const hoje=new Date();hoje.setHours(0,0,0,0);
 
+  // Aplicar filtro de obra (global ou local do módulo)
+  const obraFiltroAtivo=feriasObraFiltro||'';
+  const feriasBase=obraFiltroAtivo
+    ?feriasData.filter(f=>f.funcionario?.obra?.codigo===obraFiltroAtivo)
+    :feriasData;
+
   // Agrupar por matrícula, ordenar por periodo_aquisitivo_inicio asc
   const byMat={};
-  feriasData.forEach(f=>{
+  feriasBase.forEach(f=>{
     const mat=f.matricula||'?';
     if(!byMat[mat])byMat[mat]=[];
     byMat[mat].push(f);
@@ -1588,7 +1594,7 @@ async function renderFerias(){
   }));
 
   const totalFuncs=Object.keys(byMat).length;
-  const totalPeriodos=feriasData.length;
+  const totalPeriodos=feriasBase.length;
 
   // Stats
   let progCount=0,naoProgCount=0;
@@ -1638,7 +1644,6 @@ async function renderFerias(){
     const f=arr[0];
     return(f.funcionario?.nome_completo||'').toLowerCase().includes(feriasBusca.toLowerCase())||(f.matricula||'').includes(feriasBusca);
   });
-  if(feriasObraFiltro)listaFuncs=listaFuncs.filter(arr=>arr[0].funcionario?.obra?.codigo===feriasObraFiltro);
   if(feriasFiltro==='programado')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>f.programado));
   if(feriasFiltro==='naoprog')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>!f.programado));
   if(feriasFiltro==='vencidas')listaFuncs=listaFuncs.filter(arr=>{const p=getPeriodoUrgente(arr);if(!p)return false;const l=parseDate(p.dt_limite_maxima);return l&&l<hoje;});
@@ -2225,8 +2230,7 @@ function exportFeriasExcel(){
 
   let listaAlerta=Object.values(byMat).filter(arr=>['vencida','vencendo'].includes(getStatusExp(arr)));
 
-  // Aplicar filtro de obra ativo na tela
-  if(feriasObraFiltro)listaAlerta=listaAlerta.filter(arr=>arr[0].funcionario?.obra?.codigo===feriasObraFiltro);
+  // feriasBase já está filtrado por obra via obraFiltroAtivo
 
   // Ordenar: vencidas → vencendo → data mais próxima
   listaAlerta.sort((a,b)=>{
