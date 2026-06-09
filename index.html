@@ -1681,10 +1681,17 @@ async function renderFerias(){
     const st=getStatus(arr);
     const rowStyle=st==='vencida'?'border-left:4px solid var(--danger)':st==='vencendo'?'border-left:4px solid var(--warning)':'';
     const pendente=arr.find(f=>!f.programado);
+    const programados=arr.filter(f=>f.programado);
     const btnProg=pendente
       ?`<button class="prog-btn" onclick="openModalProgramarFerias('${pendente.id}')">📅 Programar</button>`
-      :`<button class="prog-btn programada" onclick="openModalProgramarFerias('${per1.id}')">✓ Programada</button>`;
-    const progResume=arr.filter(f=>f.programado).map(f=>
+      :`<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">
+          ${programados.map(f=>`
+            <div style="display:flex;align-items:center;gap:4px">
+              <button class="prog-btn programada" style="font-size:11px;padding:3px 8px" onclick="openModalProgramarFerias('${f.id}')"><i class="ti ti-edit" style="font-size:11px"></i> Alterar</button>
+              <button class="prog-btn" style="background:#FEE2E2;color:#991B1B;border-color:#FCA5A5;font-size:11px;padding:3px 8px" onclick="cancelarProgFerias('${f.id}')"><i class="ti ti-x" style="font-size:11px"></i> Cancelar</button>
+            </div>`).join('')}
+        </div>`;
+    const progResume=programados.map(f=>
       `<div style="font-size:11px;color:var(--success)">✓ ${f.dias_programados||'?'}d: ${formatDate(f.data_inicio_programada)} → ${formatDate(f.data_fim_programada)}</div>`
     ).join('')||'<span style="color:var(--text-muted);font-size:12px">—</span>';
 
@@ -1870,6 +1877,14 @@ async function desproramarFerias(id){
   if(!confirm('Remover programação de férias?'))return;
   await sb.from('ferias').update({programado:false,dias_programados:null,data_inicio_programada:null,data_fim_programada:null}).eq('id',id);
   showToast('Programação removida.');closeModal('modal-prog-ferias');renderFerias();
+}
+
+async function cancelarProgFerias(id){
+  if(!confirm('Cancelar a programação de férias deste funcionário?'))return;
+  const{error}=await sb.from('ferias').update({programado:false,dias_programados:null,data_inicio_programada:null,data_fim_programada:null}).eq('id',id);
+  if(error){showToast('Erro ao cancelar: '+error.message,'error');return;}
+  showToast('Programação cancelada.','success');
+  await loadFerias();renderFerias();
 }
 
 // ─── IMPORT FÉRIAS ────────────────────────────────────────────────────────────
