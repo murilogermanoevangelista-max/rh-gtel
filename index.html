@@ -427,6 +427,23 @@ async function renderDashboard(){
     admissoesMeses.push({label,count});
   }
   const maxAdm=Math.max(...admissoesMeses.map(m=>m.count),1);
+  // Férias programadas — cálculo antecipado (necessário para alertas)
+  const feriasProgramadas=[];
+  feriasData.forEach(f=>{
+    if(!f.programado||!f.dt_inicio_programado||!f.dt_fim_programado)return;
+    const ini=parseDate(f.dt_inicio_programado);
+    const fim=parseDate(f.dt_fim_programado);
+    if(!ini||!fim)return;
+    const diffIni=Math.floor((ini-hoje)/86400000);
+    const diffFim=Math.floor((fim-hoje)/86400000);
+    if(diffFim>=-7){
+      const emCurso=(diffIni<=0&&diffFim>=0);
+      feriasProgramadas.push({nome:f.funcionario?.nome_completo||f.matricula,mat:f.matricula,obra:f.funcionario?.obra?.codigo||'',ini,fim,diffIni,diffFim,emCurso});
+    }
+  });
+  feriasProgramadas.sort((a,b)=>a.diffIni-b.diffIni);
+  const feriasProgEmCurso=feriasProgramadas.filter(f=>f.emCurso).length;
+
   const alertas=[];
   if(expVencidas>0)alertas.push({tipo:'danger',icon:'ti-certificate',msg:`${expVencidas} experiência(s) vencida(s)`,link:'experiencia'});
   if(folgasVencidas>0)alertas.push({tipo:'danger',icon:'ti-beach',msg:`${folgasVencidas} folga(s) vencida(s)`,link:'folgas'});
@@ -529,29 +546,6 @@ async function renderDashboard(){
     }
   });
   proximasFerias.sort((a,b)=>a.diff-b.diff);
-
-  // Férias programadas — para o painel do dashboard
-  const feriasProgramadas=[];
-  feriasData.forEach(f=>{
-    if(!f.programado||!f.dt_inicio_programado||!f.dt_fim_programado)return;
-    const ini=parseDate(f.dt_inicio_programado);
-    const fim=parseDate(f.dt_fim_programado);
-    if(!ini||!fim)return;
-    const diffIni=Math.floor((ini-hoje)/86400000);
-    const diffFim=Math.floor((fim-hoje)/86400000);
-    // Mostrar: em andamento, futuros (próx. 90 dias) — omitir encerradas há mais de 7 dias
-    if(diffFim>=-7){
-      const emCurso=(diffIni<=0&&diffFim>=0);
-      feriasProgramadas.push({
-        nome:f.funcionario?.nome_completo||f.matricula,
-        mat:f.matricula,
-        obra:f.funcionario?.obra?.codigo||'',
-        ini,fim,diffIni,diffFim,emCurso
-      });
-    }
-  });
-  feriasProgramadas.sort((a,b)=>a.diffIni-b.diffIni);
-  const feriasProgEmCurso=feriasProgramadas.filter(f=>f.emCurso).length;
 
   const feriasProgramadasRows=feriasProgramadas.slice(0,8).map(f=>`
     <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
