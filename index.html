@@ -425,10 +425,12 @@ async function renderDashboard(){
   await loadFolgas();
   await loadFerias();
   const hoje=new Date();hoje.setHours(0,0,0,0);
-  const ativos=funcionarios.filter(f=>f.situacao==='ativo'||f.situacao==='transferido').length;
-  const inativos=funcionarios.filter(f=>f.situacao==='inativo').length;
-  const transferidos=funcionarios.filter(f=>f.situacao==='transferido').length;
-  const admMes=funcionarios.filter(f=>{
+  // Aplicar filtro global de obra em todos os cálculos do dashboard
+  const funcsFiltrados=globalObraFiltro?funcionarios.filter(f=>f.obra_id===globalObraFiltro):funcionarios;
+  const ativos=funcsFiltrados.filter(f=>f.situacao==='ativo'||f.situacao==='transferido').length;
+  const inativos=funcsFiltrados.filter(f=>f.situacao==='inativo').length;
+  const transferidos=funcsFiltrados.filter(f=>f.situacao==='transferido').length;
+  const admMes=funcsFiltrados.filter(f=>{
     if(!f.data_admissao)return false;
     const d=new Date(f.data_admissao+'T12:00:00');
     return d.getMonth()===hoje.getMonth()&&d.getFullYear()===hoje.getFullYear();
@@ -440,8 +442,9 @@ async function renderDashboard(){
   const expVencendo=comExp.filter(f=>f._exp.status==='vencendo').length;
   const expVencidas=comExp.filter(f=>f._exp.status==='vencida').length;
 
+  const folgasDash=globalObraFiltro?folgas.filter(f=>{const obraObj=obras.find(o=>o.id===globalObraFiltro);return f.funcionario?.obra?.codigo===(obraObj?.codigo||'');}):folgas;
   let folgasVencidas=0,folgasVencendo=0;
-  folgas.forEach(f=>{
+  folgasDash.forEach(f=>{
     const vencs=calcVencimentos(f);
     vencs.forEach((v,i)=>{
       const st=vencStatus(v,f[`saida${i+1}_real`]);
@@ -477,7 +480,7 @@ async function renderDashboard(){
   const maxAdm=Math.max(...admissoesMeses.map(m=>m.count),1);
   // Férias programadas — cálculo antecipado (necessário para alertas)
   const feriasProgramadas=[];
-  feriasData.forEach(f=>{
+  feriasDash.forEach(f=>{
     if(!f.programado||!f.data_inicio_programada||!f.data_fim_programada)return;
     const ini=parseDate(f.data_inicio_programada);
     const fim=parseDate(f.data_fim_programada);
@@ -546,7 +549,7 @@ async function renderDashboard(){
 
   // Próximas folgas
   const proximasFolgas=[];
-  folgas.forEach(f=>{
+  folgasDash.forEach(f=>{
     const vencs=calcVencimentos(f);
     vencs.forEach((v,i)=>{
       if(f[`saida${i+1}_real`])return;
@@ -640,7 +643,7 @@ async function renderDashboard(){
     ${alertas.length?`<div style="margin-bottom:20px">${alertasHtml}</div>`:''}
     <!-- MÉTRICAS PRINCIPAIS -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:20px">
-      <div class="metric-card" style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Total</div><div class="metric-value">${funcionarios.length}</div></div>
+      <div class="metric-card" style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Total</div><div class="metric-value">${funcsFiltrados.length}</div></div>
       <div class="metric-card green" style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Ativos</div><div class="metric-value">${ativos}</div></div>
       <div class="metric-card red" style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Inativos</div><div class="metric-value">${inativos}</div></div>
       <div class="metric-card amber" style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Transferidos</div><div class="metric-value">${transferidos}</div></div>
@@ -1223,7 +1226,7 @@ function calcExp(f){
 }
 
 function renderExperiencia(){
-  const ativosLista=funcionarios.filter(f=>f.situacao==='ativo'||f.situacao==='transferido');
+  const ativosLista=funcionarios.filter(f=>(f.situacao==='ativo'||f.situacao==='transferido')&&(!globalObraFiltro||f.obra_id===globalObraFiltro));
   const comExp=ativosLista.map(f=>({...f,_exp:calcExp(f)})).filter(f=>f._exp);
   const counts={exp1:0,exp2:0,vencendo:0,vencida:0,efetivado:0};
   comExp.forEach(f=>counts[f._exp.status]=(counts[f._exp.status]||0)+1);
@@ -1355,7 +1358,7 @@ async function saveObs(id){
 }
 
 function exportExpExcel(){
-  const ativosLista=funcionarios.filter(f=>f.situacao==='ativo'||f.situacao==='transferido');
+  const ativosLista=funcionarios.filter(f=>(f.situacao==='ativo'||f.situacao==='transferido')&&(!globalObraFiltro||f.obra_id===globalObraFiltro));
   const rows=[['Funcionário','Matrícula','Função','Período','Fim 1º','Fim 2º','Restantes','Status']];
   ativosLista.forEach(f=>{
     const e=calcExp(f);if(!e)return;
@@ -1398,7 +1401,7 @@ async function renderFolgas(){
   await loadFolgas();
   const hoje=new Date();hoje.setHours(0,0,0,0);
   let lista=folgas;
-  if(globalObraFiltro)lista=lista.filter(f=>f.funcionario?.obra_id===globalObraFiltro);
+  if(globalObraFiltro){const obraObj=obras.find(o=>o.id===globalObraFiltro);const obraCod=obraObj?.codigo||'';lista=lista.filter(f=>f.funcionario?.obra?.codigo===obraCod);}
   if(folgasBusca)lista=lista.filter(f=>f.funcionario?.nome_completo?.toLowerCase().includes(folgasBusca.toLowerCase())||f.funcionario?.matricula?.includes(folgasBusca));
   if(folgasFiltro==='warn')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`])==='warn');});
   if(folgasFiltro==='danger')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`])==='danger');});
@@ -2382,7 +2385,7 @@ async function renderUsuarios(){
     let senhaLeg='—';
     try{if(u.senha_hash)senhaLeg=atob(u.senha_hash);}catch(e){senhaLeg='(criptografada)'}
     return`<tr>
-      <td><div style="font-weight:500">${u.nome||'—'}</div><div style="font-size:11px;color:var(--text-muted)">${u.email||'—'}</div></td>
+      <td><div style="font-weight:500">${u.nome||'—'}</div><div style="font-size:11px;color:var(--text-muted)">👤 ${u.email||'—'}</div></td>
       <td>${nivelBadge(u.nivel_acesso)}</td>
       <td>${u.ativo?'<span class="badge badge-green">Ativo</span>':'<span class="badge badge-red">Inativo</span>'}</td>
       <td>
@@ -2409,7 +2412,7 @@ async function renderUsuarios(){
     <div class="table-container">
       <table class="table">
         <thead><tr>
-          <th>Nome / E-mail</th><th>Nível de Acesso</th><th>Status</th><th>Senha</th><th>Criado em</th><th>Ações</th>
+          <th>Nome / Usuário</th><th>Nível de Acesso</th><th>Status</th><th>Senha</th><th>Criado em</th><th>Ações</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
@@ -2433,8 +2436,8 @@ function openModalUsuario(id){
                 <input type="text" id="u-nome" value="${u?.nome||''}" placeholder="Nome do usuário">
               </div>
               <div class="form-group" style="grid-column:1/-1">
-                <label>E-mail *</label>
-                <input type="email" id="u-email" value="${u?.email||''}" placeholder="email@exemplo.com">
+                <label>Usuário (login) *</label>
+                <input type="text" id="u-email" value="${u?.email||''}" placeholder="Nome de usuário para login" autocomplete="off">
               </div>
               <div class="form-group" style="grid-column:1/-1">
                 <label>${isEdit?'Nova senha (deixe em branco para manter)':'Senha *'}</label>
@@ -2485,7 +2488,7 @@ async function salvarUsuario(id){
   const senha=document.getElementById('u-senha').value;
   const nivel=document.getElementById('u-nivel').value;
   const ativo=document.getElementById('u-ativo').value==='true';
-  if(!nome||!email){showToast('Nome e e-mail são obrigatórios','error');return;}
+  if(!nome||!email){showToast('Nome e usuário são obrigatórios','error');return;}
   if(!id&&!senha){showToast('Senha é obrigatória para novo usuário','error');return;}
   const payload={nome,email,nivel_acesso:nivel,ativo};
   if(senha)payload.senha_hash=btoa(senha); // hash simples base64
