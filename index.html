@@ -2405,7 +2405,7 @@ async function renderUsuarios(){
       <td>
         <div style="display:flex;gap:6px">
           <button class="btn btn-sm" onclick="openModalUsuario('${u.id}')"><i class="ti ti-edit"></i> Editar</button>
-          <button class="btn btn-sm btn-danger" onclick="if(confirm('Remover o usuário ${(u.nome||'').replace(/'/g,"\\'")\}?')){sb.from('usuarios_acesso').delete().eq('id','${u.id}').then(()=>{showToast('Usuário removido!');renderUsuarios();})}">
+          <button class="btn btn-sm btn-danger" onclick="if(confirm('Remover usuário?')){sb.from('usuarios_acesso').delete().eq('id','${u.id}').then(()=>{showToast('Usuário removido!');renderUsuarios();})}">
             <i class="ti ti-trash"></i> Remover
           </button>
         </div>
