@@ -434,7 +434,7 @@ async function renderDashboard(){
     return d.getMonth()===hoje.getMonth()&&d.getFullYear()===hoje.getFullYear();
   }).length;
 
-  const ativosLista=funcionarios.filter(f=>f.situacao==='ativo'||f.situacao==='transferido');
+  const ativosLista=funcionarios.filter(f=>(f.situacao==='ativo'||f.situacao==='transferido')&&(!globalObraFiltro||f.obra_id===globalObraFiltro));
   const comExp=ativosLista.map(f=>({...f,_exp:calcExp(f)})).filter(f=>f._exp);
   const emExp=comExp.filter(f=>['exp1','exp2','vencendo'].includes(f._exp.status)).length;
   const expVencendo=comExp.filter(f=>f._exp.status==='vencendo').length;
@@ -631,9 +631,10 @@ async function renderDashboard(){
       </div>
     </div>`).join('')||'<div style="color:var(--text-muted);font-size:13px;padding:12px 0">Nenhuma férias urgente</div>';
 
+  const obraFiltroLabel=globalObraFiltro?(obras.find(o=>o.id===globalObraFiltro)?.codigo||''):'';
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
-      <div><div class="page-title">Dashboard</div><div class="page-subtitle">Visão geral em tempo real — ${new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'})}</div></div>
+      <div><div class="page-title">Dashboard ${obraFiltroLabel?`<span style="font-size:14px;font-weight:400;color:var(--primary-dark);background:var(--primary-light);padding:2px 10px;border-radius:20px;margin-left:6px">🏗 ${obraFiltroLabel}</span>`:''}</div><div class="page-subtitle">Visão geral em tempo real — ${new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'})}</div></div>
       <button class="btn btn-primary" onclick="showPage('funcionarios')"><i class="ti ti-users"></i> Ver funcionários</button>
     </div>
     ${alertas.length?`<div style="margin-bottom:20px">${alertasHtml}</div>`:''}
@@ -2377,11 +2378,19 @@ async function renderUsuarios(){
   const{data:usuarios,error}=await sb.from('usuarios_acesso').select('*').order('nome');
   if(error){showToast('Erro ao carregar usuários: '+error.message,'error');return;}
   const nivelBadge=n=>n==='Admin'?'<span class="badge badge-red">Admin</span>':n==='Gerente'?'<span class="badge badge-amber">Gerente</span>':'<span class="badge badge-blue">Usuário</span>';
-  const rows=(usuarios||[]).map(u=>`
-    <tr>
+  const rows=(usuarios||[]).map(u=>{
+    let senhaLeg='—';
+    try{if(u.senha_hash)senhaLeg=atob(u.senha_hash);}catch(e){senhaLeg='(criptografada)'}
+    return`<tr>
       <td><div style="font-weight:500">${u.nome||'—'}</div><div style="font-size:11px;color:var(--text-muted)">${u.email||'—'}</div></td>
       <td>${nivelBadge(u.nivel_acesso)}</td>
       <td>${u.ativo?'<span class="badge badge-green">Ativo</span>':'<span class="badge badge-red">Inativo</span>'}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-family:monospace;font-size:12px;background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border)" id="pw-${u.id}">••••••••</span>
+          <button class="btn btn-sm" style="padding:2px 6px;font-size:11px" onclick="toggleSenha('${u.id}','${u.senha_hash||''}')"><i class="ti ti-eye" id="eye-${u.id}"></i></button>
+        </div>
+      </td>
       <td>${u.criado_em?new Date(u.criado_em).toLocaleDateString('pt-BR'):'—'}</td>
       <td>
         <div style="display:flex;gap:6px">
@@ -2391,7 +2400,7 @@ async function renderUsuarios(){
           </button>
         </div>
       </td>
-    </tr>`).join('')||'<tr><td colspan="5"><div class="empty-state"><i class="ti ti-users"></i><div>Nenhum usuário cadastrado</div></div></td></tr>';
+    </tr>`;}).join('')||'<tr><td colspan="5"><div class="empty-state"><i class="ti ti-users"></i><div>Nenhum usuário cadastrado</div></div></td></tr>';
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div><div class="page-title">Usuários do Sistema</div><div class="page-subtitle">${(usuarios||[]).length} usuários cadastrados</div></div>
@@ -2400,7 +2409,7 @@ async function renderUsuarios(){
     <div class="table-container">
       <table class="table">
         <thead><tr>
-          <th>Nome / E-mail</th><th>Nível de Acesso</th><th>Status</th><th>Criado em</th><th>Ações</th>
+          <th>Nome / E-mail</th><th>Nível de Acesso</th><th>Status</th><th>Senha</th><th>Criado em</th><th>Ações</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
@@ -2456,6 +2465,18 @@ function openModalUsuario(id){
       </div>`);
   });
 
+}
+
+function toggleSenha(id, hash){
+  const el=document.getElementById('pw-'+id);
+  const eye=document.getElementById('eye-'+id);
+  if(el.textContent==='••••••••'){
+    try{el.textContent=hash?atob(hash):'sem senha';}catch(e){el.textContent='(erro)';}
+    eye.className='ti ti-eye-off';
+  } else {
+    el.textContent='••••••••';
+    eye.className='ti ti-eye';
+  }
 }
 
 async function salvarUsuario(id){
