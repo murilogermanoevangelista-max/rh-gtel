@@ -329,16 +329,13 @@ async function loadAll(){
 }
 
 async function loadFolgas(){
-  const {data}=await sb.from('folgas').select('*,funcionario:funcionarios(nome_completo,matricula,obra:obras!funcionarios_obra_id_fkey(nome,codigo))').order('funcionario_id');
+  const {data}=await sb.from('folgas').select('*,funcionario:funcionarios(nome_completo,matricula,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo))').order('funcionario_id');
   folgas=data||[];
 }
 
 async function loadFerias(){
-  const {data}=await sb.from('ferias').select('*,funcionario:funcionarios(nome_completo,matricula,obra:obras!funcionarios_obra_id_fkey(nome,codigo,centro_custo))').order('dt_limite_maxima');
+  const {data}=await sb.from('ferias').select('*,funcionario:funcionarios(nome_completo,matricula,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo,centro_custo))').order('dt_limite_maxima');
   feriasData=data||[];
-  // DIAG TEMP: log keys of first programado record
-  const diagProg=(data||[]).find(x=>x.programado);
-  if(diagProg) console.log('FERIAS KEYS programado:', Object.keys(diagProg), '| sample:', JSON.stringify(diagProg).substring(0,300));
 }
 
 async function loadAlojamentos(){
@@ -475,7 +472,7 @@ async function renderDashboard(){
       </div>
     </div>`).join('');
 
-  const funcaoRows=Object.entries(byFuncao).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([fn,qtd])=>`
+  const funcaoRows=Object.entries(byFuncao).sort((a,b)=>b[1]-a[1]).map(([fn,qtd])=>`
     <div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)">
       <div style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${fn}</div>
       <div style="font-weight:700;font-size:14px;color:var(--info);min-width:24px;text-align:right">${qtd}</div>
@@ -1380,6 +1377,7 @@ async function renderFolgas(){
       <div class="folga-cell">
         <div class="folga-func-name">${f.funcionario?.nome_completo||'—'}</div>
         <div class="folga-func-sub">${f.funcionario?.matricula||''} · ${f.funcionario?.obra?.nome||'—'}</div>
+        ${(f.funcionario?.funcao?.nome)?`<div style="font-size:11px;color:var(--primary-dark);font-weight:500;margin-top:1px">${f.funcionario.funcao.nome}</div>`:''}
         <div style="display:flex;gap:4px;margin-top:6px">
           <button class="btn btn-sm" title="Editar" onclick="openModalFolga('${f.id}')" style="padding:3px 8px;font-size:11px"><i class="ti ti-edit"></i> Editar</button>
           <button class="btn btn-sm btn-danger" title="Excluir" onclick="deleteFolgaConfirm('${f.id}')" style="padding:3px 8px;font-size:11px"><i class="ti ti-trash"></i></button>
@@ -1703,6 +1701,7 @@ async function renderFerias(){
         <div>
           <div style="font-weight:500">${nomeFunc}</div>
           <div style="font-size:11px;color:var(--text-muted)">${f0.matricula||'—'}</div>
+          ${f0.funcionario?.funcao?.nome?`<div style="font-size:11px;color:var(--primary-dark);font-weight:500;margin-top:1px">${f0.funcionario.funcao.nome}</div>`:''}
           ${f0.funcionario?.data_admissao?`<div style="font-size:10px;color:var(--text-muted);margin-top:1px">Admissão: ${formatDate(f0.funcionario.data_admissao)}</div>`:''}
         </div>
       </div></td>
@@ -1818,7 +1817,7 @@ function openModalProgramarFerias(id){
     <div class="modal-overlay" id="modal-prog-ferias" onclick="if(event.target===this)closeModal('modal-prog-ferias')">
       <div class="modal" style="max-width:480px">
         <div class="modal-header">
-          <span class="modal-title">📅 Programar Férias</span>
+          <span class="modal-title">${f.programado?"✏️ Alterar Férias":"📅 Programar Férias"}</span>
           <button class="btn btn-sm" onclick="closeModal('modal-prog-ferias')"><i class="ti ti-x"></i></button>
         </div>
         <div class="modal-body">
@@ -1859,7 +1858,7 @@ function openModalProgramarFerias(id){
         <div class="modal-footer">
           <button class="btn" onclick="closeModal('modal-prog-ferias')">Cancelar</button>
           ${f.programado?`<button class="btn btn-danger" onclick="desproramarFerias('${id}')"><i class="ti ti-x"></i> Desmarcar</button>`:''}
-          <button class="btn btn-primary" onclick="salvarProgFerias('${id}')"><i class="ti ti-check"></i> Salvar programação</button>
+          <button class="btn btn-primary" onclick="salvarProgFerias('${id}')"><i class="ti ti-check"></i> ${f.programado?"Salvar alteração":"Salvar programação"}</button>
         </div>
       </div>
     </div>`);
@@ -1872,7 +1871,7 @@ async function salvarProgFerias(id){
   if(!inicio||!fim){showToast('Data início e fim são obrigatórias','error');return;}
   const{error}=await sb.from('ferias').update({programado:true,dias_programados:dias,data_inicio_programada:inicio,data_fim_programada:fim}).eq('id',id);
   if(error){showToast('Erro: '+error.message,'error');return;}
-  showToast('Férias programadas!');closeModal('modal-prog-ferias');renderFerias();
+  showToast('Férias programadas!');closeModal('modal-prog-ferias');await loadFerias();renderFerias();
 }
 
 async function desproramarFerias(id){
