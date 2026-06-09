@@ -31,6 +31,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .nav-item:hover{background:var(--bg);color:var(--text)}
 .nav-item.active{background:var(--primary-light);color:var(--primary-dark);font-weight:500}
 .nav-item i{font-size:16px}
+.sidebar-obra-filter{padding:8px 12px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--bg)}
+.sidebar-obra-filter label{font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}
+.sidebar-obra-filter select{width:100%;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer}
+.sidebar-obra-filter select:focus{outline:none;border-color:var(--primary)}
+.global-obra-badge{display:none;margin:0 8px 6px;padding:4px 8px;background:var(--primary-light);border-radius:20px;font-size:11px;color:var(--primary-dark);font-weight:500;text-align:center}
 .main{margin-left:220px;min-height:100vh;padding:24px}
 .page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
 .page-title{font-size:20px;font-weight:600}
@@ -241,7 +246,14 @@ input:focus,select:focus{border-color:var(--primary)}
     <div class="sidebar-logo"><i class="ti ti-building-factory"></i> RH Manager</div>
     <div class="sidebar-sub">GTEL — Gestão de Colaboradores</div>
   </div>
+  <div class="sidebar-obra-filter">
+    <label><i class="ti ti-building-skyscraper"></i> Filtrar por Obra</label>
+    <select id="global-obra-select" onchange="setGlobalObraFiltro(this.value)">
+      <option value="">Todas as obras</option>
+    </select>
+  </div>
   <nav class="sidebar-nav">
+    <div class="global-obra-badge" id="global-obra-badge"></div>
     <div class="nav-section">Principal</div>
     <div class="nav-item active" onclick="showPage('dashboard')"><i class="ti ti-dashboard"></i> Dashboard</div>
     <div class="nav-item" onclick="showPage('funcionarios')"><i class="ti ti-users"></i> Funcionários</div>
@@ -264,6 +276,35 @@ const SUPABASE_KEY='sb_publishable_QlnJaa5xdUXePvXFV6QFwQ_AmMk639T';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
 let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[];
+let globalObraFiltro=''; // filtro global de obra — propaga para todos os módulos
+
+function setGlobalObraFiltro(obraId){
+  globalObraFiltro=obraId;
+  const obra=obraId?obras.find(o=>o.id===obraId):null;
+  // badge no sidebar
+  const badge=document.getElementById('global-obra-badge');
+  if(obra){
+    badge.textContent='🏗 '+(obra.codigo||obra.nome||'Obra selecionada');
+    badge.style.display='block';
+  } else {
+    badge.style.display='none';
+  }
+  // propagar para módulos que têm filtro local próprio
+  filtroObra=obraId; // funcionários (usa id)
+  feriasObraFiltro=obra?.codigo||''; // férias (usa código)
+  // re-renderizar a aba atual
+  const pageMap={funcionarios:renderFuncionarios,experiencia:renderExperiencia,folgas:renderFolgas,ferias:renderFerias,alojamentos:renderAlojamentos,dashboard:renderDashboard};
+  if(pageMap[currentPage]) pageMap[currentPage]();
+}
+
+function populateGlobalObraSelect(){
+  const sel=document.getElementById('global-obra-select');
+  if(!sel)return;
+  const current=sel.value;
+  sel.innerHTML='<option value="">Todas as obras</option>'+
+    obras.map(o=>`<option value="${o.id}" ${o.id===current?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
+  sel.value=globalObraFiltro;
+}
 
 function showToast(msg,type='success'){
   const t=document.getElementById('toast');
@@ -346,7 +387,10 @@ async function loadAlojamentos(){
   alojamentos=a.data||[];alojamentosContas=c.data||[];
 }
 
+let currentPage='dashboard';
+
 async function showPage(page){
+  currentPage=page;
   document.querySelectorAll('.nav-item').forEach(el=>{
     const t=el.textContent.trim().toLowerCase();
     el.classList.toggle('active',
@@ -362,6 +406,7 @@ async function showPage(page){
   });
   document.getElementById('main-content').innerHTML='<div class="loading"><i class="ti ti-loader ti-spin"></i> Carregando...</div>';
   await loadAll();
+  populateGlobalObraSelect();
   if(page==='dashboard')renderDashboard();
   else if(page==='funcionarios')renderFuncionarios();
   else if(page==='experiencia')renderExperiencia();
@@ -463,16 +508,22 @@ async function renderDashboard(){
       <i class="ti ti-chevron-right" style="margin-left:auto;opacity:.5"></i>
     </div>`).join('');
 
-  const obraRows=Object.entries(byObra).sort((a,b)=>b[1]-a[1]).map(([obra,qtd])=>`
-    <div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)">
+  const obraRows=Object.entries(byObra).sort((a,b)=>b[1]-a[1]).map(([obra,qtd])=>{
+    const obraObj=obras.find(o=>`${o.codigo} — ${o.nome}`===obra||o.codigo===obra.split(' — ')[0]);
+    const obraId=obraObj?.id||'';
+    return`<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;border-radius:4px;transition:background .15s"
+      onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"
+      onclick="if('${obraId}'){document.getElementById('global-obra-select').value='${obraId}';setGlobalObraFiltro('${obraId}');showPage('funcionarios')}"
+      title="Clique para filtrar funcionários desta obra">
       <div style="font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${obra}</div>
       <div style="font-weight:700;font-size:14px;color:var(--primary-dark);min-width:24px;text-align:right">${qtd}</div>
       <div style="width:100px;background:var(--border);border-radius:4px;height:6px;flex-shrink:0">
         <div style="background:var(--primary);border-radius:4px;height:6px;width:${Math.round(qtd/(ativos||1)*100)}%"></div>
       </div>
-    </div>`).join('');
+      <i class="ti ti-arrow-right" style="font-size:11px;color:var(--text-muted);flex-shrink:0"></i>
+    </div>`;}).join('');
 
-  const funcaoRows=Object.entries(byFuncao).sort((a,b)=>b[1]-a[1]).map(([fn,qtd])=>`
+  const funcaoRows=Object.entries(byFuncao).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([fn,qtd])=>`
     <div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)">
       <div style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${fn}</div>
       <div style="font-weight:700;font-size:14px;color:var(--info);min-width:24px;text-align:right">${qtd}</div>
@@ -639,7 +690,9 @@ async function renderDashboard(){
       </div>
       <div class="table-container" style="padding:16px">
         <div style="font-weight:600;font-size:14px;margin-bottom:12px;display:flex;align-items:center;gap:8px"><i class="ti ti-tool" style="color:var(--info)"></i> Funcionários por Função</div>
+        <div style="max-height:220px;overflow-y:auto;overflow-x:hidden">
         ${funcaoRows||'<div style="color:var(--text-muted);font-size:13px;padding:12px 0">Nenhum dado</div>'}
+        </div>
       </div>
     </div>
     <!-- LINHA 4 -->
@@ -1147,7 +1200,7 @@ async function deleteFuncionario(id,nome){
 }
 
 // ─── EXPERIÊNCIA ──────────────────────────────────────────────────────────────
-let expFiltro='',expView='operacional';
+let expFiltro='',expView='operacional',expBuscaVal='';
 
 function calcExp(f){
   if(!f.data_admissao)return null;
@@ -1175,6 +1228,7 @@ function renderExperiencia(){
   let lista=comExp;
   if(expFiltro==='emexp')lista=comExp.filter(f=>['exp1','exp2','vencendo'].includes(f._exp.status));
   else if(expFiltro&&expFiltro!=='todos')lista=comExp.filter(f=>f._exp.status===expFiltro);
+  if(expBuscaVal)lista=lista.filter(f=>(f.nome_completo||'').toLowerCase().includes(expBuscaVal.toLowerCase())||(f.matricula||'').includes(expBuscaVal));
   lista=[...lista].sort((a,b)=>{
     const order={vencida:0,vencendo:1,exp2:2,exp1:3,efetivado:4};
     const od=(order[a._exp.status]||0)-(order[b._exp.status]||0);
@@ -1256,15 +1310,14 @@ function renderExperiencia(){
         <div class="exp-tab ${expView==='gerencial'?'active':''}" onclick="expView='gerencial';renderExperiencia()">Gerencial</div>
       </div>
       <div style="display:flex;gap:8px">
-        <div class="search-box" style="min-width:180px"><i class="ti ti-search"></i><input placeholder="Buscar..." oninput="expBusca(this.value)" id="exp-search"></div>
-        <button class="btn btn-sm" onclick="expFiltro='';renderExperiencia()"><i class="ti ti-x"></i> Limpar</button>
+        <div class="search-box" style="min-width:180px"><i class="ti ti-search"></i><input placeholder="Buscar..." oninput="expBusca(this.value)" id="exp-search" value="${expBuscaVal}"></div>
+        <button class="btn btn-sm" onclick="expFiltro='';expBuscaVal='';renderExperiencia()"><i class="ti ti-x"></i> Limpar</button>
       </div>
     </div>
     ${tableContent}`;
 }
 
-function expBusca(val){
-  /* delegated to filter above */ }
+function expBusca(val){expBuscaVal=val;renderExperiencia();}
 
 async function efetivarFunc(id){
   if(!confirm('Confirmar efetivação deste funcionário?'))return;
@@ -1341,6 +1394,7 @@ async function renderFolgas(){
   await loadFolgas();
   const hoje=new Date();hoje.setHours(0,0,0,0);
   let lista=folgas;
+  if(globalObraFiltro)lista=lista.filter(f=>f.funcionario?.obra_id===globalObraFiltro);
   if(folgasBusca)lista=lista.filter(f=>f.funcionario?.nome_completo?.toLowerCase().includes(folgasBusca.toLowerCase())||f.funcionario?.matricula?.includes(folgasBusca));
   if(folgasFiltro==='warn')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`])==='warn');});
   if(folgasFiltro==='danger')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`])==='danger');});
@@ -2461,19 +2515,20 @@ function insertModal(id,html){
 
 function renderAlojamentos(){
   const hoje=new Date();hoje.setHours(0,0,0,0);
-  const totalVagas=alojamentos.reduce((s,a)=>s+(a.vagas_total||0),0);
+  const alojsFiltrados=globalObraFiltro?alojamentos.filter(a=>a.obra_id===globalObraFiltro):alojamentos;
+  const totalVagas=alojsFiltrados.reduce((s,a)=>s+(a.vagas_total||0),0);
   const totalOcup=funcionarios.filter(f=>f.alojamento_id&&f.situacao!=='inativo').length;
   const totalDisp=totalVagas-totalOcup;
-  const totalAluguel=alojamentos.reduce((s,a)=>s+Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0),0);
-  const totalCaucao=alojamentos.reduce((s,a)=>s+Number(a.caucao||0),0);
+  const totalAluguel=alojsFiltrados.reduce((s,a)=>s+Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0),0);
+  const totalCaucao=alojsFiltrados.reduce((s,a)=>s+Number(a.caucao||0),0);
   const totalContas=alojamentosContas.filter(c=>c.mes===hoje.getMonth()+1&&c.ano===hoje.getFullYear()).reduce((s,c)=>s+Number(c.valor||0),0);
   const contasPend=alojamentosContas.filter(c=>c.status==='pendente'&&c.mes===hoje.getMonth()+1&&c.ano===hoje.getFullYear()).length;
 
   // Vencimentos próximos (60 dias)
-  const vencProx=alojamentos.filter(a=>{const d=parseDate(a.data_termino);return d&&Math.floor((d-hoje)/86400000)<=60&&Math.floor((d-hoje)/86400000)>=0;}).length;
-  const vencidos=alojamentos.filter(a=>{const d=parseDate(a.data_termino);return d&&d<hoje;}).length;
+  const vencProx=alojsFiltrados.filter(a=>{const d=parseDate(a.data_termino);return d&&Math.floor((d-hoje)/86400000)<=60&&Math.floor((d-hoje)/86400000)>=0;}).length;
+  const vencidos=alojsFiltrados.filter(a=>{const d=parseDate(a.data_termino);return d&&d<hoje;}).length;
 
-  const cards=alojamentos.map(a=>{
+  const cards=alojsFiltrados.map(a=>{
     const moradores=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo');
     const ocup=moradores.length;
     const total=a.vagas_total||0;
