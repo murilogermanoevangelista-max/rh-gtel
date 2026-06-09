@@ -336,6 +336,9 @@ async function loadFolgas(){
 async function loadFerias(){
   const {data}=await sb.from('ferias').select('*,funcionario:funcionarios(nome_completo,matricula,obra:obras!funcionarios_obra_id_fkey(nome,codigo,centro_custo))').order('dt_limite_maxima');
   feriasData=data||[];
+  // DIAG TEMP: log keys of first programado record
+  const diagProg=(data||[]).find(x=>x.programado);
+  if(diagProg) console.log('FERIAS KEYS programado:', Object.keys(diagProg), '| sample:', JSON.stringify(diagProg).substring(0,300));
 }
 
 async function loadAlojamentos(){
