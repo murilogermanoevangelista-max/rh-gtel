@@ -2392,7 +2392,7 @@ async function renderUsuarios(){
     let senhaLeg='—';
     try{if(u.senha_hash)senhaLeg=atob(u.senha_hash);}catch(e){senhaLeg='(criptografada)'}
     return`<tr>
-      <td><div style="font-weight:500">${u.nome||'—'}</div><div style="font-size:11px;color:var(--text-muted)">👤 ${u.email||'—'}</div></td>
+      <td><div style="font-weight:500">${u.nome||'—'}</div><div style="font-size:11px;color:var(--text-muted)">👤 ${u.usuario||'—'}</div></td>
       <td>${nivelBadge(u.nivel_acesso)}</td>
       <td>${u.ativo?'<span class="badge badge-green">Ativo</span>':'<span class="badge badge-red">Inativo</span>'}</td>
       <td>
@@ -2444,7 +2444,7 @@ function openModalUsuario(id){
               </div>
               <div class="form-group" style="grid-column:1/-1">
                 <label>Usuário (login) *</label>
-                <input type="text" id="u-email" value="${u?.email||''}" placeholder="Nome de usuário para login" autocomplete="off">
+                <input type="text" id="u-email" value="${u?.usuario||''}" placeholder="Nome de usuário para login" autocomplete="off">
               </div>
               <div class="form-group" style="grid-column:1/-1">
                 <label>${isEdit?'Nova senha (deixe em branco para manter)':'Senha *'}</label>
@@ -2497,7 +2497,7 @@ async function salvarUsuario(id){
   const ativo=document.getElementById('u-ativo').value==='true';
   if(!nome||!email){showToast('Nome e usuário são obrigatórios','error');return;}
   if(!id&&!senha){showToast('Senha é obrigatória para novo usuário','error');return;}
-  const payload={nome,email,nivel_acesso:nivel,ativo};
+  const payload={nome,usuario:email,nivel_acesso:nivel,ativo};
   if(senha)payload.senha_hash=btoa(senha); // hash simples base64
   let error;
   if(id){({error}=await sb.from('usuarios_acesso').update(payload).eq('id',id));}
