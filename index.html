@@ -262,6 +262,7 @@ input:focus,select:focus{border-color:var(--primary)}
     <div class="nav-item" onclick="showPage('ferias')"><i class="ti ti-sunglasses"></i> Férias</div>
     <div class="nav-item" onclick="showPage('alojamentos')"><i class="ti ti-home-2"></i> Alojamentos</div>
     <div class="nav-section">Cadastros</div>
+    <div class="nav-item" onclick="showPage('usuarios')"><i class="ti ti-shield-lock"></i> Usuários</div>
     <div class="nav-item" onclick="showPage('obras')"><i class="ti ti-building-skyscraper"></i> Obras / Contratos</div>
     <div class="nav-item" onclick="showPage('empresas')"><i class="ti ti-briefcase"></i> Empresas</div>
   </nav>
@@ -400,6 +401,7 @@ async function showPage(page){
       (page==='folgas'&&t.includes('folga'))||
       (page==='ferias'&&t.includes('férias'))||
       (page==='alojamentos'&&t.includes('alojamento'))||
+      (page==='usuarios'&&t.includes('usuário'))||
       (page==='obras'&&t.includes('obra'))||
       (page==='empresas'&&t.includes('empresa'))
     );
@@ -413,6 +415,7 @@ async function showPage(page){
   else if(page==='folgas')renderFolgas();
   else if(page==='ferias')renderFerias();
   else if(page==='alojamentos'){await loadAlojamentos();renderAlojamentos();}
+  else if(page==='usuarios')renderUsuarios();
   else if(page==='obras')renderObras();
   else if(page==='empresas')renderEmpresas();
 }
@@ -2368,6 +2371,117 @@ function exportFeriasPDF(){
   });
   doc.save('Controle_Ferias.pdf');showToast('PDF exportado!');
 }
+
+// ─── USUÁRIOS ─────────────────────────────────────────────────────────────────
+async function renderUsuarios(){
+  const{data:usuarios,error}=await sb.from('usuarios_acesso').select('*').order('nome');
+  if(error){showToast('Erro ao carregar usuários: '+error.message,'error');return;}
+  const nivelBadge=n=>n==='Admin'?'<span class="badge badge-red">Admin</span>':n==='Gerente'?'<span class="badge badge-amber">Gerente</span>':'<span class="badge badge-blue">Usuário</span>';
+  const rows=(usuarios||[]).map(u=>`
+    <tr>
+      <td><div style="font-weight:500">${u.nome||'—'}</div><div style="font-size:11px;color:var(--text-muted)">${u.email||'—'}</div></td>
+      <td>${nivelBadge(u.nivel_acesso)}</td>
+      <td>${u.ativo?'<span class="badge badge-green">Ativo</span>':'<span class="badge badge-red">Inativo</span>'}</td>
+      <td>${u.criado_em?new Date(u.criado_em).toLocaleDateString('pt-BR'):'—'}</td>
+      <td>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm" onclick="openModalUsuario('${u.id}')"><i class="ti ti-edit"></i> Editar</button>
+          <button class="btn btn-sm btn-danger" onclick="toggleUsuarioAtivo('${u.id}',${!u.ativo},'${(u.nome||'').replace(/'/g,"\\'")}')">
+            <i class="ti ti-${u.ativo?'lock':'lock-open'}"></i> ${u.ativo?'Desativar':'Ativar'}
+          </button>
+        </div>
+      </td>
+    </tr>`).join('')||'<tr><td colspan="5"><div class="empty-state"><i class="ti ti-users"></i><div>Nenhum usuário cadastrado</div></div></td></tr>';
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title">Usuários do Sistema</div><div class="page-subtitle">${(usuarios||[]).length} usuários cadastrados</div></div>
+      <button class="btn btn-primary" onclick="openModalUsuario()"><i class="ti ti-plus"></i> Novo usuário</button>
+    </div>
+    <div class="table-container">
+      <table class="table">
+        <thead><tr>
+          <th>Nome / E-mail</th><th>Nível de Acesso</th><th>Status</th><th>Criado em</th><th>Ações</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function openModalUsuario(id){
+  sb.from('usuarios_acesso').select('*').eq('id',id||'00000000-0000-0000-0000-000000000000').single().then(({data:u})=>{
+    const isEdit=!!id;
+    document.body.insertAdjacentHTML('beforeend',`
+      <div class="modal-overlay" id="modal-usuario" onclick="if(event.target===this)closeModal('modal-usuario')">
+        <div class="modal" style="max-width:440px">
+          <div class="modal-header">
+            <span class="modal-title">${isEdit?'✏️ Editar Usuário':'➕ Novo Usuário'}</span>
+            <button class="btn btn-sm" onclick="closeModal('modal-usuario')"><i class="ti ti-x"></i></button>
+          </div>
+          <div class="modal-body">
+            <div class="form-grid">
+              <div class="form-group" style="grid-column:1/-1">
+                <label>Nome completo *</label>
+                <input type="text" id="u-nome" value="${u?.nome||''}" placeholder="Nome do usuário">
+              </div>
+              <div class="form-group" style="grid-column:1/-1">
+                <label>E-mail *</label>
+                <input type="email" id="u-email" value="${u?.email||''}" placeholder="email@exemplo.com">
+              </div>
+              <div class="form-group" style="grid-column:1/-1">
+                <label>${isEdit?'Nova senha (deixe em branco para manter)':'Senha *'}</label>
+                <input type="password" id="u-senha" placeholder="${isEdit?'Nova senha (opcional)':'Senha de acesso'}">
+              </div>
+              <div class="form-group">
+                <label>Nível de acesso *</label>
+                <select id="u-nivel">
+                  <option value="Usuário" ${u?.nivel_acesso==='Usuário'?'selected':''}>Usuário</option>
+                  <option value="Gerente" ${u?.nivel_acesso==='Gerente'?'selected':''}>Gerente</option>
+                  <option value="Admin" ${u?.nivel_acesso==='Admin'?'selected':''}>Admin</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Status</label>
+                <select id="u-ativo">
+                  <option value="true" ${u?.ativo!==false?'selected':''}>Ativo</option>
+                  <option value="false" ${u?.ativo===false?'selected':''}>Inativo</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn" onclick="closeModal('modal-usuario')">Cancelar</button>
+            <button class="btn btn-primary" onclick="salvarUsuario('${id||''}')"><i class="ti ti-check"></i> Salvar</button>
+          </div>
+        </div>
+      </div>`);
+  });
+
+}
+
+async function salvarUsuario(id){
+  const nome=document.getElementById('u-nome').value.trim();
+  const email=document.getElementById('u-email').value.trim();
+  const senha=document.getElementById('u-senha').value;
+  const nivel=document.getElementById('u-nivel').value;
+  const ativo=document.getElementById('u-ativo').value==='true';
+  if(!nome||!email){showToast('Nome e e-mail são obrigatórios','error');return;}
+  if(!id&&!senha){showToast('Senha é obrigatória para novo usuário','error');return;}
+  const payload={nome,email,nivel_acesso:nivel,ativo};
+  if(senha)payload.senha_hash=btoa(senha); // hash simples base64
+  let error;
+  if(id){({error}=await sb.from('usuarios_acesso').update(payload).eq('id',id));}
+  else{({error}=await sb.from('usuarios_acesso').insert({...payload,criado_em:new Date().toISOString()}));}
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast(id?'Usuário atualizado!':'Usuário criado!');closeModal('modal-usuario');renderUsuarios();
+}
+
+async function toggleUsuarioAtivo(id,novoStatus,nome){
+  if(!confirm(`${novoStatus?'Ativar':'Desativar'} o usuário "${nome}"?`))return;
+  const{error}=await sb.from('usuarios_acesso').update({ativo:novoStatus}).eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast(`Usuário ${novoStatus?'ativado':'desativado'}!`);renderUsuarios();
+}
+
 
 // ─── OBRAS ────────────────────────────────────────────────────────────────────
 function renderObras(){
