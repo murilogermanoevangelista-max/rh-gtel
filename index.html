@@ -1412,8 +1412,10 @@ async function renderFolgas(){
     const bMin=Math.min(...bVencs.filter((_,i)=>!b[`saida${i+1}_real`]).map(v=>v.getTime()),Infinity);
     return aMin-bMin;
   });
+  // totalVenc/totalWarn baseados na lista já filtrada por obra
+  const listaBase=globalObraFiltro?folgas.filter(f=>{const obraObj=obras.find(o=>o.id===globalObraFiltro);return f.funcionario?.obra?.codigo===(obraObj?.codigo||'');}):folgas;
   let totalVenc=0,totalWarn=0;
-  folgas.forEach(f=>{const vencs=calcVencimentos(f);vencs.forEach((v,i)=>{const st=vencStatus(v,f[`saida${i+1}_real`]);if(st==='danger')totalVenc++;if(st==='warn')totalWarn++;});});
+  listaBase.forEach(f=>{const vencs=calcVencimentos(f);vencs.forEach((v,i)=>{const st=vencStatus(v,f[`saida${i+1}_real`]);if(st==='danger')totalVenc++;if(st==='warn')totalWarn++;});});
   const obraOptions=obras.map(o=>`<option value="${o.id}">${o.codigo} — ${o.nome}</option>`).join('');
   const rows=lista.map(f=>{
     const vencs=calcVencimentos(f);
@@ -1458,7 +1460,7 @@ async function renderFolgas(){
   ].join('');
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
-      <div><div class="page-title">Folgas de Campo</div><div class="page-subtitle">${folgas.length} registros ativos</div></div>
+      <div><div class="page-title">Folgas de Campo</div><div class="page-subtitle">${listaBase.length} registros ativos</div></div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-sm" onclick="exportFolgasExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
         <button class="btn btn-primary" onclick="openModalFolga()"><i class="ti ti-plus"></i> Nova folga</button>
@@ -1466,7 +1468,7 @@ async function renderFolgas(){
     </div>
     ${alertsHtml}
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px">
-      <div class="metric-card" style="cursor:pointer;border-color:${folgasFiltro==='todos'?'var(--primary)':'var(--border)'}" onclick="folgasFiltro='todos';renderFolgas()"><div class="metric-label">Total de registros</div><div class="metric-value">${folgas.length}</div></div>
+      <div class="metric-card" style="cursor:pointer;border-color:${folgasFiltro==='todos'?'var(--primary)':'var(--border)'}" onclick="folgasFiltro='todos';renderFolgas()"><div class="metric-label">Total de registros</div><div class="metric-value">${listaBase.length}</div></div>
       <div class="metric-card amber" style="cursor:pointer;border-color:${folgasFiltro==='warn'?'var(--warning)':'var(--border)'}" onclick="folgasFiltro='warn';renderFolgas()"><div class="metric-label">🟡 Vencendo (15d)</div><div class="metric-value">${totalWarn}</div></div>
       <div class="metric-card red" style="cursor:pointer;border-color:${folgasFiltro==='danger'?'var(--danger)':'var(--border)'}" onclick="folgasFiltro='danger';renderFolgas()"><div class="metric-label">🔴 Vencidas</div><div class="metric-value">${totalVenc}</div></div>
     </div>
