@@ -1692,7 +1692,7 @@ async function renderFerias(){
             </div>`).join('')}
         </div>`;
     const progResume=programados.map(f=>
-      `<div style="font-size:11px;color:var(--success)">✓ ${f.dias_programados||'?'}d: ${formatDate(f.data_inicio_programada)} → ${formatDate(f.data_fim_programada)}</div>`
+      `<div style="font-size:11px;color:var(--success)">✓ ${f.dias_programados||'?'}d: ${formatDate(f.dt_inicio_programado)} → ${formatDate(f.dt_fim_programado)}</div>`
     ).join('')||'<span style="color:var(--text-muted);font-size:12px">—</span>';
 
     return`<tr style="${rowStyle}">
@@ -1843,11 +1843,11 @@ function openModalProgramarFerias(id){
             <div class="form-group"><!-- spacer --></div>
             <div class="form-group">
               <label>Data início *</label>
-              <input type="date" id="prog-inicio" value="${f.data_inicio_programada||''}">
+              <input type="date" id="prog-inicio" value="${f.dt_inicio_programado||''}">
             </div>
             <div class="form-group">
               <label>Data fim *</label>
-              <input type="date" id="prog-fim" value="${f.data_fim_programada||''}">
+              <input type="date" id="prog-fim" value="${f.dt_fim_programado||''}">
             </div>
           </div>
           <div style="margin-top:12px;padding:10px;background:var(--info-light);border-radius:var(--radius);font-size:12px;color:var(--info)">
@@ -1868,20 +1868,20 @@ async function salvarProgFerias(id){
   const inicio=document.getElementById('prog-inicio').value;
   const fim=document.getElementById('prog-fim').value;
   if(!inicio||!fim){showToast('Data início e fim são obrigatórias','error');return;}
-  const{error}=await sb.from('ferias').update({programado:true,dias_programados:dias,data_inicio_programada:inicio,data_fim_programada:fim}).eq('id',id);
+  const{error}=await sb.from('ferias').update({programado:true,dias_programados:dias,dt_inicio_programado:inicio,dt_fim_programado:fim}).eq('id',id);
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast('Férias programadas!');closeModal('modal-prog-ferias');renderFerias();
 }
 
 async function desproramarFerias(id){
   if(!confirm('Remover programação de férias?'))return;
-  await sb.from('ferias').update({programado:false,dias_programados:null,data_inicio_programada:null,data_fim_programada:null}).eq('id',id);
+  await sb.from('ferias').update({programado:false,dias_programados:null,dt_inicio_programado:null,dt_fim_programado:null}).eq('id',id);
   showToast('Programação removida.');closeModal('modal-prog-ferias');renderFerias();
 }
 
 async function cancelarProgFerias(id){
   if(!confirm('Cancelar a programação de férias deste funcionário?'))return;
-  const{error}=await sb.from('ferias').update({programado:false,dias_programados:null,data_inicio_programada:null,data_fim_programada:null}).eq('id',id);
+  const{error}=await sb.from('ferias').update({programado:false,dias_programados:null,dt_inicio_programado:null,dt_fim_programado:null}).eq('id',id);
   if(error){showToast('Erro ao cancelar: '+error.message,'error');return;}
   showToast('Programação cancelada.','success');
   await loadFerias();renderFerias();
@@ -2100,7 +2100,7 @@ async function confirmarImportFerias(){
     const perIso=toISO(d.periodoInicio);
     if(!perIso)continue; // pular se não tem data
     // Buscar se já existe esse período para essa matrícula
-    const{data:existing}=await sb.from('ferias').select('id,programado,dias_programados,data_inicio_programada,data_fim_programada').eq('matricula',d.mat).eq('periodo_aquisitivo_inicio',perIso).single();
+    const{data:existing}=await sb.from('ferias').select('id,programado,dias_programados,dt_inicio_programado,dt_fim_programado').eq('matricula',d.mat).eq('periodo_aquisitivo_inicio',perIso).single();
     const payload={
       funcionario_id:d.func.id,
       matricula:d.mat,
@@ -2116,8 +2116,8 @@ async function confirmarImportFerias(){
     if(existing){
       payload.programado=existing.programado;
       payload.dias_programados=existing.dias_programados;
-      payload.data_inicio_programada=existing.data_inicio_programada;
-      payload.data_fim_programada=existing.data_fim_programada;
+      payload.dt_inicio_programado=existing.dt_inicio_programado;
+      payload.dt_fim_programado=existing.dt_fim_programado;
     }
     let error;
     if(existing){
@@ -2236,7 +2236,7 @@ function exportFeriasExcel(){
       const per2Lim=per2exp?formatDate(per2exp.dt_limite_maxima):'—';
 
       // Programação
-      const prog=arr.filter(f=>f.programado).map(f=>`${f.dias_programados||'?'}d: ${formatDate(f.data_inicio_programada)} → ${formatDate(f.data_fim_programada)}`).join(' | ')||'Não programada';
+      const prog=arr.filter(f=>f.programado).map(f=>`${f.dias_programados||'?'}d: ${formatDate(f.dt_inicio_programado)} → ${formatDate(f.dt_fim_programado)}`).join(' | ')||'Não programada';
 
       rows.push([nome,mat,cc,perAquiUrgente,formatDate(limMax),dM===null?'—':dM<0?`${Math.abs(dM)}d atrás`:`${dM}d`,status,per2Str,per2Lim,prog]);
     });
