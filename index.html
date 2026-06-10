@@ -2191,38 +2191,50 @@ async function confirmarImportFerias(){
   if(btn){btn.disabled=true;btn.textContent='Importando...';}
   let ok=0,erros=0;
 
-  // Agrupar por matrícula para processar funcionário a funcionário
-  const porMat={};
-  dados.forEach(d=>{if(!porMat[d.mat])porMat[d.mat]=[];porMat[d.mat].push(d);});
+  // Agrupar por funcionario_id (UUID — sem ambiguidade de formato)
+  const porFuncId={};
+  dados.forEach(d=>{
+    const fid=d.func.id;
+    if(!porFuncId[fid])porFuncId[fid]=[];
+    porFuncId[fid].push(d);
+  });
 
-  for(const [mat,periodos] of Object.entries(porMat)){
-    // 1. Buscar todos os registros existentes deste funcionário no banco
+  for(const [funcId,periodos] of Object.entries(porFuncId)){
+    // 1. Buscar todos os registros existentes pelo funcionario_id
     const{data:existentes}=await sb.from('ferias')
       .select('id,periodo_aquisitivo_inicio,programado,dias_programados,data_inicio_programada,data_fim_programada')
-      .eq('matricula',mat);
-    // Montar mapa de programações existentes (preservar independente do período)
+      .eq('funcionario_id',funcId);
+
+    // 2. Preservar SOMENTE os períodos que já têm férias programadas
+    //    (para não perder o controle de programação já lançada)
     const progMap={};
     (existentes||[]).forEach(e=>{
       if(e.programado){
-        // Chave = data ISO truncada para 10 chars (YYYY-MM-DD)
         const chave=(e.periodo_aquisitivo_inicio||'').substring(0,10);
-        progMap[chave]={programado:e.programado,dias_programados:e.dias_programados,
-          data_inicio_programada:e.data_inicio_programada,data_fim_programada:e.data_fim_programada};
+        progMap[chave]={
+          programado:e.programado,
+          dias_programados:e.dias_programados,
+          data_inicio_programada:e.data_inicio_programada,
+          data_fim_programada:e.data_fim_programada,
+        };
       }
     });
-    // 2. Deletar todos os registros antigos deste funcionário
+
+    // 3. Deletar TODOS os registros existentes pelo funcionario_id (limpa duplicatas e dados velhos)
     if(existentes&&existentes.length>0){
-      await sb.from('ferias').delete().eq('matricula',mat);
+      const ids=existentes.map(e=>e.id);
+      await sb.from('ferias').delete().in('id',ids);
     }
-    // 3. Reinserir todos os períodos (do TOTVS + derivados) com dados corretos
+
+    // 4. Reinserir períodos novos da planilha (TOTVS + derivado)
     for(const d of periodos){
       const perIso=toISO(d.periodoInicio);
       if(!perIso)continue;
       const chave=perIso.substring(0,10);
       const prog=progMap[chave]||{};
       const payload={
-        funcionario_id:d.func.id,
-        matricula:mat,
+        funcionario_id:funcId,
+        matricula:d.mat,
         periodo_aquisitivo_inicio:perIso,
         periodo_aquisitivo_fim:toISO(d.periodoFim),
         dt_limite_ideal:toISO(d.dtIdeal),
@@ -2236,10 +2248,11 @@ async function confirmarImportFerias(){
         data_fim_programada:prog.data_fim_programada||null,
       };
       const{error}=await sb.from('ferias').insert(payload);
-      if(error){erros++;console.error('Erro import',mat,error);}
+      if(error){erros++;console.error('Erro import',funcId,error);}
       else ok++;
     }
   }
+
   if(erros>0)showToast(`${ok} importados, ${erros} com erro`,'error');
   else showToast(`${ok} períodos importados com sucesso!`);
   closeModal('modal-import-ferias');
