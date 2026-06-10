@@ -2107,8 +2107,8 @@ function processImportFile(file){
           return fm===mat||fm===mat.replace(/^0+/,'')||fm.padStart(6,'0')===mat;
         });
         if(func){
-          periodos.forEach(r=>{
-            // Período aquisitivo: string "DD/MM/YYYY  DD/MM/YYYY"
+          // Parsear todos os periodos do TOTVS e ordenar do mais antigo ao mais recente
+          const parsedPeriodos=periodos.map(r=>{
             const periodoStr=String(r[COL.periodoAqui]||'');
             let periodoInicio=null,periodoFim=null;
             const matchPer=periodoStr.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})/);
@@ -2121,9 +2121,30 @@ function processImportFile(file){
             const diasDir =parseFloat(r[COL.totalFerias])||30;
             const diasVenc=parseFloat(r[COL.feriasVenc])||0;
             const cc      =String(r[COL.centroCusto]||'').trim();
-            encontrados.push({func,mat,periodoInicio,periodoFim,dtIdeal,dtMaxima,diasDir,diasVenc,
-              nomeDP:String(r[COL.nome]||''),centroCusto:cc});
-          });
+            return{func,mat,periodoInicio,periodoFim,dtIdeal,dtMaxima,diasDir,diasVenc,
+              nomeDP:String(r[COL.nome]||''),centroCusto:cc};
+          }).filter(p=>p.periodoInicio);
+          parsedPeriodos.sort((a,b)=>a.periodoInicio-b.periodoInicio);
+          // Derivar período anterior ao mais antigo do TOTVS
+          // O TOTVS só exporta períodos com saldo aberto; o período imediatamente anterior
+          // (vencendo ou já vencido) precisa ser derivado para exibição correta.
+          // Regra CLT: limite_máxima = fim_periodo + 11 meses
+          if(parsedPeriodos.length>0){
+            const maisAntigo=parsedPeriodos[0];
+            const iniRef=maisAntigo.periodoInicio;
+            const iniDer=new Date(iniRef);iniDer.setFullYear(iniDer.getFullYear()-1);
+            const fimDer=new Date(iniRef);fimDer.setDate(fimDer.getDate()-1);
+            const limDer=new Date(fimDer);limDer.setMonth(limDer.getMonth()+11);
+            // Incluir apenas se o limite ainda é relevante (não expirou há mais de 1 ano)
+            const cutoff=new Date();cutoff.setFullYear(cutoff.getFullYear()-1);
+            if(limDer>cutoff){
+              encontrados.push({func,mat,periodoInicio:iniDer,periodoFim:fimDer,
+                dtIdeal:null,dtMaxima:limDer,diasDir:maisAntigo.diasDir||30,diasVenc:0,
+                nomeDP:maisAntigo.nomeDP,centroCusto:maisAntigo.centroCusto,_derivado:true});
+            }
+          }
+          // Adicionar todos os períodos do TOTVS
+          parsedPeriodos.forEach(p=>encontrados.push(p));
         }else{
           const nomeDP=periodos.length>0?String(periodos[0][COL.nome]||''):'';
           const cc=periodos.length>0?String(periodos[0][COL.centroCusto]||''):'';
@@ -2169,41 +2190,60 @@ async function confirmarImportFerias(){
   const btn=document.querySelector('#import-footer .btn-primary');
   if(btn){btn.disabled=true;btn.textContent='Importando...';}
   let ok=0,erros=0;
-  for(const d of dados){
-    const perIso=toISO(d.periodoInicio);
-    if(!perIso)continue; // pular se não tem data
-    // Buscar se já existe esse período para essa matrícula
-    const{data:existing}=await sb.from('ferias').select('id,programado,dias_programados,data_inicio_programada,data_fim_programada').eq('matricula',d.mat).eq('periodo_aquisitivo_inicio',perIso).single();
-    const payload={
-      funcionario_id:d.func.id,
-      matricula:d.mat,
-      periodo_aquisitivo_inicio:perIso,
-      periodo_aquisitivo_fim:toISO(d.periodoFim),
-      dt_limite_ideal:toISO(d.dtIdeal),
-      dt_limite_maxima:toISO(d.dtMaxima),
-      dias_direito:d.diasDir,
-      dias_vencidos:d.diasVenc,
-      importado_em:new Date().toISOString(),
-    };
-    // Preservar programação existente
-    if(existing){
-      payload.programado=existing.programado;
-      payload.dias_programados=existing.dias_programados;
-      payload.data_inicio_programada=existing.data_inicio_programada;
-      payload.data_fim_programada=existing.data_fim_programada;
+
+  // Agrupar por matrícula para processar funcionário a funcionário
+  const porMat={};
+  dados.forEach(d=>{if(!porMat[d.mat])porMat[d.mat]=[];porMat[d.mat].push(d);});
+
+  for(const [mat,periodos] of Object.entries(porMat)){
+    // 1. Buscar todos os registros existentes deste funcionário no banco
+    const{data:existentes}=await sb.from('ferias')
+      .select('id,periodo_aquisitivo_inicio,programado,dias_programados,data_inicio_programada,data_fim_programada')
+      .eq('matricula',mat);
+    // Montar mapa de programações existentes (preservar independente do período)
+    const progMap={};
+    (existentes||[]).forEach(e=>{
+      if(e.programado){
+        // Chave = data ISO truncada para 10 chars (YYYY-MM-DD)
+        const chave=(e.periodo_aquisitivo_inicio||'').substring(0,10);
+        progMap[chave]={programado:e.programado,dias_programados:e.dias_programados,
+          data_inicio_programada:e.data_inicio_programada,data_fim_programada:e.data_fim_programada};
+      }
+    });
+    // 2. Deletar todos os registros antigos deste funcionário
+    if(existentes&&existentes.length>0){
+      await sb.from('ferias').delete().eq('matricula',mat);
     }
-    let error;
-    if(existing){
-      ({error}=await sb.from('ferias').update(payload).eq('id',existing.id));
-    }else{
-      ({error}=await sb.from('ferias').insert(payload));
+    // 3. Reinserir todos os períodos (do TOTVS + derivados) com dados corretos
+    for(const d of periodos){
+      const perIso=toISO(d.periodoInicio);
+      if(!perIso)continue;
+      const chave=perIso.substring(0,10);
+      const prog=progMap[chave]||{};
+      const payload={
+        funcionario_id:d.func.id,
+        matricula:mat,
+        periodo_aquisitivo_inicio:perIso,
+        periodo_aquisitivo_fim:toISO(d.periodoFim),
+        dt_limite_ideal:toISO(d.dtIdeal),
+        dt_limite_maxima:toISO(d.dtMaxima),
+        dias_direito:d.diasDir,
+        dias_vencidos:d.diasVenc,
+        importado_em:new Date().toISOString(),
+        programado:prog.programado||false,
+        dias_programados:prog.dias_programados||null,
+        data_inicio_programada:prog.data_inicio_programada||null,
+        data_fim_programada:prog.data_fim_programada||null,
+      };
+      const{error}=await sb.from('ferias').insert(payload);
+      if(error){erros++;console.error('Erro import',mat,error);}
+      else ok++;
     }
-    if(error){erros++;console.error('Erro import',d.mat,error);}
-    else ok++;
   }
   if(erros>0)showToast(`${ok} importados, ${erros} com erro`,'error');
   else showToast(`${ok} períodos importados com sucesso!`);
   closeModal('modal-import-ferias');
+  await loadFerias();
   renderFerias();
 }
 
