@@ -2167,11 +2167,6 @@ function processImportFile(file){
         </div>`;
       }
       document.getElementById('import-preview').innerHTML=previewHtml;
-      // Botão confirmar
-      document.getElementById('import-footer').innerHTML=`
-        <button class="btn" onclick="closeModal('modal-import-ferias')">Cancelar</button>
-        <button class="btn btn-primary" onclick="confirmarImportFerias(${JSON.stringify(encontrados).replace(/"/g,'&quot;')})"><i class="ti ti-check"></i> Importar ${encontrados.length} períodos</button>`;
-      // Guardar dados para o confirm
       window._importFeriasData=encontrados;
       document.getElementById('import-footer').innerHTML=`
         <button class="btn" onclick="closeModal('modal-import-ferias')">Cancelar</button>
@@ -2221,15 +2216,17 @@ async function confirmarImportFerias(){
     });
 
     // 3. Deletar TODOS os registros existentes pelo funcionario_id (limpa duplicatas e dados velhos)
-    if(existentes&&existentes.length>0){
-      const ids=existentes.map(e=>e.id);
-      await sb.from('ferias').delete().in('id',ids);
-    }
+    // Usa funcionario_id direto — não depende de select anterior para garantir limpeza total
+    const{error:delErr}=await sb.from('ferias').delete().eq('funcionario_id',funcId);
+    if(delErr)console.error('Erro delete ferias',funcId,delErr);
 
     // 4. Reinserir períodos novos da planilha (TOTVS + derivado)
     for(const d of periodos){
       const perIso=toISO(d.periodoInicio);
-      if(!perIso)continue;
+      if(!perIso){console.warn('periodoInicio nulo para',d.mat,d);continue;}
+      const fimIso=toISO(d.periodoFim);
+      const limIso=toISO(d.dtMaxima);
+      console.log('Inserindo',d.mat,perIso,'->',fimIso,'lim',limIso,d._derivado?'[derivado]':'[TOTVS]');
       const chave=perIso.substring(0,10);
       const prog=progMap[chave]||{};
       const payload={
