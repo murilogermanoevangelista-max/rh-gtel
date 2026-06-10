@@ -2041,21 +2041,24 @@ function processImportFile(file){
         matricula:   findCol('matricula','matrícula'),   // col 2
         nome:        findCol('nome'),                    // col 3
         periodoAqui: findCol('aquisitivo','periodo a'),  // col 6 — string "DD/MM/YYYY  DD/MM/YYYY"
-        dtIdeal:     findCol('ideal'),                   // col 7 — Date
-        dtMaxima:    findCol('maxima','máxima','max'),    // col 8 — Date
-        feriasVenc:  findCol('vencidas'),                // col 9
-        totalFerias: findCol('total'),                   // col 13
+        dtIdeal:     findCol('ideal'),                   // col 7 se existir — Date (opcional)
+        dtMaxima:    findCol('maxima','máxima','limite max','dt.limite'),// col 7 — Date
+        feriasVenc:  findCol('vencidas'),                // col 8
+        totalFerias: findCol('total'),                   // col 12
       };
 
-      // Fallback: se busca por texto falhou use posições fixas conhecidas
+      // Fallback: se busca por texto falhou use posições fixas do layout TOTVS/GTEL
+      // Layout real: col6=PeriodoAqui | col7=Dt.Limite Maxima | col8=FeriasVencidas | col12=TotalFerias
+      // Nota: este layout NÃO tem coluna "Ideal" separada
       if(COL.matricula===-1) COL.matricula=2;
       if(COL.nome===-1)      COL.nome=3;
       if(COL.centroCusto===-1) COL.centroCusto=1;
       if(COL.periodoAqui===-1) COL.periodoAqui=6;
-      if(COL.dtIdeal===-1)   COL.dtIdeal=7;
-      if(COL.dtMaxima===-1)  COL.dtMaxima=8;
-      if(COL.feriasVenc===-1) COL.feriasVenc=9;
-      if(COL.totalFerias===-1) COL.totalFerias=13;
+      if(COL.dtMaxima===-1)  COL.dtMaxima=7;
+      if(COL.feriasVenc===-1) COL.feriasVenc=8;
+      if(COL.totalFerias===-1) COL.totalFerias=12;
+      // dtIdeal não existe neste layout — deixar -1 para gravar null
+      // (se existir em outro layout, será encontrado pelo findCol acima)
 
       // Helper: converte qualquer valor de célula em Date
       function cellToDate(val){
@@ -2113,7 +2116,7 @@ function processImportFile(file){
               periodoInicio=new Date(`${matchPer[1].split('/').reverse().join('-')}T12:00:00`);
               periodoFim  =new Date(`${matchPer[2].split('/').reverse().join('-')}T12:00:00`);
             }
-            const dtIdeal =cellToDate(r[COL.dtIdeal]);
+            const dtIdeal =COL.dtIdeal>=0?cellToDate(r[COL.dtIdeal]):null;
             const dtMaxima=cellToDate(r[COL.dtMaxima]);
             const diasDir =parseFloat(r[COL.totalFerias])||30;
             const diasVenc=parseFloat(r[COL.feriasVenc])||0;
