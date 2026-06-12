@@ -1088,6 +1088,7 @@ function openModalFuncionario(func=null){
             <select id="f-periodo-exp">
               <option value="45" ${(func?.periodo_experiencia||45)==45?'selected':''}>45 + 45 dias (padrão)</option>
               <option value="30" ${func?.periodo_experiencia==30?'selected':''}>30 + 30 dias</option>
+              <option value="30s" ${func?.periodo_experiencia=='30s'?'selected':''}>30 dias (único)</option>
             </select>
           </div>
           <div class="form-group full">
@@ -1214,12 +1215,19 @@ function calcExp(f){
   if(!f.data_admissao)return null;
   if(f.efetivado)return{status:'efetivado',restantes:0,fim1:null,fim2:null};
   const admissao=new Date(f.data_admissao+'T12:00:00');
-  const periodo=parseInt(f.periodo_experiencia)||45;
+  const periodoRaw=f.periodo_experiencia;
+  const unico=periodoRaw==='30s';
+  const periodo=unico?30:parseInt(periodoRaw)||45;
   const fim1=new Date(admissao);fim1.setDate(fim1.getDate()+periodo);
-  const fim2=new Date(admissao);fim2.setDate(fim2.getDate()+periodo*2);
+  const fim2=unico?null:new Date(admissao);if(!unico)fim2.setDate(fim2.getDate()+periodo*2);
   const hoje=new Date();hoje.setHours(0,0,0,0);
-  const diff2=Math.floor((fim2-hoje)/86400000);
   const diff1=Math.floor((fim1-hoje)/86400000);
+  if(unico){
+    if(diff1<0)return{status:'vencida',restantes:diff1,fim1,fim2:null};
+    if(diff1<=15)return{status:'vencendo',restantes:diff1,fim1,fim2:null};
+    return{status:'exp1',restantes:diff1,fim1,fim2:null};
+  }
+  const diff2=Math.floor((fim2-hoje)/86400000);
   if(diff2<0)return{status:'vencida',restantes:diff2,fim1,fim2};
   if(diff2<=15)return{status:'vencendo',restantes:diff2,fim1,fim2};
   if(diff1<0)return{status:'exp2',restantes:diff2,fim1,fim2};
@@ -1276,7 +1284,7 @@ function renderExperiencia(){
           <div><div style="font-weight:500">${f.nome_completo}</div><div style="font-size:11px;color:var(--text-muted)">${f.matricula||'—'}</div></div>
         </div></td>
         <td style="font-size:12px">${funcaoNome}</td>
-        <td>${parseInt(f.periodo_experiencia)||45}+${parseInt(f.periodo_experiencia)||45}d</td>
+        <td>${f.periodo_experiencia==='30s'?'30d (único)':`${parseInt(f.periodo_experiencia)||45}+${parseInt(f.periodo_experiencia)||45}d`}</td>
         <td>${formatDate(e.fim1)}</td>
         <td>${formatDate(e.fim2)}</td>
         <td><span class="dias-restantes ${diasCls}">${diasTxt}</span></td>
@@ -1363,7 +1371,7 @@ function exportExpExcel(){
   const rows=[['Funcionário','Matrícula','Função','Período','Fim 1º','Fim 2º','Restantes','Status']];
   ativosLista.forEach(f=>{
     const e=calcExp(f);if(!e)return;
-    rows.push([f.nome_completo,f.matricula,f.funcao?.nome||f.funcao_manual||'—',`${f.periodo_experiencia||45}+${f.periodo_experiencia||45}`,formatDate(e.fim1),formatDate(e.fim2),e.restantes+'d',e.status]);
+    rows.push([f.nome_completo,f.matricula,f.funcao?.nome||f.funcao_manual||'—',f.periodo_experiencia==='30s'?'30 único':`${f.periodo_experiencia||45}+${f.periodo_experiencia||45}`,formatDate(e.fim1),formatDate(e.fim2),e.restantes+'d',e.status]);
   });
   const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:30},{wch:12},{wch:20},{wch:10},{wch:14},{wch:14},{wch:10},{wch:12}];
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Experiência');
