@@ -2136,7 +2136,7 @@ function processImportFile(file){
             const fimDer=new Date(iniRef);fimDer.setDate(fimDer.getDate()-1);
             const limDer=new Date(fimDer);limDer.setMonth(limDer.getMonth()+11);
             // Incluir apenas se o limite ainda é relevante (não expirou há mais de 1 ano)
-            const cutoff=new Date();cutoff.setFullYear(cutoff.getFullYear()-1);
+            const cutoff=new Date();
             if(limDer>cutoff){
               encontrados.push({func,mat,periodoInicio:iniDer,periodoFim:fimDer,
                 dtIdeal:null,dtMaxima:limDer,diasDir:maisAntigo.diasDir||30,diasVenc:0,
