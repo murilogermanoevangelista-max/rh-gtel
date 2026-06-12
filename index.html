@@ -1681,10 +1681,10 @@ async function renderFerias(){
     const perAqui=`${formatDate(f.periodo_aquisitivo_inicio)} → ${formatDate(f.periodo_aquisitivo_fim)}`;
     const dias=f.dias_direito||30;
 
-    // Se há 2º período pendente, o alerta do 1º é baseado no limite do 2º
+    // Se há 2º período pendente, urgência é baseada no limite do 2º
     const temProximo=limMaxProximo&&!f.programado;
-    const limRef=temProximo?limMaxProximo:limMax;
-    const dataAlerta=limRef?new Date(limRef.getTime()-60*86400000):null;
+    // "Programar até" = 60 dias antes do próprio limite do 1º período
+    const dataAlerta=limMax?new Date(limMax.getTime()-60*86400000):null;
 
     // Para o 1º período com 2º pendente: urgência baseada no prazo do 2º
     let cor,bg,border,txtCount,icon,alertaStr;
