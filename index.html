@@ -1675,7 +1675,7 @@ async function renderFerias(){
   const obraFilterOpts=obrasUnicas.map(c=>`<option value="${c}" ${feriasObraFiltro===c?'selected':''}>${c}</option>`).join('');
 
   // Helper: bloco compacto de período — apenas Limite Máx. Legal
-  function blocoPeríodo(f){
+  function blocoPeríodo(f,limMaxProximo){
     if(!f)return`<td style="text-align:center;color:var(--text-muted);font-size:12px;padding:8px 12px">—</td>`;
     const limMax=parseDate(f.dt_limite_maxima);
     const perAqui=`${formatDate(f.periodo_aquisitivo_inicio)} → ${formatDate(f.periodo_aquisitivo_fim)}`;
@@ -1686,7 +1686,8 @@ async function renderFerias(){
     const warnMax=!vencMax&&dM!==null&&dM<=60&&!f.programado;
 
     // Data de alerta = 60 dias antes do limite máx.
-    const dataAlerta=limMax?new Date(limMax.getTime()-60*86400000):null;
+    const limRef=limMaxProximo||limMax;
+    const dataAlerta=limRef?new Date(limRef.getTime()-60*86400000):null;
 
     const cor=f.programado?'var(--success)':vencMax?'var(--danger)':warnMax?'var(--warning)':'var(--text)';
     const bg=f.programado?'var(--success-light)':vencMax?'var(--danger-light)':warnMax?'var(--warning-light)':'transparent';
@@ -1775,7 +1776,7 @@ async function renderFerias(){
         </div>
       </div></td>
       <td style="font-size:12px;white-space:nowrap">${obraFunc}</td>
-      ${blocoPeríodo(per1)}
+      ${blocoPeríodo(per1,per2?parseDate(per2.dt_limite_maxima):null)}
       ${blocoPeríodo(per2)}
       <td>${progResume}</td>
       <td>${btnProg}</td>
