@@ -1681,28 +1681,56 @@ async function renderFerias(){
     const perAqui=`${formatDate(f.periodo_aquisitivo_inicio)} → ${formatDate(f.periodo_aquisitivo_fim)}`;
     const dias=f.dias_direito||30;
 
-    const dM=limMax?Math.floor((limMax-hoje)/86400000):null;
-    const vencMax=limMax&&limMax<hoje&&!f.programado;
-    const warnMax=!vencMax&&dM!==null&&dM<=60&&!f.programado;
-
-    // Data de alerta = 60 dias antes do limite máx.
-    const limRef=limMaxProximo||limMax;
+    // Se há 2º período pendente, o alerta do 1º é baseado no limite do 2º
+    const temProximo=limMaxProximo&&!f.programado;
+    const limRef=temProximo?limMaxProximo:limMax;
     const dataAlerta=limRef?new Date(limRef.getTime()-60*86400000):null;
 
-    const cor=f.programado?'var(--success)':vencMax?'var(--danger)':warnMax?'var(--warning)':'var(--text)';
-    const bg=f.programado?'var(--success-light)':vencMax?'var(--danger-light)':warnMax?'var(--warning-light)':'transparent';
-    const border=f.programado?'none':vencMax?'1px solid #FCA5A5':warnMax?'1px solid #FCD34D':'none';
-    const txtCount=f.programado?'✓ Prog.':dM===null?'—':dM<0?`${Math.abs(dM)}d atrás`:`${dM}d restantes`;
-    const icon=f.programado?'':vencMax?'⚠️ ':warnMax?'⏰ ':'';
+    // Para o 1º período com 2º pendente: urgência baseada no prazo do 2º
+    let cor,bg,border,txtCount,icon,alertaStr;
+
+    if(f.programado){
+      const dM=limMax?Math.floor((limMax-hoje)/86400000):null;
+      cor='var(--success)';bg='var(--success-light)';border='none';
+      txtCount='✓ Prog.';icon='';
+      alertaStr='';
+    } else if(temProximo){
+      // 1º período não programado + 2º período existe → urgência pelo prazo do 2º
+      const dRef=Math.floor((limMaxProximo-hoje)/86400000);
+      const prazoVencido=dataAlerta&&hoje>dataAlerta;  // passou 60d antes do 2º limite
+      const prazoUrgente=!prazoVencido&&dRef<=60;      // dentro de 60d do 2º limite
+
+      if(prazoVencido){
+        cor='var(--danger)';bg='var(--danger-light)';border='1px solid #FCA5A5';
+        icon='⚠️ ';txtCount='Prazo crítico!';
+      } else if(prazoUrgente){
+        cor='var(--warning)';bg='var(--warning-light)';border='1px solid #FCD34D';
+        icon='⏰ ';txtCount='Urgente!';
+      } else {
+        cor='var(--text)';bg='transparent';border='none';
+        icon='';txtCount='Programar';
+      }
+      alertaStr=dataAlerta
+        ?`<div style="font-size:10px;margin-top:2px">Programar até: <strong style="color:${cor}">${formatDate(dataAlerta)}</strong></div>`
+        :'';
+    } else {
+      // comportamento padrão (1 período apenas)
+      const dM=limMax?Math.floor((limMax-hoje)/86400000):null;
+      const vencMax=limMax&&limMax<hoje;
+      const warnMax=!vencMax&&dM!==null&&dM<=60;
+      cor=vencMax?'var(--danger)':warnMax?'var(--warning)':'var(--text)';
+      bg=vencMax?'var(--danger-light)':warnMax?'var(--warning-light)':'transparent';
+      border=vencMax?'1px solid #FCA5A5':warnMax?'1px solid #FCD34D':'none';
+      txtCount=dM===null?'—':dM<0?`${Math.abs(dM)}d atrás`:`${dM}d restantes`;
+      icon=vencMax?'⚠️ ':warnMax?'⏰ ':'';
+      alertaStr=dataAlerta
+        ?`<div style="font-size:10px;color:var(--text-muted);margin-top:2px">Programar até: <strong style="color:${warnMax||vencMax?cor:'var(--text-muted)'}">${formatDate(dataAlerta)}</strong></div>`
+        :'';
+    }
 
     // Linha de admissão do funcionário
     const admissao=f.funcionario?.data_admissao||f.data_admissao;
     const admissaoStr=admissao?`<div style="font-size:10px;color:var(--text-muted);margin-top:2px">Admissão: ${formatDate(admissao)}</div>`:'';
-
-    // Linha "programar até" (60 dias antes do vencimento)
-    const alertaStr=dataAlerta&&!f.programado
-      ?`<div style="font-size:10px;color:var(--text-muted);margin-top:2px">Programar até: <strong style="color:${warnMax||vencMax?cor:'var(--text-muted)'}">${formatDate(dataAlerta)}</strong></div>`
-      :'';
 
     return`<td style="padding:8px 12px">
       <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;white-space:nowrap">${perAqui}</div>
