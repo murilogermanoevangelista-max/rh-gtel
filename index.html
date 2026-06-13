@@ -1699,107 +1699,78 @@ async function renderFerias(){
   const obraFilterOpts=obrasUnicas.map(c=>`<option value="${c}" ${feriasObraFiltro===c?'selected':''}>${c}</option>`).join('');
 
   // Helper: bloco de período
-  // isSegundo=true  → 2º período: alertas de risco baseados no fim do período aquisitivo
-  // isSegundo=false → 1º período: exibição limpa, sem contadores confusos
   function blocoPeríodo(f, isSegundo, per2Ref){
-    if(!f)return`<td style="text-align:center;color:var(--text-muted);font-size:12px;padding:8px 12px">—</td>`;
+    if(!f) return '<td style="text-align:center;color:var(--text-muted);font-size:12px;padding:8px 12px">—</td>';
     const limMax  = parseDate(f.dt_limite_maxima);
     const fimPer  = parseDate(f.periodo_aquisitivo_fim);
-    const perAqui = `${formatDate(f.periodo_aquisitivo_inicio)} → ${formatDate(f.periodo_aquisitivo_fim)}`;
-    const dias    = f.dias_direito||30;
+    const perAqui = formatDate(f.periodo_aquisitivo_inicio) + ' → ' + formatDate(f.periodo_aquisitivo_fim);
+    const dias    = f.dias_direito || 30;
 
-    // Referências de prazo (usadas apenas no 2º período)
-    // dataInicioAlerta = fim - 90 dias  → quando começa o aviso amarelo
-    // dataProgramarAte = fim - 60 dias  → prazo limite para iniciar férias
-    // diasParaVencer   = de hoje até fim (contador principal)
-    const dataInicioAlerta = fimPer ? new Date(fimPer.getTime()-90*86400000) : null;
-    const dataProgramarAte = fimPer ? new Date(fimPer.getTime()-60*86400000) : null;
-    const diasParaVencer   = fimPer ? Math.floor((fimPer-hoje)/86400000) : null;
-    const emZonaAlerta     = dataInicioAlerta && hoje >= dataInicioAlerta; // passou dos 90 dias
+    // Datas de controle (2º período)
+    const progAte   = fimPer ? new Date(fimPer.getTime() - 60*86400000) : null; // fimPer - 60d
+    const iniAlerta = fimPer ? new Date(fimPer.getTime() - 90*86400000) : null; // fimPer - 90d
+    const diasProg  = progAte  ? Math.floor((progAte  - hoje)/86400000) : null; // dias até progAte
+    const diasFim   = fimPer   ? Math.floor((fimPer   - hoje)/86400000) : null; // dias até fimPer
+    const naZona    = iniAlerta ? (hoje >= iniAlerta) : false;
 
-    let cor,bg,border,icon,txtStatus,alertaStr;
+    var cor, bg, border, icon, corpo;
 
-    if(f.programado){
-      cor='var(--success)';bg='var(--success-light)';border='none';
-      icon='✓ ';txtStatus='Programado';alertaStr='';
+    if (f.programado) {
+      cor='var(--success)'; bg='var(--success-light)'; border='none'; icon='✓ ';
+      corpo = '<span style="font-size:11px;font-weight:600;color:var(--success)">Programado</span>';
 
-    } else if(isSegundo){
-      // ── 2º PERÍODO ──
-      // diasAteProg = dias até dataProgramarAte (fimPer - 60d) — o contador principal
-      // emZonaAlerta = hoje >= dataInicioAlerta (fimPer - 90d) — quando o alerta aparece
-      const diasAteProg  = dataProgramarAte ? Math.floor((dataProgramarAte-hoje)/86400000) : null;
-      const feriasVencidas = diasParaVencer!==null && diasParaVencer<0;
-      const prazoVencido   = !feriasVencidas && diasAteProg!==null && diasAteProg<0;
-      const vermelho       = !feriasVencidas && !prazoVencido && emZonaAlerta && diasAteProg!==null && diasAteProg<=60;
-      const amarelo        = !feriasVencidas && !prazoVencido && !vermelho && emZonaAlerta;
+    } else if (isSegundo) {
+      // ── 2º PERÍODO: sempre mostra contador ──
+      var feriasVenc = diasFim  !== null && diasFim  < 0;
+      var prazoVenc  = !feriasVenc && diasProg !== null && diasProg < 0;
+      var vermelho   = !feriasVenc && !prazoVenc && diasProg !== null && diasProg <= 60;
+      var amarelo    = !feriasVenc && !prazoVenc && !vermelho && naZona;
 
-      if(feriasVencidas){
-        // Passou do fim do período aquisitivo — risco máximo
-        cor='var(--danger)';bg='var(--danger-light)';border='1px solid #FCA5A5';
-        icon='⚠️ ';
-        txtStatus=`Vencido há ${Math.abs(diasParaVencer)}d`;
-        alertaStr=`<div style="font-size:10px;margin-top:3px;color:var(--danger)">Férias não gozadas — risco legal</div>`;
-      } else if(prazoVencido){
-        // Passou do "Programar até" mas período ainda não venceu
-        cor='var(--danger)';bg='var(--danger-light)';border='1px solid #FCA5A5';
-        icon='🔴 ';
-        txtStatus=`${diasParaVencer}d para vencer`;
-        alertaStr=`<div style="font-size:10px;margin-top:3px">Programar até: <strong style="color:var(--danger)">${formatDate(dataProgramarAte)}</strong> <span style="color:var(--danger)">(vencido)</span></div>`;
-      } else if(vermelho){
-        // ≤ 60 dias para dataProgramarAte — urgente
-        cor='var(--danger)';bg='var(--danger-light)';border='1px solid #FCA5A5';
-        icon='🔴 ';
-        txtStatus=`${diasAteProg}d para o prazo`;
-        alertaStr=`<div style="font-size:10px;margin-top:3px">Programar até: <strong style="color:var(--danger)">${formatDate(dataProgramarAte)}</strong></div>`;
-      } else if(amarelo){
-        // Entre 61 e 90 dias para dataProgramarAte — atenção
-        cor='#b45309';bg='var(--warning-light)';border='1px solid #FCD34D';
-        icon='🟡 ';
-        txtStatus=`${diasAteProg}d para o prazo`;
-        alertaStr=`<div style="font-size:10px;margin-top:3px">Programar até: <strong style="color:#b45309">${formatDate(dataProgramarAte)}</strong></div>`;
+      if (feriasVenc) {
+        cor='var(--danger)'; bg='var(--danger-light)'; border='1px solid #FCA5A5'; icon='⚠️ ';
+        corpo = '<span style="font-size:11px;font-weight:700;color:var(--danger)">Férias vencidas — risco legal</span>';
+      } else if (prazoVenc) {
+        cor='var(--danger)'; bg='var(--danger-light)'; border='1px solid #FCA5A5'; icon='🔴 ';
+        corpo = '<span style="font-size:11px;font-weight:700;color:var(--danger)">' + diasFim + 'd para vencer</span>'
+              + '<br><span style="font-size:10px;color:var(--danger)">Programar até: <strong>' + formatDate(progAte) + '</strong> ⚠️ vencido</span>';
+      } else if (vermelho) {
+        cor='var(--danger)'; bg='var(--danger-light)'; border='1px solid #FCA5A5'; icon='🔴 ';
+        corpo = '<span style="font-size:11px;font-weight:700;color:var(--danger)">' + diasProg + 'd para o prazo · ' + dias + 'd</span>'
+              + '<br><span style="font-size:10px;color:var(--danger)">Programar até: <strong>' + formatDate(progAte) + '</strong></span>';
+      } else if (amarelo) {
+        cor='#b45309'; bg='var(--warning-light)'; border='1px solid #FCD34D'; icon='🟡 ';
+        corpo = '<span style="font-size:11px;font-weight:700;color:#b45309">' + diasProg + 'd para o prazo · ' + dias + 'd</span>'
+              + '<br><span style="font-size:10px;color:#b45309">Programar até: <strong>' + formatDate(progAte) + '</strong></span>';
       } else {
-        // Fora da zona de alerta (mais de 90 dias para dataProgramarAte)
-        cor='var(--text)';bg='transparent';border='none';
-        icon='';txtStatus='';alertaStr='';
+        // Fora da zona mas SEMPRE mostra o contador
+        cor='var(--text)'; bg='transparent'; border='none'; icon='';
+        corpo = '<span style="font-size:11px;font-weight:600;color:var(--text)">' + (diasProg !== null ? diasProg + 'd para o prazo · ' + dias + 'd' : '—') + '</span>'
+              + (progAte ? '<br><span style="font-size:10px;color:var(--text-muted)">Programar até: ' + formatDate(progAte) + '</span>' : '');
       }
 
     } else {
       // ── 1º PERÍODO ──
-      // Se já vencido (sem 2º período): mostrar aviso
-      // Se não vencido ou há 2º período: mostrar apenas a data, limpo e discreto
-      const jaVencido = limMax && limMax < hoje;
-      const temProx   = !!per2Ref;
-
-      if(jaVencido && !temProx){
-        // 1º período vencido sem 2º → risco real
-        cor='var(--danger)';bg='var(--danger-light)';border='1px solid #FCA5A5';
-        icon='⚠️ ';txtStatus='1º Período Vencido';
-        alertaStr=`<div style="font-size:10px;margin-top:3px;color:var(--danger)">Férias não gozadas — ação necessária</div>`;
-      } else if(jaVencido && temProx){
-        // 1º período vencido mas há 2º → mostrar como "Vencido" discreto
-        cor='var(--text-muted)';bg='transparent';border='none';
-        icon='';txtStatus='1º Período Vencido';alertaStr='';
+      var jaVenc  = limMax && limMax < hoje;
+      var temProx = !!per2Ref;
+      if (jaVenc && !temProx) {
+        cor='var(--danger)'; bg='var(--danger-light)'; border='1px solid #FCA5A5'; icon='⚠️ ';
+        corpo = '<span style="font-size:11px;font-weight:700;color:var(--danger)">1º Período Vencido — ação necessária</span>';
+      } else if (jaVenc && temProx) {
+        cor='var(--text-muted)'; bg='transparent'; border='none'; icon='';
+        corpo = '<span style="font-size:11px;color:var(--text-muted)">1º Período Vencido</span>';
       } else {
-        // Ainda dentro do prazo: mostrar só a data, limpo
-        cor='var(--text)';bg='transparent';border='none';
-        icon='';txtStatus='';alertaStr='';
+        cor='var(--text)'; bg='transparent'; border='none'; icon='';
+        corpo = '';
       }
     }
 
-    const statusRow = txtStatus
-      ? `<div style="display:flex;align-items:center;gap:6px;margin-top:3px">
-           <span style="font-size:11px;font-weight:600;color:${cor}">${txtStatus}</span>
-           <span style="font-size:10px;color:var(--text-muted)">${dias}d</span>
-         </div>`
-      : '';
-    return`<td style="padding:8px 12px">
-      <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;white-space:nowrap">${perAqui}</div>
-      <div style="background:${bg};border:${border};border-radius:6px;padding:6px 10px;display:inline-block;min-width:140px">
-        <div style="font-size:13px;font-weight:700;color:${cor}">${icon}${formatDate(limMax)||'—'}</div>
-        ${statusRow}
-        ${alertaStr}
-      </div>
-    </td>`;
+    return '<td style="padding:8px 12px">'
+      + '<div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;white-space:nowrap">' + perAqui + '</div>'
+      + '<div style="background:' + bg + ';border:' + border + ';border-radius:6px;padding:6px 10px;display:inline-block;min-width:140px">'
+        + '<div style="font-size:13px;font-weight:700;color:' + cor + '">' + icon + (formatDate(limMax)||'—') + '</div>'
+        + (corpo ? '<div style="margin-top:4px;line-height:1.5">' + corpo + '</div>' : '')
+      + '</div>'
+    + '</td>';
   }
 
   // Projetar 2º período no padrão TOTVS quando não existe na planilha
