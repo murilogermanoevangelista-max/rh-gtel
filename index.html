@@ -1771,26 +1771,32 @@ async function renderFerias(){
       const temProx   = !!per2Ref;
 
       if(jaVencido && !temProx){
-        // 1º período vencido e não há 2º → risco real
-        const dVenc = Math.abs(Math.floor((limMax-hoje)/86400000));
+        // 1º período vencido sem 2º → risco real
         cor='var(--danger)';bg='var(--danger-light)';border='1px solid #FCA5A5';
-        icon='⚠️ ';txtStatus=`Vencido há ${dVenc}d`;
+        icon='⚠️ ';txtStatus='1º Período Vencido';
         alertaStr=`<div style="font-size:10px;margin-top:3px;color:var(--danger)">Férias não gozadas — ação necessária</div>`;
+      } else if(jaVencido && temProx){
+        // 1º período vencido mas há 2º → mostrar como "Vencido" discreto
+        cor='var(--text-muted)';bg='transparent';border='none';
+        icon='';txtStatus='1º Período Vencido';alertaStr='';
       } else {
-        // Normal: mostrar só a data e período, sem contar dias (não é aqui o risco)
+        // Ainda dentro do prazo: mostrar só a data, limpo
         cor='var(--text)';bg='transparent';border='none';
         icon='';txtStatus='';alertaStr='';
       }
     }
 
+    const statusRow = txtStatus
+      ? `<div style="display:flex;align-items:center;gap:6px;margin-top:3px">
+           <span style="font-size:11px;font-weight:600;color:${cor}">${txtStatus}</span>
+           <span style="font-size:10px;color:var(--text-muted)">${dias}d</span>
+         </div>`
+      : '';
     return`<td style="padding:8px 12px">
       <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;white-space:nowrap">${perAqui}</div>
       <div style="background:${bg};border:${border};border-radius:6px;padding:6px 10px;display:inline-block;min-width:140px">
         <div style="font-size:13px;font-weight:700;color:${cor}">${icon}${formatDate(limMax)||'—'}</div>
-        ${txtStatus?`<div style="display:flex;align-items:center;gap:6px;margin-top:3px">
-          <span style="font-size:11px;font-weight:600;color:${cor}">${txtStatus}</span>
-          <span style="font-size:10px;color:var(--text-muted)">${dias}d</span>
-        </div>`:'<div style="font-size:10px;color:var(--text-muted);margin-top:2px">${dias}d de direito</div>'}
+        ${statusRow}
         ${alertaStr}
       </div>
     </td>`;
