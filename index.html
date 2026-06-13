@@ -1562,9 +1562,25 @@ async function deleteFolgaConfirm(id){
 }
 
 async function lancarSaidaReal(folgaId,num){
-  const data=prompt(`Data de saída real (saída ${num}) — formato AAAA-MM-DD:`);
-  if(!data)return;
-  const{error}=await sb.from('folgas').update({[`saida${num}_real`]:data}).eq('id',folgaId);
+  // Input no formato brasileiro DD/MM/AAAA
+  const entrada=prompt(`Data de saída real (saída ${num}) — formato DD/MM/AAAA:`);
+  if(!entrada)return;
+  // Converter DD/MM/AAAA → AAAA-MM-DD para o banco
+  const partes=entrada.trim().split('/');
+  let dataISO;
+  if(partes.length===3&&partes[0].length<=2&&partes[1].length<=2&&partes[2].length===4){
+    dataISO=`${partes[2]}-${partes[1].padStart(2,'0')}-${partes[0].padStart(2,'0')}`;
+  } else if(/^\d{4}-\d{2}-\d{2}$/.test(entrada.trim())){
+    // Aceita também AAAA-MM-DD caso o usuário insira assim
+    dataISO=entrada.trim();
+  } else {
+    showToast('Formato inválido. Use DD/MM/AAAA (ex: 15/06/2026)','error');
+    return;
+  }
+  // Validar data
+  const d=new Date(dataISO+'T12:00:00');
+  if(isNaN(d.getTime())){showToast('Data inválida. Use DD/MM/AAAA','error');return;}
+  const{error}=await sb.from('folgas').update({[`saida${num}_real`]:dataISO}).eq('id',folgaId);
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast('Saída real lançada!');renderFolgas();
 }
@@ -1688,15 +1704,11 @@ async function renderFerias(){
     const limMax=parseDate(f.dt_limite_maxima);
     const perAqui=`${formatDate(f.periodo_aquisitivo_inicio)} → ${formatDate(f.periodo_aquisitivo_fim)}`;
     const dias=f.dias_direito||30;
-    const temProximo=limMaxProximo&&!f.programado;
-
-    // REGRA: "Programar até" = 60 dias antes do limite máximo legal deste período
-    // Para o 1º período com 2º pendente: usar o limite do 2º período (pois o 2º
-    // precisa ser gozado antes de seu vencimento, então a urgência vem dele)
-    // Para período sem próximo: usar o próprio limite - 60 dias
-    const limRef = temProximo ? limMaxProximo : limMax;
-    const dataAlerta = limRef ? new Date(limRef.getTime() - 60*86400000) : null;
-    // Dias restantes até a data de alerta (não até o limite)
+    // REGRA: "Programar até" = periodo_aquisitivo_fim - 60 dias
+    // O funcionário DEVE iniciar as férias até 60 dias antes do fim do período aquisitivo
+    // para não gerar multa. Dias restantes = de hoje até essa data de alerta.
+    const fimPeriodo = parseDate(f.periodo_aquisitivo_fim);
+    const dataAlerta = fimPeriodo ? new Date(fimPeriodo.getTime() - 60*86400000) : null;
     const diasAteAlerta = dataAlerta ? Math.floor((dataAlerta - hoje)/86400000) : null;
 
     let cor,bg,border,txtCount,icon,alertaStr;
@@ -1706,7 +1718,7 @@ async function renderFerias(){
       txtCount='✓ Programado';icon='';
       alertaStr='';
     } else {
-      // Contador regressivo até a dataAlerta
+      // Contador regressivo até a dataAlerta (limMax - 60 dias)
       const venceu   = diasAteAlerta !== null && diasAteAlerta < 0;
       const vermelho = !venceu && diasAteAlerta !== null && diasAteAlerta <= 60;
       const amarelo  = !venceu && !vermelho && diasAteAlerta !== null && diasAteAlerta <= 90;
@@ -1728,6 +1740,7 @@ async function renderFerias(){
         icon='';
         txtCount=diasAteAlerta!==null?`${diasAteAlerta}d restantes`:'—';
       }
+      // "Programar até" = a data de alerta (limMax - 60 dias)
       alertaStr=dataAlerta
         ?`<div style="font-size:10px;margin-top:2px">Programar até: <strong style="color:${cor}">${formatDate(dataAlerta)}</strong></div>`
         :'';
