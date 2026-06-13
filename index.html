@@ -1688,52 +1688,48 @@ async function renderFerias(){
     const limMax=parseDate(f.dt_limite_maxima);
     const perAqui=`${formatDate(f.periodo_aquisitivo_inicio)} → ${formatDate(f.periodo_aquisitivo_fim)}`;
     const dias=f.dias_direito||30;
-
-    // Se há 2º período pendente, urgência é baseada no limite do 2º
     const temProximo=limMaxProximo&&!f.programado;
-    // "Programar até" = o próprio limite máximo legal do 1º período
-    // (não 60 dias antes — o alerta de 60 dias é o gatilho, mas o prazo real é o limite)
-    const dataAlerta=limMax?limMax:null;
 
-    // Para o 1º período com 2º pendente: urgência baseada no prazo do 2º
+    // REGRA: "Programar até" = 60 dias antes do limite máximo legal deste período
+    // Para o 1º período com 2º pendente: usar o limite do 2º período (pois o 2º
+    // precisa ser gozado antes de seu vencimento, então a urgência vem dele)
+    // Para período sem próximo: usar o próprio limite - 60 dias
+    const limRef = temProximo ? limMaxProximo : limMax;
+    const dataAlerta = limRef ? new Date(limRef.getTime() - 60*86400000) : null;
+    // Dias restantes até a data de alerta (não até o limite)
+    const diasAteAlerta = dataAlerta ? Math.floor((dataAlerta - hoje)/86400000) : null;
+
     let cor,bg,border,txtCount,icon,alertaStr;
 
     if(f.programado){
-      const dM=limMax?Math.floor((limMax-hoje)/86400000):null;
       cor='var(--success)';bg='var(--success-light)';border='none';
-      txtCount='✓ Prog.';icon='';
+      txtCount='✓ Programado';icon='';
       alertaStr='';
-    } else if(temProximo){
-      // 1º período não programado + 2º período existe → urgência pelo prazo do 2º
-      const dRef=Math.floor((limMaxProximo-hoje)/86400000);
-      const prazoVencido=dataAlerta&&hoje>dataAlerta;  // passou 60d antes do 2º limite
-      const prazoUrgente=!prazoVencido&&dRef<=60;      // dentro de 60d do 2º limite
+    } else {
+      // Contador regressivo até a dataAlerta
+      const venceu   = diasAteAlerta !== null && diasAteAlerta < 0;
+      const vermelho = !venceu && diasAteAlerta !== null && diasAteAlerta <= 60;
+      const amarelo  = !venceu && !vermelho && diasAteAlerta !== null && diasAteAlerta <= 90;
 
-      if(prazoVencido){
+      if(venceu){
         cor='var(--danger)';bg='var(--danger-light)';border='1px solid #FCA5A5';
-        icon='⚠️ ';txtCount='Prazo crítico!';
-      } else if(prazoUrgente){
+        icon='⚠️ ';
+        txtCount=`${Math.abs(diasAteAlerta)}d em atraso`;
+      } else if(vermelho){
+        cor='var(--danger)';bg='var(--danger-light)';border='1px solid #FCA5A5';
+        icon='🔴 ';
+        txtCount=`${diasAteAlerta}d restantes`;
+      } else if(amarelo){
         cor='var(--warning)';bg='var(--warning-light)';border='1px solid #FCD34D';
-        icon='⏰ ';txtCount='Urgente!';
+        icon='🟡 ';
+        txtCount=`${diasAteAlerta}d restantes`;
       } else {
         cor='var(--text)';bg='transparent';border='none';
-        icon='';txtCount='Programar';
+        icon='';
+        txtCount=diasAteAlerta!==null?`${diasAteAlerta}d restantes`:'—';
       }
       alertaStr=dataAlerta
         ?`<div style="font-size:10px;margin-top:2px">Programar até: <strong style="color:${cor}">${formatDate(dataAlerta)}</strong></div>`
-        :'';
-    } else {
-      // comportamento padrão (1 período apenas)
-      const dM=limMax?Math.floor((limMax-hoje)/86400000):null;
-      const vencMax=limMax&&limMax<hoje;
-      const warnMax=!vencMax&&dM!==null&&dM<=60;
-      cor=vencMax?'var(--danger)':warnMax?'var(--warning)':'var(--text)';
-      bg=vencMax?'var(--danger-light)':warnMax?'var(--warning-light)':'transparent';
-      border=vencMax?'1px solid #FCA5A5':warnMax?'1px solid #FCD34D':'none';
-      txtCount=dM===null?'—':dM<0?`${Math.abs(dM)}d atrás`:`${dM}d restantes`;
-      icon=vencMax?'⚠️ ':warnMax?'⏰ ':'';
-      alertaStr=dataAlerta
-        ?`<div style="font-size:10px;color:var(--text-muted);margin-top:2px">Programar até: <strong style="color:${warnMax||vencMax?cor:'var(--text-muted)'}">${formatDate(dataAlerta)}</strong></div>`
         :'';
     }
 
