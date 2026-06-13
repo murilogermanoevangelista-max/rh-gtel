@@ -1745,7 +1745,8 @@ async function renderFerias(){
               + '<br><span style="font-size:10px;color:#b45309">Programar até: <strong>' + formatDate(progAte) + '</strong></span>';
       } else {
         cor='var(--text)'; bg='transparent'; border='none'; icon='';
-        corpo = '<span style="font-size:11px;font-weight:600;color:var(--text)">' + (diasProg !== null ? diasProg + 'd para o prazo · ' + dias + 'd' : '—') + '</span>'
+        // Contador = dias até o vencimento das férias (fimPer)
+        corpo = '<span style="font-size:11px;font-weight:600;color:var(--text)">' + (diasFim !== null ? diasFim + 'd para vencer · ' + dias + 'd' : '—') + '</span>'
               + (progAte ? '<br><span style="font-size:10px;color:var(--text-muted)">Programar até: ' + formatDate(progAte) + '</span>' : '');
       }
 
@@ -1763,17 +1764,20 @@ async function renderFerias(){
       var jaVenc  = limMax && limMax < hoje;
       var temProx = !!per2Ref;
 
-      if (jaVenc && !temProx) {
-        // Vencido sem 2º período — risco real
+      // Usar fimPer para saber se o período aquisitivo já passou
+      var perAqVenc = fimPer && fimPer < hoje;
+
+      if (!temProx && jaVenc) {
+        // Único período e limite máx já venceu — risco legal
         cor='var(--danger)'; bg='var(--danger-light)'; border='1px solid #FCA5A5'; icon='⚠️ ';
         corpo = '<span style="font-size:11px;font-weight:700;color:var(--danger)">1º Período Vencido</span>'
               + '<br><span style="font-size:10px;color:var(--danger)">Férias não gozadas — ação necessária</span>';
-      } else if (jaVenc && temProx) {
-        // Vencido com 2º período — discreto
+      } else if (temProx && perAqVenc) {
+        // Período aquisitivo já passou mas há 2º — discreto
         cor='var(--text-muted)'; bg='transparent'; border='none'; icon='';
         corpo = '<span style="font-size:11px;color:var(--text-muted)">1º Período Vencido</span>';
       } else if (temProx) {
-        // Ainda vigente com 2º período — mostrar apenas "1º Período" sem data nem contador
+        // Período aquisitivo ainda vigente com 2º — discreto
         cor='var(--text-muted)'; bg='transparent'; border='none'; icon='';
         corpo = '<span style="font-size:11px;color:var(--text-muted)">1º Período em curso</span>';
       } else {
