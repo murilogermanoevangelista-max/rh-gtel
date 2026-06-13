@@ -2220,9 +2220,13 @@ function processImportFile(file){
             const iniDer=new Date(iniRef);iniDer.setFullYear(iniDer.getFullYear()-1);
             const fimDer=new Date(iniRef);fimDer.setDate(fimDer.getDate()-1);
             const limDer=new Date(fimDer);limDer.setMonth(limDer.getMonth()+11);
-            // Incluir apenas se o limite ainda é relevante (não expirou há mais de 1 ano)
+            // Incluir apenas se:
+            // 1. O limite ainda é relevante (não expirou há mais de 1 ano)
+            // 2. iniDer >= data_admissao do funcionário (não criar período antes da admissão)
             const cutoff=new Date();
-            if(limDer>cutoff){
+            const admissaoFunc=func.data_admissao?new Date(func.data_admissao+'T12:00:00'):null;
+            const periodoValido=!admissaoFunc||(iniDer>=admissaoFunc);
+            if(limDer>cutoff&&periodoValido){
               encontrados.push({func,mat,periodoInicio:iniDer,periodoFim:fimDer,
                 dtIdeal:null,dtMaxima:limDer,diasDir:maisAntigo.diasDir||30,diasVenc:0,
                 nomeDP:maisAntigo.nomeDP,centroCusto:maisAntigo.centroCusto,_derivado:true});
