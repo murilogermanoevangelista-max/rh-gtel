@@ -1691,8 +1691,9 @@ async function renderFerias(){
 
     // Se há 2º período pendente, urgência é baseada no limite do 2º
     const temProximo=limMaxProximo&&!f.programado;
-    // "Programar até" = 60 dias antes do próprio limite do 1º período
-    const dataAlerta=limMax?new Date(limMax.getTime()-60*86400000):null;
+    // "Programar até" = o próprio limite máximo legal do 1º período
+    // (não 60 dias antes — o alerta de 60 dias é o gatilho, mas o prazo real é o limite)
+    const dataAlerta=limMax?limMax:null;
 
     // Para o 1º período com 2º pendente: urgência baseada no prazo do 2º
     let cor,bg,border,txtCount,icon,alertaStr;
