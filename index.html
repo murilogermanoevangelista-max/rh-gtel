@@ -1706,21 +1706,23 @@ async function renderFerias(){
     const perAqui = formatDate(f.periodo_aquisitivo_inicio) + ' → ' + formatDate(f.periodo_aquisitivo_fim);
     const dias    = f.dias_direito || 30;
 
-    // Datas de controle (2º período)
-    const progAte   = fimPer ? new Date(fimPer.getTime() - 60*86400000) : null; // fimPer - 60d
-    const iniAlerta = fimPer ? new Date(fimPer.getTime() - 90*86400000) : null; // fimPer - 90d
-    const diasProg  = progAte  ? Math.floor((progAte  - hoje)/86400000) : null; // dias até progAte
-    const diasFim   = fimPer   ? Math.floor((fimPer   - hoje)/86400000) : null; // dias até fimPer
+    // Datas de controle
+    const progAte   = fimPer ? new Date(fimPer.getTime() - 60*86400000) : null;
+    const iniAlerta = fimPer ? new Date(fimPer.getTime() - 90*86400000) : null;
+    const diasProg  = progAte  ? Math.floor((progAte  - hoje)/86400000) : null;
+    const diasFim   = fimPer   ? Math.floor((fimPer   - hoje)/86400000) : null;
     const naZona    = iniAlerta ? (hoje >= iniAlerta) : false;
 
     var cor, bg, border, icon, corpo;
 
     if (f.programado) {
       cor='var(--success)'; bg='var(--success-light)'; border='none'; icon='✓ ';
-      corpo = '<span style="font-size:11px;font-weight:600;color:var(--success)">Programado</span>';
+      corpo = '<span style="font-size:11px;font-weight:600;color:var(--success)">Programado · ' + dias + 'd</span>';
 
     } else if (isSegundo) {
-      // ── 2º PERÍODO: sempre mostra contador ──
+      // ── 2º PERÍODO ──
+      // Data principal = periodo_aquisitivo_fim (23/09/2026) — vencimento real das férias
+      // NÃO usar dt_limite_maxima como data principal
       var feriasVenc = diasFim  !== null && diasFim  < 0;
       var prazoVenc  = !feriasVenc && diasProg !== null && diasProg < 0;
       var vermelho   = !feriasVenc && !prazoVenc && diasProg !== null && diasProg <= 60;
@@ -1731,8 +1733,8 @@ async function renderFerias(){
         corpo = '<span style="font-size:11px;font-weight:700;color:var(--danger)">Férias vencidas — risco legal</span>';
       } else if (prazoVenc) {
         cor='var(--danger)'; bg='var(--danger-light)'; border='1px solid #FCA5A5'; icon='🔴 ';
-        corpo = '<span style="font-size:11px;font-weight:700;color:var(--danger)">' + diasFim + 'd para vencer</span>'
-              + '<br><span style="font-size:10px;color:var(--danger)">Programar até: <strong>' + formatDate(progAte) + '</strong> ⚠️ vencido</span>';
+        corpo = '<span style="font-size:11px;font-weight:700;color:var(--danger)">' + diasFim + 'd para vencer · ' + dias + 'd</span>'
+              + '<br><span style="font-size:10px;color:var(--danger)">Programar até: <strong>' + formatDate(progAte) + '</strong> (prazo vencido)</span>';
       } else if (vermelho) {
         cor='var(--danger)'; bg='var(--danger-light)'; border='1px solid #FCA5A5'; icon='🔴 ';
         corpo = '<span style="font-size:11px;font-weight:700;color:var(--danger)">' + diasProg + 'd para o prazo · ' + dias + 'd</span>'
@@ -1742,28 +1744,51 @@ async function renderFerias(){
         corpo = '<span style="font-size:11px;font-weight:700;color:#b45309">' + diasProg + 'd para o prazo · ' + dias + 'd</span>'
               + '<br><span style="font-size:10px;color:#b45309">Programar até: <strong>' + formatDate(progAte) + '</strong></span>';
       } else {
-        // Fora da zona mas SEMPRE mostra o contador
         cor='var(--text)'; bg='transparent'; border='none'; icon='';
         corpo = '<span style="font-size:11px;font-weight:600;color:var(--text)">' + (diasProg !== null ? diasProg + 'd para o prazo · ' + dias + 'd' : '—') + '</span>'
               + (progAte ? '<br><span style="font-size:10px;color:var(--text-muted)">Programar até: ' + formatDate(progAte) + '</span>' : '');
       }
 
+      // Para o 2º período: mostrar fimPer (vencimento real) como data principal, não limMax
+      return '<td style="padding:8px 12px">'
+        + '<div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;white-space:nowrap">' + perAqui + '</div>'
+        + '<div style="background:' + bg + ';border:' + border + ';border-radius:6px;padding:6px 10px;display:inline-block;min-width:140px">'
+          + '<div style="font-size:13px;font-weight:700;color:' + cor + '">' + icon + (formatDate(fimPer)||'—') + '</div>'
+          + (corpo ? '<div style="margin-top:4px;line-height:1.5">' + corpo + '</div>' : '')
+        + '</div>'
+      + '</td>';
+
     } else {
       // ── 1º PERÍODO ──
       var jaVenc  = limMax && limMax < hoje;
       var temProx = !!per2Ref;
+
       if (jaVenc && !temProx) {
+        // Vencido sem 2º período — risco real
         cor='var(--danger)'; bg='var(--danger-light)'; border='1px solid #FCA5A5'; icon='⚠️ ';
-        corpo = '<span style="font-size:11px;font-weight:700;color:var(--danger)">1º Período Vencido — ação necessária</span>';
+        corpo = '<span style="font-size:11px;font-weight:700;color:var(--danger)">1º Período Vencido</span>'
+              + '<br><span style="font-size:10px;color:var(--danger)">Férias não gozadas — ação necessária</span>';
       } else if (jaVenc && temProx) {
+        // Vencido com 2º período — discreto
         cor='var(--text-muted)'; bg='transparent'; border='none'; icon='';
         corpo = '<span style="font-size:11px;color:var(--text-muted)">1º Período Vencido</span>';
+      } else if (temProx) {
+        // Ainda vigente com 2º período — mostrar apenas "1º Período" sem data nem contador
+        cor='var(--text-muted)'; bg='transparent'; border='none'; icon='';
+        corpo = '<span style="font-size:11px;color:var(--text-muted)">1º Período em curso</span>';
       } else {
-        cor='var(--text)'; bg='transparent'; border='none'; icon='';
-        corpo = '';
+        // Único período, ainda vigente — mostrar data e contador normal
+        var dM = limMax ? Math.floor((limMax-hoje)/86400000) : null;
+        var warnMax = dM!==null && dM<=60;
+        cor = warnMax?'var(--warning)':'var(--text)';
+        bg = warnMax?'var(--warning-light)':'transparent';
+        border = warnMax?'1px solid #FCD34D':'none';
+        icon = warnMax?'⏰ ':'';
+        corpo = dM!==null ? '<span style="font-size:11px;font-weight:600;color:'+cor+'">' + dM + 'd restantes · ' + dias + 'd</span>' : '';
       }
     }
 
+    // Retorno padrão para 1º período
     return '<td style="padding:8px 12px">'
       + '<div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;white-space:nowrap">' + perAqui + '</div>'
       + '<div style="background:' + bg + ';border:' + border + ';border-radius:6px;padding:6px 10px;display:inline-block;min-width:140px">'
