@@ -1698,69 +1698,77 @@ async function renderFerias(){
   const obrasUnicas=[...new Set(feriasData.map(f=>f.funcionario?.obra?.codigo).filter(Boolean))];
   const obraFilterOpts=obrasUnicas.map(c=>`<option value="${c}" ${feriasObraFiltro===c?'selected':''}>${c}</option>`).join('');
 
-  // Helper: bloco compacto de período — apenas Limite Máx. Legal
-  function blocoPeríodo(f,limMaxProximo){
+  // Helper: bloco de período
+  // isSegundo=true → aplica alertas de risco (90/60 dias para vencer)
+  // isSegundo=false (1º período) → exibe normalmente sem alarme
+  function blocoPeríodo(f, isSegundo, per2Ref){
     if(!f)return`<td style="text-align:center;color:var(--text-muted);font-size:12px;padding:8px 12px">—</td>`;
-    const limMax=parseDate(f.dt_limite_maxima);
-    const perAqui=`${formatDate(f.periodo_aquisitivo_inicio)} → ${formatDate(f.periodo_aquisitivo_fim)}`;
-    const dias=f.dias_direito||30;
-    // REGRA: "Programar até" = periodo_aquisitivo_fim - 60 dias
-    // O funcionário DEVE iniciar as férias até 60 dias antes do fim do período aquisitivo
-    // para não gerar multa. Dias restantes = de hoje até essa data de alerta.
-    const fimPeriodo = parseDate(f.periodo_aquisitivo_fim);
-    const dataAlerta = fimPeriodo ? new Date(fimPeriodo.getTime() - 60*86400000) : null;
-    const diasAteAlerta = dataAlerta ? Math.floor((dataAlerta - hoje)/86400000) : null;
+    const limMax    = parseDate(f.dt_limite_maxima);
+    const fimPer    = parseDate(f.periodo_aquisitivo_fim);
+    const perAqui   = `${formatDate(f.periodo_aquisitivo_inicio)} → ${formatDate(f.periodo_aquisitivo_fim)}`;
+    const dias      = f.dias_direito||30;
 
-    let cor,bg,border,txtCount,icon,alertaStr;
+    // "Programar até" = fim do período aquisitivo - 60 dias
+    // Dias restantes = de hoje até essa data
+    const dataAlerta  = fimPer ? new Date(fimPer.getTime()-60*86400000) : null;
+    const diasRestantes = dataAlerta ? Math.floor((dataAlerta-hoje)/86400000) : null;
+
+    let cor,bg,border,icon,txtStatus,alertaStr;
 
     if(f.programado){
+      // Programado → verde, sem alerta
       cor='var(--success)';bg='var(--success-light)';border='none';
-      txtCount='✓ Programado';icon='';
-      alertaStr='';
-    } else {
-      // Contador regressivo até a dataAlerta (limMax - 60 dias)
-      const venceu   = diasAteAlerta !== null && diasAteAlerta < 0;
-      const vermelho = !venceu && diasAteAlerta !== null && diasAteAlerta <= 60;
-      const amarelo  = !venceu && !vermelho && diasAteAlerta !== null && diasAteAlerta <= 90;
+      icon='✓ ';txtStatus='Programado';alertaStr='';
 
-      if(venceu){
+    } else if(isSegundo){
+      // ── 2º PERÍODO: aqui mora o risco — aplicar alerta por cor ──
+      const vencido  = diasRestantes!==null && diasRestantes<0;
+      const vermelho = !vencido && diasRestantes!==null && diasRestantes<=60;
+      const amarelo  = !vencido && !vermelho && diasRestantes!==null && diasRestantes<=90;
+
+      if(vencido){
         cor='var(--danger)';bg='var(--danger-light)';border='1px solid #FCA5A5';
-        icon='⚠️ ';
-        txtCount=`${Math.abs(diasAteAlerta)}d em atraso`;
+        icon='⚠️ ';txtStatus=`${Math.abs(diasRestantes)}d em atraso`;
       } else if(vermelho){
         cor='var(--danger)';bg='var(--danger-light)';border='1px solid #FCA5A5';
-        icon='🔴 ';
-        txtCount=`${diasAteAlerta}d restantes`;
+        icon='🔴 ';txtStatus=`${diasRestantes}d para o prazo`;
       } else if(amarelo){
         cor='var(--warning)';bg='var(--warning-light)';border='1px solid #FCD34D';
-        icon='🟡 ';
-        txtCount=`${diasAteAlerta}d restantes`;
+        icon='🟡 ';txtStatus=`${diasRestantes}d para o prazo`;
       } else {
         cor='var(--text)';bg='transparent';border='none';
-        icon='';
-        txtCount=diasAteAlerta!==null?`${diasAteAlerta}d restantes`:'—';
+        icon='';txtStatus=diasRestantes!==null?`${diasRestantes}d para o prazo`:'—';
       }
-      // "Programar até" = a data de alerta (limMax - 60 dias)
-      alertaStr=dataAlerta
-        ?`<div style="font-size:10px;margin-top:2px">Programar até: <strong style="color:${cor}">${formatDate(dataAlerta)}</strong></div>`
+      alertaStr = dataAlerta&&(vencido||vermelho||amarelo)
+        ?`<div style="font-size:10px;margin-top:3px">Programar até: <strong style="color:${cor}">${formatDate(dataAlerta)}</strong></div>`
+        :'';
+
+    } else {
+      // ── 1º PERÍODO: exibir informativo, sem alarme ──
+      // Só mostrar alerta se o próprio 1º período já está vencido (sem 2º existente)
+      const dM = limMax ? Math.floor((limMax-hoje)/86400000) : null;
+      const vencidoPr1 = limMax && limMax<hoje;
+      cor   = vencidoPr1?'var(--danger)':'var(--text)';
+      bg    = vencidoPr1?'var(--danger-light)':'transparent';
+      border= vencidoPr1?'1px solid #FCA5A5':'none';
+      icon  = vencidoPr1?'⚠️ ':'';
+      txtStatus = dM===null?'—':vencidoPr1?`${Math.abs(dM)}d vencido`:`${dM}d restantes`;
+      // Se há 2º período, mostrar informativo discret de "Programar até" sem alarme
+      alertaStr = per2Ref&&dataAlerta
+        ?`<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Programar até: ${formatDate(dataAlerta)}</div>`
         :'';
     }
 
-    // Linha de admissão do funcionário
-    const admissao=f.funcionario?.data_admissao||f.data_admissao;
-    const admissaoStr=admissao?`<div style="font-size:10px;color:var(--text-muted);margin-top:2px">Admissão: ${formatDate(admissao)}</div>`:'';
-
     return`<td style="padding:8px 12px">
       <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;white-space:nowrap">${perAqui}</div>
-      <div style="background:${bg};border:${border};border-radius:6px;padding:6px 10px;display:inline-block;min-width:130px">
+      <div style="background:${bg};border:${border};border-radius:6px;padding:6px 10px;display:inline-block;min-width:140px">
         <div style="font-size:13px;font-weight:700;color:${cor}">${icon}${formatDate(limMax)||'—'}</div>
-        <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
-          <span style="font-size:11px;font-weight:600;color:${cor}">${txtCount}</span>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:3px">
+          <span style="font-size:11px;font-weight:600;color:${cor}">${txtStatus}</span>
           <span style="font-size:10px;color:var(--text-muted)">${dias}d</span>
         </div>
         ${alertaStr}
       </div>
-      ${admissaoStr}
     </td>`;
   }
 
@@ -1822,8 +1830,8 @@ async function renderFerias(){
         </div>
       </div></td>
       <td style="font-size:12px;white-space:nowrap">${obraFunc}</td>
-      ${blocoPeríodo(per1,per2?parseDate(per2.dt_limite_maxima):null)}
-      ${blocoPeríodo(per2)}
+      ${blocoPeríodo(per1,false,per2)}
+      ${blocoPeríodo(per2,true,null)}
       <td>${progResume}</td>
       <td>${btnProg}</td>
     </tr>`;
