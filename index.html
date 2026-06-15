@@ -1012,7 +1012,12 @@ function verFicha(id){
           <div class="ficha-field"><div class="ficha-field-label">Cidade de Origem</div><div class="ficha-field-value">${fl.cidade_origem||'—'}</div></div>
         </div>
         <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px">
-          ${vencs.map(v=>`<div style="background:${v.real?'#F0FDF4':'var(--bg)'};border:1px solid ${v.real?'#BBF7D0':'var(--border)'};border-radius:var(--radius);padding:6px 10px;font-size:12px"><div style="font-weight:600;color:var(--text-muted)">Venc.${v.num}</div><div>${v.real||v.proj}</div><div style="font-size:10px;color:var(--text-muted)">${v.status}</div></div>`).join('')}
+          ${vencs.map(v=>'<div style="background:'+(v.real?'#F0FDF4':'var(--bg)')
+            +';border:1px solid '+(v.real?'#BBF7D0':'var(--border)')
+            +';border-radius:var(--radius);padding:6px 10px;font-size:12px">'
+            +'<div style="font-weight:600;color:var(--text-muted)">Venc.'+v.num+'</div>'
+            +'<div>'+(v.real||v.proj)+'</div>'
+            +'<div style="font-size:10px;color:var(--text-muted)">'+v.status+'</div></div>').join('')}
         </div>
       </div>`;
   }
@@ -1026,11 +1031,13 @@ function verFicha(id){
       const hoje2=new Date();
       const diff=limMax?Math.floor((limMax-hoje2)/86400000):null;
       const statusColor=diff===null?'var(--text-muted)':diff<0?'var(--danger)':diff<=60?'#B45309':'var(--success)';
-      return`<div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;font-size:12px">
-        <div style="font-weight:600;color:var(--text-muted);font-size:11px">${formatDate(p.periodo_aquisitivo_inicio)} → ${formatDate(p.periodo_aquisitivo_fim)}</div>
-        <div style="margin-top:4px">Limite: <strong>${formatDate(p.dt_limite_maxima)||'—'}</strong> ${diff!==null?`<span style="color:${statusColor};font-weight:700">(${diff<0?Math.abs(diff)+'d atrás':diff+'d'})</span>`:''}</div>
-        <div style="color:var(--text-muted);margin-top:2px">${p.programado?`✅ Programada: ${formatDate(p.data_inicio_programada)} → ${formatDate(p.data_fim_programada)}`:'⏳ Não programada'}</div>
-      </div>`;
+      const diffStr=diff===null?'':' <span style="color:'+statusColor+';font-weight:700">('+( diff<0?Math.abs(diff)+'d atrás':diff+'d')+')</span>';
+      const progStr=p.programado?('✅ Programada: '+formatDate(p.data_inicio_programada)+' → '+formatDate(p.data_fim_programada)):'⏳ Não programada';
+      return'<div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;font-size:12px">'
+        +'<div style="font-weight:600;color:var(--text-muted);font-size:11px">'+formatDate(p.periodo_aquisitivo_inicio)+' → '+formatDate(p.periodo_aquisitivo_fim)+'</div>'
+        +'<div style="margin-top:4px">Limite: <strong>'+(formatDate(p.dt_limite_maxima)||'—')+'</strong>'+diffStr+'</div>'
+        +'<div style="color:var(--text-muted);margin-top:2px">'+progStr+'</div>'
+        +'</div>';
     }).join('');
     feriasSection=`
       <div class="ficha-section">
