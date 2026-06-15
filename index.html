@@ -1464,39 +1464,47 @@ async function renderFolgas(){
       <div class="folga-cell"><div class="folga-cell-header">Folga</div><div style="font-weight:700;color:var(--primary-dark)">${nDias} dia(s) útil</div></div>
       ${vencCells}
     </div>`;}).join('')||`<div class="empty-state"><i class="ti ti-beach"></i><div>Nenhum registro de folga encontrado</div></div>`;
-  // ── Card 1: Funcionários ATUALMENTE em folga (saiu e ainda não retornou) ──
+  // ── Card 1: Funcionários ATUALMENTE em folga (saída real lançada, ainda não retornou) ──
   const emFolgaAgora=[];
-  listaBase.forEach(f=>{
+  listaBase.forEach(function(f){
     const nD=diasFolga(f.periodo_trabalhado);
-    for(let i=1;i<=5;i++){
+    for(var i=1;i<=5;i++){
       const real=f['saida'+i+'_real'];
       if(!real)continue;
       const saida=parseDate(real);
       if(!saida)continue;
-      // calcular retorno: nD dias úteis após a saída
-      const retorno=new Date(saida);let contados=0;
-      while(contados<nD){retorno.setDate(retorno.getDate()+1);const dow=retorno.getDay();if(dow!==0&&dow!==6)contados++;}
-      // está em folga agora = saiu (saida<=hoje) e retorno ainda não chegou (retorno>=hoje)
+      const retorno=new Date(saida);var cont=0;
+      while(cont<nD){retorno.setDate(retorno.getDate()+1);const dw=retorno.getDay();if(dw!==0&&dw!==6)cont++;}
       if(saida<=hoje&&retorno>=hoje){
-        emFolgaAgora.push({nome:(f.funcionario&&f.funcionario.nome_completo?f.funcionario.nome_completo.split(' ').slice(0,2).join(' '):'—'),mat:(f.funcionario&&f.funcionario.matricula?f.funcionario.matricula:''),saida:saida,retorno:retorno,busca:(f.funcionario&&f.funcionario.nome_completo?f.funcionario.nome_completo.split(' ')[0]:'')});break;
+        emFolgaAgora.push({nome:(f.funcionario&&f.funcionario.nome_completo?f.funcionario.nome_completo.split(' ').slice(0,2).join(' '):'—'),saida:saida,retorno:retorno,busca:(f.funcionario&&f.funcionario.nome_completo?f.funcionario.nome_completo.split(' ')[0]:'')});break;
       }
     }
   });
 
-  // ── Card 2: Folgas programadas nos próximos 30 dias (venc sem saída lançada) ──
-  const folgasProg=[];
-  listaBase.forEach(f=>{
-    const vencs=calcVencimentos(f);
-    vencs.forEach(function(v,i){
-      const real=f['saida'+(i+1)+'_real'];
-      if(real)return;
-      const diff=Math.floor((v-hoje)/86400000);
-      if(diff>=0&&diff<=30){
-        folgasProg.push({nome:(f.funcionario&&f.funcionario.nome_completo?f.funcionario.nome_completo.split(' ').slice(0,2).join(' '):'—'),mat:(f.funcionario&&f.funcionario.matricula?f.funcionario.matricula:''),venc:v,diff:diff,busca:(f.funcionario&&f.funcionario.nome_completo?f.funcionario.nome_completo.split(' ')[0]:''),num:i+1});
+  // ── Card 2: Saídas AGENDADAS (saída real lançada no futuro) — mês atual e próximo ──
+  const mesLabel=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const agendadosMesAtual=[];
+  const agendadosProxMes=[];
+  const mesAtual=hoje.getMonth(),anoAtual=hoje.getFullYear();
+  const proxMes=(mesAtual+1)%12,anoProxMes=mesAtual===11?anoAtual+1:anoAtual;
+  listaBase.forEach(function(f){
+    for(var i=1;i<=5;i++){
+      const real=f['saida'+i+'_real'];
+      if(!real)continue;
+      const saida=parseDate(real);
+      if(!saida)continue;
+      // apenas futuras (ainda não saiu) — se saiu mas retornou, já apareceu no card 1
+      if(saida>hoje){
+        const m=saida.getMonth(),a=saida.getFullYear();
+        const info={nome:(f.funcionario&&f.funcionario.nome_completo?f.funcionario.nome_completo.split(' ').slice(0,2).join(' '):'—'),saida:saida,busca:(f.funcionario&&f.funcionario.nome_completo?f.funcionario.nome_completo.split(' ')[0]:'')};
+        if(m===mesAtual&&a===anoAtual) agendadosMesAtual.push(info);
+        else if(m===proxMes&&a===anoProxMes) agendadosProxMes.push(info);
+        break;
       }
-    });
+    }
   });
-  folgasProg.sort(function(a,b){return a.diff-b.diff;});
+  agendadosMesAtual.sort(function(a,b){return a.saida-b.saida;});
+  agendadosProxMes.sort(function(a,b){return a.saida-b.saida;});
 
   // Montar cards
   var cardsHtml='';
@@ -1505,10 +1513,19 @@ async function renderFolgas(){
     var buscaAgora=emFolgaAgora.length===1?emFolgaAgora[0].busca:'';
     cardsHtml+='<div style="background:linear-gradient(135deg,#0F6E56,#1D9E75);border-radius:var(--radius-lg);padding:14px 18px;margin-bottom:10px;display:flex;align-items:center;gap:14px;cursor:pointer" onclick="folgasBusca=\''+buscaAgora+'\';folgasFiltro=\'todos\';renderFolgas()" title="Clique para localizar na lista"><div style="background:rgba(255,255,255,.2);border-radius:50%;width:44px;height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-plane-departure" style="font-size:22px;color:#fff"></i></div><div style="flex:1"><div style="color:#fff;font-weight:700;font-size:14px">✈️ '+emFolgaAgora.length+' funcionário(s) em folga agora</div><div style="color:rgba(255,255,255,.8);font-size:12px;margin-top:2px">'+nomesAgora+'</div></div><i class="ti ti-chevron-right" style="color:rgba(255,255,255,.6);font-size:18px"></i></div>';
   }
-  if(folgasProg.length>0){
-    var nomesProg=folgasProg.slice(0,4).map(function(f){return f.nome+' ('+( f.diff===0?'hoje':f.diff===1?'amanhã':f.diff+'d')+')';}).join('  |  ')+(folgasProg.length>4?' + '+(folgasProg.length-4)+' mais':'');
-    var buscaProg=folgasProg.length===1?folgasProg[0].busca:'';
-    cardsHtml+='<div style="background:linear-gradient(135deg,#185FA5,#2979C8);border-radius:var(--radius-lg);padding:14px 18px;margin-bottom:10px;display:flex;align-items:center;gap:14px;cursor:pointer" onclick="folgasBusca=\''+buscaProg+'\';folgasFiltro=\'todos\';renderFolgas()" title="Clique para localizar na lista"><div style="background:rgba(255,255,255,.2);border-radius:50%;width:44px;height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-calendar-event" style="font-size:22px;color:#fff"></i></div><div style="flex:1"><div style="color:#fff;font-weight:700;font-size:14px">📅 '+folgasProg.length+' folga(s) programada(s) nos próximos 30 dias</div><div style="color:rgba(255,255,255,.8);font-size:12px;margin-top:2px">'+nomesProg+'</div></div><i class="ti ti-chevron-right" style="color:rgba(255,255,255,.6);font-size:18px"></i></div>';
+  if(agendadosMesAtual.length>0||agendadosProxMes.length>0){
+    var linhas='';
+    if(agendadosMesAtual.length>0){
+      var nomes1=agendadosMesAtual.map(function(f){return f.nome+' ('+formatDate(f.saida)+')';}).join('  ·  ');
+      linhas+='<div style="color:rgba(255,255,255,.95);font-size:12px;margin-top:4px"><span style="background:rgba(255,255,255,.25);border-radius:20px;padding:1px 8px;font-size:11px;font-weight:700;margin-right:6px">'+mesLabel[mesAtual]+'</span>'+nomes1+'</div>';
+    }
+    if(agendadosProxMes.length>0){
+      var nomes2=agendadosProxMes.map(function(f){return f.nome+' ('+formatDate(f.saida)+')';}).join('  ·  ');
+      linhas+='<div style="color:rgba(255,255,255,.8);font-size:12px;margin-top:3px"><span style="background:rgba(255,255,255,.15);border-radius:20px;padding:1px 8px;font-size:11px;font-weight:700;margin-right:6px">'+mesLabel[proxMes]+'</span>'+nomes2+'</div>';
+    }
+    var totalAgend=agendadosMesAtual.length+agendadosProxMes.length;
+    var buscaAgend=totalAgend===1?(agendadosMesAtual[0]||agendadosProxMes[0]).busca:'';
+    cardsHtml+='<div style="background:linear-gradient(135deg,#185FA5,#2979C8);border-radius:var(--radius-lg);padding:14px 18px;margin-bottom:10px;display:flex;align-items:center;gap:14px;cursor:pointer" onclick="folgasBusca=\''+buscaAgend+'\';folgasFiltro=\'todos\';renderFolgas()" title="Clique para localizar na lista"><div style="background:rgba(255,255,255,.2);border-radius:50%;width:44px;height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-calendar-event" style="font-size:22px;color:#fff"></i></div><div style="flex:1"><div style="color:#fff;font-weight:700;font-size:14px">📅 '+totalAgend+' folga(s) agendada(s) — saída confirmada</div>'+linhas+'</div><i class="ti ti-chevron-right" style="color:rgba(255,255,255,.6);font-size:18px"></i></div>';
   }
   const alertsHtml=[
     totalVenc>0?`<div class="folga-alert-banner danger"><i class="ti ti-alert-triangle" style="font-size:18px"></i><strong>${totalVenc} vencimento(s) em atraso</strong> — colaboradores sem folga realizada</div>`:'',
