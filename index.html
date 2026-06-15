@@ -918,7 +918,7 @@ function verFicha(id){
               <div class="ficha-mat">Matrícula: ${f.matricula||'—'}</div>
               <div class="ficha-badges">
                 <span class="ficha-badge">${f.situacao?.charAt(0).toUpperCase()+f.situacao?.slice(1)||'—'}</span>
-                ${f.tipo?`<span class="ficha-badge">${f.tipo==='nova_admissao'?'Nova Admissão':'Transferência'}</span>`:''}
+                ${f.tipo?`<span class="ficha-badge">${f.tipo==='nova_admissao'?'Nova Admissão':f.tipo==='efetivo'?'Efetivo':'Transferência'}</span>`:''}
               </div>
             </div>
           </div>
@@ -1043,7 +1043,8 @@ function openModalFuncionario(func=null){
   const obraOptions=obras.map(o=>`<option value="${o.id}" ${func?.obra_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
   const obraTransfOptions=obras.map(o=>`<option value="${o.id}" ${func?.obra_transferencia_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
   const empresaOptions=empresas.map(e=>`<option value="${e.id}" ${func?.empresa_id===e.id?'selected':''}>${e.nome}</option>`).join('');
-  const funcaoOptions=funcoes.map(f=>`<option value="${f.id}" ${func?.funcao_id===f.id?'selected':''}>${f.nome}</option>`).join('');
+  const funcoesUnicas=[...new Map(funcoes.map(f=>[f.nome?.trim().toUpperCase(),f])).values()].sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR'));
+  const funcaoOptions=funcoesUnicas.map(f=>`<option value="${f.id}" ${func?.funcao_id===f.id?'selected':''}>${f.nome}</option>`).join('');
   const isTransf=func?.situacao==='transferido';
   const tipoTransf=func?.tipo_transferencia||'';
   document.body.insertAdjacentHTML('beforeend',`
@@ -1081,6 +1082,7 @@ function openModalFuncionario(func=null){
             <select id="f-tipo">
               <option value="nova_admissao" ${(func?.tipo||'nova_admissao')==='nova_admissao'?'selected':''}>Nova Admissão</option>
               <option value="transferencia" ${func?.tipo==='transferencia'?'selected':''}>Transferência</option>
+              <option value="efetivo" ${func?.tipo==='efetivo'?'selected':''}>Efetivo</option>
             </select>
           </div>
           <div class="form-group">
@@ -1462,6 +1464,52 @@ async function renderFolgas(){
       <div class="folga-cell"><div class="folga-cell-header">Folga</div><div style="font-weight:700;color:var(--primary-dark)">${nDias} dia(s) útil</div></div>
       ${vencCells}
     </div>`;}).join('')||`<div class="empty-state"><i class="ti ti-beach"></i><div>Nenhum registro de folga encontrado</div></div>`;
+  // ── Card 1: Funcionários ATUALMENTE em folga (saiu e ainda não retornou) ──
+  const emFolgaAgora=[];
+  listaBase.forEach(f=>{
+    const nD=diasFolga(f.periodo_trabalhado);
+    for(let i=1;i<=5;i++){
+      const real=f['saida'+i+'_real'];
+      if(!real)continue;
+      const saida=parseDate(real);
+      if(!saida)continue;
+      // calcular retorno: nD dias úteis após a saída
+      const retorno=new Date(saida);let contados=0;
+      while(contados<nD){retorno.setDate(retorno.getDate()+1);const dow=retorno.getDay();if(dow!==0&&dow!==6)contados++;}
+      // está em folga agora = saiu (saida<=hoje) e retorno ainda não chegou (retorno>=hoje)
+      if(saida<=hoje&&retorno>=hoje){
+        emFolgaAgora.push({nome:(f.funcionario&&f.funcionario.nome_completo?f.funcionario.nome_completo.split(' ').slice(0,2).join(' '):'—'),mat:(f.funcionario&&f.funcionario.matricula?f.funcionario.matricula:''),saida:saida,retorno:retorno,busca:(f.funcionario&&f.funcionario.nome_completo?f.funcionario.nome_completo.split(' ')[0]:'')});break;
+      }
+    }
+  });
+
+  // ── Card 2: Folgas programadas nos próximos 30 dias (venc sem saída lançada) ──
+  const folgasProg=[];
+  listaBase.forEach(f=>{
+    const vencs=calcVencimentos(f);
+    vencs.forEach(function(v,i){
+      const real=f['saida'+(i+1)+'_real'];
+      if(real)return;
+      const diff=Math.floor((v-hoje)/86400000);
+      if(diff>=0&&diff<=30){
+        folgasProg.push({nome:(f.funcionario&&f.funcionario.nome_completo?f.funcionario.nome_completo.split(' ').slice(0,2).join(' '):'—'),mat:(f.funcionario&&f.funcionario.matricula?f.funcionario.matricula:''),venc:v,diff:diff,busca:(f.funcionario&&f.funcionario.nome_completo?f.funcionario.nome_completo.split(' ')[0]:''),num:i+1});
+      }
+    });
+  });
+  folgasProg.sort(function(a,b){return a.diff-b.diff;});
+
+  // Montar cards
+  var cardsHtml='';
+  if(emFolgaAgora.length>0){
+    var nomesAgora=emFolgaAgora.map(function(f){return f.nome+' · retorno '+formatDate(f.retorno);}).join('  |  ');
+    var buscaAgora=emFolgaAgora.length===1?emFolgaAgora[0].busca:'';
+    cardsHtml+='<div style="background:linear-gradient(135deg,#0F6E56,#1D9E75);border-radius:var(--radius-lg);padding:14px 18px;margin-bottom:10px;display:flex;align-items:center;gap:14px;cursor:pointer" onclick="folgasBusca=\''+buscaAgora+'\';folgasFiltro=\'todos\';renderFolgas()" title="Clique para localizar na lista"><div style="background:rgba(255,255,255,.2);border-radius:50%;width:44px;height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-plane-departure" style="font-size:22px;color:#fff"></i></div><div style="flex:1"><div style="color:#fff;font-weight:700;font-size:14px">✈️ '+emFolgaAgora.length+' funcionário(s) em folga agora</div><div style="color:rgba(255,255,255,.8);font-size:12px;margin-top:2px">'+nomesAgora+'</div></div><i class="ti ti-chevron-right" style="color:rgba(255,255,255,.6);font-size:18px"></i></div>';
+  }
+  if(folgasProg.length>0){
+    var nomesProg=folgasProg.slice(0,4).map(function(f){return f.nome+' ('+( f.diff===0?'hoje':f.diff===1?'amanhã':f.diff+'d')+')';}).join('  |  ')+(folgasProg.length>4?' + '+(folgasProg.length-4)+' mais':'');
+    var buscaProg=folgasProg.length===1?folgasProg[0].busca:'';
+    cardsHtml+='<div style="background:linear-gradient(135deg,#185FA5,#2979C8);border-radius:var(--radius-lg);padding:14px 18px;margin-bottom:10px;display:flex;align-items:center;gap:14px;cursor:pointer" onclick="folgasBusca=\''+buscaProg+'\';folgasFiltro=\'todos\';renderFolgas()" title="Clique para localizar na lista"><div style="background:rgba(255,255,255,.2);border-radius:50%;width:44px;height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-calendar-event" style="font-size:22px;color:#fff"></i></div><div style="flex:1"><div style="color:#fff;font-weight:700;font-size:14px">📅 '+folgasProg.length+' folga(s) programada(s) nos próximos 30 dias</div><div style="color:rgba(255,255,255,.8);font-size:12px;margin-top:2px">'+nomesProg+'</div></div><i class="ti ti-chevron-right" style="color:rgba(255,255,255,.6);font-size:18px"></i></div>';
+  }
   const alertsHtml=[
     totalVenc>0?`<div class="folga-alert-banner danger"><i class="ti ti-alert-triangle" style="font-size:18px"></i><strong>${totalVenc} vencimento(s) em atraso</strong> — colaboradores sem folga realizada</div>`:'',
     totalWarn>0?`<div class="folga-alert-banner warn"><i class="ti ti-clock" style="font-size:18px"></i><strong>${totalWarn} vencimento(s) nos próximos 15 dias</strong> — planejar saídas</div>`:'',
@@ -1474,6 +1522,7 @@ async function renderFolgas(){
         <button class="btn btn-primary" onclick="openModalFolga()"><i class="ti ti-plus"></i> Nova folga</button>
       </div>
     </div>
+    ${cardsHtml}
     ${alertsHtml}
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px">
       <div class="metric-card" style="cursor:pointer;border-color:${folgasFiltro==='todos'?'var(--primary)':'var(--border)'}" onclick="folgasFiltro='todos';renderFolgas()"><div class="metric-label">Total de registros</div><div class="metric-value">${listaBase.length}</div></div>
