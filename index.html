@@ -854,7 +854,7 @@ function atualizarTabelaFuncionarios(){
   if(banner)banner.style.display=funcTab==='transferidos'?'':'none';
 }
 function renderFuncionarios(){
-  const obraOptions=obras.map(o=>`<option value="${o.id}" ${filtroObra===o.id?'selected':''}}>${o.codigo} — ${o.nome}</option>`).join('');
+  const obraOptions=obras.map(o=>`<option value="${o.id}" ${filtroObra===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
   const lista=getFuncionariosFiltrados();
   const baseAtivos=filtroObra?funcionarios.filter(f=>f.obra_id===filtroObra):funcionarios;
   const baseTransf=filtroObra?funcionarios.filter(f=>f.obra_transferencia_id===filtroObra):funcionarios.filter(f=>f.obra_transferencia_id);
@@ -970,24 +970,24 @@ function verFicha(id){
       +'<div class="ficha-field"><div class="ficha-field-label">Centro de Custo</div><div class="ficha-field-value">'+(f.centro_custo_transferencia||'—')+'</div></div>'
       +'</div></div>';
   }
-  }
 
   // ── Experiência ──
   const exp=calcExp(f);
   let expSection='';
   if(exp){
     const stLabel={vencida:'🔴 Vencida',vencendo:'🟡 Vencendo',exp1:'🔵 1º Período',exp2:'🔵 2º Período',efetivado:'✅ Efetivado'}[exp.status]||exp.status;
-    expSection=`
-      <div class="ficha-section">
-        <div class="ficha-section-title"><i class="ti ti-certificate" style="margin-right:6px"></i>Contrato de Experiência</div>
-        <div class="ficha-grid">
-          <div class="ficha-field"><div class="ficha-field-label">Status</div><div class="ficha-field-value">${stLabel}</div></div>
-          <div class="ficha-field"><div class="ficha-field-label">Período</div><div class="ficha-field-value">${f.periodo_experiencia==='30s'?'30 dias (único)':(f.periodo_experiencia||45)+' + '+(f.periodo_experiencia||45)+' dias'}</div></div>
-          <div class="ficha-field"><div class="ficha-field-label">Fim 1º Período</div><div class="ficha-field-value">${formatDate(exp.fim1)||'—'}</div></div>
-          <div class="ficha-field"><div class="ficha-field-label">Fim 2º Período</div><div class="ficha-field-value">${formatDate(exp.fim2)||'—'}</div></div>
-          <div class="ficha-field"><div class="ficha-field-label">Dias Restantes</div><div class="ficha-field-value" style="font-weight:700;color:${exp.restantes<0?'var(--danger)':exp.restantes<=15?'var(--warning-text,#92400E)':'var(--success)'}">${exp.status==='efetivado'?'—':exp.restantes+'d'}</div></div>
-        </div>
-      </div>`;
+    const periodoStr=f.periodo_experiencia==='30s'?'30 dias (único)':(f.periodo_experiencia||45)+' + '+(f.periodo_experiencia||45)+' dias';
+    const diasColor=exp.restantes<0?'var(--danger)':exp.restantes<=15?'#92400E':'var(--success)';
+    const diasStr=exp.status==='efetivado'?'—':exp.restantes+'d';
+    expSection='<div class="ficha-section">'
+      +'<div class="ficha-section-title"><i class="ti ti-certificate" style="margin-right:6px"></i>Contrato de Experiência</div>'
+      +'<div class="ficha-grid">'
+      +'<div class="ficha-field"><div class="ficha-field-label">Status</div><div class="ficha-field-value">'+stLabel+'</div></div>'
+      +'<div class="ficha-field"><div class="ficha-field-label">Período</div><div class="ficha-field-value">'+periodoStr+'</div></div>'
+      +'<div class="ficha-field"><div class="ficha-field-label">Fim 1º Período</div><div class="ficha-field-value">'+(formatDate(exp.fim1)||'—')+'</div></div>'
+      +'<div class="ficha-field"><div class="ficha-field-label">Fim 2º Período</div><div class="ficha-field-value">'+(formatDate(exp.fim2)||'—')+'</div></div>'
+      +'<div class="ficha-field"><div class="ficha-field-label">Dias Restantes</div><div class="ficha-field-value" style="font-weight:700;color:'+diasColor+'">'+diasStr+'</div></div>'
+      +'</div></div>';
   }
 
   // ── Folgas de Campo ──
@@ -1003,24 +1003,18 @@ function verFicha(id){
       const real=fl['saida'+i+'_real'];
       if(proj||real)vencs.push({num:i,proj:formatDate(proj),real:formatDate(real),status:real?'✅ Realizada':'⏳ Projetada'});
     }
-    folgasSection=`
-      <div class="ficha-section">
-        <div class="ficha-section-title"><i class="ti ti-tree" style="margin-right:6px"></i>Folgas de Campo</div>
-        <div class="ficha-grid">
-          <div class="ficha-field"><div class="ficha-field-label">Início do Ciclo</div><div class="ficha-field-value">${formatDate(fl.data_inicio)||'—'}</div></div>
-          <div class="ficha-field"><div class="ficha-field-label">Período Trabalhado</div><div class="ficha-field-value">${fl.periodo_trabalhado||'—'} dias → ${nD} dia(s) útil</div></div>
-          <div class="ficha-field"><div class="ficha-field-label">Passagem</div><div class="ficha-field-value">${[fl.tipo_passagem_aerea?'✈️ Aérea':'',fl.tipo_passagem_terrestre?'🚌 Terrestre':''].filter(Boolean).join(' · ')||'—'}</div></div>
-          <div class="ficha-field"><div class="ficha-field-label">Cidade de Origem</div><div class="ficha-field-value">${fl.cidade_origem||'—'}</div></div>
-        </div>
-        <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px">
-          ${vencs.map(v=>'<div style="background:'+(v.real?'#F0FDF4':'var(--bg)')
-            +';border:1px solid '+(v.real?'#BBF7D0':'var(--border)')
-            +';border-radius:var(--radius);padding:6px 10px;font-size:12px">'
-            +'<div style="font-weight:600;color:var(--text-muted)">Venc.'+v.num+'</div>'
-            +'<div>'+(v.real||v.proj)+'</div>'
-            +'<div style="font-size:10px;color:var(--text-muted)">'+v.status+'</div></div>').join('')}
-        </div>
-      </div>`;
+    const passagemStr=[fl.tipo_passagem_aerea?'✈️ Aérea':'',fl.tipo_passagem_terrestre?'🚌 Terrestre':''].filter(Boolean).join(' · ')||'—';
+    const vencsHtml=vencs.map(v=>'<div style="background:'+(v.real?'#F0FDF4':'var(--bg)')+';border:1px solid '+(v.real?'#BBF7D0':'var(--border)')+';border-radius:var(--radius);padding:6px 10px;font-size:12px"><div style="font-weight:600;color:var(--text-muted)">Venc.'+v.num+'</div><div>'+(v.real||v.proj)+'</div><div style="font-size:10px;color:var(--text-muted)">'+v.status+'</div></div>').join('');
+    folgasSection='<div class="ficha-section">'
+      +'<div class="ficha-section-title"><i class="ti ti-tree" style="margin-right:6px"></i>Folgas de Campo</div>'
+      +'<div class="ficha-grid">'
+      +'<div class="ficha-field"><div class="ficha-field-label">Início do Ciclo</div><div class="ficha-field-value">'+(formatDate(fl.data_inicio)||'—')+'</div></div>'
+      +'<div class="ficha-field"><div class="ficha-field-label">Período Trabalhado</div><div class="ficha-field-value">'+(fl.periodo_trabalhado||'—')+' dias → '+nD+' dia(s) útil</div></div>'
+      +'<div class="ficha-field"><div class="ficha-field-label">Passagem</div><div class="ficha-field-value">'+passagemStr+'</div></div>'
+      +'<div class="ficha-field"><div class="ficha-field-label">Cidade de Origem</div><div class="ficha-field-value">'+(fl.cidade_origem||'—')+'</div></div>'
+      +'</div>'
+      +'<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px">'+vencsHtml+'</div>'
+      +'</div>';
   }
 
   // ── Férias ──
@@ -1040,11 +1034,10 @@ function verFicha(id){
         +'<div style="color:var(--text-muted);margin-top:2px">'+progStr+'</div>'
         +'</div>';
     }).join('');
-    feriasSection=`
-      <div class="ficha-section">
-        <div class="ficha-section-title"><i class="ti ti-sun" style="margin-right:6px"></i>Férias</div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px">${periodos}</div>
-      </div>`;
+    feriasSection='<div class="ficha-section">'
+      +'<div class="ficha-section-title"><i class="ti ti-sun" style="margin-right:6px"></i>Férias</div>'
+      +'<div style="display:flex;flex-wrap:wrap;gap:8px">'+periodos+'</div>'
+      +'</div>';
   }
 
   // ── Alojamento ──
