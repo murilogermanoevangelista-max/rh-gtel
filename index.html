@@ -1679,14 +1679,42 @@ async function renderFerias(){
   if(feriasFiltro==='per2vencida')listaFuncs=listaFuncs.filter(arr=>{const p=arr[1];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);return l&&l<hoje;});
   if(feriasFiltro==='per2vencendo')listaFuncs=listaFuncs.filter(arr=>{const p=arr[1];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);if(!l)return false;const d=Math.floor((l-hoje)/86400000);return d>=0&&d<=60;});
 
-  // Ordenar: vencidas → vencendo → ok; dentro de cada grupo, data mais próxima primeiro
-  const stOrd={vencida:0,vencendo:1,ok:2};
+  // Ordenar por urgência real:
+  // Critério: periodo_aquisitivo_fim do período mais urgente (não programado)
+  // Quem vence primeiro aparece no topo
+  function getDataUrgente(arr){
+    // Pegar o periodo_aquisitivo_fim do 2º período se não programado (risco real)
+    // senão do 1º período não programado
+    const per2=arr[1];
+    const per1=arr[0];
+    if(per2&&!per2.programado){
+      return parseDate(per2.periodo_aquisitivo_fim)||new Date(9999,0);
+    }
+    if(per1&&!per1.programado){
+      return parseDate(per1.periodo_aquisitivo_fim)||new Date(9999,0);
+    }
+    // Todos programados — ordenar por fim do último período
+    return parseDate(arr[arr.length-1]?.periodo_aquisitivo_fim)||new Date(9999,0);
+  }
+  function getUrgenciaNivel(arr){
+    // 0=vencido, 1=prazo vencido(passou progAte), 2=vermelho(<=60d), 3=amarelo(<=90d), 4=ok
+    const per2=arr[1];
+    const fimPer=per2&&!per2.programado?parseDate(per2.periodo_aquisitivo_fim):
+                 arr[0]&&!arr[0].programado?parseDate(arr[0].periodo_aquisitivo_fim):null;
+    if(!fimPer) return 4;
+    const progAte=new Date(fimPer.getTime()-60*86400000);
+    const diasFim=Math.floor((fimPer-hoje)/86400000);
+    const diasProg=Math.floor((progAte-hoje)/86400000);
+    if(diasFim<0) return 0;       // férias vencidas
+    if(diasProg<0) return 1;      // prazo para programar vencido
+    if(diasProg<=60) return 2;    // vermelho
+    if(diasProg<=90) return 3;    // amarelo
+    return 4;
+  }
   listaFuncs.sort((a,b)=>{
-    const sa=stOrd[getStatus(a)]??2,sb=stOrd[getStatus(b)]??2;
-    if(sa!==sb)return sa-sb;
-    const la=parseDate(getPeriodoUrgente(a)?.dt_limite_maxima)||new Date(9999,0);
-    const lb=parseDate(getPeriodoUrgente(b)?.dt_limite_maxima)||new Date(9999,0);
-    return la-lb;
+    const na=getUrgenciaNivel(a), nb=getUrgenciaNivel(b);
+    if(na!==nb) return na-nb;       // nível de urgência primeiro
+    return getDataUrgente(a)-getDataUrgente(b); // data mais próxima primeiro
   });
 
   // Alertas — clicáveis para filtrar a tabela
