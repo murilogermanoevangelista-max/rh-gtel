@@ -768,18 +768,16 @@ function getFuncionariosFiltrados(){
   // Aba ativos: ativo + inativo (nunca transferido)
   // Aba transferidos: apenas transferido
   if(funcTab==='transferidos'){
-    lista=lista.filter(f=>f.situacao==='transferido');
-  } else {
-    lista=lista.filter(f=>f.situacao!=='transferido');
-    if(filtroSituacao)lista=lista.filter(f=>f.situacao===filtroSituacao);
-  }
-  if(filtroObra){
-    if(funcTab==='transferidos'){
-      // histórico: transferidos que VIERAM desta obra
-      lista=lista.filter(f=>f.obra_id===filtroObra);
-    } else {
-      lista=lista.filter(f=>f.obra_id===filtroObra);
+    lista=lista.filter(f=>f.transferido===true||f.obra_transferencia_id);
+    if(filtroObra){
+      // histórico: quem VEIO desta obra (origem = obra_transferencia_id)
+      lista=lista.filter(f=>f.obra_transferencia_id===filtroObra);
     }
+  } else {
+    // Ativos/Inativos: exclui quem está marcado como transferido
+    lista=lista.filter(f=>!f.transferido&&f.situacao!=='transferido');
+    if(filtroSituacao)lista=lista.filter(f=>f.situacao===filtroSituacao);
+    if(filtroObra)lista=lista.filter(f=>f.obra_id===filtroObra);
   }
   if(busca){const b=busca.toLowerCase();lista=lista.filter(f=>f.nome_completo?.toLowerCase().includes(b)||f.matricula?.toLowerCase().includes(b));}
   return lista;
@@ -795,7 +793,10 @@ function getFuncionariosRows(lista){
           <div><div style="font-weight:500">${f.nome_completo}</div><div style="font-size:11px;color:var(--text-muted)">${f.matricula||'—'}</div></div>
         </div></td>
         <td>${funcaoNome}</td>
-        <td><div style="font-size:12px;color:var(--text-muted)"><div>📤 ${f.obra?.codigo?f.obra.codigo+' ':''} ${f.obra?.nome||'—'}</div><div style="margin-top:2px">📥 ${f.obra_transferencia?.codigo?f.obra_transferencia.codigo+' ':''} ${f.obra_transferencia?.nome||'—'}</div></div></td>
+        <td><div style="font-size:12px;color:var(--text-muted)">
+          <div>📤 Origem: ${f.obra_transferencia?.codigo?f.obra_transferencia.codigo+' ':''} ${f.obra_transferencia?.nome||'—'}</div>
+          <div style="margin-top:2px">📥 Destino: ${f.obra?.codigo?f.obra.codigo+' ':''} ${f.obra?.nome||'—'}</div>
+        </div></td>
         <td>${f.empresa?.nome||'—'}</td>
         <td>${formatDate(f.data_admissao)}</td>
         <td>${formatDate(f.data_transferencia)||'—'}</td>
@@ -829,8 +830,8 @@ function getFuncionariosRows(lista){
 }
 function atualizarTabelaFuncionarios(){
   const lista=getFuncionariosFiltrados();
-  const totalTransf=funcionarios.filter(f=>f.situacao==='transferido'&&(!filtroObra||f.obra_id===filtroObra)).length;
-  const totalAtivos=funcionarios.filter(f=>f.situacao!=='transferido'&&(!filtroObra||f.obra_id===filtroObra)).length;
+  const totalTransf=funcionarios.filter(f=>f.transferido||f.obra_transferencia_id).length;
+  const totalAtivos=funcionarios.filter(f=>!f.transferido&&f.situacao!=='transferido').length;
   const sub=document.getElementById('func-subtitle');
   const tbody=document.getElementById('func-tbody');
   const tabAtivos=document.getElementById('tab-func-ativos');
@@ -846,8 +847,8 @@ function atualizarTabelaFuncionarios(){
 function renderFuncionarios(){
   const obraOptions=obras.map(o=>`<option value="${o.id}" ${filtroObra===o.id?'selected':''}}>${o.codigo} — ${o.nome}</option>`).join('');
   const lista=getFuncionariosFiltrados();
-  const totalAtivos=funcionarios.filter(f=>f.situacao!=='transferido').length;
-  const totalTransf=funcionarios.filter(f=>f.situacao==='transferido').length;
+  const totalAtivos=funcionarios.filter(f=>!f.transferido&&f.situacao!=='transferido').length;
+  const totalTransf=funcionarios.filter(f=>f.transferido||f.obra_transferencia_id).length;
   const theadTransf=`<tr><th>Funcionário</th><th>Função</th><th>Obra Origem → Destino</th><th>Empresa</th><th>Admissão</th><th>Transferência</th><th></th></tr>`;
   const theadAtivos=`<tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Empresa</th><th>Admissão</th><th>Situação</th><th></th></tr>`;
   document.getElementById('main-content').innerHTML=`
@@ -1222,6 +1223,26 @@ async function saveFuncionario(id){
   const funcaoManual=isMod?document.getElementById('f-funcao-input').value.trim():null;
   const situacao=document.getElementById('f-situacao').value;
   const isTransf=situacao==='transferido';
+  const tipoTransf=isTransf?tipoTransferencia:'';
+  // Na transferência por Envio: o funcionário VAI para outra obra
+  //   obra_id = nova obra (destino) → onde está agora
+  //   obra_transferencia_id = obra atual (origem) → histórico
+  //   situacao = ativo (continua ativo na nova obra)
+  // Na transferência por Recebimento: o funcionário VEIO de outra obra
+  //   obra_id = obra atual (já preenchida no form, onde está agora)
+  //   obra_transferencia_id = obra de origem
+  //   situacao = ativo
+  const obraTransfId=isTransf?document.getElementById('f-obra-transf').value||null:null;
+  const obraAtualId=document.getElementById('f-obra').value||null;
+  let obraFinal=obraAtualId;
+  let obraOrigem=null;
+  if(isTransf&&tipoTransf==='envio'&&obraTransfId){
+    obraFinal=obraTransfId;   // vai para a obra de destino
+    obraOrigem=obraAtualId;   // registra a obra de origem
+  } else if(isTransf&&tipoTransf==='recebimento'&&obraTransfId){
+    obraFinal=obraAtualId;    // já está na obra atual
+    obraOrigem=obraTransfId;  // veio desta obra
+  }
   let fotoUrl=null;
   if(fotoFile){
     const ext=fotoFile.name.split('.').pop();
@@ -1236,18 +1257,19 @@ async function saveFuncionario(id){
     matricula:mat,nome_completo:nome,
     data_admissao:document.getElementById('f-admissao').value||null,
     data_mobilizacao:document.getElementById('f-integracao').value||null,
-    situacao,tipo:document.getElementById('f-tipo').value,
+    situacao:isTransf?'ativo':situacao,
+    tipo:document.getElementById('f-tipo').value,
     periodo_experiencia:parseInt(document.getElementById('f-periodo-exp').value),
     funcao_id:funcaoId,funcao_manual:funcaoManual,
     empresa_id:document.getElementById('f-empresa').value||null,
-    obra_id:document.getElementById('f-obra').value||null,
+    obra_id:obraFinal,
     alojamento_id:document.getElementById('f-alojamento').value||null,
     cidade:document.getElementById('f-cidade').value.trim()||null,
     uf:document.getElementById('f-uf').value||null,
     observacao_interna:document.getElementById('f-obs').value.trim()||null,
     transferido:isTransf,
     tipo_transferencia:isTransf?tipoTransferencia:null,
-    obra_transferencia_id:isTransf?document.getElementById('f-obra-transf').value||null:null,
+    obra_transferencia_id:obraOrigem,
     data_transferencia:isTransf?document.getElementById('f-data-transf').value||null:null,
     centro_custo_transferencia:isTransf?document.getElementById('f-centro-custo').value.trim()||null:null,
     data_desmobilizacao:isTransf&&tipoTransferencia==='envio'?document.getElementById('f-desmobilizacao').value||null:null,
