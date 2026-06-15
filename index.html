@@ -953,22 +953,23 @@ function verFicha(id){
   let transferSection='';
   if(temTransf){
     const isEnvio=tipoTransf==='envio';
-    const origemNome=isEnvio?(f.obra_transferencia?.codigo?f.obra_transferencia.codigo+' ':'')+( f.obra_transferencia?.nome||'—')
-                            :(f.obra_transferencia?.codigo?f.obra_transferencia.codigo+' ')+(f.obra_transferencia?.nome||'—');
-    const destinoNome=isEnvio?(f.obra?.codigo?f.obra.codigo+' ':'')+( f.obra?.nome||'—')
-                              :(f.obra?.codigo?f.obra.codigo+' ':'')+( f.obra?.nome||'—');
-    transferSection=`
-      <div style="background:${isEnvio?'#FFF7ED':'#F0FDF4'};border:1px solid ${isEnvio?'#FED7AA':'#BBF7D0'};border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:16px">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:${isEnvio?'#C2410C':'#15803D'};margin-bottom:10px">
-          ${isEnvio?'📤 Envio — saiu para outra obra':'📥 Recebimento — veio de outra obra'}
-        </div>
-        <div class="ficha-grid">
-          <div class="ficha-field"><div class="ficha-field-label">Obra de Origem</div><div class="ficha-field-value">${isEnvio?(f.obra_transferencia?.codigo?f.obra_transferencia.codigo+' ':''+(f.obra_transferencia?.nome||'—')):origemNome}</div></div>
-          <div class="ficha-field"><div class="ficha-field-label">Obra de Destino</div><div class="ficha-field-value">${destinoNome}</div></div>
-          <div class="ficha-field"><div class="ficha-field-label">Data da Transferência</div><div class="ficha-field-value">${formatDate(f.data_transferencia)||'—'}</div></div>
-          <div class="ficha-field"><div class="ficha-field-label">Centro de Custo</div><div class="ficha-field-value">${f.centro_custo_transferencia||'—'}</div></div>
-        </div>
-      </div>`;
+    const obraTransfNome=(f.obra_transferencia?.codigo?f.obra_transferencia.codigo+' ':'')+( f.obra_transferencia?.nome||'—');
+    const obraAtualNome=(f.obra?.codigo?f.obra.codigo+' ':'')+( f.obra?.nome||'—');
+    const origemNome=isEnvio?obraTransfNome:obraTransfNome;
+    const destinoNome=isEnvio?obraAtualNome:obraAtualNome;
+    const bgColor=isEnvio?'#FFF7ED':'#F0FDF4';
+    const bdColor=isEnvio?'#FED7AA':'#BBF7D0';
+    const txtColor=isEnvio?'#C2410C':'#15803D';
+    const titulo=isEnvio?'📤 Envio — saiu para outra obra':'📥 Recebimento — veio de outra obra';
+    transferSection='<div style="background:'+bgColor+';border:1px solid '+bdColor+';border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:16px">'
+      +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:'+txtColor+';margin-bottom:10px">'+titulo+'</div>'
+      +'<div class="ficha-grid">'
+      +'<div class="ficha-field"><div class="ficha-field-label">Obra de Origem</div><div class="ficha-field-value">'+origemNome+'</div></div>'
+      +'<div class="ficha-field"><div class="ficha-field-label">Obra de Destino</div><div class="ficha-field-value">'+destinoNome+'</div></div>'
+      +'<div class="ficha-field"><div class="ficha-field-label">Data da Transferência</div><div class="ficha-field-value">'+(formatDate(f.data_transferencia)||'—')+'</div></div>'
+      +'<div class="ficha-field"><div class="ficha-field-label">Centro de Custo</div><div class="ficha-field-value">'+(f.centro_custo_transferencia||'—')+'</div></div>'
+      +'</div></div>';
+  }
   }
 
   // ── Experiência ──
@@ -1048,18 +1049,14 @@ function verFicha(id){
 
   // ── Alojamento ──
   const aloj=alojamentos.find(a=>String(a.id)===String(f.alojamento_id));
-  let alojSection='';
-  if(aloj){
-    alojSection=`
-      <div class="ficha-section">
-        <div class="ficha-section-title"><i class="ti ti-building" style="margin-right:6px"></i>Alojamento</div>
-        <div class="ficha-grid">
-          <div class="ficha-field"><div class="ficha-field-label">Nome</div><div class="ficha-field-value">${aloj.nome||'—'}</div></div>
-          <div class="ficha-field"><div class="ficha-field-label">Obra</div><div class="ficha-field-value">${aloj.obra?.codigo?aloj.obra.codigo+' ':''} ${aloj.obra?.nome||'—'}</div></div>
-          ${aloj.endereco?`<div class="ficha-field"><div class="ficha-field-label">Endereço</div><div class="ficha-field-value">${aloj.endereco}</div></div>`:''}
-        </div>
-      </div>`;
-  }
+
+  // Pré-calcular strings com ternários para evitar template literals aninhados
+  const avatarHtml=f.foto_url?('<img src="'+f.foto_url+'" alt="">'):initials(f.nome_completo);
+  const tipoBadge=f.tipo?('<span class="ficha-badge">'+(f.tipo==='nova_admissao'?'Nova Admissão':f.tipo==='efetivo'?'Efetivo':'Transferência')+'</span>'):'';
+  const transfBadge=temTransf?('<span class="ficha-badge" style="background:rgba(255,255,255,.25)">'+(tipoTransf==='envio'?'📤 Transferido':'📥 Recebido')+'</span>'):'';
+  const alojEnderecoHtml=aloj&&aloj.endereco?('<div class="ficha-field"><div class="ficha-field-label">Endereço</div><div class="ficha-field-value">'+aloj.endereco+'</div></div>'):'';
+  const obsHtml=f.observacao_interna?('<div class="ficha-section"><div class="ficha-section-title"><i class="ti ti-notes" style="margin-right:6px"></i>Observações</div><div style="font-size:13px;color:var(--text);padding:8px 0">'+f.observacao_interna+'</div></div>'):'';
+  const alojSectionFinal=aloj?('<div class="ficha-section"><div class="ficha-section-title"><i class="ti ti-building" style="margin-right:6px"></i>Alojamento</div><div class="ficha-grid"><div class="ficha-field"><div class="ficha-field-label">Nome</div><div class="ficha-field-value">'+(aloj.nome||'—')+'</div></div><div class="ficha-field"><div class="ficha-field-label">Obra</div><div class="ficha-field-value">'+(aloj.obra?.codigo?aloj.obra.codigo+' ':'')+' '+(aloj.obra?.nome||'—')+'</div></div>'+alojEnderecoHtml+'</div></div>'):'';
 
   const html=`
     <div class="modal-overlay" id="modal-ficha" onclick="if(event.target===this)closeModal('modal-ficha')">
@@ -1073,20 +1070,17 @@ function verFicha(id){
           </div>
         </div>
         <div class="modal-body" id="ficha-content-${id}">
-          <!-- Header -->
           <div class="ficha-header-card">
-            <div class="ficha-avatar">${f.foto_url?`<img src="${f.foto_url}" alt="">`:initials(f.nome_completo)}</div>
+            <div class="ficha-avatar">${avatarHtml}</div>
             <div>
               <div class="ficha-nome">${f.nome_completo}</div>
               <div class="ficha-mat">Matrícula: ${f.matricula||'—'} · ${funcaoNome}</div>
               <div class="ficha-badges" style="margin-top:6px">
                 <span class="ficha-badge">${f.situacao?.charAt(0).toUpperCase()+f.situacao?.slice(1)||'—'}</span>
-                ${f.tipo?`<span class="ficha-badge">${f.tipo==='nova_admissao'?'Nova Admissão':f.tipo==='efetivo'?'Efetivo':'Transferência'}</span>`:''}
-                ${temTransf?`<span class="ficha-badge" style="background:rgba(255,255,255,.25)">${tipoTransf==='envio'?'📤 Transferido':'📥 Recebido'}</span>`:''}
+                ${tipoBadge}${transfBadge}
               </div>
             </div>
           </div>
-          <!-- Dados Profissionais -->
           <div class="ficha-section">
             <div class="ficha-section-title"><i class="ti ti-briefcase" style="margin-right:6px"></i>Dados Profissionais</div>
             <div class="ficha-grid">
@@ -1102,8 +1096,8 @@ function verFicha(id){
           ${expSection}
           ${folgasSection}
           ${feriasSection}
-          ${alojSection}
-          ${f.observacao_interna?`<div class="ficha-section"><div class="ficha-section-title"><i class="ti ti-notes" style="margin-right:6px"></i>Observações</div><div style="font-size:13px;color:var(--text);padding:8px 0">${f.observacao_interna}</div></div>`:''}
+          ${alojSectionFinal}
+          ${obsHtml}
         </div>
         <div class="modal-footer">
           <button class="btn" onclick="closeModal('modal-ficha')">Fechar</button>
@@ -1112,7 +1106,6 @@ function verFicha(id){
       </div>
     </div>`;
   document.body.insertAdjacentHTML('beforeend',html);
-}
 }
 
 async function exportFichaPDF(id){
