@@ -832,17 +832,22 @@ function atualizarTabelaFuncionarios(){
   const lista=getFuncionariosFiltrados();
   const totalTransf=funcionarios.filter(f=>f.transferido||f.obra_transferencia_id).length;
   const totalAtivos=funcionarios.filter(f=>!f.transferido&&f.situacao!=='transferido').length;
+  const theadTransf='<tr><th>Funcionário</th><th>Função</th><th>Obra Origem → Destino</th><th>Empresa</th><th>Admissão</th><th>Transferência</th><th></th></tr>';
+  const theadAtivos='<tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Empresa</th><th>Admissão</th><th>Situação</th><th></th></tr>';
   const sub=document.getElementById('func-subtitle');
   const tbody=document.getElementById('func-tbody');
+  const thead=document.getElementById('func-thead');
   const tabAtivos=document.getElementById('tab-func-ativos');
   const tabTransf=document.getElementById('tab-func-transf');
+  const fsEl=document.getElementById('filtro-situacao-sel');
+  const banner=document.getElementById('transf-banner');
   if(sub)sub.textContent=lista.length+' de '+funcionarios.length+' registros';
   if(tbody)tbody.innerHTML=getFuncionariosRows(lista);
+  if(thead)thead.innerHTML=funcTab==='transferidos'?theadTransf:theadAtivos;
   if(tabAtivos){tabAtivos.className='exp-tab'+(funcTab==='ativos'?' active':'');tabAtivos.innerHTML='Ativos / Inativos <span style="background:var(--primary);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">'+totalAtivos+'</span>';}
-  if(tabTransf){tabTransf.className='exp-tab'+(funcTab==='transferidos'?' active':'');tabTransf.innerHTML='Transferidos <span style="background:var(--warning-text,#92400E);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">'+totalTransf+'</span>';}
-  // Mostrar/ocultar filtro situação (não faz sentido na aba transferidos)
-  const fsEl=document.getElementById('filtro-situacao-sel');
+  if(tabTransf){tabTransf.className='exp-tab'+(funcTab==='transferidos'?' active':'');tabTransf.innerHTML='Transferidos <span style="background:#B45309;color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">'+totalTransf+'</span>';}
   if(fsEl)fsEl.style.display=funcTab==='transferidos'?'none':'';
+  if(banner)banner.style.display=funcTab==='transferidos'?'':'none';
 }
 function renderFuncionarios(){
   const obraOptions=obras.map(o=>`<option value="${o.id}" ${filtroObra===o.id?'selected':''}}>${o.codigo} — ${o.nome}</option>`).join('');
@@ -879,9 +884,9 @@ function renderFuncionarios(){
       </select>
       <button class="btn btn-sm" onclick="filtroSituacao='';filtroObra='';busca='';document.getElementById('func-busca').value='';atualizarTabelaFuncionarios()"><i class="ti ti-x"></i> Limpar</button>
     </div>
-    ${funcTab==='transferidos'?`<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:#FEF3C7;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:12px;font-size:13px;color:#92400E"><i class="ti ti-info-circle" style="font-size:16px;flex-shrink:0"></i><span>Funcionários transferidos aparecem aqui como <strong>histórico</strong> e não são contabilizados nos indicadores da obra de origem.</span></div>`:''}
+    <div id="transf-banner" style="display:${funcTab==='transferidos'?'flex':'none'};align-items:center;gap:8px;padding:10px 14px;background:#FEF3C7;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:12px;font-size:13px;color:#92400E"><i class="ti ti-info-circle" style="font-size:16px;flex-shrink:0"></i><span>Funcionários transferidos aparecem aqui como <strong>histórico</strong> e não são contabilizados nos indicadores da obra de origem.</span></div>
     <div class="table-container"><table>
-      <thead>${funcTab==='transferidos'?theadTransf:theadAtivos}</thead>
+      <thead id="func-thead">${funcTab==='transferidos'?theadTransf:theadAtivos}</thead>
       <tbody id="func-tbody">${getFuncionariosRows(lista)}</tbody>
     </table></div>`;
 }
