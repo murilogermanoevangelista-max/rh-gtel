@@ -427,16 +427,16 @@ async function renderDashboard(){
   const hoje=new Date();hoje.setHours(0,0,0,0);
   // Aplicar filtro global de obra em todos os cálculos do dashboard
   const funcsFiltrados=globalObraFiltro?funcionarios.filter(f=>f.obra_id===globalObraFiltro):funcionarios;
-  const ativos=funcsFiltrados.filter(f=>f.situacao==='ativo').length;
+  const ativos=funcsFiltrados.filter(f=>f.situacao==='ativo'&&f.tipo_transferencia!=='envio').length;
   const inativos=funcsFiltrados.filter(f=>f.situacao==='inativo').length;
-  const transferidos=funcsFiltrados.filter(f=>f.situacao==='transferido').length;
+  const transferidos=funcsFiltrados.filter(f=>f.tipo_transferencia==='envio').length;
   const admMes=funcsFiltrados.filter(f=>{
     if(!f.data_admissao||f.situacao==='transferido')return false;
     const d=new Date(f.data_admissao+'T12:00:00');
     return d.getMonth()===hoje.getMonth()&&d.getFullYear()===hoje.getFullYear();
   }).length;
 
-  const ativosLista=funcionarios.filter(f=>f.situacao==='ativo'&&(!globalObraFiltro||f.obra_id===globalObraFiltro));
+  const ativosLista=funcionarios.filter(f=>f.situacao==='ativo'&&f.tipo_transferencia!=='envio'&&(!globalObraFiltro||f.obra_id===globalObraFiltro));
   const comExp=ativosLista.map(f=>({...f,_exp:calcExp(f)})).filter(f=>f._exp);
   const emExp=comExp.filter(f=>['exp1','exp2','vencendo'].includes(f._exp.status)).length;
   const expVencendo=comExp.filter(f=>f._exp.status==='vencendo').length;
@@ -768,14 +768,18 @@ function getFuncionariosFiltrados(){
   // Aba ativos: ativo + inativo (nunca transferido)
   // Aba transferidos: apenas transferido
   if(funcTab==='transferidos'){
-    lista=lista.filter(f=>f.transferido===true||f.obra_transferencia_id);
+    // Transferidos = saíram de alguma obra (tipo_transferencia='envio' OU tem obra_transferencia_id como origem)
+    // Esses aparecem como histórico na obra de ORIGEM
+    lista=lista.filter(f=>f.tipo_transferencia==='envio'||(!f.tipo_transferencia&&f.transferido&&f.obra_transferencia_id));
     if(filtroObra){
-      // histórico: quem VEIO desta obra (origem = obra_transferencia_id)
+      // Histórico da obra: quem SAIU desta obra (obra_transferencia_id = esta obra)
       lista=lista.filter(f=>f.obra_transferencia_id===filtroObra);
     }
   } else {
-    // Ativos/Inativos: exclui quem está marcado como transferido
-    lista=lista.filter(f=>!f.transferido&&f.situacao!=='transferido');
+    // Ativos/Inativos: todos que estão atualmente nesta obra
+    // Inclui quem veio por recebimento (tipo_transferencia='recebimento') — estão ativos aqui
+    // Exclui apenas quem SAIU (tipo_transferencia='envio') — esses já foram
+    lista=lista.filter(f=>f.tipo_transferencia!=='envio');
     if(filtroSituacao)lista=lista.filter(f=>f.situacao===filtroSituacao);
     if(filtroObra)lista=lista.filter(f=>f.obra_id===filtroObra);
   }
@@ -830,8 +834,8 @@ function getFuncionariosRows(lista){
 }
 function atualizarTabelaFuncionarios(){
   const lista=getFuncionariosFiltrados();
-  const totalTransf=funcionarios.filter(f=>f.transferido||f.obra_transferencia_id).length;
-  const totalAtivos=funcionarios.filter(f=>!f.transferido&&f.situacao!=='transferido').length;
+  const totalTransf=funcionarios.filter(f=>f.tipo_transferencia==='envio'||(!f.tipo_transferencia&&f.transferido&&f.obra_transferencia_id)).length;
+  const totalAtivos=funcionarios.filter(f=>f.tipo_transferencia!=='envio').length;
   const theadTransf='<tr><th>Funcionário</th><th>Função</th><th>Obra Origem → Destino</th><th>Empresa</th><th>Admissão</th><th>Transferência</th><th></th></tr>';
   const theadAtivos='<tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Empresa</th><th>Admissão</th><th>Situação</th><th></th></tr>';
   const sub=document.getElementById('func-subtitle');
@@ -852,8 +856,8 @@ function atualizarTabelaFuncionarios(){
 function renderFuncionarios(){
   const obraOptions=obras.map(o=>`<option value="${o.id}" ${filtroObra===o.id?'selected':''}}>${o.codigo} — ${o.nome}</option>`).join('');
   const lista=getFuncionariosFiltrados();
-  const totalAtivos=funcionarios.filter(f=>!f.transferido&&f.situacao!=='transferido').length;
-  const totalTransf=funcionarios.filter(f=>f.transferido||f.obra_transferencia_id).length;
+  const totalAtivos=funcionarios.filter(f=>f.tipo_transferencia!=='envio').length;
+  const totalTransf=funcionarios.filter(f=>f.tipo_transferencia==='envio'||(!f.tipo_transferencia&&f.transferido&&f.obra_transferencia_id)).length;
   const theadTransf=`<tr><th>Funcionário</th><th>Função</th><th>Obra Origem → Destino</th><th>Empresa</th><th>Admissão</th><th>Transferência</th><th></th></tr>`;
   const theadAtivos=`<tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Empresa</th><th>Admissão</th><th>Situação</th><th></th></tr>`;
   document.getElementById('main-content').innerHTML=`
@@ -1320,7 +1324,7 @@ function calcExp(f){
 }
 
 function renderExperiencia(){
-  const ativosLista=funcionarios.filter(f=>f.situacao==='ativo'&&(!globalObraFiltro||f.obra_id===globalObraFiltro));
+  const ativosLista=funcionarios.filter(f=>f.situacao==='ativo'&&f.tipo_transferencia!=='envio'&&(!globalObraFiltro||f.obra_id===globalObraFiltro));
   const comExp=ativosLista.map(f=>({...f,_exp:calcExp(f)})).filter(f=>f._exp);
   const counts={exp1:0,exp2:0,vencendo:0,vencida:0,efetivado:0};
   comExp.forEach(f=>counts[f._exp.status]=(counts[f._exp.status]||0)+1);
@@ -1435,7 +1439,7 @@ async function saveObs(id){
 }
 
 function exportExpExcel(){
-  const ativosLista=funcionarios.filter(f=>f.situacao==='ativo'&&(!globalObraFiltro||f.obra_id===globalObraFiltro));
+  const ativosLista=funcionarios.filter(f=>f.situacao==='ativo'&&f.tipo_transferencia!=='envio'&&(!globalObraFiltro||f.obra_id===globalObraFiltro));
   const rows=[['Funcionário','Matrícula','Função','Período','Fim 1º','Fim 2º','Restantes','Status']];
   ativosLista.forEach(f=>{
     const e=calcExp(f);if(!e)return;
