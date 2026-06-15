@@ -1608,7 +1608,8 @@ async function renderFolgas(){
     ${rows}`;
 }
 
-function openModalFolga(folga=null){
+function openModalFolga(folgaId=null){
+  const folga=folgaId?folgas.find(f=>f.id===folgaId)||null:null;
   const isEdit=!!folga;
   const funcOptions=funcionarios.filter(f=>f.situacao==='ativo'||f.situacao==='transferido').map(f=>`<option value="${f.id}" ${folga?.funcionario_id===f.id?'selected':''}>${f.matricula} — ${f.nome_completo}</option>`).join('');
   document.body.insertAdjacentHTML('beforeend',`
