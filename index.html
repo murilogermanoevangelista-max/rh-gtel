@@ -1733,20 +1733,20 @@ async function renderFerias(){
         corpo = '<span style="font-size:11px;font-weight:700;color:var(--danger)">Férias vencidas — risco legal</span>';
       } else if (prazoVenc) {
         cor='var(--danger)'; bg='var(--danger-light)'; border='1px solid #FCA5A5'; icon='🔴 ';
-        corpo = '<span style="font-size:11px;font-weight:700;color:var(--danger)">' + diasFim + 'd para vencer · ' + dias + 'd</span>'
+        corpo = '<span style="font-size:11px;font-weight:700;color:var(--danger)">' + diasFim + 'd para vencer</span>'
               + '<br><span style="font-size:10px;color:var(--danger)">Programar até: <strong>' + formatDate(progAte) + '</strong> (prazo vencido)</span>';
       } else if (vermelho) {
         cor='var(--danger)'; bg='var(--danger-light)'; border='1px solid #FCA5A5'; icon='🔴 ';
-        corpo = '<span style="font-size:11px;font-weight:700;color:var(--danger)">' + diasProg + 'd para o prazo · ' + dias + 'd</span>'
+        corpo = '<span style="font-size:11px;font-weight:700;color:var(--danger)">' + diasProg + 'd para o prazo</span>'
               + '<br><span style="font-size:10px;color:var(--danger)">Programar até: <strong>' + formatDate(progAte) + '</strong></span>';
       } else if (amarelo) {
         cor='#b45309'; bg='var(--warning-light)'; border='1px solid #FCD34D'; icon='🟡 ';
-        corpo = '<span style="font-size:11px;font-weight:700;color:#b45309">' + diasProg + 'd para o prazo · ' + dias + 'd</span>'
+        corpo = '<span style="font-size:11px;font-weight:700;color:#b45309">' + diasProg + 'd para o prazo</span>'
               + '<br><span style="font-size:10px;color:#b45309">Programar até: <strong>' + formatDate(progAte) + '</strong></span>';
       } else {
         cor='var(--text)'; bg='transparent'; border='none'; icon='';
         // Contador = dias até o vencimento das férias (fimPer)
-        corpo = '<span style="font-size:11px;font-weight:600;color:var(--text)">' + (diasFim !== null ? diasFim + 'd para vencer · ' + dias + 'd' : '—') + '</span>'
+        corpo = '<span style="font-size:11px;font-weight:600;color:var(--text)">' + (diasFim !== null ? diasFim + 'd para vencer' : '—') + '</span>'
               + (progAte ? '<br><span style="font-size:10px;color:var(--text-muted)">Programar até: ' + formatDate(progAte) + '</span>' : '');
       }
 
@@ -2125,6 +2125,7 @@ function processImportFile(file){
         centroCusto: findCol('centro','custo'),         // col 1
         matricula:   findCol('matricula','matrícula'),   // col 2
         nome:        findCol('nome'),                    // col 3
+        dataAdmis:   findCol('admis','admissão','admissao'), // col 4 — Data Admis.
         periodoAqui: findCol('aquisitivo','periodo a'),  // col 6 — string "DD/MM/YYYY  DD/MM/YYYY"
         dtIdeal:     findCol('ideal'),                   // col 7 se existir — Date (opcional)
         dtMaxima:    findCol('maxima','máxima','limite max','dt.limite'),// col 7 — Date
@@ -2138,6 +2139,7 @@ function processImportFile(file){
       if(COL.matricula===-1) COL.matricula=2;
       if(COL.nome===-1)      COL.nome=3;
       if(COL.centroCusto===-1) COL.centroCusto=1;
+      if(COL.dataAdmis===-1) COL.dataAdmis=4;
       if(COL.periodoAqui===-1) COL.periodoAqui=6;
       if(COL.dtMaxima===-1)  COL.dtMaxima=7;
       if(COL.feriasVenc===-1) COL.feriasVenc=8;
@@ -2202,12 +2204,18 @@ function processImportFile(file){
               periodoFim  =new Date(`${matchPer[2].split('/').reverse().join('-')}T12:00:00`);
             }
             const dtIdeal =COL.dtIdeal>=0?cellToDate(r[COL.dtIdeal]):null;
-            const dtMaxima=cellToDate(r[COL.dtMaxima]);
+            // Calcular dt_limite_maxima = fim do período + 11 meses (padrão CLT)
+            // NÃO usar o serial da planilha que pode vir incorreto
+            let dtMaxima=null;
+            if(periodoFim){
+              dtMaxima=new Date(periodoFim);
+              dtMaxima.setMonth(dtMaxima.getMonth()+11);
+            }
             const diasDir =parseFloat(r[COL.totalFerias])||30;
             const diasVenc=parseFloat(r[COL.feriasVenc])||0;
             const cc      =String(r[COL.centroCusto]||'').trim();
             return{func,mat,periodoInicio,periodoFim,dtIdeal,dtMaxima,diasDir,diasVenc,
-              nomeDP:String(r[COL.nome]||''),centroCusto:cc};
+              nomeDP:String(r[COL.nome]||''),centroCusto:cc,rowRaw:r};
           }).filter(p=>p.periodoInicio);
           parsedPeriodos.sort((a,b)=>a.periodoInicio-b.periodoInicio);
           // Derivar período anterior ao mais antigo do TOTVS
@@ -2220,12 +2228,15 @@ function processImportFile(file){
             const iniDer=new Date(iniRef);iniDer.setFullYear(iniDer.getFullYear()-1);
             const fimDer=new Date(iniRef);fimDer.setDate(fimDer.getDate()-1);
             const limDer=new Date(fimDer);limDer.setMonth(limDer.getMonth()+11);
-            // Incluir apenas se:
-            // 1. O limite ainda é relevante (não expirou há mais de 1 ano)
-            // 2. iniDer >= data_admissao do funcionário (não criar período antes da admissão)
-            const cutoff=new Date();
-            const admissaoFunc=func.data_admissao?new Date(func.data_admissao+'T12:00:00'):null;
+            // Usar data_admissao do cadastro; se não cadastrada, usar da planilha (col dataAdmis)
+            const admRaw=COL.dataAdmis>=0?maisAntigo.rowRaw?.[COL.dataAdmis]:null;
+            const admDP=admRaw?cellToDate(admRaw):null;
+            const admissaoFunc=func.data_admissao
+              ? new Date(func.data_admissao+'T12:00:00')
+              : admDP;
+            // Derivar apenas se iniDer >= data_admissao (não criar período antes da admissão)
             const periodoValido=!admissaoFunc||(iniDer>=admissaoFunc);
+            const cutoff=new Date();
             if(limDer>cutoff&&periodoValido){
               encontrados.push({func,mat,periodoInicio:iniDer,periodoFim:fimDer,
                 dtIdeal:null,dtMaxima:limDer,diasDir:maisAntigo.diasDir||30,diasVenc:0,
