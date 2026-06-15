@@ -946,70 +946,157 @@ function verFicha(id){
   const f=funcionarios.find(x=>x.id===id);
   if(!f)return;
   const funcaoNome=f.funcao?.nome||f.funcao_manual||'—';
-  const isTransf=f.situacao==='transferido';
+
+  // ── Transferência ──
+  const temTransf=f.obra_transferencia_id;
   const tipoTransf=f.tipo_transferencia||'';
   let transferSection='';
-  if(isTransf&&tipoTransf){
+  if(temTransf){
     const isEnvio=tipoTransf==='envio';
+    const origemNome=isEnvio?(f.obra_transferencia?.codigo?f.obra_transferencia.codigo+' ':'')+( f.obra_transferencia?.nome||'—')
+                            :(f.obra_transferencia?.codigo?f.obra_transferencia.codigo+' ')+(f.obra_transferencia?.nome||'—');
+    const destinoNome=isEnvio?(f.obra?.codigo?f.obra.codigo+' ':'')+( f.obra?.nome||'—')
+                              :(f.obra?.codigo?f.obra.codigo+' ':'')+( f.obra?.nome||'—');
     transferSection=`
-      <div class="ficha-transf-card ${tipoTransf}">
-        <div class="ficha-transf-title ${tipoTransf}">
-          <i class="ti ti-${isEnvio?'arrow-right':'arrow-left'}"></i>
-          ${isEnvio?'📤 Envio — Transferido para outra obra':'📥 Recebimento — Recebido de outra obra'}
+      <div style="background:${isEnvio?'#FFF7ED':'#F0FDF4'};border:1px solid ${isEnvio?'#FED7AA':'#BBF7D0'};border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:${isEnvio?'#C2410C':'#15803D'};margin-bottom:10px">
+          ${isEnvio?'📤 Envio — saiu para outra obra':'📥 Recebimento — veio de outra obra'}
         </div>
         <div class="ficha-grid">
-          <div class="ficha-field"><div class="ficha-field-label">${isEnvio?'Obra de Destino':'Obra de Origem'}</div><div class="ficha-field-value">${f.obra_transferencia?.codigo?f.obra_transferencia.codigo+' ':''} ${f.obra_transferencia?.nome||'—'}</div></div>
-          <div class="ficha-field"><div class="ficha-field-label">Data da Transferência</div><div class="ficha-field-value">${formatDate(f.data_transferencia)}</div></div>
+          <div class="ficha-field"><div class="ficha-field-label">Obra de Origem</div><div class="ficha-field-value">${isEnvio?(f.obra_transferencia?.codigo?f.obra_transferencia.codigo+' ':''+(f.obra_transferencia?.nome||'—')):origemNome}</div></div>
+          <div class="ficha-field"><div class="ficha-field-label">Obra de Destino</div><div class="ficha-field-value">${destinoNome}</div></div>
+          <div class="ficha-field"><div class="ficha-field-label">Data da Transferência</div><div class="ficha-field-value">${formatDate(f.data_transferencia)||'—'}</div></div>
           <div class="ficha-field"><div class="ficha-field-label">Centro de Custo</div><div class="ficha-field-value">${f.centro_custo_transferencia||'—'}</div></div>
-          <div class="ficha-field"><div class="ficha-field-label">${isEnvio?'Data de Desmobilização':'Data de Mobilização'}</div><div class="ficha-field-value">${formatDate(isEnvio?f.data_desmobilizacao:f.data_mobilizacao)}</div></div>
         </div>
       </div>`;
   }
+
+  // ── Experiência ──
+  const exp=calcExp(f);
+  let expSection='';
+  if(exp){
+    const stLabel={vencida:'🔴 Vencida',vencendo:'🟡 Vencendo',exp1:'🔵 1º Período',exp2:'🔵 2º Período',efetivado:'✅ Efetivado'}[exp.status]||exp.status;
+    expSection=`
+      <div class="ficha-section">
+        <div class="ficha-section-title"><i class="ti ti-certificate" style="margin-right:6px"></i>Contrato de Experiência</div>
+        <div class="ficha-grid">
+          <div class="ficha-field"><div class="ficha-field-label">Status</div><div class="ficha-field-value">${stLabel}</div></div>
+          <div class="ficha-field"><div class="ficha-field-label">Período</div><div class="ficha-field-value">${f.periodo_experiencia==='30s'?'30 dias (único)':(f.periodo_experiencia||45)+' + '+(f.periodo_experiencia||45)+' dias'}</div></div>
+          <div class="ficha-field"><div class="ficha-field-label">Fim 1º Período</div><div class="ficha-field-value">${formatDate(exp.fim1)||'—'}</div></div>
+          <div class="ficha-field"><div class="ficha-field-label">Fim 2º Período</div><div class="ficha-field-value">${formatDate(exp.fim2)||'—'}</div></div>
+          <div class="ficha-field"><div class="ficha-field-label">Dias Restantes</div><div class="ficha-field-value" style="font-weight:700;color:${exp.restantes<0?'var(--danger)':exp.restantes<=15?'var(--warning-text,#92400E)':'var(--success)'}">${exp.status==='efetivado'?'—':exp.restantes+'d'}</div></div>
+        </div>
+      </div>`;
+  }
+
+  // ── Folgas de Campo ──
+  const folgasFunc=folgas.filter(fl=>fl.funcionario_id===id);
+  let folgasSection='';
+  if(folgasFunc.length>0){
+    const fl=folgasFunc[0];
+    const nD=diasFolga(fl.periodo_trabalhado);
+    const hoje=new Date();
+    const vencs=[];
+    for(let i=1;i<=5;i++){
+      const proj=fl['saida'+i+'_projecao'];
+      const real=fl['saida'+i+'_real'];
+      if(proj||real)vencs.push({num:i,proj:formatDate(proj),real:formatDate(real),status:real?'✅ Realizada':'⏳ Projetada'});
+    }
+    folgasSection=`
+      <div class="ficha-section">
+        <div class="ficha-section-title"><i class="ti ti-tree" style="margin-right:6px"></i>Folgas de Campo</div>
+        <div class="ficha-grid">
+          <div class="ficha-field"><div class="ficha-field-label">Início do Ciclo</div><div class="ficha-field-value">${formatDate(fl.data_inicio)||'—'}</div></div>
+          <div class="ficha-field"><div class="ficha-field-label">Período Trabalhado</div><div class="ficha-field-value">${fl.periodo_trabalhado||'—'} dias → ${nD} dia(s) útil</div></div>
+          <div class="ficha-field"><div class="ficha-field-label">Passagem</div><div class="ficha-field-value">${[fl.tipo_passagem_aerea?'✈️ Aérea':'',fl.tipo_passagem_terrestre?'🚌 Terrestre':''].filter(Boolean).join(' · ')||'—'}</div></div>
+          <div class="ficha-field"><div class="ficha-field-label">Cidade de Origem</div><div class="ficha-field-value">${fl.cidade_origem||'—'}</div></div>
+        </div>
+        <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px">
+          ${vencs.map(v=>`<div style="background:${v.real?'#F0FDF4':'var(--bg)'};border:1px solid ${v.real?'#BBF7D0':'var(--border)'};border-radius:var(--radius);padding:6px 10px;font-size:12px"><div style="font-weight:600;color:var(--text-muted)">Venc.${v.num}</div><div>${v.real||v.proj}</div><div style="font-size:10px;color:var(--text-muted)">${v.status}</div></div>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  // ── Férias ──
+  const feriasFunc=feriasData.filter(fv=>fv.matricula===f.matricula).sort((a,b)=>(parseDate(a.periodo_aquisitivo_inicio)||new Date(0))-(parseDate(b.periodo_aquisitivo_inicio)||new Date(0)));
+  let feriasSection='';
+  if(feriasFunc.length>0){
+    const periodos=feriasFunc.map(p=>{
+      const limMax=parseDate(p.dt_limite_maxima);
+      const hoje2=new Date();
+      const diff=limMax?Math.floor((limMax-hoje2)/86400000):null;
+      const statusColor=diff===null?'var(--text-muted)':diff<0?'var(--danger)':diff<=60?'#B45309':'var(--success)';
+      return`<div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;font-size:12px">
+        <div style="font-weight:600;color:var(--text-muted);font-size:11px">${formatDate(p.periodo_aquisitivo_inicio)} → ${formatDate(p.periodo_aquisitivo_fim)}</div>
+        <div style="margin-top:4px">Limite: <strong>${formatDate(p.dt_limite_maxima)||'—'}</strong> ${diff!==null?`<span style="color:${statusColor};font-weight:700">(${diff<0?Math.abs(diff)+'d atrás':diff+'d'})</span>`:''}</div>
+        <div style="color:var(--text-muted);margin-top:2px">${p.programado?`✅ Programada: ${formatDate(p.data_inicio_programada)} → ${formatDate(p.data_fim_programada)}`:'⏳ Não programada'}</div>
+      </div>`;
+    }).join('');
+    feriasSection=`
+      <div class="ficha-section">
+        <div class="ficha-section-title"><i class="ti ti-sun" style="margin-right:6px"></i>Férias</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">${periodos}</div>
+      </div>`;
+  }
+
+  // ── Alojamento ──
+  const aloj=alojamentos.find(a=>String(a.id)===String(f.alojamento_id));
+  let alojSection='';
+  if(aloj){
+    alojSection=`
+      <div class="ficha-section">
+        <div class="ficha-section-title"><i class="ti ti-building" style="margin-right:6px"></i>Alojamento</div>
+        <div class="ficha-grid">
+          <div class="ficha-field"><div class="ficha-field-label">Nome</div><div class="ficha-field-value">${aloj.nome||'—'}</div></div>
+          <div class="ficha-field"><div class="ficha-field-label">Obra</div><div class="ficha-field-value">${aloj.obra?.codigo?aloj.obra.codigo+' ':''} ${aloj.obra?.nome||'—'}</div></div>
+          ${aloj.endereco?`<div class="ficha-field"><div class="ficha-field-label">Endereço</div><div class="ficha-field-value">${aloj.endereco}</div></div>`:''}
+        </div>
+      </div>`;
+  }
+
   const html=`
     <div class="modal-overlay" id="modal-ficha" onclick="if(event.target===this)closeModal('modal-ficha')">
-      <div class="modal ficha-modal">
+      <div class="modal ficha-modal" style="max-width:860px">
         <div class="modal-header">
           <span class="modal-title"><i class="ti ti-id-badge"></i> Ficha do Funcionário</span>
           <div style="display:flex;gap:8px;align-items:center">
-            <div class="ficha-export-btns">
-              <button class="btn btn-sm btn-success" onclick="exportFichaPDF('${id}')"><i class="ti ti-file-type-pdf"></i> PDF</button>
-              <button class="btn btn-sm" style="background:#E8F5E9;color:#2E7D32;border:none" onclick="exportFichaExcel('${id}')"><i class="ti ti-file-type-xls"></i> Excel</button>
-            </div>
+            <button class="btn btn-sm btn-success" onclick="exportFichaPDF('${id}')"><i class="ti ti-file-type-pdf"></i> PDF</button>
+            <button class="btn btn-sm" style="background:#E8F5E9;color:#2E7D32;border:none" onclick="exportFichaExcel('${id}')"><i class="ti ti-file-type-xls"></i> Excel</button>
             <button class="btn btn-sm" onclick="closeModal('modal-ficha')"><i class="ti ti-x"></i></button>
           </div>
         </div>
         <div class="modal-body" id="ficha-content-${id}">
+          <!-- Header -->
           <div class="ficha-header-card">
             <div class="ficha-avatar">${f.foto_url?`<img src="${f.foto_url}" alt="">`:initials(f.nome_completo)}</div>
             <div>
               <div class="ficha-nome">${f.nome_completo}</div>
-              <div class="ficha-mat">Matrícula: ${f.matricula||'—'}</div>
-              <div class="ficha-badges">
+              <div class="ficha-mat">Matrícula: ${f.matricula||'—'} · ${funcaoNome}</div>
+              <div class="ficha-badges" style="margin-top:6px">
                 <span class="ficha-badge">${f.situacao?.charAt(0).toUpperCase()+f.situacao?.slice(1)||'—'}</span>
                 ${f.tipo?`<span class="ficha-badge">${f.tipo==='nova_admissao'?'Nova Admissão':f.tipo==='efetivo'?'Efetivo':'Transferência'}</span>`:''}
+                ${temTransf?`<span class="ficha-badge" style="background:rgba(255,255,255,.25)">${tipoTransf==='envio'?'📤 Transferido':'📥 Recebido'}</span>`:''}
               </div>
             </div>
           </div>
-          ${transferSection}
+          <!-- Dados Profissionais -->
           <div class="ficha-section">
-            <div class="ficha-section-title">Dados Profissionais</div>
+            <div class="ficha-section-title"><i class="ti ti-briefcase" style="margin-right:6px"></i>Dados Profissionais</div>
             <div class="ficha-grid">
               <div class="ficha-field"><div class="ficha-field-label">Função</div><div class="ficha-field-value">${funcaoNome}</div></div>
               <div class="ficha-field"><div class="ficha-field-label">Empresa</div><div class="ficha-field-value">${f.empresa?.nome||'—'}</div></div>
               <div class="ficha-field"><div class="ficha-field-label">Obra / Contrato</div><div class="ficha-field-value">${f.obra?.codigo?f.obra.codigo+' ':''} ${f.obra?.nome||'—'}</div></div>
-              <div class="ficha-field"><div class="ficha-field-label">Alojamento</div><div class="ficha-field-value">${alojamentos.find(a=>a.id===f.alojamento_id)?.nome||'—'}</div></div>
-              <div class="ficha-field"><div class="ficha-field-label">Data de Admissão</div><div class="ficha-field-value">${formatDate(f.data_admissao)}</div></div>
-              <div class="ficha-field"><div class="ficha-field-label">Data de Integração</div><div class="ficha-field-value">${formatDate(f.data_mobilizacao)}</div></div>
-              <div class="ficha-field"><div class="ficha-field-label">Situação</div><div class="ficha-field-value">${f.situacao?.charAt(0).toUpperCase()+f.situacao?.slice(1)||'—'}</div></div>
+              <div class="ficha-field"><div class="ficha-field-label">Data de Admissão</div><div class="ficha-field-value">${formatDate(f.data_admissao)||'—'}</div></div>
+              <div class="ficha-field"><div class="ficha-field-label">Data de Integração</div><div class="ficha-field-value">${formatDate(f.data_mobilizacao)||'—'}</div></div>
+              <div class="ficha-field"><div class="ficha-field-label">Cidade / UF</div><div class="ficha-field-value">${[f.cidade,f.uf].filter(Boolean).join(' — ')||'—'}</div></div>
             </div>
           </div>
-          <div class="ficha-section">
-            <div class="ficha-section-title">Localização</div>
-            <div class="ficha-grid">
-              <div class="ficha-field"><div class="ficha-field-label">Cidade</div><div class="ficha-field-value">${f.cidade||'—'}</div></div>
-              <div class="ficha-field"><div class="ficha-field-label">UF</div><div class="ficha-field-value">${f.uf||'—'}</div></div>
-            </div>
-          </div>
+          ${transferSection}
+          ${expSection}
+          ${folgasSection}
+          ${feriasSection}
+          ${alojSection}
+          ${f.observacao_interna?`<div class="ficha-section"><div class="ficha-section-title"><i class="ti ti-notes" style="margin-right:6px"></i>Observações</div><div style="font-size:13px;color:var(--text);padding:8px 0">${f.observacao_interna}</div></div>`:''}
         </div>
         <div class="modal-footer">
           <button class="btn" onclick="closeModal('modal-ficha')">Fechar</button>
@@ -1018,6 +1105,7 @@ function verFicha(id){
       </div>
     </div>`;
   document.body.insertAdjacentHTML('beforeend',html);
+}
 }
 
 async function exportFichaPDF(id){
