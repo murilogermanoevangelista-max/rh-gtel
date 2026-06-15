@@ -1511,45 +1511,59 @@ async function renderFolgas(){
 
     // Card "Em folga agora"
     if(temAgora){
-      var itensAgora=emFolgaAgora.map(function(f){return '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.15)"><span style="font-size:12px;color:rgba(255,255,255,.9)">'+f.nome+'</span><span style="font-size:11px;color:rgba(255,255,255,.7)">ret. '+formatDate(f.retorno)+'</span></div>';}).join('');
-      var buscaAgora=emFolgaAgora.length===1?emFolgaAgora[0].busca:'';
-      cardsCols+='<div onclick="folgasBusca=\''+buscaAgora+'\';folgasFiltro=\'todos\';renderFolgas()" style="background:linear-gradient(135deg,#0d5e46,#1D9E75);border-radius:var(--radius-lg);padding:16px 18px;cursor:pointer;flex:1;min-width:220px;transition:opacity .15s" onmouseover="this.style.opacity=\'.9\'" onmouseout="this.style.opacity=\'1\'">'
+      var itensAgora=emFolgaAgora.map(function(f){return itemAgoraRow(f);}).join('');
+      cardsCols+='<div style="background:linear-gradient(135deg,#0d5e46,#1D9E75);border-radius:var(--radius-lg);padding:16px 18px;flex:1;min-width:220px">'
         +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
         +'<i class="ti ti-plane-departure" style="font-size:16px;color:rgba(255,255,255,.8)"></i>'
         +'<span style="font-size:11px;font-weight:700;color:rgba(255,255,255,.7);text-transform:uppercase;letter-spacing:.5px">Em folga agora</span>'
-        +'<i class="ti ti-chevron-right" style="margin-left:auto;color:rgba(255,255,255,.5);font-size:14px"></i>'
         +'</div>'
         +'<div style="font-size:28px;font-weight:700;color:#fff;margin-bottom:10px">'+emFolgaAgora.length+'<span style="font-size:13px;font-weight:400;color:rgba(255,255,255,.7);margin-left:6px">funcionário(s)</span></div>'
         +itensAgora
         +'</div>';
     }
 
+    // helper: linha clicável por funcionário
+    function itemFolgaRow(f,borderColor){
+      var busca=f.busca||'';
+      return '<div onclick="event.stopPropagation();folgasBusca=\''+busca+'\';folgasFiltro=\'todos\';renderFolgas();setTimeout(function(){var el=document.querySelector(\'.folga-row[data-busca]\');if(!el){var rows=document.querySelectorAll(\'.folga-row\');rows.forEach(function(r){if(r.innerText.toUpperCase().indexOf(\''+busca.toUpperCase()+'\')>=0){el=r;}});}if(el){el.scrollIntoView({behavior:\'smooth\',block:\'center\'});el.style.outline=\'2px solid var(--primary)\';setTimeout(function(){el.style.outline=\'\';},2000);}},150)" '
+        +'style="display:flex;justify-content:space-between;align-items:center;padding:7px 8px;margin:0 -8px;border-radius:6px;cursor:pointer;transition:background .15s" '
+        +'onmouseover="this.style.background=\'var(--hover)\'" onmouseout="this.style.background=\'\'">'
+        +'<span style="font-size:12px;color:var(--text);font-weight:500">'+f.nome+'</span>'
+        +'<span style="font-size:11px;color:var(--text-muted)">'+formatDate(f.saida)+'<i class="ti ti-arrow-right" style="margin-left:4px;font-size:10px"></i></span>'
+        +'</div>';
+    }
+    function itemAgoraRow(f){
+      var busca=f.busca||'';
+      return '<div onclick="event.stopPropagation();folgasBusca=\''+busca+'\';folgasFiltro=\'todos\';renderFolgas();setTimeout(function(){var rows=document.querySelectorAll(\'.folga-row\');var el=null;rows.forEach(function(r){if(r.innerText.toUpperCase().indexOf(\''+busca.toUpperCase()+'\')>=0)el=r;});if(el){el.scrollIntoView({behavior:\'smooth\',block:\'center\'});el.style.outline=\'2px solid #1D9E75\';setTimeout(function(){el.style.outline=\'\';},2000);}},150)" '
+        +'style="display:flex;justify-content:space-between;align-items:center;padding:7px 8px;margin:0 -8px;border-radius:6px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.15);transition:background .15s" '
+        +'onmouseover="this.style.background=\'rgba(255,255,255,.1)\'" onmouseout="this.style.background=\'\'">'
+        +'<span style="font-size:12px;color:rgba(255,255,255,.95);font-weight:500">'+f.nome+'</span>'
+        +'<span style="font-size:11px;color:rgba(255,255,255,.7)">ret. '+formatDate(f.retorno)+'<i class="ti ti-arrow-right" style="margin-left:4px;font-size:10px"></i></span>'
+        +'</div>';
+    }
+
     // Card mês atual
-    var buscaMesAt=agendMesAtual.length===1?agendMesAtual[0].busca:'';
     var itensMesAt=agendMesAtual.length>0
-      ?agendMesAtual.map(function(f){return '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)"><span style="font-size:12px;color:var(--text)">'+f.nome+'</span><span style="font-size:11px;color:var(--text-muted)">'+formatDate(f.saida)+'</span></div>';}).join('')
+      ?agendMesAtual.map(function(f){return itemFolgaRow(f);}).join('')
       :'<div style="font-size:12px;color:var(--text-muted);padding:8px 0">Nenhuma saída agendada</div>';
-    cardsCols+='<div onclick="folgasBusca=\''+buscaMesAt+'\';folgasFiltro=\'todos\';renderFolgas()" style="background:var(--surface);border:2px solid var(--primary);border-radius:var(--radius-lg);padding:16px 18px;cursor:pointer;flex:1;min-width:220px;transition:box-shadow .15s" onmouseover="this.style.boxShadow=\'0 4px 16px rgba(29,158,117,.15)\'" onmouseout="this.style.boxShadow=\'none\'">'
+    cardsCols+='<div style="background:var(--surface);border:2px solid var(--primary);border-radius:var(--radius-lg);padding:16px 18px;flex:1;min-width:220px;transition:box-shadow .15s" onmouseover="this.style.boxShadow=\'0 4px 16px rgba(29,158,117,.15)\'" onmouseout="this.style.boxShadow=\'none\'">'
       +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
       +'<i class="ti ti-calendar-month" style="font-size:16px;color:var(--primary)"></i>'
       +'<span style="font-size:11px;font-weight:700;color:var(--primary-dark);text-transform:uppercase;letter-spacing:.5px">'+mesLabel[mesAtual]+'/'+anoAtual+'</span>'
       +'<span style="background:var(--primary);color:#fff;border-radius:20px;font-size:10px;font-weight:700;padding:1px 7px;margin-left:2px">MÊS ATUAL</span>'
-      +'<i class="ti ti-chevron-right" style="margin-left:auto;color:var(--text-muted);font-size:14px"></i>'
       +'</div>'
       +'<div style="font-size:28px;font-weight:700;color:var(--primary-dark);margin-bottom:10px">'+agendMesAtual.length+'<span style="font-size:13px;font-weight:400;color:var(--text-muted);margin-left:6px">agendada(s)</span></div>'
       +itensMesAt
       +'</div>';
 
     // Card próximo mês
-    var buscaProxM=agendProxMes.length===1?agendProxMes[0].busca:'';
     var itensProxM=agendProxMes.length>0
-      ?agendProxMes.map(function(f){return '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)"><span style="font-size:12px;color:var(--text)">'+f.nome+'</span><span style="font-size:11px;color:var(--text-muted)">'+formatDate(f.saida)+'</span></div>';}).join('')
+      ?agendProxMes.map(function(f){return itemFolgaRow(f);}).join('')
       :'<div style="font-size:12px;color:var(--text-muted);padding:8px 0">Nenhuma saída agendada</div>';
-    cardsCols+='<div onclick="folgasBusca=\''+buscaProxM+'\';folgasFiltro=\'todos\';renderFolgas()" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px;cursor:pointer;flex:1;min-width:220px;transition:box-shadow .15s" onmouseover="this.style.boxShadow=\'0 4px 16px rgba(0,0,0,.07)\'" onmouseout="this.style.boxShadow=\'none\'">'
+    cardsCols+='<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px;flex:1;min-width:220px;transition:box-shadow .15s" onmouseover="this.style.boxShadow=\'0 4px 16px rgba(0,0,0,.07)\'" onmouseout="this.style.boxShadow=\'none\'">'
       +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
       +'<i class="ti ti-calendar-month" style="font-size:16px;color:var(--text-muted)"></i>'
       +'<span style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">'+mesLabel[proxMes]+'/'+anoProxMes+'</span>'
-      +'<i class="ti ti-chevron-right" style="margin-left:auto;color:var(--text-muted);font-size:14px"></i>'
       +'</div>'
       +'<div style="font-size:28px;font-weight:700;color:var(--text);margin-bottom:10px">'+agendProxMes.length+'<span style="font-size:13px;font-weight:400;color:var(--text-muted);margin-left:6px">agendada(s)</span></div>'
       +itensProxM
@@ -2328,12 +2342,12 @@ function processImportFile(file){
               periodoFim  =new Date(`${matchPer[2].split('/').reverse().join('-')}T12:00:00`);
             }
             const dtIdeal =COL.dtIdeal>=0?cellToDate(r[COL.dtIdeal]):null;
-            // Calcular dt_limite_maxima = fim do período + 11 meses (padrão CLT)
-            // NÃO usar o serial da planilha que pode vir incorreto
+            // Calcular dt_limite_maxima = fim do período + 12 meses (CLT art. 134 — o empregado
+            // tem até 12 meses após o fim do período aquisitivo para gozar as férias)
             let dtMaxima=null;
             if(periodoFim){
               dtMaxima=new Date(periodoFim);
-              dtMaxima.setMonth(dtMaxima.getMonth()+11);
+              dtMaxima.setMonth(dtMaxima.getMonth()+12);
             }
             const diasDir =parseFloat(r[COL.totalFerias])||30;
             const diasVenc=parseFloat(r[COL.feriasVenc])||0;
@@ -2351,7 +2365,7 @@ function processImportFile(file){
             const iniRef=maisAntigo.periodoInicio;
             const iniDer=new Date(iniRef);iniDer.setFullYear(iniDer.getFullYear()-1);
             const fimDer=new Date(iniRef);fimDer.setDate(fimDer.getDate()-1);
-            const limDer=new Date(fimDer);limDer.setMonth(limDer.getMonth()+11);
+            const limDer=new Date(fimDer);limDer.setMonth(limDer.getMonth()+12);
             // Usar data_admissao do cadastro; se não cadastrada, usar da planilha (col dataAdmis)
             const admRaw=COL.dataAdmis>=0?maisAntigo.rowRaw?.[COL.dataAdmis]:null;
             const admDP=admRaw?cellToDate(admRaw):null;
