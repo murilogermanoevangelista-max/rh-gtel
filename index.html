@@ -3748,8 +3748,71 @@ let efetivoViewMode='dia';
 let efetivoSituacaoFiltro=''; // '' | 'PRESENTE' | 'AUSENTE'
 
 async function loadEfetivo(){
-  const{data}=await sb.from('efetivo_presenca').select('*').order('data',{ascending:false});
-  efetivoData=data||[];
+  const[r1,r2]=await Promise.all([
+    sb.from('efetivo_presenca').select('*').order('data',{ascending:false}),
+    sb.from('efetivo_horas').select('*').order('data',{ascending:false}),
+  ]);
+  efetivoData=r1.data||[];
+  efetivoHoras=r2.data||[];
+}
+
+async function importarHoras(file){
+  if(!file)return;
+  showToast('Importando horas...');
+  try{
+    const{read,utils}=await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm');
+    const buf=await file.arrayBuffer();
+    const wb=read(buf,{type:'array'});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const rows=utils.sheet_to_json(ws,{header:1,defval:''});
+
+    // Buscar data no cabeçalho (linha 1 ou 4)
+    let dataISO='';
+    for(let i=0;i<8;i++){
+      const row=rows[i]||[];
+      const cell=String(row[0]||row[1]||'');
+      const m=cell.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+      if(m){dataISO=m[3]+'-'+m[2]+'-'+m[1];break;}
+    }
+    if(!dataISO)dataISO=new Date().toISOString().slice(0,10);
+
+    // Encontrar linha de dados (tem matrícula numérica na col 0)
+    function parseMins(v){
+      if(!v||v==='000:00'||v==='0')return 0;
+      const s=String(v).trim();
+      const parts=s.split(':');
+      if(parts.length===2)return parseInt(parts[0]||0)*60+parseInt(parts[1]||0);
+      return 0;
+    }
+
+    const regs=[];
+    rows.forEach(r=>{
+      const mat=String(r[0]||'').trim();
+      if(!mat||isNaN(Number(mat)))return;
+      const nome=String(r[1]||'').trim().toUpperCase();
+      if(!nome)return;
+      regs.push({
+        data:dataISO,
+        matricula:mat,
+        nome,
+        departamento:String(r[2]||'').trim(),
+        mins_a_trabalhar:parseMins(r[3]),
+        mins_trabalhadas:parseMins(r[4]),
+        mins_descontos:parseMins(r[5]),
+        mins_justificadas:parseMins(r[6]),
+      });
+    });
+
+    if(!regs.length){showToast('Nenhum registro de horas encontrado','error');return;}
+    await sb.from('efetivo_horas').delete().eq('data',dataISO);
+    for(let i=0;i<regs.length;i+=500){
+      const{error}=await sb.from('efetivo_horas').insert(regs.slice(i,i+500));
+      if(error){showToast('Erro: '+error.message,'error');return;}
+    }
+    showToast('Horas importadas! '+regs.length+' registros · '+dataISO.split('-').reverse().join('/'));
+    efetivoViewMode='horas';
+    await loadEfetivo();renderEfetivo();
+  }catch(e){showToast('Erro ao importar: '+e.message,'error');}
 }
 
 async function importarEfetivo(file){
@@ -3888,6 +3951,84 @@ async function renderEfetivo(){
   const pres=reg.filter(r=>r.situacao==='PRESENTE').sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
   const ause=reg.filter(r=>r.situacao==='AUSENTE').sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
   const tot=reg.length,pct=tot?Math.round(pres.length/tot*100):0;
+  // ── View Horas ──────────────────────────────────────────────────────────
+  if(efetivoViewMode==='horas'){
+    // Acumulado por funcionário
+    const horasMap={};
+    const horasFiltradas=globalObraFiltro
+      ?efetivoHoras.filter(h=>{const f=funcionarios.find(x=>normMat(x.matricula)===normMat(h.matricula));return f&&f.obra_id===globalObraFiltro;})
+      :efetivoHoras;
+
+    horasFiltradas.forEach(h=>{
+      if(!horasMap[h.matricula])horasMap[h.matricula]={matricula:h.matricula,nome:h.nome,minsTrab:0,minsJust:0,minsATrabalhar:0,dias:0};
+      horasMap[h.matricula].minsTrab+=h.mins_trabalhadas||0;
+      horasMap[h.matricula].minsJust+=h.mins_justificadas||0;
+      horasMap[h.matricula].minsATrabalhar+=h.mins_a_trabalhar||0;
+      if(h.mins_trabalhadas>0||h.mins_justificadas>0)horasMap[h.matricula].dias++;
+    });
+
+    function fmtMins(m){if(!m)return'000:00';const h=Math.floor(m/60);const mn=m%60;return String(h).padStart(3,'0')+':'+String(mn).padStart(2,'0');}
+
+    // Filtro de período para horas
+    const datasHoras=[...new Set(horasFiltradas.map(h=>h.data))].sort((a,b)=>b.localeCompare(a));
+    const horasFiltroPeriodo=window._horasFiltroPeriodo||'acumulado';
+    const horasFiltroDe=window._horasFiltroDe||datasHoras[datasHoras.length-1]||'';
+    const horasFiltroAte=window._horasFiltroAte||datasHoras[0]||'';
+
+    // Filtrar por período se não acumulado
+    const horasPerMap={};
+    horasFiltradas.filter(h=>{
+      if(horasFiltroPeriodo==='acumulado')return true;
+      if(horasFiltroPeriodo==='dia')return h.data===ds;
+      return h.data>=horasFiltroDe&&h.data<=horasFiltroAte;
+    }).forEach(h=>{
+      if(!horasPerMap[h.matricula])horasPerMap[h.matricula]={matricula:h.matricula,nome:h.nome,minsTrab:0,minsJust:0,minsATrabalhar:0,dias:0};
+      horasPerMap[h.matricula].minsTrab+=h.mins_trabalhadas||0;
+      horasPerMap[h.matricula].minsJust+=h.mins_justificadas||0;
+      horasPerMap[h.matricula].minsATrabalhar+=h.mins_a_trabalhar||0;
+      if(h.mins_trabalhadas>0||h.mins_justificadas>0)horasPerMap[h.matricula].dias++;
+    });
+
+    const listaHoras=Object.values(horasPerMap).sort((a,b)=>b.minsTrab-a.minsTrab);
+    const totalMinsTrab=listaHoras.reduce((s,h)=>s+h.minsTrab,0);
+    const totalMinsJust=listaHoras.reduce((s,h)=>s+h.minsJust,0);
+
+    const periodoOpts=[
+      {v:'acumulado',l:'Acumulado total'},
+      {v:'dia',l:'Dia selecionado ('+( ds?ds.split('-').reverse().join('/'):'—')+')'},
+      {v:'periodo',l:'Período personalizado'},
+    ];
+
+    const periodoHtml='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
+      +'<span style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase">Período:</span>'
+      +periodoOpts.map(o=>'<button onclick="window._horasFiltroPeriodo=\''+o.v+'\';renderEfetivo()" style="font-size:12px;padding:4px 12px;border-radius:20px;border:1px solid '+(horasFiltroPeriodo===o.v?'var(--primary)':'var(--border)')+';background:'+(horasFiltroPeriodo===o.v?'var(--primary)':'var(--surface)')+';color:'+(horasFiltroPeriodo===o.v?'#fff':'var(--text-muted)')+';cursor:pointer">'+o.l+'</button>').join('')
+      +(horasFiltroPeriodo==='periodo'?'<input type="date" value="'+horasFiltroDe+'" onchange="window._horasFiltroDe=this.value;renderEfetivo()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px"> <span style="font-size:12px">até</span> <input type="date" value="'+horasFiltroAte+'" onchange="window._horasFiltroAte=this.value;renderEfetivo()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">':'')
+      +'</div>';
+
+    const rowsHoras=listaHoras.map((h,i)=>{
+      const saldo=h.minsTrab-h.minsATrabalhar;
+      const corSaldo=saldo>0?'var(--success)':saldo<0?'var(--danger)':'var(--text-muted)';
+      return '<tr>'
+        +'<td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(i+1)+'</td>'
+        +'<td style="padding:8px 12px;font-size:13px;font-weight:500">'+h.nome+'</td>'
+        +'<td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+h.matricula+'</td>'
+        +'<td style="padding:8px 12px;font-size:13px;font-weight:600">'+fmtMins(h.minsTrab)+'</td>'
+        +'<td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+fmtMins(h.minsJust)+'</td>'
+        +'<td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+fmtMins(h.minsATrabalhar)+'</td>'
+        +'<td style="padding:8px 12px;font-size:13px;font-weight:600;color:'+corSaldo+'">'+(saldo>=0?'+':'')+fmtMins(Math.abs(saldo))+'</td>'
+        +'<td style="padding:8px 12px;font-size:12px">'+h.dias+' dia(s)</td>'
+        +'</tr>';
+    }).join('');
+
+    view=periodoHtml
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">'
+      +'<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Total Horas Trabalhadas</div><div style="font-size:24px;font-weight:700;color:var(--primary-dark)">'+fmtMins(totalMinsTrab)+'</div></div>'
+      +'<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Total Horas Justificadas</div><div style="font-size:24px;font-weight:700;color:var(--warning)">'+fmtMins(totalMinsJust)+'</div></div>'
+      +'</div>'
+      +(listaHoras.length===0?'<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-clock-upload" style="font-size:40px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum dado de horas. Use "Importar Horas".</div>'
+        :'<div class="table-container"><table><thead><tr><th>#</th><th>Funcionário</th><th>Matrícula</th><th>Trabalhadas</th><th>Justificadas</th><th>A Trabalhar</th><th>Saldo</th><th>Dias</th></tr></thead><tbody>'+rowsHoras+'</tbody></table></div>');
+  } else {
+
   const corPct=pct>=90?'var(--success)':pct>=70?'var(--warning)':'var(--danger)';
 
   const fm={};
@@ -3911,8 +4052,8 @@ async function renderEfetivo(){
     return '<button onclick="efetivoDataFiltro=\''+d+'\';efetivoSituacaoFiltro=\'\';renderEfetivo()" style="font-size:12px;padding:4px 10px;border-radius:20px;border:1px solid '+(sel?'var(--primary)':'var(--border)')+';background:'+(sel?'var(--primary)':'var(--surface)')+';color:'+(sel?'#fff':'var(--text-muted)')+';cursor:pointer;font-weight:'+(sel?'600':'400')+'">'+dia+'/'+m+'</button>';
   }).join('');
 
-  const tabHtml=['dia','historico','ranking'].map(m=>{
-    const lbl={dia:'📋 Dia',historico:'📅 Histórico',ranking:'🏆 Ranking Faltas'}[m];
+  const tabHtml=['dia','historico','ranking','horas'].map(m=>{
+    const lbl={dia:'📋 Dia',historico:'📅 Histórico',ranking:'🏆 Ranking Faltas',horas:'⏱️ Horas'}[m];
     const sel=efetivoViewMode===m;
     return '<button onclick="efetivoViewMode=\''+m+'\';renderEfetivo()" style="padding:6px 16px;border-radius:6px;border:1px solid '+(sel?'var(--primary)':'var(--border)')+';background:'+(sel?'var(--primary)':'transparent')+';color:'+(sel?'#fff':'var(--text)')+';cursor:pointer;font-size:13px;font-weight:'+(sel?'600':'400')+'">'+lbl+'</button>';
   }).join('');
@@ -3958,10 +4099,14 @@ async function renderEfetivo(){
     view='<div class="table-container"><table><thead><tr><th>#</th><th>Crachá</th><th>Funcionário</th><th>Faltas</th></tr></thead><tbody>'+(rows||'<tr><td colspan="4" style="text-align:center;padding:30px;color:var(--text-muted)">Nenhum dado</td></tr>')+'</tbody></table></div>';
   }
 
+  } // fim do else não-horas
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div><div class="page-title"><i class="ti ti-users-group"></i> Efetivo</div><div class="page-subtitle">Controle de presença diário${globalObraFiltro?' · <strong>'+_obraLabel+'</strong>':''}</div></div>
-      <label class="btn btn-primary" style="cursor:pointer"><i class="ti ti-upload"></i> Importar Presentes<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importarEfetivo(this.files[0])"></label>
+      <div style="display:flex;gap:8px">
+        <label class="btn btn-primary" style="cursor:pointer"><i class="ti ti-upload"></i> Importar Presentes<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importarEfetivo(this.files[0])"></label>
+        <label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-clock-upload"></i> Importar Horas<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importarHoras(this.files[0])"></label>
+      </div>
     </div>
     ${datas.length===0?'<div style="text-align:center;padding:60px;color:var(--text-muted)"><i class="ti ti-upload" style="font-size:48px;display:block;margin-bottom:16px;opacity:.3"></i><div style="font-size:16px;font-weight:500;margin-bottom:8px">Nenhum dado importado</div><div style="font-size:13px">Clique em "Importar Presentes" para começar</div></div>':`
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
