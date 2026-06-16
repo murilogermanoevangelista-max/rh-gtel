@@ -422,7 +422,14 @@ async function showPage(page){
   else if(page==='folgas')renderFolgas();
   else if(page==='ferias')renderFerias();
   else if(page==='alojamentos'){alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';await loadAlojamentos();renderAlojamentos();}
-  else if(page==='efetivo'){efetivoSituacaoFiltro='';await loadEfetivo();renderEfetivo();}
+  else if(page==='efetivo'){
+    efetivoSituacaoFiltro='';
+    try{await loadEfetivo();}catch(e){console.error('loadEfetivo:',e);}
+    try{renderEfetivo();}catch(e){
+      console.error('renderEfetivo:',e);
+      document.getElementById('main-content').innerHTML='<div style="padding:40px;color:var(--danger)"><strong>Erro ao carregar Efetivo:</strong><br>'+e.message+'</div>';
+    }
+  }
   else if(page==='usuarios')renderUsuarios();
   else if(page==='obras')renderObras();
   else if(page==='empresas')renderEmpresas();
@@ -3748,12 +3755,14 @@ let efetivoViewMode='dia';
 let efetivoSituacaoFiltro=''; // '' | 'PRESENTE' | 'AUSENTE'
 
 async function loadEfetivo(){
-  const[r1,r2]=await Promise.all([
-    sb.from('efetivo_presenca').select('*').order('data',{ascending:false}),
-    sb.from('efetivo_horas').select('*').order('data',{ascending:false}),
-  ]);
-  efetivoData=r1.data||[];
-  efetivoHoras=r2.data||[];
+  try{
+    const[r1,r2]=await Promise.all([
+      sb.from('efetivo_presenca').select('*').order('data',{ascending:false}),
+      sb.from('efetivo_horas').select('*').order('data',{ascending:false}),
+    ]);
+    efetivoData=r1.data||[];
+    efetivoHoras=r2.data||[];
+  }catch(e){console.error('loadEfetivo erro:',e);}
 }
 
 async function importarHoras(file){
