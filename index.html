@@ -414,25 +414,26 @@ async function showPage(page){
     );
   });
   document.getElementById('main-content').innerHTML='<div class="loading"><i class="ti ti-loader ti-spin"></i> Carregando...</div>';
-  await loadAll();
-  populateGlobalObraSelect();
-  if(page==='dashboard')renderDashboard();
-  else if(page==='funcionarios')renderFuncionarios();
-  else if(page==='experiencia')renderExperiencia();
-  else if(page==='folgas')renderFolgas();
-  else if(page==='ferias')renderFerias();
-  else if(page==='alojamentos'){alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';await loadAlojamentos();renderAlojamentos();}
-  else if(page==='efetivo'){
-    efetivoSituacaoFiltro='';
-    try{await loadEfetivo();}catch(e){console.error('loadEfetivo:',e);}
-    try{renderEfetivo();}catch(e){
-      console.error('renderEfetivo:',e);
-      document.getElementById('main-content').innerHTML='<div style="padding:40px;color:var(--danger)"><strong>Erro ao carregar Efetivo:</strong><br>'+e.message+'</div>';
-    }
+  try{await loadAll();}catch(e){
+    document.getElementById('main-content').innerHTML='<div style="padding:40px;color:var(--danger)"><strong>Erro no loadAll:</strong><br>'+e.message+'</div>';
+    return;
   }
-  else if(page==='usuarios')renderUsuarios();
-  else if(page==='obras')renderObras();
-  else if(page==='empresas')renderEmpresas();
+  populateGlobalObraSelect();
+  try{
+    if(page==='dashboard')await renderDashboard();
+    else if(page==='funcionarios')renderFuncionarios();
+    else if(page==='experiencia')renderExperiencia();
+    else if(page==='folgas')renderFolgas();
+    else if(page==='ferias')renderFerias();
+    else if(page==='alojamentos'){alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';await loadAlojamentos();renderAlojamentos();}
+    else if(page==='efetivo'){efetivoSituacaoFiltro='';await loadEfetivo();renderEfetivo();}
+    else if(page==='usuarios')renderUsuarios();
+    else if(page==='obras')renderObras();
+    else if(page==='empresas')renderEmpresas();
+  }catch(e){
+    console.error('showPage erro em '+page+':',e);
+    document.getElementById('main-content').innerHTML='<div style="padding:40px;color:var(--danger)"><i class="ti ti-alert-circle" style="font-size:32px;display:block;margin-bottom:12px"></i><strong>Erro ao carregar página "'+page+'"</strong><br><br><code style="font-size:12px">'+e.message+'</code><br><br><button class="btn" onclick="showPage(\''+page+'\')" >Tentar novamente</button></div>';
+  }
 }
 
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
