@@ -3130,78 +3130,92 @@ function renderAlojamentos(){
   const vencProx=alojsFiltrados.filter(a=>{const d=parseDate(a.data_termino);return d&&Math.floor((d-hoje)/86400000)<=60&&Math.floor((d-hoje)/86400000)>=0;}).length;
   const vencidos=alojsFiltrados.filter(a=>{const d=parseDate(a.data_termino);return d&&d<hoje;}).length;
 
-  const cards=alojsFiltrados.map(a=>{
-    const moradores=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo');
-    const ocup=moradores.length;
-    const total=a.vagas_total||0;
-    const disp=total-ocup;
-    const pct=total?Math.round(ocup/total*100):0;
-    const fillClass=pct>=100?'full':pct>=80?'warn':'';
-    const termino=parseDate(a.data_termino);
-    const diasTerm=termino?Math.floor((termino-hoje)/86400000):null;
-    const termClass=diasTerm===null?'':diasTerm<0?'danger':diasTerm<=60?'warn':'ok';
-    const contasMes=alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===hoje.getMonth()+1&&c.ano===hoje.getFullYear());
-    const custoMensal=contasMes.reduce((s,c)=>s+Number(c.valor||0),0)+Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0);
-    const caucaoVal=Number(a.caucao||0);
-    const pendMes=contasMes.filter(c=>c.status==='pendente').length;
-    const tiposLancadosCard=new Set(contasMes.map(c=>c.tipo));
-    const _isentasCard=new Set(['agua','energia','gas','condominio'].filter(t=>a['isenta_'+t]));
-    const contasFaltandoCard=['agua','energia','gas','condominio'].filter(t=>!tiposLancadosCard.has(t)&&!_isentasCard.has(t));
-    const contasFaltLabel={agua:'💧Água',energia:'⚡Energia',gas:'🔥Gás',condominio:'🏢Cond.'};
-    const badgeContasFaltando=contasFaltandoCard.length>0?`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;padding:6px 8px;background:#FFF7ED;border:1px solid #FCD34D;border-radius:6px">
-      <i class="ti ti-alert-circle" style="color:#B45309;font-size:13px;flex-shrink:0"></i>
-      <span style="font-size:11px;color:#92400E;font-weight:600">Faltam:</span>
-      ${contasFaltandoCard.map(t=>'<span onclick="openModalContas(\''+a.id+'\','+( hoje.getMonth()+1)+','+hoje.getFullYear()+',\''+t+'\')" style="font-size:11px;color:#B45309;background:#FFFBEB;border:1px solid #FDE68A;border-radius:4px;padding:2px 7px;cursor:pointer" onmouseover="this.style.background=\'#FDE68A\'" onmouseout="this.style.background=\'#FFFBEB\'">'+contasFaltLabel[t]+'</span>').join('')}
-    </div>`:'';
+  // ─── Tabela agrupada por obra ─────────────────────────────────────────────
+  const _mesTabela=hoje.getMonth()+1;const _anoTabela=hoje.getFullYear();
+  const _contasObrigTab=['agua','energia','gas','condominio'];
+  const _nomesTab={agua:'Água',energia:'Energia',gas:'Gás',condominio:'Condomínio'};
+  const _labTab={agua:'💧',energia:'⚡',gas:'🔥',condominio:'🏢'};
 
-    return`<div class="aloj-card">
-      <div class="aloj-card-header">
-        <div>
-          <div style="font-weight:600;font-size:14px">${a.nome}</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:2px"><i class="ti ti-map-pin" style="font-size:11px"></i> ${a.endereco||'—'}</div>
-        </div>
-        <div style="display:flex;gap:6px">
-          <button class="btn btn-sm" title="Moradores" onclick="openModalMoradores('${a.id}')"><i class="ti ti-users"></i></button>
-          <button class="btn btn-sm" title="Contas" onclick="openModalContas('${a.id}')"><i class="ti ti-receipt"></i></button>
-          <button class="btn btn-sm" title="Editar" onclick="openModalAlojamento('${a.id}')"><i class="ti ti-edit"></i></button>
-          <button class="btn btn-sm btn-danger" title="Excluir" onclick="deleteAlojamento('${a.id}','${(a.nome||'').replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i></button>
-        </div>
-      </div>
-      <div class="aloj-card-body">
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
-          <div style="text-align:center">
-            <div style="font-size:22px;font-weight:700;color:var(--text)">${total}</div>
-            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Vagas</div>
-          </div>
-          <div style="text-align:center">
-            <div style="font-size:22px;font-weight:700;color:var(--primary-dark)">${ocup}</div>
-            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Ocupadas</div>
-          </div>
-          <div style="text-align:center">
-            <div style="font-size:22px;font-weight:700;color:${disp===0?'var(--danger)':disp<=2?'var(--warning)':'var(--success)'}">${disp}</div>
-            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Disponíveis</div>
-          </div>
-        </div>
-        <div class="aloj-vagas-bar"><div class="aloj-vagas-fill ${fillClass}" style="width:${pct}%"></div></div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:12px">
-          <span style="color:var(--text-muted)"><i class="ti ti-building-bank" style="font-size:12px"></i> ${a.imobiliaria||'—'}</span>
-          <span style="color:var(--text-muted)">${a.obra?.codigo||'—'}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:12px">
-          <span class="${termClass==='danger'?'badge badge-red':termClass==='warn'?'badge badge-amber':''}">
-            ${termino?`Término: ${formatDate(a.data_termino)}${diasTerm!==null&&diasTerm<=60?' ('+diasTerm+'d)':''}`:' —'}
-          </span>
-          <div style="text-align:right"><div style="font-weight:600;color:var(--text);font-size:13px">Mensal: R$ ${custoMensal.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}${pendMes?`<span class="badge badge-amber" style="margin-left:4px">${pendMes} pend.</span>`:''}</div>${caucaoVal>0?`<div style="font-size:11px;color:var(--text-muted);margin-top:2px">Caução: R$ ${caucaoVal.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>`:''}</div>
-        </div>
-        ${badgeContasFaltando}
-        ${a.contrato_url||a.laudo_url||a.fotos_url?`<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
-          ${a.contrato_url?`<a href="${a.contrato_url}" target="_blank" class="btn btn-sm"><i class="ti ti-file-text"></i> Contrato</a>`:''}
-          ${a.laudo_url?`<a href="${a.laudo_url}" target="_blank" class="btn btn-sm"><i class="ti ti-clipboard-check"></i> Laudo</a>`:''}
-          ${a.fotos_url?`<a href="${a.fotos_url}" target="_blank" class="btn btn-sm"><i class="ti ti-photo"></i> Fotos</a>`:''}
-        </div>`:''}
-      </div>
-    </div>`;
-  }).join('');
+  const _byObra={};
+  alojsFiltrados.forEach(a=>{
+    const obraKey=a.obra?.codigo?(a.obra.codigo+' — '+a.obra.nome):'Sem obra vinculada';
+    if(!_byObra[obraKey])_byObra[obraKey]=[];
+    _byObra[obraKey].push(a);
+  });
+
+  const tabelaAlojamentos=Object.keys(_byObra).length===0
+    ?'<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-home-off" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum alojamento cadastrado</div>'
+    :Object.entries(_byObra).map(([obraKey,lista])=>{
+      const linhas=lista.map(a=>{
+        const moradores=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length;
+        const total=a.vagas_total||0;
+        const disp=total-moradores;
+        const pct=total?Math.round(moradores/total*100):0;
+        const termino=parseDate(a.data_termino);
+        const diasTerm=termino?Math.floor((termino-hoje)/86400000):null;
+        const contasMes=alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===_mesTabela&&c.ano===_anoTabela);
+        const custoMes=contasMes.reduce((s,c)=>s+Number(c.valor||0),0)+Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0);
+        const pendMes=contasMes.filter(c=>c.status==='pendente').length;
+        const tiposLanc=new Set(contasMes.map(c=>c.tipo));
+        const isentas=new Set(_contasObrigTab.filter(t=>a['isenta_'+t]));
+        const faltando=_contasObrigTab.filter(t=>!tiposLanc.has(t)&&!isentas.has(t));
+
+        const contasPills=_contasObrigTab.map(t=>{
+          if(isentas.has(t))return '<span title="'+_nomesTab[t]+' isento" style="font-size:18px;opacity:.25;cursor:default">'+_labTab[t]+'</span>';
+          const lanc=tiposLanc.has(t);
+          const pend=lanc&&contasMes.filter(c=>c.tipo===t&&c.status==='pendente').length>0;
+          const tip=_nomesTab[t]+(lanc?(pend?' — Pendente':' — OK'):' — Não lançado');
+          const op=lanc?'1':'0.3';
+          const bg=lanc?(pend?'#FFF7ED':'var(--success-light)'):'#FEE2E2';
+          return '<span onclick="openModalContas(\"'+a.id+'\",'+_mesTabela+','+_anoTabela+',\"'+t+'\")" title="'+tip+'" style="font-size:15px;cursor:pointer;padding:3px 5px;border-radius:6px;background:'+bg+';opacity:'+op+'">'+_labTab[t]+'</span>';
+        }).join('');
+
+        const termBadge=diasTerm===null?'<span style="color:var(--text-muted);font-size:12px">—</span>'
+          :diasTerm<0?'<span class="badge badge-red" style="font-size:11px">Vencido '+Math.abs(diasTerm)+'d</span>'
+          :diasTerm<=60?'<span class="badge badge-amber" style="font-size:11px">'+formatDate(a.data_termino)+' ('+diasTerm+'d)</span>'
+          :'<span style="font-size:12px;color:var(--text-muted)">'+formatDate(a.data_termino)+'</span>';
+
+        const vagasCell='<div style="display:flex;align-items:center;gap:6px">'
+          +'<span style="font-size:13px;font-weight:600;color:'+(disp===0?'var(--danger)':disp<=2?'var(--warning)':'var(--text)')+'">'+moradores+'<span style="font-weight:400;color:var(--text-muted)">/'+total+'</span></span>'
+          +'<div style="width:44px;height:5px;background:var(--border);border-radius:3px"><div style="height:5px;border-radius:3px;background:'+(pct>=100?'var(--danger)':pct>=80?'var(--warning)':'var(--primary)')+';width:'+pct+'%"></div></div>'
+          +'</div>';
+
+        return '<tr>'
+          +'<td style="padding:10px 14px"><div style="font-weight:500;font-size:13px">'+a.nome+'</div>'+(a.imobiliaria?'<div style="font-size:11px;color:var(--text-muted)">'+a.imobiliaria+'</div>':'')+'</td>'
+          +'<td style="padding:10px 14px">'+vagasCell+'</td>'
+          +'<td style="padding:10px 14px">'+termBadge+'</td>'
+          +'<td style="padding:10px 14px"><div style="font-size:13px;font-weight:500">R$ '+custoMes.toLocaleString('pt-BR',{minimumFractionDigits:2})+'</div>'+(pendMes?'<div style="font-size:11px;color:var(--warning)">'+pendMes+' pendente(s)</div>':'<div style="font-size:11px;color:var(--success)">Em dia</div>')+'</td>'
+          +'<td style="padding:10px 14px" id="section-pendentes"><div style="display:flex;gap:4px;align-items:center">'+contasPills+'</div>'+(faltando.length?'<div style="font-size:10px;color:#DC2626;margin-top:2px">'+faltando.length+' não lançada(s)</div>':'<div style="font-size:10px;color:var(--success)">Completo</div>')+'</td>'
+          +'<td style="padding:8px 14px;white-space:nowrap">'
+          +'<button class="btn btn-sm" title="Moradores" onclick="openModalMoradores(&apos;'+ a.id +'&apos;)"><i class="ti ti-users"></i></button> '
+          +'<button class="btn btn-sm" title="Contas" onclick="openModalContas(&apos;'+ a.id +'&apos;)"><i class="ti ti-receipt"></i></button> '
+          +'<button class="btn btn-sm" title="Editar" onclick="openModalAlojamento(&apos;'+ a.id +'&apos;)"><i class="ti ti-edit"></i></button> '
+          +'<button class="btn btn-sm btn-danger" title="Excluir" onclick="deleteAlojamento(&apos;'+ a.id +'&apos;,&apos;'+(a.nome||'').replace(/&apos;/g,'\\&apos;')+'&apos;)"><i class="ti ti-trash"></i></button>'
+          +'</td></tr>';
+      }).join('');
+
+      const obraTotal=lista.reduce((s,a)=>s+(a.vagas_total||0),0);
+      const obraOcup=lista.reduce((s,a)=>s+funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length,0);
+      const obraCusto=lista.reduce((s,a)=>{
+        const cm=alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===_mesTabela&&c.ano===_anoTabela).reduce((ss,c)=>ss+Number(c.valor||0),0);
+        return s+cm+Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0);
+      },0);
+      const mesLabel=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][_mesTabela-1]+'/'+_anoTabela;
+
+      return '<div class="table-container" style="margin-bottom:16px">'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--bg);border-bottom:1px solid var(--border)">'
+        +'<span style="font-size:12px;font-weight:600;color:var(--primary-dark);text-transform:uppercase;letter-spacing:.5px"><i class="ti ti-building" style="font-size:14px;margin-right:6px"></i>'+obraKey+'</span>'
+        +'<span style="font-size:12px;color:var(--text-muted)">'+lista.length+' aloj. &nbsp;·&nbsp; '+obraOcup+'/'+obraTotal+' vagas &nbsp;·&nbsp; <strong>R$ '+obraCusto.toLocaleString('pt-BR',{minimumFractionDigits:2})+'</strong>/mês</span>'
+        +'</div>'
+        +'<table><thead><tr>'
+        +'<th>Alojamento</th>'
+        +'<th>Vagas</th>'
+        +'<th style="min-width:120px">Contrato</th>'
+        +'<th>Custo '+mesLabel+'</th>'
+        +'<th>Contas '+mesLabel+'</th>'
+        +'<th>Ações</th>'
+        +'</tr></thead><tbody>'+linhas+'</tbody></table></div>';
+    }).join('');
 
   // Calcular alojamentos sem contas obrigatórias para o banner
   const _contasObrig=['agua','energia','gas','condominio'];
@@ -3243,9 +3257,9 @@ function renderAlojamentos(){
       </div>
     </div>
 
-    ${vencidos>0?`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:var(--danger-light);border:1px solid #FCA5A5;color:#991B1B"><i class="ti ti-alert-triangle" style="font-size:18px"></i><strong>${vencidos} contrato(s) vencido(s) — providenciar renovação!</strong></div>`:''}
+    ${vencidos>0?`<div onclick="document.getElementById('section-contratos')?.scrollIntoView({behavior:'smooth'})" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:var(--danger-light);border:1px solid #FCA5A5;color:#991B1B;cursor:pointer"><i class="ti ti-alert-triangle" style="font-size:18px"></i><strong>${vencidos} contrato(s) vencido(s) — providenciar renovação!</strong><i class="ti ti-chevron-right" style="margin-left:auto"></i></div>`:''}
     ${vencProx>0?`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:var(--warning-light);border:1px solid #FCD34D;color:#92400E"><i class="ti ti-clock" style="font-size:18px"></i><strong>${vencProx} contrato(s) vencendo em 60 dias</strong></div>`:''}
-    ${contasPend>0?`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:#E6F1FB;border:1px solid #93C5FD;color:#185FA5"><i class="ti ti-receipt" style="font-size:18px"></i><strong>${contasPend} conta(s) pendente(s) de envio este mês</strong></div>`:''}
+    ${contasPend>0?`<div onclick="document.getElementById('section-pendentes')?.scrollIntoView({behavior:'smooth'})" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:#E6F1FB;border:1px solid #93C5FD;color:#185FA5;cursor:pointer"><i class="ti ti-receipt" style="font-size:18px"></i><strong>${contasPend} conta(s) pendente(s) de envio este mês</strong><i class="ti ti-chevron-right" style="margin-left:auto"></i></div>`:''}
     ${bannerSemContas}
 
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px">
@@ -3256,9 +3270,7 @@ function renderAlojamentos(){
       <div class="metric-card"><div class="metric-label">Total Caução</div><div class="metric-value" style="font-size:14px">R$ ${totalCaucao.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div></div>
     </div>
 
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px">
-      ${cards||'<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-home-off" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum alojamento cadastrado</div>'}
-    </div>`;
+    ${tabelaAlojamentos}`;
 }
 
 function openModalAlojamento(id){
@@ -3488,7 +3500,8 @@ function openModalContas(alojId,filtroMes,filtroAno,tipoPresel){
     const tl=tiposLabel[c.tipo]||c.tipo;
     const vl='R$ '+(c.valor||0).toLocaleString('pt-BR',{minimumFractionDigits:2});
     const st=c.status==='pendente'?'⏳ Pendente':c.status==='enviado'?'📤 Enviado':'✅ Pago';
-    return '<div class="conta-row"><span>'+tl+'</span><div style="display:flex;align-items:center;gap:8px"><span style="font-weight:500">'+vl+'</span><span class="conta-status '+c.status+'">'+st+'</span><button class="btn btn-sm" onclick="toggleContaStatus(\''+c.id+'\',\''+c.status+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-refresh"></i></button><button class="btn btn-sm btn-danger" onclick="deleteConta(\''+c.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-trash"></i></button></div></div>';
+    const mesLabel=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][c.mes-1]||'';
+    return '<div class="conta-row"><div style="display:flex;flex-direction:column;gap:1px"><span>'+tl+'</span><span style="font-size:11px;color:var(--text-muted)">'+mesLabel+'/'+c.ano+'</span></div><div style="display:flex;align-items:center;gap:8px"><span style="font-weight:500">'+vl+'</span><span class="conta-status '+c.status+'">'+st+'</span><button class="btn btn-sm" onclick="toggleContaStatus(\''+c.id+'\',\''+c.status+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-refresh"></i></button><button class="btn btn-sm btn-danger" onclick="deleteConta(\''+c.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-trash"></i></button></div></div>';
   }).join(''):'<div style="text-align:center;padding:16px;color:var(--text-muted);font-size:13px">Nenhuma conta lançada neste mês</div>';
 
   const filtroMesOpts=mesesDisp.map(m=>'<option value="'+m.mes+'" '+(m.mes===mesAtualN&&m.ano===anoAtualN?'selected':'')+'>'+meses[m.mes-1]+'/'+m.ano+'</option>').join('');
