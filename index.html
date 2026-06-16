@@ -3806,13 +3806,32 @@ async function importarEfetivo(file){
   }catch(e){showToast('Erro ao importar: '+e.message,'error');}
 }
 
+function editarMarcacaoClick(btn){
+  const id=btn.dataset.id;
+  const val=btn.dataset.val||'';
+  editarMarcacao(id,val,btn);
+}
+async function editarMarcacao(id,valorAtual,btn){
+  const novo=prompt('Horário de marcação (ex: 07:23):',valorAtual||'');
+  if(novo===null)return;
+  const{error}=await sb.from('efetivo_presenca').update({marcacoes:novo||null}).eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  document.getElementById('marc-'+id).textContent=novo||'—';
+  showToast('Marcação atualizada!');
+  // Atualizar local
+  const rec=efetivoData.find(r=>r.id===id);
+  if(rec)rec.marcacoes=novo||null;
+}
+
 async function renderEfetivo(){
   // Aplicar filtro de obra — cruzar cracha com funcionários da obra selecionada
+  // Normalizar matrícula: remover zeros à esquerda para comparação
+  function normMat(v){return String(v||'').trim().replace(/^0+/,'');}
   const _crachasObra=globalObraFiltro
-    ?new Set(funcionarios.filter(f=>f.obra_id===globalObraFiltro).map(f=>String(f.matricula||'').trim()))
+    ?new Set(funcionarios.filter(f=>f.obra_id===globalObraFiltro).map(f=>normMat(f.matricula)))
     :null;
   const efetivoFiltrado=_crachasObra
-    ?efetivoData.filter(r=>_crachasObra.has(String(r.cracha||'').trim()))
+    ?efetivoData.filter(r=>_crachasObra.has(normMat(r.cracha)))
     :efetivoData;
 
   const datas=[...new Set(efetivoFiltrado.map(r=>r.data))].sort((a,b)=>b.localeCompare(a));
@@ -3820,8 +3839,8 @@ async function renderEfetivo(){
   if(datas.length&&!datas.includes(efetivoDataFiltro))efetivoDataFiltro=datas[0];
   const ds=efetivoDataFiltro;
   const reg=efetivoFiltrado.filter(r=>r.data===ds);
-  const pres=reg.filter(r=>r.situacao==='PRESENTE').sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
-  const ause=reg.filter(r=>r.situacao==='AUSENTE').sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const pres=reg.filter(r=>r.situacao==='PRESENTE').sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
+  const ause=reg.filter(r=>r.situacao==='AUSENTE').sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
   const tot=reg.length,pct=tot?Math.round(pres.length/tot*100):0;
   const corPct=pct>=90?'var(--success)':pct>=70?'var(--warning)':'var(--danger)';
 
@@ -3857,9 +3876,25 @@ async function renderEfetivo(){
     // Aplicar filtro de situação se ativo
     const _presShow=efetivoSituacaoFiltro===''||efetivoSituacaoFiltro==='PRESENTE';
     const _auseShow=efetivoSituacaoFiltro===''||efetivoSituacaoFiltro==='AUSENTE';
-    const th='<tr><th>Crachá</th><th>Funcionário</th><th>Departamento</th><th>H. Entrada</th><th>Marcações</th></tr>';
-    const rP=pres.map(r=>'<tr><td style="padding:8px 12px;font-size:12px">'+r.cracha+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(r.departamento||'—')+'</td><td style="padding:8px 12px;font-size:12px">'+(r.horario_entrada||'—')+'</td><td style="padding:8px 12px;font-size:12px">'+(r.marcacoes||'—')+'</td></tr>').join('');
-    const rA=ause.map(r=>'<tr><td style="padding:8px 12px;font-size:12px">'+r.cracha+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(r.departamento||'—')+'</td><td colspan="2" style="padding:8px 12px;color:var(--text-muted);font-size:12px">—</td></tr>').join('');
+    const th='<tr><th>Crachá</th><th>Funcionário</th><th>Departamento</th><th>Marcações</th></tr>';
+    const rP=pres.map(r=>'<tr>'
+      +'<td style="padding:8px 12px;font-size:12px">'+r.cracha+'</td>'
+      +'<td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+'</td>'
+      +'<td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(r.departamento||'—')+'</td>'
+      +'<td style="padding:8px 12px"><div style="display:flex;align-items:center;gap:6px">'
+        +'<span id="marc-'+r.id+'" style="font-size:12px;min-width:48px">'+(r.marcacoes||'—')+'</span>'
+        +'<button onclick="editarMarcacaoClick(this)" data-id="'+r.id+'" data-val="'+(r.marcacoes||'')+'" style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;color:var(--text-muted)" title="Editar marcação"><i class="ti ti-edit" style="font-size:11px"></i></button>'
+      +'</div></td>'
+      +'</tr>').join('');
+    const rA=ause.map(r=>'<tr>'
+      +'<td style="padding:8px 12px;font-size:12px">'+r.cracha+'</td>'
+      +'<td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+'</td>'
+      +'<td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(r.departamento||'—')+'</td>'
+      +'<td style="padding:8px 12px"><div style="display:flex;align-items:center;gap:6px">'
+        +'<span id="marc-'+r.id+'" style="font-size:12px;color:var(--text-muted);min-width:48px">—</span>'
+        +'<button onclick="editarMarcacaoClick(this)" data-id="'+r.id+'" data-val="" style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;color:var(--text-muted)" title="Lançar marcação"><i class="ti ti-edit" style="font-size:11px"></i></button>'
+      +'</div></td>'
+      +'</tr>').join('');
     view=(_presShow?'<div class="table-container" style="margin-bottom:12px"><div style="padding:10px 16px;background:var(--success-light);border-bottom:1px solid var(--border)"><span style="font-size:12px;font-weight:600;color:var(--success)">✓ PRESENTES — '+pres.length+'</span></div><table><thead>'+th+'</thead><tbody>'+(rP||'<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum</td></tr>')+'</tbody></table></div>':'')
       +(_auseShow?'<div class="table-container"><div style="padding:10px 16px;background:var(--danger-light);border-bottom:1px solid var(--border)"><span style="font-size:12px;font-weight:600;color:var(--danger)">✗ AUSENTES — '+ause.length+'</span></div><table><thead>'+th+'</thead><tbody>'+(rA||'<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum</td></tr>')+'</tbody></table></div>':'');
   } else if(efetivoViewMode==='historico'){
