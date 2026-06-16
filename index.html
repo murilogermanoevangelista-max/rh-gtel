@@ -3757,13 +3757,111 @@ let efetivoSituacaoFiltro=''; // '' | 'PRESENTE' | 'AUSENTE'
 
 async function loadEfetivo(){
   try{
-    const[r1,r2]=await Promise.all([
+    const[r1,r2,r3]=await Promise.all([
       sb.from('efetivo_presenca').select('*').order('data',{ascending:false}),
       sb.from('efetivo_horas').select('*').order('data',{ascending:false}),
+      sb.from('efetivo_he').select('*').order('data',{ascending:false}),
     ]);
     efetivoData=r1.data||[];
     efetivoHoras=r2.data||[];
+    efetivoHE=r3.data||[];
   }catch(e){console.error('loadEfetivo erro:',e);}
+}
+
+async function importarHE(file){
+  if(!file)return;
+  showToast('Importando H.E...');
+  try{
+    const{read,utils}=await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm');
+    const buf=await file.arrayBuffer();
+    const wb=read(buf,{type:'array'});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const rows=utils.sheet_to_json(ws,{header:1,defval:''});
+
+    // Encontrar header: linha com "Matrícula" ou "Nome"
+    let hi=rows.findIndex(r=>r.some(c=>String(c).toLowerCase().includes('matrícula')||String(c).toLowerCase().includes('matricula')));
+    if(hi<0)hi=rows.findIndex(r=>r.some(c=>String(c).toLowerCase().includes('nome')));
+    if(hi<0){showToast('Formato não reconhecido','error');return;}
+
+    // Detectar período do cabeçalho
+    let dataISO='';
+    for(let i=0;i<hi;i++){
+      const row=rows[i]||[];
+      for(let j=0;j<row.length;j++){
+        const cell=String(row[j]||'').toLowerCase();
+        if(cell.includes('período')||cell.includes('periodo')){
+          const m=cell.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+          if(m){dataISO=m[3]+'-'+m[2]+'-'+m[1];break;}
+        }
+      }
+      if(dataISO)break;
+    }
+    if(!dataISO){
+      // Tentar primeira data serial nas linhas de dados
+      for(let i=hi+1;i<rows.length;i++){
+        const v=rows[i][0];
+        if(typeof v==='number'&&v>40000&&v<55000){
+          const d=new Date(Math.round((v-25569)*86400000));
+          dataISO=d.toISOString().slice(0,10);break;
+        }
+      }
+    }
+    if(!dataISO)dataISO=new Date().toISOString().slice(0,10);
+    console.log('[importarHE] data:',dataISO);
+
+    // Horas: valor em fração de dia -> converter para minutos
+    // 1 dia = 1440 min, 1 hora = 1/24 dia
+    function fracToMins(v){
+      if(!v||v===0)return 0;
+      return Math.round(Number(v)*24*60);
+    }
+
+    const regs=[];
+    rows.slice(hi+1).forEach(r=>{
+      const dataVal=r[0];
+      const nome=String(r[1]||'').trim();
+      const mat=String(r[2]||'').trim();
+      const tipo=String(r[4]||'').trim(); // Ocorrência
+      const horas=r[5]; // Horas em fração de dia
+
+      if(!mat||!nome||!tipo||!tipo.toLowerCase().includes('hora extra'))return;
+
+      // Data da linha (serial Excel ou usar data do período)
+      let linhaData=dataISO;
+      if(typeof dataVal==='number'&&dataVal>40000&&dataVal<55000){
+        const d=new Date(Math.round((dataVal-25569)*86400000));
+        linhaData=d.toISOString().slice(0,10);
+      }
+
+      const mins=fracToMins(horas);
+      if(mins<=0)return;
+
+      regs.push({
+        data:linhaData,
+        periodo_ini:dataISO,
+        matricula:mat,
+        nome:nome.toUpperCase(),
+        tipo:tipo.replace('Hora Extra ','HE ').trim(),
+        mins,
+      });
+    });
+
+    if(!regs.length){showToast('Nenhum registro de H.E. encontrado','error');return;}
+
+    // Deletar registros do mesmo período antes de inserir
+    await sb.from('efetivo_he').delete().eq('periodo_ini',dataISO);
+
+    for(let i=0;i<regs.length;i+=500){
+      const{error}=await sb.from('efetivo_he').insert(regs.slice(i,i+500));
+      if(error){showToast('Erro: '+error.message,'error');return;}
+    }
+
+    const totalMins=regs.reduce((s,r)=>s+r.mins,0);
+    const hh=Math.floor(totalMins/60),mm=totalMins%60;
+    showToast('H.E. importadas! '+regs.length+' registros · Total: '+String(hh).padStart(3,'0')+':'+String(mm).padStart(2,'0'));
+    efetivoViewMode='he';
+    await loadEfetivo();renderEfetivo();
+  }catch(e){showToast('Erro: '+e.message,'error');console.error(e);}
 }
 
 async function importarHoras(file){
@@ -3972,8 +4070,8 @@ async function renderEfetivo(){
   }).join('');
 
   // ── Tabs ────────────────────────────────────────────────────────────────
-  const tabHtml=['dia','historico','ranking','horas'].map(m=>{
-    const lbl={dia:'📋 Dia',historico:'📅 Histórico',ranking:'🏆 Ranking Faltas',horas:'⏱️ Horas'}[m];
+  const tabHtml=['dia','historico','ranking','horas','he'].map(m=>{
+    const lbl={dia:'📋 Dia',historico:'📅 Histórico',ranking:'🏆 Ranking Faltas',horas:'⏱️ Horas',he:'⚡ H. Extras'}[m];
     const sel=efetivoViewMode===m;
     return '<button onclick="efetivoViewMode=\''+m+'\';renderEfetivo()" style="padding:6px 16px;border-radius:6px;border:1px solid '+(sel?'var(--primary)':'var(--border)')+';background:'+(sel?'var(--primary)':'transparent')+';color:'+(sel?'#fff':'var(--text)')+';cursor:pointer;font-size:13px;font-weight:'+(sel?'600':'400')+'">'+lbl+'</button>';
   }).join('');
@@ -4033,6 +4131,76 @@ async function renderEfetivo(){
     const rowsHoras=listaHoras.map((h,i)=>{const saldo=h.minsTrab-h.minsATrabalhar;const cor=saldo>0?'var(--success)':saldo<0?'var(--danger)':'var(--text-muted)';return '<tr><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(i+1)+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+h.nome+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+h.matricula+'</td><td style="padding:8px 12px;font-size:13px;font-weight:600">'+fmtMins(h.minsTrab)+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+fmtMins(h.minsJust)+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+fmtMins(h.minsATrabalhar)+'</td><td style="padding:8px 12px;font-size:13px;font-weight:600;color:'+cor+'">'+(saldo>=0?'+':'')+fmtMins(Math.abs(saldo))+'</td><td style="padding:8px 12px;font-size:12px">'+h.dias+' dia(s)</td></tr>';}).join('');
     view=periodoHtml+'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px"><div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Total Trabalhadas</div><div style="font-size:24px;font-weight:700;color:var(--primary-dark)">'+fmtMins(totalMinsTrab)+'</div></div><div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Total Justificadas</div><div style="font-size:24px;font-weight:700;color:var(--warning)">'+fmtMins(totalMinsJust)+'</div></div></div>'+(listaHoras.length===0?'<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-clock-upload" style="font-size:40px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum dado. Use "Importar Horas".</div>':'<div class="table-container"><table><thead><tr><th>#</th><th>Funcionário</th><th>Matrícula</th><th>Trabalhadas</th><th>Justificadas</th><th>A Trabalhar</th><th>Saldo</th><th>Dias</th></tr></thead><tbody>'+rowsHoras+'</tbody></table></div>');
 
+  } else if(efetivoViewMode==='he'){
+    // ── View Horas Extras ──────────────────────────────────────────────────
+    const heFiltradas=globalObraFiltro
+      ?efetivoHE.filter(h=>{const f=funcionarios.find(x=>normMat(x.matricula)===normMat(h.matricula));return f&&f.obra_id===globalObraFiltro;})
+      :efetivoHE;
+
+    // Filtro de período HE
+    const heFiltroPeriodo=window._heFiltroPeriodo||'acumulado';
+    const datasHE=[...new Set(heFiltradas.map(h=>h.data))].sort((a,b)=>b.localeCompare(a));
+    const heFiltroDe=window._heFiltroDe||datasHE[datasHE.length-1]||'';
+    const heFiltroAte=window._heFiltroAte||datasHE[0]||'';
+
+    const heFiltPeriodoOpts=[{v:'acumulado',l:'Acumulado'},{v:'periodo',l:'Período'}];
+    const hePeriodoHtml='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">'
+      +heFiltPeriodoOpts.map(o=>'<button onclick="window._heFiltroPeriodo=&apos;'+o.v+'&apos;;renderEfetivo()" style="font-size:12px;padding:4px 12px;border-radius:20px;border:1px solid '+(heFiltroPeriodo===o.v?'var(--primary)':'var(--border)')+';background:'+(heFiltroPeriodo===o.v?'var(--primary)':'var(--surface)')+';color:'+(heFiltroPeriodo===o.v?'#fff':'var(--text-muted)')+';cursor:pointer">'+o.l+'</button>').join('')
+      +(heFiltroPeriodo==='periodo'?'<input type="date" value="'+heFiltroDe+'" onchange="window._heFiltroDe=this.value;renderEfetivo()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px"> <span style="font-size:12px">até</span> <input type="date" value="'+heFiltroAte+'" onchange="window._heFiltroAte=this.value;renderEfetivo()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">':'')
+      +'</div>';
+
+    // Filtrar por período
+    const hePerFiltradas=heFiltradas.filter(h=>{
+      if(heFiltroPeriodo==='acumulado')return true;
+      return h.data>=heFiltroDe&&h.data<=heFiltroAte;
+    });
+
+    // Agrupar por funcionário e tipo
+    function fmtMins(m){if(!m)return'000:00';const h=Math.floor(m/60);const mn=m%60;return String(h).padStart(3,'0')+':'+String(mn).padStart(2,'0');}
+    const heMap={};
+    hePerFiltradas.forEach(h=>{
+      if(!heMap[h.matricula])heMap[h.matricula]={matricula:h.matricula,nome:h.nome,tipos:{},total:0};
+      const tipo=h.tipo||'Outros';
+      if(!heMap[h.matricula].tipos[tipo])heMap[h.matricula].tipos[tipo]=0;
+      heMap[h.matricula].tipos[tipo]+=h.mins||0;
+      heMap[h.matricula].total+=h.mins||0;
+    });
+
+    // Todos os tipos únicos
+    const tiposHE=[...new Set(hePerFiltradas.map(h=>h.tipo||'Outros'))].sort();
+    const totalPorTipo={};
+    tiposHE.forEach(t=>{totalPorTipo[t]=hePerFiltradas.filter(h=>h.tipo===t).reduce((s,h)=>s+(h.mins||0),0);});
+    const totalGeralHE=hePerFiltradas.reduce((s,h)=>s+(h.mins||0),0);
+
+    const listaHE=Object.values(heMap).sort((a,b)=>b.total-a.total);
+
+    const heRows=listaHE.map((f,i)=>{
+      const tiposCols=tiposHE.map(t=>'<td style="padding:8px 12px;font-size:12px;text-align:center">'+(f.tipos[t]?'<span style="font-weight:600;color:var(--warning)">'+fmtMins(f.tipos[t])+'</span>':'—')+'</td>').join('');
+      return '<tr>'
+        +'<td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(i+1)+'</td>'
+        +'<td style="padding:8px 12px;font-size:13px;font-weight:500">'+f.nome+'</td>'
+        +'<td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+f.matricula+'</td>'
+        +tiposCols
+        +'<td style="padding:8px 12px;font-size:13px;font-weight:700;color:var(--danger)">'+fmtMins(f.total)+'</td>'
+        +'</tr>';
+    }).join('');
+
+    const totalRow='<tr style="background:var(--bg);font-weight:600">'
+      +'<td colspan="3" style="padding:8px 12px;font-size:12px">TOTAL</td>'
+      +tiposHE.map(t=>'<td style="padding:8px 12px;font-size:12px;text-align:center;color:var(--warning)">'+fmtMins(totalPorTipo[t])+'</td>').join('')
+      +'<td style="padding:8px 12px;font-size:13px;font-weight:700;color:var(--danger)">'+fmtMins(totalGeralHE)+'</td>'
+      +'</tr>';
+
+    const heThead='<tr><th>#</th><th>Funcionário</th><th>Matrícula</th>'+tiposHE.map(t=>'<th style="text-align:center">'+t+'</th>').join('')+'<th>Total H.E.</th></tr>';
+
+    view=hePeriodoHtml+(listaHE.length===0
+      ?'<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-bolt" style="font-size:40px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum dado. Use "Importar H.E.".</div>'
+      :'<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:16px;display:flex;gap:24px;flex-wrap:wrap">'
+        +tiposHE.map(t=>'<div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">'+t+'</div><div style="font-size:20px;font-weight:700;color:var(--warning)">'+fmtMins(totalPorTipo[t])+'</div></div>').join('')
+        +'<div style="border-left:2px solid var(--border);padding-left:24px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Total Geral H.E.</div><div style="font-size:20px;font-weight:700;color:var(--danger)">'+fmtMins(totalGeralHE)+'</div></div>'
+        +'</div>'
+        +'<div class="table-container"><table><thead>'+heThead+'</thead><tbody>'+heRows+totalRow+'</tbody></table></div>');
+
   } else if(efetivoViewMode==='dia'){
     const _presShow=efetivoSituacaoFiltro===''||efetivoSituacaoFiltro==='PRESENTE';
     const _auseShow=efetivoSituacaoFiltro===''||efetivoSituacaoFiltro==='AUSENTE';
@@ -4057,6 +4225,7 @@ async function renderEfetivo(){
       <div style="display:flex;gap:8px">
         <label class="btn btn-primary" style="cursor:pointer"><i class="ti ti-upload"></i> Importar Presentes<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importarEfetivo(this.files[0])"></label>
         <label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-clock-upload"></i> Importar Horas<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importarHoras(this.files[0])"></label>
+        <label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-bolt"></i> Importar H.E<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importarHE(this.files[0])"></label>
       </div>
     </div>
     ${datas.length===0?'<div style="text-align:center;padding:60px;color:var(--text-muted)"><i class="ti ti-upload" style="font-size:48px;display:block;margin-bottom:16px;opacity:.3"></i><div style="font-size:16px;font-weight:500;margin-bottom:8px">Nenhum dado importado</div><div style="font-size:13px">Clique em "Importar Presentes" para começar</div></div>':`
