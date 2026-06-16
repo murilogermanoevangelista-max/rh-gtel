@@ -496,7 +496,19 @@ async function renderDashboard(){
   feriasProgramadas.sort((a,b)=>a.diffIni-b.diffIni);
   const feriasProgEmCurso=feriasProgramadas.filter(f=>f.emCurso).length;
 
+  // Alertas de contas obrigatórias de alojamentos
+  const contasObrigatorias=['agua','energia','gas','condominio'];
+  const contasLabel={agua:'Água',energia:'Energia',gas:'Gás',condominio:'Condomínio'};
+  const mesAtual=hoje.getMonth()+1;const anoAtual=hoje.getFullYear();
+  const alojSemContas=alojamentos.filter(a=>{
+    const contasMesAloj=alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===mesAtual&&c.ano===anoAtual);
+    const tiposLancados=new Set(contasMesAloj.map(c=>c.tipo));
+    return contasObrigatorias.some(t=>!tiposLancados.has(t));
+  });
+  const qtdAlojSemContas=alojSemContas.length;
+
   const alertas=[];
+  if(qtdAlojSemContas>0)alertas.push({tipo:'warning',icon:'ti-home-exclamation',msg:`${qtdAlojSemContas} alojamento(s) com contas obrigatórias não lançadas este mês`,link:'alojamentos'});
   if(expVencidas>0)alertas.push({tipo:'danger',icon:'ti-certificate',msg:`${expVencidas} experiência(s) vencida(s)`,link:'experiencia'});
   if(folgasVencidas>0)alertas.push({tipo:'danger',icon:'ti-beach',msg:`${folgasVencidas} folga(s) vencida(s)`,link:'folgas'});
   if(feriasVencidas>0)alertas.push({tipo:'danger',icon:'ti-palm-tree',msg:`${feriasVencidas} período(s) de férias vencido(s) — ação legal necessária`,link:'ferias'});
@@ -3132,6 +3144,14 @@ function renderAlojamentos(){
     const custoMensal=contasMes.reduce((s,c)=>s+Number(c.valor||0),0)+Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0);
     const caucaoVal=Number(a.caucao||0);
     const pendMes=contasMes.filter(c=>c.status==='pendente').length;
+    const tiposLancadosCard=new Set(contasMes.map(c=>c.tipo));
+    const contasFaltandoCard=['agua','energia','gas','condominio'].filter(t=>!tiposLancadosCard.has(t));
+    const contasFaltLabel={agua:'💧Água',energia:'⚡Energia',gas:'🔥Gás',condominio:'🏢Cond.'};
+    const badgeContasFaltando=contasFaltandoCard.length>0?`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;padding:6px 8px;background:#FFF7ED;border:1px solid #FCD34D;border-radius:6px">
+      <i class="ti ti-alert-circle" style="color:#B45309;font-size:13px;flex-shrink:0"></i>
+      <span style="font-size:11px;color:#92400E;font-weight:600">Faltam:</span>
+      ${contasFaltandoCard.map(t=>`<span style="font-size:11px;color:#B45309;background:#FFFBEB;border:1px solid #FDE68A;border-radius:4px;padding:1px 5px">${contasFaltLabel[t]}</span>`).join('')}
+    </div>`:'';
 
     return`<div class="aloj-card">
       <div class="aloj-card-header">
@@ -3172,6 +3192,7 @@ function renderAlojamentos(){
           </span>
           <div style="text-align:right"><div style="font-weight:600;color:var(--text);font-size:13px">Mensal: R$ ${custoMensal.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}${pendMes?`<span class="badge badge-amber" style="margin-left:4px">${pendMes} pend.</span>`:''}</div>${caucaoVal>0?`<div style="font-size:11px;color:var(--text-muted);margin-top:2px">Caução: R$ ${caucaoVal.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>`:''}</div>
         </div>
+        ${badgeContasFaltando}
         ${a.contrato_url||a.laudo_url||a.fotos_url?`<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
           ${a.contrato_url?`<a href="${a.contrato_url}" target="_blank" class="btn btn-sm"><i class="ti ti-file-text"></i> Contrato</a>`:''}
           ${a.laudo_url?`<a href="${a.laudo_url}" target="_blank" class="btn btn-sm"><i class="ti ti-clipboard-check"></i> Laudo</a>`:''}
@@ -3180,6 +3201,35 @@ function renderAlojamentos(){
       </div>
     </div>`;
   }).join('');
+
+  // Calcular alojamentos sem contas obrigatórias para o banner
+  const _contasObrig=['agua','energia','gas','condominio'];
+  const _contasObrigLabel={agua:'💧 Água',energia:'⚡ Energia',gas:'🔥 Gás',condominio:'🏢 Condomínio'};
+  const _mesAtual=hoje.getMonth()+1;const _anoAtual=hoje.getFullYear();
+  const _alojSemContas=alojsFiltrados.map(a=>{
+    const contasMesAloj=alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===_mesAtual&&c.ano===_anoAtual);
+    const tiposLancados=new Set(contasMesAloj.map(c=>c.tipo));
+    const faltando=_contasObrig.filter(t=>!tiposLancados.has(t));
+    return{...a,faltando};
+  }).filter(a=>a.faltando.length>0);
+
+  const bannerSemContas=_alojSemContas.length>0?`
+    <div style="background:#FFF7ED;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:8px;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#FFFBEB;border-bottom:1px solid #FCD34D">
+        <i class="ti ti-alert-circle" style="font-size:18px;color:#B45309"></i>
+        <strong style="color:#92400E;font-size:13px">${_alojSemContas.length} alojamento(s) com contas obrigatórias não lançadas em ${hoje.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</strong>
+        <span style="margin-left:auto;font-size:11px;color:#92400E;opacity:.7">Clique em 💳 Contas para lançar</span>
+      </div>
+      <div style="padding:10px 14px;display:flex;flex-direction:column;gap:6px">
+        ${_alojSemContas.map(a=>`
+          <div style="display:flex;align-items:center;gap:10px;font-size:12px">
+            <i class="ti ti-home" style="color:#B45309;flex-shrink:0"></i>
+            <span style="font-weight:600;color:#92400E;min-width:160px">${a.nome}</span>
+            <span style="color:#B45309">${a.faltando.map(t=>_contasObrigLabel[t]).join(' · ')}</span>
+            <button class="btn btn-sm" style="margin-left:auto;font-size:11px;padding:3px 8px;border-color:#FCD34D" onclick="openModalContas('${a.id}')"><i class="ti ti-receipt"></i> Lançar</button>
+          </div>`).join('')}
+      </div>
+    </div>`:'';
 
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
@@ -3194,6 +3244,7 @@ function renderAlojamentos(){
     ${vencidos>0?`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:var(--danger-light);border:1px solid #FCA5A5;color:#991B1B"><i class="ti ti-alert-triangle" style="font-size:18px"></i><strong>${vencidos} contrato(s) vencido(s) — providenciar renovação!</strong></div>`:''}
     ${vencProx>0?`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:var(--warning-light);border:1px solid #FCD34D;color:#92400E"><i class="ti ti-clock" style="font-size:18px"></i><strong>${vencProx} contrato(s) vencendo em 60 dias</strong></div>`:''}
     ${contasPend>0?`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:#E6F1FB;border:1px solid #93C5FD;color:#185FA5"><i class="ti ti-receipt" style="font-size:18px"></i><strong>${contasPend} conta(s) pendente(s) de envio este mês</strong></div>`:''}
+    ${bannerSemContas}
 
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px">
       <div class="metric-card"><div class="metric-label">Total Vagas</div><div class="metric-value">${totalVagas}</div></div>
