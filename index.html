@@ -281,6 +281,8 @@ let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],aloj
 let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'nao_lancadas' | null
 let bannerNaoLancadasAberto=false;
 let bannerFiltroObra='';
+let tabelaMesFiltro=0; // 0 = mês atual
+let tabelaAnoFiltro=0; // 0 = ano atual
 let globalObraFiltro=''; // filtro global de obra — propaga para todos os módulos
 
 function setGlobalObraFiltro(obraId){
@@ -3151,7 +3153,10 @@ function renderAlojamentos(){
   const vencidos=alojsFiltrados.filter(a=>{const d=parseDate(a.data_termino);return d&&d<hoje;}).length;
 
   // ─── Tabela agrupada por obra ─────────────────────────────────────────────
-  const _mesTabela=hoje.getMonth()+1;const _anoTabela=hoje.getFullYear();
+  const _mesTabela=tabelaMesFiltro||hoje.getMonth()+1;
+  const _anoTabela=tabelaAnoFiltro||hoje.getFullYear();
+  const _mesesNomes=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const _mesLabel=_mesesNomes[_mesTabela-1]+'/'+_anoTabela;
   const _contasObrigTab=['agua','energia','gas','condominio'];
   const _nomesTab={agua:'Água',energia:'Energia',gas:'Gás',condominio:'Condomínio'};
   const _labTab={agua:'💧',energia:'⚡',gas:'🔥',condominio:'🏢'};
@@ -3199,7 +3204,7 @@ function renderAlojamentos(){
           +'<div style="width:44px;height:5px;background:var(--border);border-radius:3px"><div style="height:5px;border-radius:3px;background:'+(pct>=100?'var(--danger)':pct>=80?'var(--warning)':'var(--primary)')+';width:'+pct+'%"></div></div>'
           +'</div>';
 
-        return '<tr>'
+        return '<tr id="aloj-row-'+a.id+'" style="border-bottom:1px solid var(--border);transition:background .4s">'
           +'<td style="padding:10px 14px"><div style="font-weight:500;font-size:13px">'+a.nome+'</div>'+(a.imobiliaria?'<div style="font-size:11px;color:var(--text-muted)">'+a.imobiliaria+'</div>':'')+'</td>'
           +'<td style="padding:10px 14px">'+vagasCell+'</td>'
           +'<td style="padding:10px 14px">'+termBadge+'</td>'
@@ -3219,8 +3224,6 @@ function renderAlojamentos(){
         const cm=alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===_mesTabela&&c.ano===_anoTabela).reduce((ss,c)=>ss+Number(c.valor||0),0);
         return s+cm+Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0);
       },0);
-      const mesLabel=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][_mesTabela-1]+'/'+_anoTabela;
-
       return '<div class="table-container" style="margin-bottom:16px">'
         +'<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--bg);border-bottom:1px solid var(--border)">'
         +'<span style="font-size:12px;font-weight:600;color:var(--primary-dark);text-transform:uppercase;letter-spacing:.5px"><i class="ti ti-building" style="font-size:14px;margin-right:6px"></i>'+obraKey+'</span>'
@@ -3230,8 +3233,8 @@ function renderAlojamentos(){
         +'<th>Alojamento</th>'
         +'<th>Vagas</th>'
         +'<th style="min-width:120px">Contrato</th>'
-        +'<th>Custo '+mesLabel+'</th>'
-        +'<th>Contas '+mesLabel+'</th>'
+        +'<th>Custo '+_mesLabel+'</th>'
+        +'<th>Contas '+_mesLabel+'</th>'
         +'<th>Ações</th>'
         +'</tr></thead><tbody>'+linhas+'</tbody></table></div>';
     }).join('');
@@ -3279,7 +3282,7 @@ function renderAlojamentos(){
     const linhas=_listaFiltrada.map(a=>{
       const obraLabel=a.obra?.codigo||'—';
       const btnItems=a.faltando.map(t=>'<button class="btn btn-sm" style="font-size:11px;padding:2px 8px;border-color:#FCD34D;color:#92400E" onclick="openModalContas(&apos;'+a.id+'&apos;,'+_mesAtual+','+_anoAtual+',&apos;'+t+'&apos;)">'+_contasObrigLabel[t]+'</button>').join('');
-      return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #FDE68A"><i class="ti ti-home" style="color:#B45309;flex-shrink:0;font-size:12px"></i><span style="font-size:11px;color:var(--text-muted);min-width:44px">'+obraLabel+'</span><span style="font-weight:600;color:#92400E;flex:1;font-size:12px">'+a.nome+'</span><div style="display:flex;gap:4px;flex-wrap:wrap">'+btnItems+'</div></div>';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #FDE68A"><i class="ti ti-home" style="color:#B45309;flex-shrink:0;font-size:12px"></i><span style="font-size:11px;color:var(--text-muted);min-width:44px">'+obraLabel+'</span><span style="font-weight:600;color:#92400E;flex:1;font-size:12px;cursor:pointer;text-decoration:underline" onclick="event.stopPropagation();bannerNaoLancadasAberto=false;scrollToAlojamento(&apos;'+a.id+'&apos;)">'+ a.nome +'</span><div style="display:flex;gap:4px;flex-wrap:wrap">'+btnItems+'</div></div>';
     }).join('');
 
     return '<div style="background:#FFF7ED;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:8px;overflow:hidden">'+headerHtml+filtroObrasHtml+'<div style="padding:6px 14px;max-height:300px;overflow-y:auto">'+linhas+'</div></div>';
@@ -3299,12 +3302,60 @@ function renderAlojamentos(){
     ${vencProx>0?`<div onclick="alojFiltroAtivo=alojFiltroAtivo==='contratos_vencendo'?null:'contratos_vencendo';renderAlojamentos()" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:var(--warning-light);border:1px solid #FCD34D;color:#92400E;cursor:pointer" ${alojFiltroAtivo==='contratos_vencendo'?'class="aloj-filtro-ativo"':''}><i class="ti ti-clock" style="font-size:18px"></i><strong>${vencProx} contrato(s) vencendo em 60 dias</strong><i class="ti ti-${alojFiltroAtivo==='contratos_vencendo'?'x':'chevron-right'}" style="margin-left:auto"></i></div>`:''}
     ${bannerSemContas}
 
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px">
-      <div class="metric-card"><div class="metric-label">Total Vagas</div><div class="metric-value">${totalVagas}</div></div>
-      <div class="metric-card green"><div class="metric-label">Ocupadas</div><div class="metric-value">${totalOcup}</div></div>
-      <div class="metric-card ${totalDisp===0?'red':totalDisp<=3?'amber':''}"><div class="metric-label">Disponíveis</div><div class="metric-value">${totalDisp}</div></div>
-      <div class="metric-card"><div class="metric-label">Custo Mensal Total</div><div class="metric-value" style="font-size:14px">R$ ${(totalAluguel+totalContas).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div></div>
-      <div class="metric-card"><div class="metric-label">Total Caução</div><div class="metric-value" style="font-size:14px">R$ ${totalCaucao.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div></div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:16px">
+      <!-- Totais gerais -->
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:14px">
+        <div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Total Vagas</div><div style="font-size:26px;font-weight:700">${totalVagas}</div></div>
+        <div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Ocupadas</div><div style="font-size:26px;font-weight:700;color:var(--primary-dark)">${totalOcup}</div></div>
+        <div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Disponíveis</div><div style="font-size:26px;font-weight:700;color:${totalDisp===0?'var(--danger)':totalDisp<=3?'var(--warning)':'var(--text)'}">${totalDisp}</div></div>
+        <div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Custo Mensal</div><div style="font-size:18px;font-weight:700">R$ ${(totalAluguel+totalContas).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div></div>
+        <div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Total Caução</div><div style="font-size:18px;font-weight:700">R$ ${totalCaucao.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div></div>
+      </div>
+      <!-- Breakdown por obra -->
+      <div style="border-top:1px solid var(--border);padding-top:12px">
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Por Obra</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          ${(()=>{
+            const _todas=globalObraFiltro?alojamentos.filter(a=>a.obra_id===globalObraFiltro):alojamentos;
+            const _obrasMap={};
+            _todas.forEach(a=>{
+              const k=a.obra?.codigo||(a.obra?.nome||'Sem obra');
+              if(!_obrasMap[k])_obrasMap[k]={vagas:0,ocup:0,custo:0,nome:a.obra?.nome||'Sem obra',id:a.obra_id};
+              _obrasMap[k].vagas+=a.vagas_total||0;
+              _obrasMap[k].ocup+=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length;
+              _obrasMap[k].custo+=Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0);
+            });
+            return Object.entries(_obrasMap).map(([cod,o])=>{
+              const pct=o.vagas?Math.round(o.ocup/o.vagas*100):0;
+              const cor=pct>=100?'var(--danger)':pct>=80?'var(--warning)':'var(--primary)';
+              return '<div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;min-width:180px;flex:1">'
+                +'<div style="font-size:12px;font-weight:600;color:var(--primary-dark);margin-bottom:6px">'+cod+'</div>'
+                +'<div style="display:flex;gap:16px;font-size:12px">'
+                +'<div><span style="color:var(--text-muted)">Vagas </span><strong>'+o.ocup+'/'+o.vagas+'</strong></div>'
+                +'<div><span style="color:var(--text-muted)">Custo </span><strong>R$ '+o.custo.toLocaleString('pt-BR',{minimumFractionDigits:2})+'</strong></div>'
+                +'</div>'
+                +'<div style="margin-top:6px;height:4px;background:var(--border);border-radius:2px"><div style="height:4px;border-radius:2px;background:'+cor+';width:'+pct+'%"></div></div>'
+                +'</div>';
+            }).join('');
+          })()}
+        </div>
+      </div>
+    </div>
+    <!-- Seletor de mês para tabela -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <span style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Visualizar mês:</span>
+      ${(()=>{
+        const _meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+        const _hj=new Date();
+        const opts=[];
+        for(let i=5;i>=-1;i--){
+          const d=new Date(_hj.getFullYear(),_hj.getMonth()-i,1);
+          const m=d.getMonth()+1;const y=d.getFullYear();
+          const sel=(tabelaMesFiltro||_hj.getMonth()+1)===m&&(tabelaAnoFiltro||_hj.getFullYear())===y;
+          opts.push('<button onclick="tabelaMesFiltro='+m+';tabelaAnoFiltro='+y+';renderAlojamentos()" style="font-size:12px;padding:4px 12px;border-radius:20px;border:1px solid '+(sel?'var(--primary)':'var(--border)')+';background:'+(sel?'var(--primary)':'var(--surface)')+';color:'+(sel?'#fff':'var(--text-muted)')+';cursor:pointer;font-weight:'+(sel?'600':'400')+'">'+_meses[m-1]+'/'+y+'</button>');
+        }
+        return opts.join('');
+      })()}
     </div>
 
     ${tabelaAlojamentos}`;
@@ -3658,6 +3709,18 @@ function exportAlojamentosExcel(){
 }
 
 // Init
+function scrollToAlojamento(id){
+  // Se filtro ativo, limpar para mostrar todos
+  if(alojFiltroAtivo){alojFiltroAtivo=null;renderAlojamentos();}
+  setTimeout(()=>{
+    const el=document.getElementById('aloj-row-'+id);
+    if(el){
+      el.scrollIntoView({behavior:'smooth',block:'center'});
+      el.style.background='#FEF9C3';
+      setTimeout(()=>{el.style.background='';},2000);
+    }
+  },alojFiltroAtivo?200:50);
+}
 showPage('dashboard');
 </script>
 </body>
