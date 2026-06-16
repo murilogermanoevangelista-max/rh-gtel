@@ -3776,28 +3776,33 @@ async function importarHoras(file){
     const ws=wb.Sheets[wb.SheetNames[0]];
     const rows=utils.sheet_to_json(ws,{header:1,defval:''});
 
-    // Buscar data no cabeçalho — procurar em todas células das primeiras 8 linhas
+    // Buscar data do PERÍODO (não do título) — priorizar linha com "Período de:"
     let dataISO='';
-    for(let i=0;i<8;i++){
+    // 1ª prioridade: linha que contém "Período de:" ou "periodo"
+    for(let i=0;i<10;i++){
       const row=rows[i]||[];
       for(let j=0;j<row.length;j++){
-        const cell=String(row[j]||'');
-        // Formato "Período de: DD/MM/YYYY" ou "DD/MM/YYYY"
-        const m=cell.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-        if(m){dataISO=m[3]+'-'+m[2]+'-'+m[1];break;}
-        // Formato serial Excel
-        if(typeof row[j]==='number'&&row[j]>40000&&row[j]<50000){
-          const d=new Date(Math.round((row[j]-25569)*86400000));
-          dataISO=d.toISOString().slice(0,10);break;
+        const cell=String(row[j]||'').toLowerCase();
+        if(cell.includes('período de')||cell.includes('periodo de')){
+          const m=cell.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+          if(m){dataISO=m[3]+'-'+m[2]+'-'+m[1];break;}
         }
       }
       if(dataISO)break;
     }
-    // Também tentar pegar do título (linha 0, célula 0 ou 1)
+    // 2ª prioridade: coluna Data nas linhas de dados (serial Excel)
     if(!dataISO){
-      const titulo=String(rows[0]?.[0]||rows[0]?.[1]||'');
-      const m=titulo.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-      if(m)dataISO=m[3]+'-'+m[2]+'-'+m[1];
+      for(let i=5;i<rows.length;i++){
+        const row=rows[i]||[];
+        if(!row[0]||isNaN(Number(row[0])))continue;
+        for(let j=0;j<row.length;j++){
+          if(typeof row[j]==='number'&&row[j]>40000&&row[j]<55000){
+            const d=new Date(Math.round((row[j]-25569)*86400000));
+            dataISO=d.toISOString().slice(0,10);break;
+          }
+        }
+        if(dataISO)break;
+      }
     }
     if(!dataISO)dataISO=new Date().toISOString().slice(0,10);
     console.log('[importarHoras] dataISO detectada:',dataISO);
