@@ -3796,29 +3796,40 @@ async function importarEfetivo(file){
 }
 
 async function renderEfetivo(){
-  const datas=[...new Set(efetivoData.map(r=>r.data))].sort((a,b)=>b.localeCompare(a));
+  // Aplicar filtro de obra — cruzar cracha com funcionários da obra selecionada
+  const _crachasObra=globalObraFiltro
+    ?new Set(funcionarios.filter(f=>f.obra_id===globalObraFiltro).map(f=>String(f.matricula||'').trim()))
+    :null;
+  const efetivoFiltrado=_crachasObra
+    ?efetivoData.filter(r=>_crachasObra.has(String(r.cracha||'').trim()))
+    :efetivoData;
+
+  const datas=[...new Set(efetivoFiltrado.map(r=>r.data))].sort((a,b)=>b.localeCompare(a));
   if(!efetivoDataFiltro&&datas.length)efetivoDataFiltro=datas[0];
+  if(datas.length&&!datas.includes(efetivoDataFiltro))efetivoDataFiltro=datas[0];
   const ds=efetivoDataFiltro;
-  const reg=efetivoData.filter(r=>r.data===ds);
+  const reg=efetivoFiltrado.filter(r=>r.data===ds);
   const pres=reg.filter(r=>r.situacao==='PRESENTE');
   const ause=reg.filter(r=>r.situacao==='AUSENTE');
   const tot=reg.length,pct=tot?Math.round(pres.length/tot*100):0;
   const corPct=pct>=90?'var(--success)':pct>=70?'var(--warning)':'var(--danger)';
 
   const fm={};
-  efetivoData.filter(r=>r.situacao==='AUSENTE').forEach(r=>{
+  efetivoFiltrado.filter(r=>r.situacao==='AUSENTE').forEach(r=>{
     if(!fm[r.cracha])fm[r.cracha]={matricula:r.cracha,nome:r.nome,faltas:0};
     fm[r.cracha].faltas++;
   });
   const rank=Object.values(fm).sort((a,b)=>b.faltas-a.faltas).slice(0,30);
 
   const hm={};
-  efetivoData.forEach(r=>{
+  efetivoFiltrado.forEach(r=>{
     if(!hm[r.data])hm[r.data]={data:r.data,p:0,a:0};
     if(r.situacao==='PRESENTE')hm[r.data].p++;else hm[r.data].a++;
   });
   const hist=Object.values(hm).sort((a,b)=>b.data.localeCompare(a.data));
 
+  // Label da obra no header
+  const _obraLabel=globalObraFiltro?(obras.find(o=>o.id===globalObraFiltro)?.codigo||''):'Todas as obras';
   const dPills=datas.slice(0,30).map(d=>{
     const[y,m,dia]=d.split('-');const sel=d===ds;
     return '<button onclick="efetivoDataFiltro=\''+d+'\';renderEfetivo()" style="font-size:12px;padding:4px 10px;border-radius:20px;border:1px solid '+(sel?'var(--primary)':'var(--border)')+';background:'+(sel?'var(--primary)':'var(--surface)')+';color:'+(sel?'#fff':'var(--text-muted)')+';cursor:pointer;font-weight:'+(sel?'600':'400')+'">'+dia+'/'+m+'</button>';
@@ -3853,7 +3864,7 @@ async function renderEfetivo(){
 
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
-      <div><div class="page-title"><i class="ti ti-users-group"></i> Efetivo</div><div class="page-subtitle">Controle de presença diário</div></div>
+      <div><div class="page-title"><i class="ti ti-users-group"></i> Efetivo</div><div class="page-subtitle">Controle de presença diário${globalObraFiltro?' · <strong>'+_obraLabel+'</strong>':''}</div></div>
       <label class="btn btn-primary" style="cursor:pointer"><i class="ti ti-upload"></i> Importar Presentes<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importarEfetivo(this.files[0])"></label>
     </div>
     ${datas.length===0?'<div style="text-align:center;padding:60px;color:var(--text-muted)"><i class="ti ti-upload" style="font-size:48px;display:block;margin-bottom:16px;opacity:.3"></i><div style="font-size:16px;font-weight:500;margin-bottom:8px">Nenhum dado importado</div><div style="font-size:13px">Clique em "Importar Presentes" para começar</div></div>':`
