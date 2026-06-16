@@ -3776,15 +3776,31 @@ async function importarHoras(file){
     const ws=wb.Sheets[wb.SheetNames[0]];
     const rows=utils.sheet_to_json(ws,{header:1,defval:''});
 
-    // Buscar data no cabeçalho (linha 1 ou 4)
+    // Buscar data no cabeçalho — procurar em todas células das primeiras 8 linhas
     let dataISO='';
     for(let i=0;i<8;i++){
       const row=rows[i]||[];
-      const cell=String(row[0]||row[1]||'');
-      const m=cell.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-      if(m){dataISO=m[3]+'-'+m[2]+'-'+m[1];break;}
+      for(let j=0;j<row.length;j++){
+        const cell=String(row[j]||'');
+        // Formato "Período de: DD/MM/YYYY" ou "DD/MM/YYYY"
+        const m=cell.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+        if(m){dataISO=m[3]+'-'+m[2]+'-'+m[1];break;}
+        // Formato serial Excel
+        if(typeof row[j]==='number'&&row[j]>40000&&row[j]<50000){
+          const d=new Date(Math.round((row[j]-25569)*86400000));
+          dataISO=d.toISOString().slice(0,10);break;
+        }
+      }
+      if(dataISO)break;
+    }
+    // Também tentar pegar do título (linha 0, célula 0 ou 1)
+    if(!dataISO){
+      const titulo=String(rows[0]?.[0]||rows[0]?.[1]||'');
+      const m=titulo.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+      if(m)dataISO=m[3]+'-'+m[2]+'-'+m[1];
     }
     if(!dataISO)dataISO=new Date().toISOString().slice(0,10);
+    console.log('[importarHoras] dataISO detectada:',dataISO);
 
     // Encontrar linha de dados (tem matrícula numérica na col 0)
     function parseMins(v){
@@ -3988,7 +4004,7 @@ async function renderEfetivo(){
     const horasPerMap={};
     horasFiltradas.filter(h=>{
       if(horasFiltroPeriodo==='acumulado')return true;
-      if(horasFiltroPeriodo==='dia')return h.data===ds;
+      if(horasFiltroPeriodo==='dia')return h.data===(window._horasDiaSel||datasHoras[0]||ds);
       return h.data>=horasFiltroDe&&h.data<=horasFiltroAte;
     }).forEach(h=>{
       if(!horasPerMap[h.matricula])horasPerMap[h.matricula]={matricula:h.matricula,nome:h.nome,minsTrab:0,minsJust:0,minsATrabalhar:0,dias:0};
@@ -4000,8 +4016,15 @@ async function renderEfetivo(){
     const listaHoras=Object.values(horasPerMap).sort((a,b)=>b.minsTrab-a.minsTrab);
     const totalMinsTrab=listaHoras.reduce((s,h)=>s+h.minsTrab,0);
     const totalMinsJust=listaHoras.reduce((s,h)=>s+h.minsJust,0);
-    const periodoOpts=[{v:'acumulado',l:'Acumulado total'},{v:'dia',l:'Dia selecionado'},{v:'periodo',l:'Período personalizado'}];
-    const periodoHtml='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+periodoOpts.map(o=>'<button onclick="window._horasFiltroPeriodo=\''+o.v+'\';renderEfetivo()" style="font-size:12px;padding:4px 12px;border-radius:20px;border:1px solid '+(horasFiltroPeriodo===o.v?'var(--primary)':'var(--border)')+';background:'+(horasFiltroPeriodo===o.v?'var(--primary)':'var(--surface)')+';color:'+(horasFiltroPeriodo===o.v?'#fff':'var(--text-muted)')+';cursor:pointer">'+o.l+'</button>').join('')+(horasFiltroPeriodo==='periodo'?'<input type="date" value="'+horasFiltroDe+'" onchange="window._horasFiltroDe=this.value;renderEfetivo()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px"> até <input type="date" value="'+horasFiltroAte+'" onchange="window._horasFiltroAte=this.value;renderEfetivo()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">':'')+'</div>';
+    // Pill de data para horas
+    const datasHorasPills=datasHoras.slice(0,15).map(d=>{
+      const[y,m,dia]=d.split('-');
+      const sel=(horasFiltroPeriodo==='dia')&&(window._horasDiaSel||datasHoras[0])===d;
+      return '<button onclick="window._horasFiltroPeriodo=\'dia\';window._horasDiaSel=\''+d+'\';renderEfetivo()" style="font-size:11px;padding:3px 8px;border-radius:20px;border:1px solid '+(sel?'var(--primary)':'var(--border)')+';background:'+(sel?'var(--primary)':'var(--surface)')+';color:'+(sel?'#fff':'var(--text-muted)')+';cursor:pointer">'+dia+'/'+m+'</button>';
+    }).join('');
+
+    const periodoOpts=[{v:'acumulado',l:'Acumulado total'},{v:'dia',l:'Por dia'},{v:'periodo',l:'Período'}];
+    const periodoHtml='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">'+periodoOpts.map(o=>'<button onclick="window._horasFiltroPeriodo=\''+o.v+'\';renderEfetivo()" style="font-size:12px;padding:4px 12px;border-radius:20px;border:1px solid '+(horasFiltroPeriodo===o.v?'var(--primary)':'var(--border)')+';background:'+(horasFiltroPeriodo===o.v?'var(--primary)':'var(--surface)')+';color:'+(horasFiltroPeriodo===o.v?'#fff':'var(--text-muted)')+';cursor:pointer">'+o.l+'</button>').join('')+'</div>'+(horasFiltroPeriodo==='dia'?'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px"><span style="font-size:11px;color:var(--text-muted)">Data:</span>'+datasHorasPills+'</div>':'')+(horasFiltroPeriodo==='periodo'?'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><input type="date" value="'+horasFiltroDe+'" onchange="window._horasFiltroDe=this.value;renderEfetivo()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px"> <span style="font-size:12px">até</span> <input type="date" value="'+horasFiltroAte+'" onchange="window._horasFiltroAte=this.value;renderEfetivo()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px"></div>':'');
     const rowsHoras=listaHoras.map((h,i)=>{const saldo=h.minsTrab-h.minsATrabalhar;const cor=saldo>0?'var(--success)':saldo<0?'var(--danger)':'var(--text-muted)';return '<tr><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(i+1)+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+h.nome+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+h.matricula+'</td><td style="padding:8px 12px;font-size:13px;font-weight:600">'+fmtMins(h.minsTrab)+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+fmtMins(h.minsJust)+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+fmtMins(h.minsATrabalhar)+'</td><td style="padding:8px 12px;font-size:13px;font-weight:600;color:'+cor+'">'+(saldo>=0?'+':'')+fmtMins(Math.abs(saldo))+'</td><td style="padding:8px 12px;font-size:12px">'+h.dias+' dia(s)</td></tr>';}).join('');
     view=periodoHtml+'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px"><div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Total Trabalhadas</div><div style="font-size:24px;font-weight:700;color:var(--primary-dark)">'+fmtMins(totalMinsTrab)+'</div></div><div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Total Justificadas</div><div style="font-size:24px;font-weight:700;color:var(--warning)">'+fmtMins(totalMinsJust)+'</div></div></div>'+(listaHoras.length===0?'<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-clock-upload" style="font-size:40px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum dado. Use "Importar Horas".</div>':'<div class="table-container"><table><thead><tr><th>#</th><th>Funcionário</th><th>Matrícula</th><th>Trabalhadas</th><th>Justificadas</th><th>A Trabalhar</th><th>Saldo</th><th>Dias</th></tr></thead><tbody>'+rowsHoras+'</tbody></table></div>');
 
