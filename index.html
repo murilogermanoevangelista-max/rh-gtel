@@ -3128,8 +3128,6 @@ function renderAlojamentos(){
     } else if(alojFiltroAtivo==='contratos_vencendo'){
       const _hj=new Date();_hj.setHours(0,0,0,0);
       lista=lista.filter(a=>{const d=parseDate(a.data_termino);if(!d)return false;const diff=Math.floor((d-_hj)/86400000);return diff>=0&&diff<=60;});
-    } else if(alojFiltroAtivo==='contas_pendentes'){
-      lista=lista.filter(a=>alojamentosContas.some(c=>String(c.alojamento_id)===String(a.id)&&c.mes===_mes&&c.ano===_ano&&c.status==='pendente'));
     } else if(alojFiltroAtivo==='nao_lancadas'){
       const _obrig=['agua','energia','gas','condominio'];
       lista=lista.filter(a=>{
@@ -3145,7 +3143,6 @@ function renderAlojamentos(){
   const totalAluguel=alojsFiltrados.reduce((s,a)=>s+Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0),0);
   const totalCaucao=alojsFiltrados.reduce((s,a)=>s+Number(a.caucao||0),0);
   const totalContas=alojamentosContas.filter(c=>c.mes===hoje.getMonth()+1&&c.ano===hoje.getFullYear()).reduce((s,c)=>s+Number(c.valor||0),0);
-  const contasPend=alojamentosContas.filter(c=>c.status==='pendente'&&c.mes===hoje.getMonth()+1&&c.ano===hoje.getFullYear()).length;
 
   // Vencimentos próximos (60 dias)
   const vencProx=alojsFiltrados.filter(a=>{const d=parseDate(a.data_termino);return d&&Math.floor((d-hoje)/86400000)<=60&&Math.floor((d-hoje)/86400000)>=0;}).length;
@@ -3184,10 +3181,9 @@ function renderAlojamentos(){
         const contasPills=_contasObrigTab.map(t=>{
           if(isentas.has(t))return '<span title="'+_nomesTab[t]+' isento" style="font-size:18px;opacity:.25;cursor:default">'+_labTab[t]+'</span>';
           const lanc=tiposLanc.has(t);
-          const pend=lanc&&contasMes.filter(c=>c.tipo===t&&c.status==='pendente').length>0;
-          const tip=_nomesTab[t]+(lanc?(pend?' — Pendente':' — OK'):' — Não lançado');
+          const tip=_nomesTab[t]+(lanc?' — Lançado':' — Não lançado');
           const op=lanc?'1':'0.3';
-          const bg=lanc?(pend?'#FFF7ED':'var(--success-light)'):'#FEE2E2';
+          const bg=lanc?'var(--success-light)':'#FEE2E2';
           return '<span onclick="openModalContas(\"'+a.id+'\",'+_mesTabela+','+_anoTabela+',\"'+t+'\")" title="'+tip+'" style="font-size:15px;cursor:pointer;padding:3px 5px;border-radius:6px;background:'+bg+';opacity:'+op+'">'+_labTab[t]+'</span>';
         }).join('');
 
@@ -3205,7 +3201,7 @@ function renderAlojamentos(){
           +'<td style="padding:10px 14px"><div style="font-weight:500;font-size:13px">'+a.nome+'</div>'+(a.imobiliaria?'<div style="font-size:11px;color:var(--text-muted)">'+a.imobiliaria+'</div>':'')+'</td>'
           +'<td style="padding:10px 14px">'+vagasCell+'</td>'
           +'<td style="padding:10px 14px">'+termBadge+'</td>'
-          +'<td style="padding:10px 14px"><div style="font-size:13px;font-weight:500">R$ '+custoMes.toLocaleString('pt-BR',{minimumFractionDigits:2})+'</div>'+(pendMes?'<div style="font-size:11px;color:var(--warning)">'+pendMes+' pendente(s)</div>':'<div style="font-size:11px;color:var(--success)">Em dia</div>')+'</td>'
+          +'<td style="padding:10px 14px"><div style="font-size:13px;font-weight:500">R$ '+custoMes.toLocaleString('pt-BR',{minimumFractionDigits:2})+'</div></td>'
           +'<td style="padding:10px 14px" id="section-pendentes"><div style="display:flex;gap:4px;align-items:center">'+contasPills+'</div>'+(faltando.length?'<div style="font-size:10px;color:#DC2626;margin-top:2px">'+faltando.length+' não lançada(s)</div>':'<div style="font-size:10px;color:var(--success)">Completo</div>')+'</td>'
           +'<td style="padding:8px 14px;white-space:nowrap">'
           +'<button class="btn btn-sm" title="Moradores" onclick="openModalMoradores(&apos;'+ a.id +'&apos;)"><i class="ti ti-users"></i></button> '
@@ -3280,7 +3276,6 @@ function renderAlojamentos(){
 
     ${vencidos>0?`<div onclick="alojFiltroAtivo=alojFiltroAtivo==='contratos_vencidos'?null:'contratos_vencidos';renderAlojamentos()" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:var(--danger-light);border:1px solid #FCA5A5;color:#991B1B;cursor:pointer;transition:opacity .15s" ${alojFiltroAtivo==='contratos_vencidos'?'class="aloj-filtro-ativo"':''}><i class="ti ti-alert-triangle" style="font-size:18px"></i><strong>${vencidos} contrato(s) vencido(s) — providenciar renovação!</strong><i class="ti ti-${alojFiltroAtivo==='contratos_vencidos'?'x':'chevron-right'}" style="margin-left:auto"></i></div>`:''}
     ${vencProx>0?`<div onclick="alojFiltroAtivo=alojFiltroAtivo==='contratos_vencendo'?null:'contratos_vencendo';renderAlojamentos()" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:var(--warning-light);border:1px solid #FCD34D;color:#92400E;cursor:pointer" ${alojFiltroAtivo==='contratos_vencendo'?'class="aloj-filtro-ativo"':''}><i class="ti ti-clock" style="font-size:18px"></i><strong>${vencProx} contrato(s) vencendo em 60 dias</strong><i class="ti ti-${alojFiltroAtivo==='contratos_vencendo'?'x':'chevron-right'}" style="margin-left:auto"></i></div>`:''}
-    ${contasPend>0?`<div onclick="alojFiltroAtivo=alojFiltroAtivo==='contas_pendentes'?null:'contas_pendentes';renderAlojamentos()" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:#E6F1FB;border:1px solid #93C5FD;color:#185FA5;cursor:pointer" ${alojFiltroAtivo==='contas_pendentes'?'class="aloj-filtro-ativo"':''}><i class="ti ti-receipt" style="font-size:18px"></i><strong>${contasPend} conta(s) pendente(s) de envio este mês</strong><i class="ti ti-${alojFiltroAtivo==='contas_pendentes'?'x':'chevron-right'}" style="margin-left:auto"></i></div>`:''}
     ${bannerSemContas}
 
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px">
@@ -3520,9 +3515,8 @@ function openModalContas(alojId,filtroMes,filtroAno,tipoPresel){
   const contasHistoricoHtml=contasMesSel.length?contasMesSel.map(c=>{
     const tl=tiposLabel[c.tipo]||c.tipo;
     const vl='R$ '+(c.valor||0).toLocaleString('pt-BR',{minimumFractionDigits:2});
-    const st=c.status==='pendente'?'⏳ Pendente':c.status==='enviado'?'📤 Enviado':'✅ Pago';
     const mesLabel=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][c.mes-1]||'';
-    return '<div class="conta-row"><div style="display:flex;flex-direction:column;gap:1px"><span>'+tl+'</span><span style="font-size:11px;color:var(--text-muted)">'+mesLabel+'/'+c.ano+'</span></div><div style="display:flex;align-items:center;gap:8px"><span style="font-weight:500">'+vl+'</span><span class="conta-status '+c.status+'">'+st+'</span><button class="btn btn-sm" onclick="toggleContaStatus(\''+c.id+'\',\''+c.status+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-refresh"></i></button><button class="btn btn-sm btn-danger" onclick="deleteConta(\''+c.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-trash"></i></button></div></div>';
+    return '<div class="conta-row"><div style="display:flex;flex-direction:column;gap:1px"><span>'+tl+'</span><span style="font-size:11px;color:var(--text-muted)">'+mesLabel+'/'+c.ano+'</span></div><div style="display:flex;align-items:center;gap:8px"><span style="font-weight:500">'+vl+'</span><span style="font-size:11px;background:var(--success-light);color:var(--success);padding:2px 8px;border-radius:20px;font-weight:500">✅ Lançado</span><button class="btn btn-sm btn-danger" onclick="deleteConta(\''+c.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-trash"></i></button></div></div>';
   }).join(''):'<div style="text-align:center;padding:16px;color:var(--text-muted);font-size:13px">Nenhuma conta lançada neste mês</div>';
 
   const filtroMesOpts=mesesDisp.map(m=>'<option value="'+m.mes+'" '+(m.mes===mesAtualN&&m.ano===anoAtualN?'selected':'')+'>'+meses[m.mes-1]+'/'+m.ano+'</option>').join('');
@@ -3589,7 +3583,7 @@ async function saveConta(alojId){
   if(valorRaw===''||isNaN(valor)){showToast('Informe o valor','error');return;}
   if(!alojId||alojId==='undefined'||alojId==='null'){showToast('Erro: ID do alojamento inválido: '+alojId,'error');return;}
   if(!mes||!ano){showToast('Mês/ano inválido: mes='+mes+' ano='+ano,'error');return;}
-  const payload={alojamento_id:alojId,mes,ano,tipo,valor:Number(valor),status:'pendente'};
+  const payload={alojamento_id:alojId,mes,ano,tipo,valor:Number(valor)};
   console.log('[saveConta] payload=',JSON.stringify(payload));
   const res=await sb.from('alojamentos_contas').insert(payload);
   console.log('[saveConta] res=',res);
@@ -3605,12 +3599,7 @@ async function saveConta(alojId){
   renderAlojamentos();
 }
 
-async function toggleContaStatus(id,status,alojId,mes,ano){
-  const next=status==='pendente'?'enviado':status==='enviado'?'pago':'pendente';
-  const res=await sb.from('alojamentos_contas').update({status:next}).eq('id',id);
-  if(res.error){showToast('Erro: '+res.error.message,'error');return;}
-  await loadAlojamentos();closeModal('modal-contas');openModalContas(alojId,mes,ano);renderAlojamentos();
-}
+// toggleContaStatus removido — status único ao lançar
 
 async function deleteConta(id,alojId,mes,ano){
   if(!confirm('Excluir este lançamento?'))return;
