@@ -3754,7 +3754,8 @@ function scrollToAlojamento(id){
 let efetivoDataFiltro='';
 let efetivoViewMode='dia';
 let efetivoSituacaoFiltro='';
-let efetivoBusca=''; // '' | 'PRESENTE' | 'AUSENTE'
+let efetivoBusca='';
+let efetivoFuncaoExpandida=''; // '' | 'PRESENTE' | 'AUSENTE'
 
 async function loadEfetivo(){
   try{
@@ -4284,13 +4285,21 @@ async function renderEfetivo(){
     const resumoRows=listaFuncs.map(f=>{
       const p=f.total?Math.round(f.presentes/f.total*100):0;
       const cor=p>=90?'var(--success)':p>=50?'var(--warning)':'var(--danger)';
-      const tooltipPres=f.nomes_presentes.slice(0,5).join(', ')+(f.nomes_presentes.length>5?' +mais':'');
-      const tooltipAuse=f.nomes_ausentes.slice(0,5).join(', ')+(f.nomes_ausentes.length>5?' +mais':'');
-      return '<tr>'
-        +'<td style="padding:10px 14px;font-size:13px;font-weight:500">'+f.funcao+'</td>'
+      const isSemFuncao=f.funcao==='Sem função';
+      const isExpanded=efetivoFuncaoExpandida===f.funcao;
+      const rowBg=isSemFuncao?'background:#FFF7ED;':'';
+
+      // Linha principal clicável
+      let html='<tr onclick="efetivoFuncaoExpandida=efetivoFuncaoExpandida===\''+f.funcao+'\'?\'\':\''+f.funcao+'\';renderEfetivo()" style="cursor:pointer;'+rowBg+'border-bottom:1px solid var(--border)">'
+        +'<td style="padding:10px 14px;font-size:13px;font-weight:500">'
+          +'<div style="display:flex;align-items:center;gap:8px">'
+            +'<i class="ti ti-chevron-'+(isExpanded?'down':'right')+'" style="font-size:13px;color:var(--text-muted);flex-shrink:0"></i>'
+            +(isSemFuncao?'<span style="color:#B45309;font-weight:600">⚠️ '+f.funcao+'</span>':'<span>'+f.funcao+'</span>')
+          +'</div>'
+        +'</td>'
         +'<td style="padding:10px 14px;text-align:center;font-weight:600">'+f.total+'</td>'
-        +'<td style="padding:10px 14px;text-align:center" title="'+tooltipPres+'"><span style="color:var(--success);font-weight:600">'+f.presentes+'</span></td>'
-        +'<td style="padding:10px 14px;text-align:center" title="'+tooltipAuse+'"><span style="color:var(--danger);font-weight:600">'+f.ausentes+'</span></td>'
+        +'<td style="padding:10px 14px;text-align:center"><span style="color:var(--success);font-weight:600">'+f.presentes+'</span></td>'
+        +'<td style="padding:10px 14px;text-align:center"><span style="color:var(--danger);font-weight:600">'+f.ausentes+'</span></td>'
         +'<td style="padding:10px 14px">'
           +'<div style="display:flex;align-items:center;gap:8px">'
             +'<div style="flex:1;height:8px;background:var(--border);border-radius:4px">'
@@ -4300,6 +4309,34 @@ async function renderEfetivo(){
           +'</div>'
         +'</td>'
         +'</tr>';
+
+      // Expandido: lista de funcionários
+      if(isExpanded){
+        // Presentes
+        if(f.presentes>0){
+          html+='<tr><td colspan="5" style="padding:0 14px 0 40px;background:var(--success-light)">'
+            +'<div style="padding:8px 0;font-size:11px;font-weight:600;color:var(--success);text-transform:uppercase;letter-spacing:.5px">✓ Presentes ('+f.presentes+')</div>'
+            +'<div style="display:flex;flex-wrap:wrap;gap:4px;padding-bottom:8px">'
+            +f.nomes_presentes.map(n=>'<span style="font-size:12px;background:#fff;border:1px solid #BBF7D0;border-radius:20px;padding:2px 10px;color:var(--success)">'+n+'</span>').join('')
+            +'</div></td></tr>';
+        }
+        // Ausentes
+        if(f.ausentes>0){
+          html+='<tr><td colspan="5" style="padding:0 14px 0 40px;background:var(--danger-light)">'
+            +'<div style="padding:8px 0;font-size:11px;font-weight:600;color:var(--danger);text-transform:uppercase;letter-spacing:.5px">✗ Ausentes ('+f.ausentes+')</div>'
+            +'<div style="display:flex;flex-wrap:wrap;gap:4px;padding-bottom:8px">'
+            +f.nomes_ausentes.map(n=>{
+              // Encontrar matrícula para link para funcionários
+              const func=funcsBase.find(x=>(x.nome_completo||x.nome||'')===n);
+              const mat=func?func.matricula:'';
+              return '<span style="font-size:12px;background:#fff;border:1px solid #FCA5A5;border-radius:20px;padding:2px 10px;color:var(--danger)'+(isSemFuncao?';cursor:pointer" onclick="showPage(\'funcionarios\')':'"')+'">'+n+(mat?' ('+mat+')':'')+'</span>';
+            }).join('')
+            +'</div>'
+            +(isSemFuncao?'<div style="padding-bottom:8px"><button class="btn btn-sm" style="font-size:11px;border-color:#FCD34D;color:#92400E" onclick="showPage(\'funcionarios\')"><i class="ti ti-edit"></i> Corrigir função em Funcionários</button></div>':'')
+            +'</td></tr>';
+        }
+      }
+      return html;
     }).join('');
 
     const totalRow='<tr style="background:var(--bg);border-top:2px solid var(--border)">'
