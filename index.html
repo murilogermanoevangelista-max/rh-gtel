@@ -3951,6 +3951,8 @@ async function renderEfetivo(){
   const pres=reg.filter(r=>r.situacao==='PRESENTE').sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
   const ause=reg.filter(r=>r.situacao==='AUSENTE').sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
   const tot=reg.length,pct=tot?Math.round(pres.length/tot*100):0;
+  const corPct=pct>=90?'var(--success)':pct>=70?'var(--warning)':'var(--danger)';
+
   // ── View Horas ──────────────────────────────────────────────────────────
   if(efetivoViewMode==='horas'){
     // Acumulado por funcionário
@@ -4029,7 +4031,6 @@ async function renderEfetivo(){
         :'<div class="table-container"><table><thead><tr><th>#</th><th>Funcionário</th><th>Matrícula</th><th>Trabalhadas</th><th>Justificadas</th><th>A Trabalhar</th><th>Saldo</th><th>Dias</th></tr></thead><tbody>'+rowsHoras+'</tbody></table></div>');
   } else {
 
-  const corPct=pct>=90?'var(--success)':pct>=70?'var(--warning)':'var(--danger)';
 
   const fm={};
   efetivoFiltrado.filter(r=>r.situacao==='AUSENTE').forEach(r=>{
