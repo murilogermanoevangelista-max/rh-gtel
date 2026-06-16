@@ -278,7 +278,9 @@ const SUPABASE_KEY='sb_publishable_QlnJaa5xdUXePvXFV6QFwQ_AmMk639T';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
 let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[];
-let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'contas_pendentes' | null
+let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'nao_lancadas' | null
+let bannerNaoLancadasAberto=false;
+let bannerFiltroObra='';
 let globalObraFiltro=''; // filtro global de obra — propaga para todos os módulos
 
 function setGlobalObraFiltro(obraId){
@@ -416,7 +418,7 @@ async function showPage(page){
   else if(page==='experiencia')renderExperiencia();
   else if(page==='folgas')renderFolgas();
   else if(page==='ferias')renderFerias();
-  else if(page==='alojamentos'){alojFiltroAtivo=null;await loadAlojamentos();renderAlojamentos();}
+  else if(page==='alojamentos'){alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';await loadAlojamentos();renderAlojamentos();}
   else if(page==='usuarios')renderUsuarios();
   else if(page==='obras')renderObras();
   else if(page==='empresas')renderEmpresas();
@@ -3249,20 +3251,39 @@ function renderAlojamentos(){
   if(typeof window._bannerMes==='undefined'){window._bannerMes=_mesAtual;window._bannerAno=_anoAtual;}
   const _bmLabel=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][_mesAtual-1]+'/'+_anoAtual;
 
-  const bannerSemContas=_alojSemContas.length>0?`
-    <div style="background:#FFF7ED;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:8px;overflow:hidden">
-      <div onclick="alojFiltroAtivo=alojFiltroAtivo==='nao_lancadas'?null:'nao_lancadas';renderAlojamentos()" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#FFFBEB;border-bottom:1px solid #FCD34D;flex-wrap:wrap;cursor:pointer" ${alojFiltroAtivo==='nao_lancadas'?'class="aloj-filtro-ativo"':''}>
-        <i class="ti ti-alert-circle" style="font-size:18px;color:#B45309;flex-shrink:0"></i>
-        <strong style="color:#92400E;font-size:13px">${_alojSemContas.length} alojamento(s) com contas não lançadas em ${_bmLabel}</strong>
-        <span style="margin-left:auto;font-size:11px;color:#92400E;opacity:.7">${alojFiltroAtivo==='nao_lancadas'?'✕ Limpar filtro':'Clique para filtrar · Lançar para abrir direto'}</span>
-      </div>
-      <div style="padding:8px 14px;display:flex;flex-direction:column;gap:5px">
-        ${_alojSemContas.map(a=>{
-          const btnItems=a.faltando.map(t=>'<button class="btn btn-sm" style="font-size:11px;padding:2px 8px;border-color:#FCD34D;color:#92400E" onclick="openModalContas(\''+a.id+'\','+_mesAtual+','+_anoAtual+',\''+t+'\')">'+_contasObrigLabel[t]+'</button>').join('');
-          return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #FDE68A"><i class="ti ti-home" style="color:#B45309;flex-shrink:0;font-size:13px"></i><span style="font-weight:600;color:#92400E;min-width:180px;font-size:12px">'+a.nome+'</span><div style="display:flex;gap:4px;flex-wrap:wrap">'+btnItems+'</div></div>';
-        }).join('')}
-      </div>
-    </div>`:'';
+  // Agrupar por obra para o banner
+  const _obrasSemContas=[...new Set(_alojSemContas.map(a=>a.obra?.codigo?(a.obra.codigo+' — '+a.obra.nome):'Sem obra'))];
+  const _listaFiltrada=bannerFiltroObra?_alojSemContas.filter(a=>(a.obra?.codigo?(a.obra.codigo+' — '+a.obra.nome):'Sem obra')===bannerFiltroObra):_alojSemContas;
+
+  const bannerSemContas=_alojSemContas.length>0?(()=>{
+    const headerHtml='<div onclick="bannerNaoLancadasAberto=!bannerNaoLancadasAberto;renderAlojamentos()" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#FFFBEB;border-bottom:'+(bannerNaoLancadasAberto?'1px solid #FDE68A':'none')+';cursor:pointer;user-select:none">'
+      +'<i class="ti ti-alert-circle" style="font-size:18px;color:#B45309;flex-shrink:0"></i>'
+      +'<strong style="color:#92400E;font-size:13px">'+_alojSemContas.length+' alojamento(s) com contas não lançadas em '+_bmLabel+'</strong>'
+      +'<div style="margin-left:auto;display:flex;align-items:center;gap:6px">'
+      +'<span style="font-size:11px;color:#92400E;opacity:.6">'+(bannerNaoLancadasAberto?'fechar':'ver detalhes')+'</span>'
+      +'<i class="ti ti-chevron-'+(bannerNaoLancadasAberto?'up':'down')+'" style="color:#B45309;font-size:15px"></i>'
+      +'</div></div>';
+
+    if(!bannerNaoLancadasAberto)return '<div style="background:#FFF7ED;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:8px;overflow:hidden">'+headerHtml+'</div>';
+
+    const filtroObrasHtml='<div style="padding:8px 14px;border-bottom:1px solid #FDE68A;display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:#FFFBEB">'
+      +'<span style="font-size:11px;font-weight:600;color:#92400E;margin-right:4px">Obra:</span>'
+      +'<button onclick="event.stopPropagation();bannerFiltroObra=\'\';renderAlojamentos()" style="font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid '+(!bannerFiltroObra?'#B45309':'#FCD34D')+';background:'+(!bannerFiltroObra?'#B45309':'transparent')+';color:'+(!bannerFiltroObra?'#fff':'#92400E')+';cursor:pointer">Todas ('+_alojSemContas.length+')</button>'
+      +_obrasSemContas.map(o=>{
+        const cnt=_alojSemContas.filter(a=>(a.obra?.codigo?(a.obra.codigo+' — '+a.obra.nome):'Sem obra')===o).length;
+        const ativo=bannerFiltroObra===o;
+        return '<button onclick="event.stopPropagation();bannerFiltroObra=bannerFiltroObra===\''+o+'\'?\'\':\''+o+'\';renderAlojamentos()" style="font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid '+(ativo?'#B45309':'#FCD34D')+';background:'+(ativo?'#B45309':'transparent')+';color:'+(ativo?'#fff':'#92400E')+';cursor:pointer">'+(o.split(' — ')[0]||o)+' ('+cnt+')</button>';
+      }).join('')
+      +'</div>';
+
+    const linhas=_listaFiltrada.map(a=>{
+      const obraLabel=a.obra?.codigo||'—';
+      const btnItems=a.faltando.map(t=>'<button class="btn btn-sm" style="font-size:11px;padding:2px 8px;border-color:#FCD34D;color:#92400E" onclick="openModalContas(&apos;'+a.id+'&apos;,'+_mesAtual+','+_anoAtual+',&apos;'+t+'&apos;)">'+_contasObrigLabel[t]+'</button>').join('');
+      return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #FDE68A"><i class="ti ti-home" style="color:#B45309;flex-shrink:0;font-size:12px"></i><span style="font-size:11px;color:var(--text-muted);min-width:44px">'+obraLabel+'</span><span style="font-weight:600;color:#92400E;flex:1;font-size:12px">'+a.nome+'</span><div style="display:flex;gap:4px;flex-wrap:wrap">'+btnItems+'</div></div>';
+    }).join('');
+
+    return '<div style="background:#FFF7ED;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:8px;overflow:hidden">'+headerHtml+filtroObrasHtml+'<div style="padding:6px 14px;max-height:300px;overflow-y:auto">'+linhas+'</div></div>';
+  })():'';
 
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
