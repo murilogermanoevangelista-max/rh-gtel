@@ -3829,43 +3829,41 @@ async function renderEfetivo(){
   function normMat(v){return String(v||'').trim().replace(/^0+/,'');}
   
   // Filtro por obra: para presentes, cruzar crachá; para ausentes, recalcular da obra
+  // Determinar data selecionada ANTES de filtrar (necessário para gerar ausentes sintéticos)
+  const _todasDatas=[...new Set(efetivoData.map(r=>r.data))].sort((a,b)=>b.localeCompare(a));
+  if(!efetivoDataFiltro&&_todasDatas.length)efetivoDataFiltro=_todasDatas[0];
+  if(_todasDatas.length&&!_todasDatas.includes(efetivoDataFiltro))efetivoDataFiltro=_todasDatas[0];
+  const ds=efetivoDataFiltro;
+
   let efetivoFiltrado;
   if(globalObraFiltro){
     const funcsObra=funcionarios.filter(f=>f.obra_id===globalObraFiltro&&f.situacao!=='inativo');
     const crachasObra=new Set(funcsObra.map(f=>normMat(f.matricula)));
     // Presentes do dia desta obra
-    const presentesDia=efetivoData.filter(r=>r.situacao==='PRESENTE'&&crachasObra.has(normMat(r.cracha)));
+    const presentesDia=efetivoData.filter(r=>r.data===ds&&r.situacao==='PRESENTE'&&crachasObra.has(normMat(r.cracha)));
     const crachasPresentes=new Set(presentesDia.map(r=>normMat(r.cracha)));
-    // Ausentes = funcs da obra que não estão nos presentes do dia selecionado
-    const dataAtual=efetivoDataFiltro||new Date().toISOString().slice(0,10);
-    // Primeiro checar se há registros desta obra no banco para o dia
-    const registrosDia=efetivoData.filter(r=>r.data===dataAtual);
-    const temRegistrosDia=registrosDia.length>0;
-    let ausentesSinteticos=[];
-    if(temRegistrosDia){
-      // Há importação deste dia — gerar ausentes da obra que não aparecem
-      ausentesSinteticos=funcsObra
-        .filter(f=>!crachasPresentes.has(normMat(f.matricula)))
-        .map(f=>({
-          id:'_sint_'+f.id,
-          data:dataAtual,
-          cracha:String(f.matricula||'').trim(),
-          nome:(f.nome_completo||f.nome||'').toUpperCase(),
-          departamento:f.obra?.nome||'',
-          situacao:'AUSENTE',
-          horario_entrada:null,
-          marcacoes:null,
-        }));
-    }
+    // Ausentes sintéticos: funcs da obra não encontrados nos presentes do dia
+    const temImportacaoDia=efetivoData.some(r=>r.data===ds);
+    const ausentesSinteticos=temImportacaoDia
+      ?funcsObra
+          .filter(f=>!crachasPresentes.has(normMat(f.matricula)))
+          .map(f=>({
+            id:'_sint_'+f.id,
+            data:ds,
+            cracha:String(f.matricula||'').trim(),
+            nome:(f.nome_completo||f.nome||'').toUpperCase(),
+            departamento:f.obra?.nome||'',
+            situacao:'AUSENTE',
+            horario_entrada:null,
+            marcacoes:null,
+          }))
+      :[];
     efetivoFiltrado=[...presentesDia,...ausentesSinteticos];
   } else {
     efetivoFiltrado=efetivoData;
   }
 
-  const datas=[...new Set(efetivoFiltrado.map(r=>r.data))].sort((a,b)=>b.localeCompare(a));
-  if(!efetivoDataFiltro&&datas.length)efetivoDataFiltro=datas[0];
-  if(datas.length&&!datas.includes(efetivoDataFiltro))efetivoDataFiltro=datas[0];
-  const ds=efetivoDataFiltro;
+  const datas=globalObraFiltro?_todasDatas:[...new Set(efetivoFiltrado.map(r=>r.data))].sort((a,b)=>b.localeCompare(a));
   const reg=efetivoFiltrado.filter(r=>r.data===ds);
   const pres=reg.filter(r=>r.situacao==='PRESENTE').sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
   const ause=reg.filter(r=>r.situacao==='AUSENTE').sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
