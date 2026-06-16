@@ -422,7 +422,7 @@ async function showPage(page){
   else if(page==='folgas')renderFolgas();
   else if(page==='ferias')renderFerias();
   else if(page==='alojamentos'){alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';await loadAlojamentos();renderAlojamentos();}
-  else if(page==='efetivo'){await loadEfetivo();renderEfetivo();}
+  else if(page==='efetivo'){efetivoSituacaoFiltro='';await loadEfetivo();renderEfetivo();}
   else if(page==='usuarios')renderUsuarios();
   else if(page==='obras')renderObras();
   else if(page==='empresas')renderEmpresas();
@@ -3827,12 +3827,40 @@ async function renderEfetivo(){
   // Aplicar filtro de obra — cruzar cracha com funcionários da obra selecionada
   // Normalizar matrícula: remover zeros à esquerda para comparação
   function normMat(v){return String(v||'').trim().replace(/^0+/,'');}
-  const _crachasObra=globalObraFiltro
-    ?new Set(funcionarios.filter(f=>f.obra_id===globalObraFiltro).map(f=>normMat(f.matricula)))
-    :null;
-  const efetivoFiltrado=_crachasObra
-    ?efetivoData.filter(r=>_crachasObra.has(normMat(r.cracha)))
-    :efetivoData;
+  
+  // Filtro por obra: para presentes, cruzar crachá; para ausentes, recalcular da obra
+  let efetivoFiltrado;
+  if(globalObraFiltro){
+    const funcsObra=funcionarios.filter(f=>f.obra_id===globalObraFiltro&&f.situacao!=='inativo');
+    const crachasObra=new Set(funcsObra.map(f=>normMat(f.matricula)));
+    // Presentes do dia desta obra
+    const presentesDia=efetivoData.filter(r=>r.situacao==='PRESENTE'&&crachasObra.has(normMat(r.cracha)));
+    const crachasPresentes=new Set(presentesDia.map(r=>normMat(r.cracha)));
+    // Ausentes = funcs da obra que não estão nos presentes do dia selecionado
+    const dataAtual=efetivoDataFiltro||new Date().toISOString().slice(0,10);
+    // Primeiro checar se há registros desta obra no banco para o dia
+    const registrosDia=efetivoData.filter(r=>r.data===dataAtual);
+    const temRegistrosDia=registrosDia.length>0;
+    let ausentesSinteticos=[];
+    if(temRegistrosDia){
+      // Há importação deste dia — gerar ausentes da obra que não aparecem
+      ausentesSinteticos=funcsObra
+        .filter(f=>!crachasPresentes.has(normMat(f.matricula)))
+        .map(f=>({
+          id:'_sint_'+f.id,
+          data:dataAtual,
+          cracha:String(f.matricula||'').trim(),
+          nome:(f.nome_completo||f.nome||'').toUpperCase(),
+          departamento:f.obra?.nome||'',
+          situacao:'AUSENTE',
+          horario_entrada:null,
+          marcacoes:null,
+        }));
+    }
+    efetivoFiltrado=[...presentesDia,...ausentesSinteticos];
+  } else {
+    efetivoFiltrado=efetivoData;
+  }
 
   const datas=[...new Set(efetivoFiltrado.map(r=>r.data))].sort((a,b)=>b.localeCompare(a));
   if(!efetivoDataFiltro&&datas.length)efetivoDataFiltro=datas[0];
@@ -3862,7 +3890,7 @@ async function renderEfetivo(){
   const _obraLabel=globalObraFiltro?(obras.find(o=>o.id===globalObraFiltro)?.codigo||''):'Todas as obras';
   const dPills=datas.slice(0,30).map(d=>{
     const[y,m,dia]=d.split('-');const sel=d===ds;
-    return '<button onclick="efetivoDataFiltro=\''+d+'\';renderEfetivo()" style="font-size:12px;padding:4px 10px;border-radius:20px;border:1px solid '+(sel?'var(--primary)':'var(--border)')+';background:'+(sel?'var(--primary)':'var(--surface)')+';color:'+(sel?'#fff':'var(--text-muted)')+';cursor:pointer;font-weight:'+(sel?'600':'400')+'">'+dia+'/'+m+'</button>';
+    return '<button onclick="efetivoDataFiltro=\''+d+'\';efetivoSituacaoFiltro=\'\';renderEfetivo()" style="font-size:12px;padding:4px 10px;border-radius:20px;border:1px solid '+(sel?'var(--primary)':'var(--border)')+';background:'+(sel?'var(--primary)':'var(--surface)')+';color:'+(sel?'#fff':'var(--text-muted)')+';cursor:pointer;font-weight:'+(sel?'600':'400')+'">'+dia+'/'+m+'</button>';
   }).join('');
 
   const tabHtml=['dia','historico','ranking'].map(m=>{
