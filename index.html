@@ -3753,7 +3753,8 @@ function scrollToAlojamento(id){
 // ═══════════════════════════════════════════════════════════════════
 let efetivoDataFiltro='';
 let efetivoViewMode='dia';
-let efetivoSituacaoFiltro=''; // '' | 'PRESENTE' | 'AUSENTE'
+let efetivoSituacaoFiltro='';
+let efetivoBusca=''; // '' | 'PRESENTE' | 'AUSENTE'
 
 async function loadEfetivo(){
   try{
@@ -3998,6 +3999,25 @@ async function importarEfetivo(file){
   }catch(e){showToast('Erro ao importar: '+e.message,'error');}
 }
 
+function exportarEfetivoExcel(tipo){
+  // Coletar dados da tabela ativa
+  const tabela=document.querySelector('#main-content table');
+  if(!tabela){showToast('Nenhum dado para exportar','error');return;}
+  const rows=[...tabela.querySelectorAll('tr')];
+  const data=rows.map(r=>[...r.querySelectorAll('th,td')].map(c=>c.innerText.trim()));
+  // Montar CSV
+  const csv=data.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const bom='\uFEFF';
+  const blob=new Blob([bom+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const hoje=new Date().toISOString().slice(0,10);
+  a.href=url;a.download='efetivo_'+tipo+'_'+hoje+'.csv';
+  document.body.appendChild(a);a.click();
+  document.body.removeChild(a);URL.revokeObjectURL(url);
+  showToast('Exportado com sucesso!');
+}
+
 function editarMarcacaoClick(btn){
   const id=btn.dataset.id;
   const val=btn.dataset.val||'';
@@ -4006,13 +4026,40 @@ function editarMarcacaoClick(btn){
 async function editarMarcacao(id,valorAtual,btn){
   const novo=prompt('Horário de marcação (ex: 07:23):',valorAtual||'');
   if(novo===null)return;
-  const{error}=await sb.from('efetivo_presenca').update({marcacoes:novo||null}).eq('id',id);
+
+  // Ausente sintético — não existe no banco ainda, precisa criar
+  if(String(id).startsWith('_sint_')){
+    const funcId=id.replace('_sint_','');
+    const func=funcionarios.find(f=>f.id===funcId);
+    if(!func){showToast('Funcionário não encontrado','error');return;}
+    const ds=efetivoDataFiltro||new Date().toISOString().slice(0,10);
+    const{data,error}=await sb.from('efetivo_presenca').insert({
+      data:ds,
+      cracha:String(func.matricula||'').trim(),
+      nome:(func.nome_completo||func.nome||'').toUpperCase(),
+      departamento:func.obra?.nome||'',
+      situacao:'PRESENTE',
+      horario_entrada:null,
+      marcacoes:novo||null,
+    }).select().single();
+    if(error){showToast('Erro: '+error.message,'error');return;}
+    // Atualizar local e recarregar
+    showToast('Marcação lançada! Funcionário marcado como presente.');
+    await loadEfetivo();renderEfetivo();
+    return;
+  }
+
+  // Registro existente — atualizar
+  const{error}=await sb.from('efetivo_presenca').update({
+    marcacoes:novo||null,
+    situacao:'PRESENTE',
+  }).eq('id',id);
   if(error){showToast('Erro: '+error.message,'error');return;}
-  document.getElementById('marc-'+id).textContent=novo||'—';
+  const el=document.getElementById('marc-'+id);
+  if(el)el.textContent=novo||'—';
   showToast('Marcação atualizada!');
-  // Atualizar local
   const rec=efetivoData.find(r=>r.id===id);
-  if(rec)rec.marcacoes=novo||null;
+  if(rec){rec.marcacoes=novo||null;rec.situacao='PRESENTE';}
 }
 
 async function renderEfetivo(){
@@ -4057,8 +4104,10 @@ async function renderEfetivo(){
   // ── Dados do dia ────────────────────────────────────────────────────────
   const datas=globalObraFiltro?_todasDatas:[...new Set(efetivoFiltrado.map(r=>r.data))].sort((a,b)=>b.localeCompare(a));
   const reg=efetivoFiltrado.filter(r=>r.data===ds);
-  const pres=reg.filter(r=>r.situacao==='PRESENTE').sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
-  const ause=reg.filter(r=>r.situacao==='AUSENTE').sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
+  function getFuncao(cracha){const f=funcionarios.find(x=>normMat(x.matricula)===normMat(cracha));return f&&f.funcao&&f.funcao.nome?f.funcao.nome:'—';}
+  const _busca=efetivoBusca.toLowerCase().trim();
+  const pres=reg.filter(r=>r.situacao==='PRESENTE'&&(!_busca||(r.nome||'').toLowerCase().includes(_busca)||(r.cracha||'').includes(_busca))).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
+  const ause=reg.filter(r=>r.situacao==='AUSENTE'&&(!_busca||(r.nome||'').toLowerCase().includes(_busca)||(r.cracha||'').includes(_busca))).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
   const tot=reg.length,pct=tot?Math.round(pres.length/tot*100):0;
   const corPct=pct>=90?'var(--success)':pct>=70?'var(--warning)':'var(--danger)';
   const _obraLabel=globalObraFiltro?(obras.find(o=>o.id===globalObraFiltro)?.codigo||''):'Todas as obras';
@@ -4070,8 +4119,8 @@ async function renderEfetivo(){
   }).join('');
 
   // ── Tabs ────────────────────────────────────────────────────────────────
-  const tabHtml=['dia','historico','ranking','horas','he'].map(m=>{
-    const lbl={dia:'📋 Dia',historico:'📅 Histórico',ranking:'🏆 Ranking Faltas',horas:'⏱️ Horas',he:'⚡ H. Extras'}[m];
+  const tabHtml=['dia','historico','ranking','horas','he','resumo'].map(m=>{
+    const lbl={dia:'📋 Dia',historico:'📅 Histórico',ranking:'🏆 Ranking Faltas',horas:'⏱️ Horas',he:'⚡ H. Extras',resumo:'📊 Resumo'}[m];
     const sel=efetivoViewMode===m;
     return '<button onclick="efetivoViewMode=\''+m+'\';renderEfetivo()" style="padding:6px 16px;border-radius:6px;border:1px solid '+(sel?'var(--primary)':'var(--border)')+';background:'+(sel?'var(--primary)':'transparent')+';color:'+(sel?'#fff':'var(--text)')+';cursor:pointer;font-size:13px;font-weight:'+(sel?'600':'400')+'">'+lbl+'</button>';
   }).join('');
@@ -4129,7 +4178,7 @@ async function renderEfetivo(){
     const periodoOpts=[{v:'acumulado',l:'Acumulado total'},{v:'dia',l:'Por dia'},{v:'periodo',l:'Período'}];
     const periodoHtml='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">'+periodoOpts.map(o=>'<button onclick="window._horasFiltroPeriodo=\''+o.v+'\';renderEfetivo()" style="font-size:12px;padding:4px 12px;border-radius:20px;border:1px solid '+(horasFiltroPeriodo===o.v?'var(--primary)':'var(--border)')+';background:'+(horasFiltroPeriodo===o.v?'var(--primary)':'var(--surface)')+';color:'+(horasFiltroPeriodo===o.v?'#fff':'var(--text-muted)')+';cursor:pointer">'+o.l+'</button>').join('')+'</div>'+(horasFiltroPeriodo==='dia'?'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px"><span style="font-size:11px;color:var(--text-muted)">Data:</span>'+datasHorasPills+'</div>':'')+(horasFiltroPeriodo==='periodo'?'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><input type="date" value="'+horasFiltroDe+'" onchange="window._horasFiltroDe=this.value;renderEfetivo()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px"> <span style="font-size:12px">até</span> <input type="date" value="'+horasFiltroAte+'" onchange="window._horasFiltroAte=this.value;renderEfetivo()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px"></div>':'');
     const rowsHoras=listaHoras.map((h,i)=>{const saldo=h.minsTrab-h.minsATrabalhar;const cor=saldo>0?'var(--success)':saldo<0?'var(--danger)':'var(--text-muted)';return '<tr><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(i+1)+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+h.nome+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+h.matricula+'</td><td style="padding:8px 12px;font-size:13px;font-weight:600">'+fmtMins(h.minsTrab)+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+fmtMins(h.minsJust)+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+fmtMins(h.minsATrabalhar)+'</td><td style="padding:8px 12px;font-size:13px;font-weight:600;color:'+cor+'">'+(saldo>=0?'+':'')+fmtMins(Math.abs(saldo))+'</td><td style="padding:8px 12px;font-size:12px">'+h.dias+' dia(s)</td></tr>';}).join('');
-    view=periodoHtml+'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px"><div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Total Trabalhadas</div><div style="font-size:24px;font-weight:700;color:var(--primary-dark)">'+fmtMins(totalMinsTrab)+'</div></div><div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Total Justificadas</div><div style="font-size:24px;font-weight:700;color:var(--warning)">'+fmtMins(totalMinsJust)+'</div></div></div>'+(listaHoras.length===0?'<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-clock-upload" style="font-size:40px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum dado. Use "Importar Horas".</div>':'<div class="table-container"><table><thead><tr><th>#</th><th>Funcionário</th><th>Matrícula</th><th>Trabalhadas</th><th>Justificadas</th><th>A Trabalhar</th><th>Saldo</th><th>Dias</th></tr></thead><tbody>'+rowsHoras+'</tbody></table></div>');
+    view=periodoHtml+'<button onclick="exportarEfetivoExcel(\'horas\')" class="btn btn-sm" style="margin-bottom:8px"><i class="ti ti-file-type-csv"></i> Exportar CSV</button>'+'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px"><div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Total Trabalhadas</div><div style="font-size:24px;font-weight:700;color:var(--primary-dark)">'+fmtMins(totalMinsTrab)+'</div></div><div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Total Justificadas</div><div style="font-size:24px;font-weight:700;color:var(--warning)">'+fmtMins(totalMinsJust)+'</div></div></div>'+(listaHoras.length===0?'<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-clock-upload" style="font-size:40px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum dado. Use "Importar Horas".</div>':'<div class="table-container"><table><thead><tr><th>#</th><th>Funcionário</th><th>Matrícula</th><th>Trabalhadas</th><th>Justificadas</th><th>A Trabalhar</th><th>Saldo</th><th>Dias</th></tr></thead><tbody>'+rowsHoras+'</tbody></table></div>');
 
   } else if(efetivoViewMode==='he'){
     // ── View Horas Extras ──────────────────────────────────────────────────
@@ -4172,7 +4221,7 @@ async function renderEfetivo(){
     tiposHE.forEach(t=>{totalPorTipo[t]=hePerFiltradas.filter(h=>h.tipo===t).reduce((s,h)=>s+(h.mins||0),0);});
     const totalGeralHE=hePerFiltradas.reduce((s,h)=>s+(h.mins||0),0);
 
-    const listaHE=Object.values(heMap).sort((a,b)=>b.total-a.total);
+    const listaHE=Object.values(heMap).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
 
     const heRows=listaHE.map((f,i)=>{
       const tiposCols=tiposHE.map(t=>'<td style="padding:8px 12px;font-size:12px;text-align:center">'+(f.tipos[t]?'<span style="font-weight:600;color:var(--warning)">'+fmtMins(f.tipos[t])+'</span>':'—')+'</td>').join('');
@@ -4193,7 +4242,7 @@ async function renderEfetivo(){
 
     const heThead='<tr><th>#</th><th>Funcionário</th><th>Matrícula</th>'+tiposHE.map(t=>'<th style="text-align:center">'+t+'</th>').join('')+'<th>Total H.E.</th></tr>';
 
-    view=hePeriodoHtml+(listaHE.length===0
+    view=hePeriodoHtml+'<button onclick="exportarEfetivoExcel(\'he\')" class="btn btn-sm" style="margin-bottom:8px"><i class="ti ti-file-type-csv"></i> Exportar CSV</button>'+(listaHE.length===0
       ?'<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-bolt" style="font-size:40px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum dado. Use "Importar H.E.".</div>'
       :'<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:16px;display:flex;gap:24px;flex-wrap:wrap">'
         +tiposHE.map(t=>'<div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">'+t+'</div><div style="font-size:20px;font-weight:700;color:var(--warning)">'+fmtMins(totalPorTipo[t])+'</div></div>').join('')
@@ -4201,22 +4250,85 @@ async function renderEfetivo(){
         +'</div>'
         +'<div class="table-container"><table><thead>'+heThead+'</thead><tbody>'+heRows+totalRow+'</tbody></table></div>');
 
+  } else if(efetivoViewMode==='resumo'){
+    // ── Resumo por Função ──────────────────────────────────────────────────
+    // Cruzar presentes/ausentes com cadastro para saber a função
+    const funcMap={};
+
+    // Pegar todos funcionários ativos da obra (ou todos)
+    const funcsBase=globalObraFiltro
+      ?funcionarios.filter(f=>f.obra_id===globalObraFiltro&&f.situacao!=='inativo')
+      :funcionarios.filter(f=>f.situacao!=='inativo');
+
+    const crachasPresentes=new Set(pres.map(r=>normMat(r.cracha)));
+
+    funcsBase.forEach(f=>{
+      const funcNome=f.funcao?.nome||'Sem função';
+      if(!funcMap[funcNome])funcMap[funcNome]={funcao:funcNome,total:0,presentes:0,ausentes:0,nomes_presentes:[],nomes_ausentes:[]};
+      funcMap[funcNome].total++;
+      if(crachasPresentes.has(normMat(f.matricula))){
+        funcMap[funcNome].presentes++;
+        funcMap[funcNome].nomes_presentes.push(f.nome_completo||f.nome||'');
+      } else {
+        funcMap[funcNome].ausentes++;
+        funcMap[funcNome].nomes_ausentes.push(f.nome_completo||f.nome||'');
+      }
+    });
+
+    const listaFuncs=Object.values(funcMap).sort((a,b)=>b.total-a.total);
+    const totGeral=funcsBase.length;
+    const presGeral=pres.length;
+    const auseGeral=totGeral-presGeral;
+    const pctGeral=totGeral?Math.round(presGeral/totGeral*100):0;
+
+    const resumoRows=listaFuncs.map(f=>{
+      const p=f.total?Math.round(f.presentes/f.total*100):0;
+      const cor=p>=90?'var(--success)':p>=50?'var(--warning)':'var(--danger)';
+      const tooltipPres=f.nomes_presentes.slice(0,5).join(', ')+(f.nomes_presentes.length>5?' +mais':'');
+      const tooltipAuse=f.nomes_ausentes.slice(0,5).join(', ')+(f.nomes_ausentes.length>5?' +mais':'');
+      return '<tr>'
+        +'<td style="padding:10px 14px;font-size:13px;font-weight:500">'+f.funcao+'</td>'
+        +'<td style="padding:10px 14px;text-align:center;font-weight:600">'+f.total+'</td>'
+        +'<td style="padding:10px 14px;text-align:center" title="'+tooltipPres+'"><span style="color:var(--success);font-weight:600">'+f.presentes+'</span></td>'
+        +'<td style="padding:10px 14px;text-align:center" title="'+tooltipAuse+'"><span style="color:var(--danger);font-weight:600">'+f.ausentes+'</span></td>'
+        +'<td style="padding:10px 14px">'
+          +'<div style="display:flex;align-items:center;gap:8px">'
+            +'<div style="flex:1;height:8px;background:var(--border);border-radius:4px">'
+              +'<div style="height:8px;border-radius:4px;background:'+cor+';width:'+p+'%"></div>'
+            +'</div>'
+            +'<span style="font-size:12px;font-weight:600;color:'+cor+';min-width:36px">'+p+'%</span>'
+          +'</div>'
+        +'</td>'
+        +'</tr>';
+    }).join('');
+
+    const totalRow='<tr style="background:var(--bg);border-top:2px solid var(--border)">'
+      +'<td style="padding:10px 14px;font-weight:700">TOTAL</td>'
+      +'<td style="padding:10px 14px;text-align:center;font-weight:700">'+totGeral+'</td>'
+      +'<td style="padding:10px 14px;text-align:center;font-weight:700;color:var(--success)">'+presGeral+'</td>'
+      +'<td style="padding:10px 14px;text-align:center;font-weight:700;color:var(--danger)">'+auseGeral+'</td>'
+      +'<td style="padding:10px 14px"><div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:8px;background:var(--border);border-radius:4px"><div style="height:8px;border-radius:4px;background:'+corPct+';width:'+pctGeral+'%"></div></div><span style="font-size:12px;font-weight:700;color:'+corPct+'">'+pctGeral+'%</span></div></td>'
+      +'</tr>';
+
+    view='<button onclick="exportarEfetivoExcel(\'resumo\')" class="btn btn-sm" style="margin-bottom:8px"><i class="ti ti-file-type-csv"></i> Exportar CSV</button>'+'<div class="table-container"><table><thead><tr><th>Função</th><th style="text-align:center">Total</th><th style="text-align:center">Presentes</th><th style="text-align:center">Ausentes</th><th style="min-width:200px">% Presença</th></tr></thead><tbody>'+resumoRows+totalRow+'</tbody></table></div>';
+
   } else if(efetivoViewMode==='dia'){
     const _presShow=efetivoSituacaoFiltro===''||efetivoSituacaoFiltro==='PRESENTE';
     const _auseShow=efetivoSituacaoFiltro===''||efetivoSituacaoFiltro==='AUSENTE';
-    const th='<tr><th>Crachá</th><th>Funcionário</th><th>Departamento</th><th>Marcações</th></tr>';
-    const rP=pres.map(r=>'<tr><td style="padding:8px 12px;font-size:12px">'+r.cracha+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(r.departamento||'—')+'</td><td style="padding:8px 12px"><div style="display:flex;align-items:center;gap:6px"><span id="marc-'+r.id+'" style="font-size:12px;min-width:48px">'+(r.marcacoes||'—')+'</span><button onclick="editarMarcacaoClick(this)" data-id="'+r.id+'" data-val="'+(r.marcacoes||'')+'" style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;color:var(--text-muted)" title="Editar"><i class="ti ti-edit" style="font-size:11px"></i></button></div></td></tr>').join('');
-    const rA=ause.map(r=>'<tr><td style="padding:8px 12px;font-size:12px">'+r.cracha+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(r.departamento||'—')+'</td><td style="padding:8px 12px;color:var(--text-muted);font-size:12px">—</td></tr>').join('');
-    view=(_presShow?'<div class="table-container" style="margin-bottom:12px"><div style="padding:10px 16px;background:var(--success-light);border-bottom:1px solid var(--border)"><span style="font-size:12px;font-weight:600;color:var(--success)">✓ PRESENTES — '+pres.length+'</span></div><table><thead>'+th+'</thead><tbody>'+(rP||'<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum</td></tr>')+'</tbody></table></div>':'')
+    const th='<tr><th>Crachá</th><th>Funcionário</th><th>Função</th><th>Departamento</th><th>Marcações</th></tr>';
+    const rP=pres.map(r=>'<tr><td style="padding:8px 12px;font-size:12px">'+r.cracha+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+'</td><td style="padding:8px 12px;font-size:12px;color:var(--primary-dark)">'+getFuncao(r.cracha)+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(r.departamento||'—')+'</td><td style="padding:8px 12px"><div style="display:flex;align-items:center;gap:6px"><span id="marc-'+r.id+'" style="font-size:12px;min-width:48px">'+(r.marcacoes||'—')+'</span><button onclick="editarMarcacaoClick(this)" data-id="'+r.id+'" data-val="'+(r.marcacoes||'')+'" style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;color:var(--text-muted)" title="Editar"><i class="ti ti-edit" style="font-size:11px"></i></button></div></td></tr>').join('');
+    const rA=ause.map(r=>'<tr><td style="padding:8px 12px;font-size:12px">'+r.cracha+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+'</td><td style="padding:8px 12px;font-size:12px;color:var(--primary-dark)">'+getFuncao(r.cracha)+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(r.departamento||'—')+'</td><td style="padding:8px 12px"><div style="display:flex;align-items:center;gap:6px"><span id="marc-'+r.id+'" style="font-size:12px;min-width:48px;color:var(--text-muted)">'+(r.marcacoes||'—')+'</span><button onclick="editarMarcacaoClick(this)" data-id="'+r.id+'" data-val="'+(r.marcacoes||'')+'" style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;color:var(--text-muted)" title="Lançar marcação"><i class="ti ti-edit" style="font-size:11px"></i></button></div></td></tr>').join('');
+    const _btnExport='<button onclick="exportarEfetivoExcel(\''+efetivoViewMode+'\')" class="btn btn-sm" style="margin-bottom:8px"><i class="ti ti-file-type-csv"></i> Exportar CSV</button>';
+    view=_btnExport+(_presShow?'<div class="table-container" style="margin-bottom:12px"><div style="padding:10px 16px;background:var(--success-light);border-bottom:1px solid var(--border)"><span style="font-size:12px;font-weight:600;color:var(--success)">✓ PRESENTES — '+pres.length+'</span></div><table><thead>'+th+'</thead><tbody>'+(rP||'<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum</td></tr>')+'</tbody></table></div>':'')
       +(_auseShow?'<div class="table-container"><div style="padding:10px 16px;background:var(--danger-light);border-bottom:1px solid var(--border)"><span style="font-size:12px;font-weight:600;color:var(--danger)">✗ AUSENTES — '+ause.length+'</span></div><table><thead>'+th+'</thead><tbody>'+(rA||'<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum</td></tr>')+'</tbody></table></div>':'');
 
   } else if(efetivoViewMode==='historico'){
     const rows=hist.map(h=>{const[y,m,d]=h.data.split('-');const t=h.p+h.a;const p=t?Math.round(h.p/t*100):0;const cor=p>=90?'var(--success)':p>=70?'var(--warning)':'var(--danger)';return '<tr onclick="efetivoDataFiltro=\''+h.data+'\';efetivoViewMode=\'dia\';renderEfetivo()" style="cursor:pointer"><td style="padding:10px 14px;font-weight:500">'+d+'/'+m+'/'+y+'</td><td style="padding:10px 14px;color:var(--success);font-weight:600">'+h.p+'</td><td style="padding:10px 14px;color:var(--danger);font-weight:600">'+h.a+'</td><td style="padding:10px 14px">'+t+'</td><td style="padding:10px 14px"><div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:6px;background:var(--border);border-radius:3px"><div style="height:6px;border-radius:3px;background:'+cor+';width:'+p+'%"></div></div><span style="font-size:12px;font-weight:600;color:'+cor+';min-width:36px">'+p+'%</span></div></td><td style="padding:10px 14px;color:var(--text-muted);font-size:12px">→</td></tr>';}).join('');
-    view='<div class="table-container"><table><thead><tr><th>Data</th><th>Presentes</th><th>Ausentes</th><th>Total</th><th style="min-width:200px">% Presença</th><th></th></tr></thead><tbody>'+(rows||'<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--text-muted)">Sem histórico</td></tr>')+'</tbody></table></div>';
+    view='<button onclick="exportarEfetivoExcel(\'historico\')" class="btn btn-sm" style="margin-bottom:8px"><i class="ti ti-file-type-csv"></i> Exportar CSV</button>'+'<div class="table-container"><table><thead><tr><th>Data</th><th>Presentes</th><th>Ausentes</th><th>Total</th><th style="min-width:200px">% Presença</th><th></th></tr></thead><tbody>'+(rows||'<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--text-muted)">Sem histórico</td></tr>')+'</tbody></table></div>';
 
   } else if(efetivoViewMode==='ranking'){
     const rows=rank.map((r,i)=>{const cor=i===0?'var(--danger)':i===1?'var(--warning)':i===2?'#B45309':'var(--text-muted)';return '<tr><td style="padding:10px 14px;font-weight:700;color:'+cor+'">#'+(i+1)+'</td><td style="padding:10px 14px;font-size:12px">'+r.matricula+'</td><td style="padding:10px 14px;font-weight:500">'+r.nome+'</td><td style="padding:10px 14px"><span style="font-size:20px;font-weight:700;color:'+(r.faltas>=10?'var(--danger)':r.faltas>=5?'var(--warning)':'var(--text)')+'">'+r.faltas+'</span><span style="font-size:11px;color:var(--text-muted);margin-left:4px">falta(s)</span></td></tr>';}).join('');
-    view='<div class="table-container"><table><thead><tr><th>#</th><th>Crachá</th><th>Funcionário</th><th>Faltas</th></tr></thead><tbody>'+(rows||'<tr><td colspan="4" style="text-align:center;padding:30px;color:var(--text-muted)">Nenhum dado</td></tr>')+'</tbody></table></div>';
+    view='<button onclick="exportarEfetivoExcel(\'ranking\')" class="btn btn-sm" style="margin-bottom:8px"><i class="ti ti-file-type-csv"></i> Exportar CSV</button>'+'<div class="table-container"><table><thead><tr><th>#</th><th>Crachá</th><th>Funcionário</th><th>Faltas</th></tr></thead><tbody>'+(rows||'<tr><td colspan="4" style="text-align:center;padding:30px;color:var(--text-muted)">Nenhum dado</td></tr>')+'</tbody></table></div>';
   }
 
   document.getElementById('main-content').innerHTML=`
@@ -4236,7 +4348,13 @@ async function renderEfetivo(){
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">% Presença</div><div style="font-size:28px;font-weight:700;color:${corPct}">${pct}%</div><div style="margin-top:8px;height:6px;background:var(--border);border-radius:3px"><div style="height:6px;border-radius:3px;background:${corPct};width:${pct}%"></div></div></div>
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Data:</span>${dPills}</div>
-    <div style="display:flex;gap:8px;margin-bottom:16px">${tabHtml}</div>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${tabHtml}</div>
+      <div style="margin-left:auto;position:relative">
+        <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:14px"></i>
+        <input type="text" placeholder="Buscar funcionário..." value="${efetivoBusca}" oninput="efetivoBusca=this.value;renderEfetivo()" style="padding:6px 12px 6px 32px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;width:220px;background:var(--surface)">
+      </div>
+    </div>
     ${view}`}
   `;
 }
