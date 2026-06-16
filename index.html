@@ -502,9 +502,8 @@ async function renderDashboard(){
   feriasProgramadas.sort((a,b)=>a.diffIni-b.diffIni);
   const feriasProgEmCurso=feriasProgramadas.filter(f=>f.emCurso).length;
 
-  // Alertas de contas obrigatórias de alojamentos
+  // Alertas de alojamentos
   const contasObrigatorias=['agua','energia','gas','condominio'];
-  const contasLabel={agua:'Água',energia:'Energia',gas:'Gás',condominio:'Condomínio'};
   const mesAtual=hoje.getMonth()+1;const anoAtual=hoje.getFullYear();
   const alojSemContas=alojamentos.filter(a=>{
     const contasMesAloj=alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===mesAtual&&c.ano===anoAtual);
@@ -512,9 +511,13 @@ async function renderDashboard(){
     return contasObrigatorias.some(t=>!tiposLancados.has(t)&&!a['isenta_'+t]);
   });
   const qtdAlojSemContas=alojSemContas.length;
+  const alojContratosVencidos=alojamentos.filter(a=>{const d=parseDate(a.data_termino);return d&&d<hoje;});
+  const alojContratosVencendo=alojamentos.filter(a=>{const d=parseDate(a.data_termino);if(!d)return false;const diff=Math.floor((d-hoje)/86400000);return diff>=0&&diff<=60;});
 
   const alertas=[];
-  if(qtdAlojSemContas>0)alertas.push({tipo:'warning',icon:'ti-home-exclamation',msg:`${qtdAlojSemContas} alojamento(s) com contas obrigatórias não lançadas este mês`,link:'alojamentos'});
+  if(alojContratosVencidos.length>0)alertas.push({tipo:'danger',icon:'ti-home-off',msg:`${alojContratosVencidos.length} contrato(s) de alojamento vencido(s) — renovar urgente`,link:'alojamentos'});
+  if(qtdAlojSemContas>0)alertas.push({tipo:'warning',icon:'ti-home-exclamation',msg:`${qtdAlojSemContas} alojamento(s) com contas não lançadas este mês`,link:'alojamentos'});
+  if(alojContratosVencendo.length>0)alertas.push({tipo:'warning',icon:'ti-home-clock',msg:`${alojContratosVencendo.length} contrato(s) de alojamento vencendo em 60 dias`,link:'alojamentos'});
   if(expVencidas>0)alertas.push({tipo:'danger',icon:'ti-certificate',msg:`${expVencidas} experiência(s) vencida(s)`,link:'experiencia'});
   if(folgasVencidas>0)alertas.push({tipo:'danger',icon:'ti-beach',msg:`${folgasVencidas} folga(s) vencida(s)`,link:'folgas'});
   if(feriasVencidas>0)alertas.push({tipo:'danger',icon:'ti-palm-tree',msg:`${feriasVencidas} período(s) de férias vencido(s) — ação legal necessária`,link:'ferias'});
@@ -1965,33 +1968,40 @@ async function renderFerias(){
   // Critério: periodo_aquisitivo_fim do período mais urgente (não programado)
   // Quem vence primeiro aparece no topo
   function getDataUrgente(arr){
-    // Pegar o periodo_aquisitivo_fim do 2º período se não programado (risco real)
-    // senão do 1º período não programado
-    const per2=arr[1];
-    const per1=arr[0];
-    if(per2&&!per2.programado){
-      return parseDate(per2.periodo_aquisitivo_fim)||new Date(9999,0);
-    }
-    if(per1&&!per1.programado){
-      return parseDate(per1.periodo_aquisitivo_fim)||new Date(9999,0);
-    }
-    // Todos programados — ordenar por fim do último período
-    return parseDate(arr[arr.length-1]?.periodo_aquisitivo_fim)||new Date(9999,0);
+    // Usar o limMax mais próximo entre os não programados
+    const naoProg=arr.filter(f=>!f.programado);
+    if(naoProg.length===0) return parseDate(arr[arr.length-1]?.periodo_aquisitivo_fim)||new Date(9999,0);
+    const datas=naoProg.map(p=>parseDate(p.dt_limite_maxima)||new Date(9999,0));
+    return datas.reduce((min,d)=>d<min?d:min, new Date(9999,0));
   }
   function getUrgenciaNivel(arr){
-    // 0=vencido, 1=prazo vencido(passou progAte), 2=vermelho(<=60d), 3=amarelo(<=90d), 4=ok
-    const per2=arr[1];
-    const fimPer=per2&&!per2.programado?parseDate(per2.periodo_aquisitivo_fim):
-                 arr[0]&&!arr[0].programado?parseDate(arr[0].periodo_aquisitivo_fim):null;
-    if(!fimPer) return 4;
-    const progAte=new Date(fimPer.getTime()-60*86400000);
-    const diasFim=Math.floor((fimPer-hoje)/86400000);
-    const diasProg=Math.floor((progAte-hoje)/86400000);
-    if(diasFim<0) return 0;       // férias vencidas
-    if(diasProg<0) return 1;      // prazo para programar vencido
-    if(diasProg<=60) return 2;    // vermelho
-    if(diasProg<=90) return 3;    // amarelo
-    return 4;
+    // 0=limMax vencido (férias não gozadas — multa legal)
+    // 1=prazo p/ programar vencido
+    // 2=vencendo <=60d no limMax
+    // 3=vencendo <=90d no limMax
+    // 4=ok/programado
+    // Verificar período mais urgente (não programado, limMax mais antigo)
+    const naoProg=arr.filter(f=>!f.programado);
+    if(naoProg.length===0) return 4;
+    // Pegar o limMax mais urgente entre os não programados
+    let melhorNivel=4, melhorData=new Date(9999,0);
+    naoProg.forEach(p=>{
+      const limMax=parseDate(p.dt_limite_maxima);
+      if(!limMax) return;
+      const diasLim=Math.floor((limMax-hoje)/86400000);
+      const fimPer=parseDate(p.periodo_aquisitivo_fim);
+      const progAte=fimPer?new Date(fimPer.getTime()-60*86400000):null;
+      const diasProg=progAte?Math.floor((progAte-hoje)/86400000):null;
+      let nivel=4;
+      if(diasLim<0) nivel=0;
+      else if(diasProg!==null&&diasProg<0) nivel=1;
+      else if(diasLim<=60) nivel=2;
+      else if(diasLim<=90) nivel=3;
+      if(nivel<melhorNivel||(nivel===melhorNivel&&limMax<melhorData)){
+        melhorNivel=nivel; melhorData=limMax;
+      }
+    });
+    return melhorNivel;
   }
   listaFuncs.sort((a,b)=>{
     const na=getUrgenciaNivel(a), nb=getUrgenciaNivel(b);
@@ -2103,10 +2113,12 @@ async function renderFerias(){
     }
 
     // Retorno padrão para 1º período
+    // Se há 2º período ou é só status (em curso/vencido), não mostrar data
+    var mostrarData = !temProx && !jaVenc;
     return '<td style="padding:8px 12px">'
       + '<div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;white-space:nowrap">' + perAqui + '</div>'
       + '<div style="background:' + bg + ';border:' + border + ';border-radius:6px;padding:6px 10px;display:inline-block;min-width:140px">'
-        + '<div style="font-size:13px;font-weight:700;color:' + cor + '">' + icon + (formatDate(limMax)||'—') + '</div>'
+        + (mostrarData ? '<div style="font-size:13px;font-weight:700;color:' + cor + '">' + icon + (formatDate(limMax)||'—') + '</div>' : '')
         + (corpo ? '<div style="margin-top:4px;line-height:1.5">' + corpo + '</div>' : '')
       + '</div>'
     + '</td>';
