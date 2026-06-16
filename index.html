@@ -3745,6 +3745,7 @@ function scrollToAlojamento(id){
 // ═══════════════════════════════════════════════════════════════════
 let efetivoDataFiltro='';
 let efetivoViewMode='dia';
+let efetivoSituacaoFiltro=''; // '' | 'PRESENTE' | 'AUSENTE'
 
 async function loadEfetivo(){
   const{data}=await sb.from('efetivo_presenca').select('*').order('data',{ascending:false});
@@ -3772,15 +3773,25 @@ async function importarEfetivo(file){
       return String(v).slice(0,10);
     }
     const dataISO=xlDate(dr[0][3])||new Date().toISOString().slice(0,10);
-    const presSet=new Set(dr.map(r=>String(r[0]).trim()));
     const regs=[];
+    // Ler diretamente da planilha — col 6 = Situações (PRESENTE/AUSENTE)
     dr.forEach(r=>{
       const mat=String(r[0]||'').trim(),nome=String(r[1]||'').trim();
       if(!mat||!nome)return;
-      regs.push({data:dataISO,cracha:mat,nome:nome.toUpperCase(),departamento:String(r[2]||'').trim(),situacao:'PRESENTE',horario_entrada:String(r[4]||'')||null,marcacoes:String(r[5]||'')==='-'?null:String(r[5]||'')||null});
-    });
-    funcionarios.filter(f=>f.situacao!=='inativo'&&!presSet.has(String(f.matricula||'').trim())).forEach(f=>{
-      regs.push({data:dataISO,cracha:String(f.matricula||'').trim(),nome:(f.nome_completo||f.nome||'').toUpperCase(),departamento:f.obra?.nome||'',situacao:'AUSENTE',horario_entrada:null,marcacoes:null});
+      const situacaoRaw=String(r[6]||'').trim().toUpperCase();
+      const marcacoes=String(r[5]||'').trim();
+      // Se tem marcação de ponto = PRESENTE, independente da coluna situação
+      const temMarcacao=marcacoes&&marcacoes!=='-'&&marcacoes!=='';
+      const situacao=temMarcacao?'PRESENTE':(situacaoRaw==='AUSENTE'?'AUSENTE':(situacaoRaw==='PRESENTE'?'PRESENTE':'AUSENTE'));
+      regs.push({
+        data:dataISO,
+        cracha:mat,
+        nome:nome.toUpperCase(),
+        departamento:String(r[2]||'').trim(),
+        situacao,
+        horario_entrada:String(r[4]||'')||null,
+        marcacoes:temMarcacao?marcacoes:null,
+      });
     });
     if(!regs.length){showToast('Nenhum registro para importar','error');return;}
     await sb.from('efetivo_presenca').delete().eq('data',dataISO);
@@ -3809,8 +3820,8 @@ async function renderEfetivo(){
   if(datas.length&&!datas.includes(efetivoDataFiltro))efetivoDataFiltro=datas[0];
   const ds=efetivoDataFiltro;
   const reg=efetivoFiltrado.filter(r=>r.data===ds);
-  const pres=reg.filter(r=>r.situacao==='PRESENTE');
-  const ause=reg.filter(r=>r.situacao==='AUSENTE');
+  const pres=reg.filter(r=>r.situacao==='PRESENTE').sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const ause=reg.filter(r=>r.situacao==='AUSENTE').sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
   const tot=reg.length,pct=tot?Math.round(pres.length/tot*100):0;
   const corPct=pct>=90?'var(--success)':pct>=70?'var(--warning)':'var(--danger)';
 
@@ -3843,10 +3854,14 @@ async function renderEfetivo(){
 
   let view='';
   if(efetivoViewMode==='dia'){
+    // Aplicar filtro de situação se ativo
+    const _presShow=efetivoSituacaoFiltro===''||efetivoSituacaoFiltro==='PRESENTE';
+    const _auseShow=efetivoSituacaoFiltro===''||efetivoSituacaoFiltro==='AUSENTE';
     const th='<tr><th>Crachá</th><th>Funcionário</th><th>Departamento</th><th>H. Entrada</th><th>Marcações</th></tr>';
     const rP=pres.map(r=>'<tr><td style="padding:8px 12px;font-size:12px">'+r.cracha+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(r.departamento||'—')+'</td><td style="padding:8px 12px;font-size:12px">'+(r.horario_entrada||'—')+'</td><td style="padding:8px 12px;font-size:12px">'+(r.marcacoes||'—')+'</td></tr>').join('');
     const rA=ause.map(r=>'<tr><td style="padding:8px 12px;font-size:12px">'+r.cracha+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(r.departamento||'—')+'</td><td colspan="2" style="padding:8px 12px;color:var(--text-muted);font-size:12px">—</td></tr>').join('');
-    view='<div class="table-container" style="margin-bottom:12px"><div style="padding:10px 16px;background:var(--success-light);border-bottom:1px solid var(--border)"><span style="font-size:12px;font-weight:600;color:var(--success)">✓ PRESENTES — '+pres.length+'</span></div><table><thead>'+th+'</thead><tbody>'+(rP||'<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum</td></tr>')+'</tbody></table></div><div class="table-container"><div style="padding:10px 16px;background:var(--danger-light);border-bottom:1px solid var(--border)"><span style="font-size:12px;font-weight:600;color:var(--danger)">✗ AUSENTES — '+ause.length+'</span></div><table><thead>'+th+'</thead><tbody>'+(rA||'<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum</td></tr>')+'</tbody></table></div>';
+    view=(_presShow?'<div class="table-container" style="margin-bottom:12px"><div style="padding:10px 16px;background:var(--success-light);border-bottom:1px solid var(--border)"><span style="font-size:12px;font-weight:600;color:var(--success)">✓ PRESENTES — '+pres.length+'</span></div><table><thead>'+th+'</thead><tbody>'+(rP||'<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum</td></tr>')+'</tbody></table></div>':'')
+      +(_auseShow?'<div class="table-container"><div style="padding:10px 16px;background:var(--danger-light);border-bottom:1px solid var(--border)"><span style="font-size:12px;font-weight:600;color:var(--danger)">✗ AUSENTES — '+ause.length+'</span></div><table><thead>'+th+'</thead><tbody>'+(rA||'<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum</td></tr>')+'</tbody></table></div>':'');
   } else if(efetivoViewMode==='historico'){
     const rows=hist.map(h=>{
       const[y,m,d]=h.data.split('-');const t=h.p+h.a;const p=t?Math.round(h.p/t*100):0;
@@ -3870,8 +3885,8 @@ async function renderEfetivo(){
     ${datas.length===0?'<div style="text-align:center;padding:60px;color:var(--text-muted)"><i class="ti ti-upload" style="font-size:48px;display:block;margin-bottom:16px;opacity:.3"></i><div style="font-size:16px;font-weight:500;margin-bottom:8px">Nenhum dado importado</div><div style="font-size:13px">Clique em "Importar Presentes" para começar</div></div>':`
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Total Efetivo</div><div style="font-size:28px;font-weight:700">${tot}</div><div style="font-size:11px;color:var(--text-muted);margin-top:4px">${ds?ds.split('-').reverse().join('/'):'—'}</div></div>
-      <div style="background:var(--success-light);border:1px solid #BBF7D0;border-radius:var(--radius);padding:16px"><div style="font-size:11px;color:var(--success);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Presentes</div><div style="font-size:28px;font-weight:700;color:var(--success)">${pres.length}</div><div style="font-size:11px;color:var(--success);margin-top:4px">${pct}% do efetivo</div></div>
-      <div style="background:var(--danger-light);border:1px solid #FCA5A5;border-radius:var(--radius);padding:16px"><div style="font-size:11px;color:var(--danger);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Ausentes</div><div style="font-size:28px;font-weight:700;color:var(--danger)">${ause.length}</div><div style="font-size:11px;color:var(--danger);margin-top:4px">${100-pct}% do efetivo</div></div>
+      <div onclick="efetivoSituacaoFiltro=efetivoSituacaoFiltro==='PRESENTE'?'':'PRESENTE';efetivoViewMode='dia';renderEfetivo()" style="background:var(--success-light);border:2px solid ${efetivoSituacaoFiltro==='PRESENTE'?'var(--success)':'#BBF7D0'};border-radius:var(--radius);padding:16px;cursor:pointer"><div style="font-size:11px;color:var(--success);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">✓ Presentes ${efetivoSituacaoFiltro==='PRESENTE'?'· Filtrado':''}</div><div style="font-size:28px;font-weight:700;color:var(--success)">${pres.length}</div><div style="font-size:11px;color:var(--success);margin-top:4px">${pct}% do efetivo</div></div>
+      <div onclick="efetivoSituacaoFiltro=efetivoSituacaoFiltro==='AUSENTE'?'':'AUSENTE';efetivoViewMode='dia';renderEfetivo()" style="background:var(--danger-light);border:2px solid ${efetivoSituacaoFiltro==='AUSENTE'?'var(--danger)':'#FCA5A5'};border-radius:var(--radius);padding:16px;cursor:pointer"><div style="font-size:11px;color:var(--danger);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">✗ Ausentes ${efetivoSituacaoFiltro==='AUSENTE'?'· Filtrado':''}</div><div style="font-size:28px;font-weight:700;color:var(--danger)">${ause.length}</div><div style="font-size:11px;color:var(--danger);margin-top:4px">${100-pct}% do efetivo</div></div>
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">% Presença</div><div style="font-size:28px;font-weight:700;color:${corPct}">${pct}%</div><div style="margin-top:8px;height:6px;background:var(--border);border-radius:3px"><div style="height:6px;border-radius:3px;background:${corPct};width:${pct}%"></div></div></div>
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Data:</span>${dPills}</div>
