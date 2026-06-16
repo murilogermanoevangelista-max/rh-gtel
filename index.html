@@ -1938,8 +1938,8 @@ async function renderFerias(){
   // Status por funcionário para ordenação/filtro
   // Status sempre pelo período mais antigo não programado (1º vence antes → gera multa)
   function getPeriodoUrgente(arr){
-    // Retorna o registro não programado mais antigo (o que vence primeiro)
-    return arr.find(f=>!f.programado)||null;
+    // Retorna o período pendente (não gozado) mais antigo
+    return arr.find(p=>ePendente(p))||null;
   }
   function getStatus(arr){
     const p=getPeriodoUrgente(arr);if(!p)return'ok';
@@ -1956,7 +1956,7 @@ async function renderFerias(){
     return(f.funcionario?.nome_completo||'').toLowerCase().includes(feriasBusca.toLowerCase())||(f.matricula||'').includes(feriasBusca);
   });
   if(feriasFiltro==='programado')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>f.programado));
-  if(feriasFiltro==='naoprog')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>!f.programado));
+  if(feriasFiltro==='naoprog')listaFuncs=listaFuncs.filter(arr=>arr.some(p=>ePendente(p)));
   if(feriasFiltro==='vencidas')listaFuncs=listaFuncs.filter(arr=>{const p=getPeriodoUrgente(arr);if(!p)return false;const l=parseDate(p.dt_limite_maxima);return l&&l<hoje;});
   if(feriasFiltro==='vencendo60')listaFuncs=listaFuncs.filter(arr=>{const p=getPeriodoUrgente(arr);if(!p)return false;const l=parseDate(p.dt_limite_maxima);if(!l)return false;const d=Math.floor((l-hoje)/86400000);return d>=0&&d<=60;});
   if(feriasFiltro==='per1vencida')listaFuncs=listaFuncs.filter(arr=>{const p=arr[0];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);return l&&l<hoje;});
@@ -1968,24 +1968,28 @@ async function renderFerias(){
   // Critério: periodo_aquisitivo_fim do período mais urgente (não programado)
   // Quem vence primeiro aparece no topo
   function getDataUrgente(arr){
-    // Usar o limMax mais próximo entre os não programados
-    const naoProg=arr.filter(f=>!f.programado);
-    if(naoProg.length===0) return parseDate(arr[arr.length-1]?.periodo_aquisitivo_fim)||new Date(9999,0);
-    const datas=naoProg.map(p=>parseDate(p.dt_limite_maxima)||new Date(9999,0));
+    const pendentes=arr.filter(p=>ePendente(p));
+    if(pendentes.length===0) return parseDate(arr[arr.length-1]?.periodo_aquisitivo_fim)||new Date(9999,0);
+    const datas=pendentes.map(p=>parseDate(p.dt_limite_maxima)||new Date(9999,0));
     return datas.reduce((min,d)=>d<min?d:min, new Date(9999,0));
+  }
+  // Período "pendente" = não gozado ainda
+  // programado mas data_inicio no futuro = agendado mas não saiu = AINDA pendente
+  function ePendente(p){
+    if(!p.programado) return true;
+    const ini=parseDate(p.data_inicio_programada);
+    return !ini || ini > hoje; // se início futuro, ainda não gozou
   }
   function getUrgenciaNivel(arr){
     // 0=limMax vencido (férias não gozadas — multa legal)
     // 1=prazo p/ programar vencido
     // 2=vencendo <=60d no limMax
     // 3=vencendo <=90d no limMax
-    // 4=ok/programado
-    // Verificar período mais urgente (não programado, limMax mais antigo)
-    const naoProg=arr.filter(f=>!f.programado);
-    if(naoProg.length===0) return 4;
-    // Pegar o limMax mais urgente entre os não programados
+    // 4=em curso agora ou gozado
+    const pendentes=arr.filter(p=>ePendente(p));
+    if(pendentes.length===0) return 4;
     let melhorNivel=4, melhorData=new Date(9999,0);
-    naoProg.forEach(p=>{
+    pendentes.forEach(p=>{
       const limMax=parseDate(p.dt_limite_maxima);
       if(!limMax) return;
       const diasLim=Math.floor((limMax-hoje)/86400000);
