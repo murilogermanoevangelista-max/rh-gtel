@@ -3963,6 +3963,19 @@ async function renderEfetivo(){
   const tot=reg.length,pct=tot?Math.round(pres.length/tot*100):0;
   const corPct=pct>=90?'var(--success)':pct>=70?'var(--warning)':'var(--danger)';
 
+  // Label da obra no header
+  const _obraLabel=globalObraFiltro?(obras.find(o=>o.id===globalObraFiltro)?.codigo||''):'Todas as obras';
+  const dPills=datas.slice(0,30).map(d=>{
+    const[y,m,dia]=d.split('-');const sel=d===ds;
+    return '<button onclick="efetivoDataFiltro=\''+d+'\';efetivoSituacaoFiltro=\'\';renderEfetivo()" style="font-size:12px;padding:4px 10px;border-radius:20px;border:1px solid '+(sel?'var(--primary)':'var(--border)')+';background:'+(sel?'var(--primary)':'var(--surface)')+';color:'+(sel?'#fff':'var(--text-muted)')+';cursor:pointer;font-weight:'+(sel?'600':'400')+'">'+dia+'/'+m+'</button>';
+  }).join('');
+
+  const tabHtml=['dia','historico','ranking','horas'].map(m=>{
+    const lbl={dia:'📋 Dia',historico:'📅 Histórico',ranking:'🏆 Ranking Faltas',horas:'⏱️ Horas'}[m];
+    const sel=efetivoViewMode===m;
+    return '<button onclick="efetivoViewMode=\''+m+'\';renderEfetivo()" style="padding:6px 16px;border-radius:6px;border:1px solid '+(sel?'var(--primary)':'var(--border)')+';background:'+(sel?'var(--primary)':'transparent')+';color:'+(sel?'#fff':'var(--text)')+';cursor:pointer;font-size:13px;font-weight:'+(sel?'600':'400')+'">'+lbl+'</button>';
+  }).join('');
+
   // ── View Horas ──────────────────────────────────────────────────────────
   if(efetivoViewMode==='horas'){
     // Acumulado por funcionário
@@ -4055,19 +4068,6 @@ async function renderEfetivo(){
     if(r.situacao==='PRESENTE')hm[r.data].p++;else hm[r.data].a++;
   });
   const hist=Object.values(hm).sort((a,b)=>b.data.localeCompare(a.data));
-
-  // Label da obra no header
-  const _obraLabel=globalObraFiltro?(obras.find(o=>o.id===globalObraFiltro)?.codigo||''):'Todas as obras';
-  const dPills=datas.slice(0,30).map(d=>{
-    const[y,m,dia]=d.split('-');const sel=d===ds;
-    return '<button onclick="efetivoDataFiltro=\''+d+'\';efetivoSituacaoFiltro=\'\';renderEfetivo()" style="font-size:12px;padding:4px 10px;border-radius:20px;border:1px solid '+(sel?'var(--primary)':'var(--border)')+';background:'+(sel?'var(--primary)':'var(--surface)')+';color:'+(sel?'#fff':'var(--text-muted)')+';cursor:pointer;font-weight:'+(sel?'600':'400')+'">'+dia+'/'+m+'</button>';
-  }).join('');
-
-  const tabHtml=['dia','historico','ranking','horas'].map(m=>{
-    const lbl={dia:'📋 Dia',historico:'📅 Histórico',ranking:'🏆 Ranking Faltas',horas:'⏱️ Horas'}[m];
-    const sel=efetivoViewMode===m;
-    return '<button onclick="efetivoViewMode=\''+m+'\';renderEfetivo()" style="padding:6px 16px;border-radius:6px;border:1px solid '+(sel?'var(--primary)':'var(--border)')+';background:'+(sel?'var(--primary)':'transparent')+';color:'+(sel?'#fff':'var(--text)')+';cursor:pointer;font-size:13px;font-weight:'+(sel?'600':'400')+'">'+lbl+'</button>';
-  }).join('');
 
   let view='';
   if(efetivoViewMode==='dia'){
