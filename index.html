@@ -4052,9 +4052,9 @@ async function renderEfetivo(){
       +'</div>'
       +(listaHoras.length===0?'<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-clock-upload" style="font-size:40px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum dado de horas. Use "Importar Horas".</div>'
         :'<div class="table-container"><table><thead><tr><th>#</th><th>Funcionário</th><th>Matrícula</th><th>Trabalhadas</th><th>Justificadas</th><th>A Trabalhar</th><th>Saldo</th><th>Dias</th></tr></thead><tbody>'+rowsHoras+'</tbody></table></div>');
-  } else {
+  } // fim bloco horas
 
-
+  // Ranking e histórico (usados nas views dia/historico/ranking)
   const fm={};
   efetivoFiltrado.filter(r=>r.situacao==='AUSENTE').forEach(r=>{
     if(!fm[r.cracha])fm[r.cracha]={matricula:r.cracha,nome:r.nome,faltas:0};
@@ -4070,6 +4070,7 @@ async function renderEfetivo(){
   const hist=Object.values(hm).sort((a,b)=>b.data.localeCompare(a.data));
 
   let view='';
+  if(efetivoViewMode!=='horas'){
   if(efetivoViewMode==='dia'){
     // Aplicar filtro de situação se ativo
     const _presShow=efetivoSituacaoFiltro===''||efetivoSituacaoFiltro==='PRESENTE';
@@ -4110,7 +4111,7 @@ async function renderEfetivo(){
     view='<div class="table-container"><table><thead><tr><th>#</th><th>Crachá</th><th>Funcionário</th><th>Faltas</th></tr></thead><tbody>'+(rows||'<tr><td colspan="4" style="text-align:center;padding:30px;color:var(--text-muted)">Nenhum dado</td></tr>')+'</tbody></table></div>';
   }
 
-  } // fim do else não-horas
+  } // fim if não-horas
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div><div class="page-title"><i class="ti ti-users-group"></i> Efetivo</div><div class="page-subtitle">Controle de presença diário${globalObraFiltro?' · <strong>'+_obraLabel+'</strong>':''}</div></div>
