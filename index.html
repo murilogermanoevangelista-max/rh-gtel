@@ -383,7 +383,7 @@ async function loadFerias(){
 async function loadAlojamentos(){
   const [a,c]=await Promise.all([
     sb.from('alojamentos').select('*,obra:obras(nome,codigo)').order('nome'),
-    sb.from('alojamentos_contas').select('*').order('ano desc,mes desc'),
+    sb.from('alojamentos_contas').select('*').order('ano',{ascending:false}).order('mes',{ascending:false}),
   ]);
   alojamentos=a.data||[];alojamentosContas=c.data||[];
 }
@@ -3488,7 +3488,7 @@ function openModalContas(alojId,filtroMes,filtroAno,tipoPresel){
     const tl=tiposLabel[c.tipo]||c.tipo;
     const vl='R$ '+(c.valor||0).toLocaleString('pt-BR',{minimumFractionDigits:2});
     const st=c.status==='pendente'?'⏳ Pendente':c.status==='enviado'?'📤 Enviado':'✅ Pago';
-    return '<div class="conta-row"><span>'+tl+'</span><div style="display:flex;align-items:center;gap:8px"><span style="font-weight:500">'+vl+'</span><span class="conta-status '+c.status+'">'+st+'</span><button class="btn btn-sm" onclick="toggleContaStatus(\''+c.id+'\',\''+c.status+'\',\''+alojId+'\')"><i class="ti ti-refresh"></i></button><button class="btn btn-sm btn-danger" onclick="deleteConta(\''+c.id+'\',\''+alojId+'\')"><i class="ti ti-trash"></i></button></div></div>';
+    return '<div class="conta-row"><span>'+tl+'</span><div style="display:flex;align-items:center;gap:8px"><span style="font-weight:500">'+vl+'</span><span class="conta-status '+c.status+'">'+st+'</span><button class="btn btn-sm" onclick="toggleContaStatus(\''+c.id+'\',\''+c.status+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-refresh"></i></button><button class="btn btn-sm btn-danger" onclick="deleteConta(\''+c.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-trash"></i></button></div></div>';
   }).join(''):'<div style="text-align:center;padding:16px;color:var(--text-muted);font-size:13px">Nenhuma conta lançada neste mês</div>';
 
   const filtroMesOpts=mesesDisp.map(m=>'<option value="'+m.mes+'" '+(m.mes===mesAtualN&&m.ano===anoAtualN?'selected':'')+'>'+meses[m.mes-1]+'/'+m.ano+'</option>').join('');
@@ -3551,24 +3551,37 @@ async function saveConta(alojId){
   const tipo=document.getElementById('c-tipo').value;
   const valorRaw=document.getElementById('c-valor').value;
   const valor=parseFloat(String(valorRaw).replace(',','.'));
+  console.log('[saveConta] alojId=',alojId,'mes=',mes,'ano=',ano,'tipo=',tipo,'valor=',valor,'valorRaw=',valorRaw);
   if(valorRaw===''||isNaN(valor)){showToast('Informe o valor','error');return;}
-  const{error}=await sb.from('alojamentos_contas').insert({alojamento_id:alojId,mes,ano,tipo,valor,status:'pendente'});
-  if(error){showToast('Erro: '+error.message,'error');return;}
-  showToast('Conta lançada!');
-  await loadAlojamentos();closeModal('modal-contas');openModalContas(alojId);renderAlojamentos();
+  if(!alojId||alojId==='undefined'||alojId==='null'){showToast('Erro: ID do alojamento inválido: '+alojId,'error');return;}
+  if(!mes||!ano){showToast('Mês/ano inválido: mes='+mes+' ano='+ano,'error');return;}
+  const payload={alojamento_id:alojId,mes,ano,tipo,valor:Number(valor),status:'pendente'};
+  console.log('[saveConta] payload=',JSON.stringify(payload));
+  const res=await sb.from('alojamentos_contas').insert(payload);
+  console.log('[saveConta] res=',res);
+  if(res.error){
+    console.error('Erro saveConta:',res.error);
+    showToast('Erro: '+res.error.message+' | code: '+res.error.code,'error');
+    return;
+  }
+  showToast('Conta lançada! ✓');
+  await loadAlojamentos();
+  closeModal('modal-contas');
+  openModalContas(alojId,mes,ano,tipo);
+  renderAlojamentos();
 }
 
-async function toggleContaStatus(id,status,alojId){
+async function toggleContaStatus(id,status,alojId,mes,ano){
   const next=status==='pendente'?'enviado':status==='enviado'?'pago':'pendente';
-  const{error}=await sb.from('alojamentos_contas').update({status:next}).eq('id',id);
-  if(error){showToast('Erro','error');return;}
-  await loadAlojamentos();closeModal('modal-contas');openModalContas(alojId);renderAlojamentos();
+  const res=await sb.from('alojamentos_contas').update({status:next}).eq('id',id);
+  if(res.error){showToast('Erro: '+res.error.message,'error');return;}
+  await loadAlojamentos();closeModal('modal-contas');openModalContas(alojId,mes,ano);renderAlojamentos();
 }
 
-async function deleteConta(id,alojId){
+async function deleteConta(id,alojId,mes,ano){
   if(!confirm('Excluir este lançamento?'))return;
   await sb.from('alojamentos_contas').delete().eq('id',id);
-  await loadAlojamentos();closeModal('modal-contas');openModalContas(alojId);renderAlojamentos();
+  await loadAlojamentos();closeModal('modal-contas');openModalContas(alojId,mes,ano);renderAlojamentos();
 }
 
 function exportAlojamentosExcel(){
