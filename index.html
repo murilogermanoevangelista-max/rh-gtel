@@ -3897,110 +3897,94 @@ async function editarMarcacao(id,valorAtual,btn){
 }
 
 async function renderEfetivo(){
-  // Aplicar filtro de obra — cruzar cracha com funcionários da obra selecionada
-  // Normalizar matrícula: remover zeros à esquerda para comparação
   function normMat(v){return String(v||'').trim().replace(/^0+/,'');}
-  
-  // Filtro por obra: para presentes, cruzar crachá; para ausentes, recalcular da obra
-  // Determinar data selecionada ANTES de filtrar (necessário para gerar ausentes sintéticos)
+
+  // ── Determinar data ─────────────────────────────────────────────────────
   const _todasDatas=[...new Set(efetivoData.map(r=>r.data))].sort((a,b)=>b.localeCompare(a));
   if(!efetivoDataFiltro&&_todasDatas.length)efetivoDataFiltro=_todasDatas[0];
   if(_todasDatas.length&&!_todasDatas.includes(efetivoDataFiltro))efetivoDataFiltro=_todasDatas[0];
   const ds=efetivoDataFiltro;
 
+  // ── Filtrar por obra ────────────────────────────────────────────────────
   let efetivoFiltrado;
   if(globalObraFiltro){
     const funcsObra=funcionarios.filter(f=>f.obra_id===globalObraFiltro&&f.situacao!=='inativo');
     const crachasObra=new Set(funcsObra.map(f=>normMat(f.matricula)));
-    // Presentes do dia desta obra
     const presentesDia=efetivoData.filter(r=>r.data===ds&&r.situacao==='PRESENTE'&&crachasObra.has(normMat(r.cracha)));
     const crachasPresentes=new Set(presentesDia.map(r=>normMat(r.cracha)));
-    // Ausentes sintéticos: funcs da obra não encontrados nos presentes do dia
     const temImportacaoDia=efetivoData.some(r=>r.data===ds);
     const ausentesSinteticos=temImportacaoDia
-      ?funcsObra
-          .filter(f=>!crachasPresentes.has(normMat(f.matricula)))
-          .map(f=>({
-            id:'_sint_'+f.id,
-            data:ds,
-            cracha:String(f.matricula||'').trim(),
-            nome:(f.nome_completo||f.nome||'').toUpperCase(),
-            departamento:f.obra?.nome||'',
-            situacao:'AUSENTE',
-            horario_entrada:null,
-            marcacoes:null,
-          }))
+      ?funcsObra.filter(f=>!crachasPresentes.has(normMat(f.matricula))).map(f=>({
+          id:'_sint_'+f.id,data:ds,cracha:String(f.matricula||'').trim(),
+          nome:(f.nome_completo||f.nome||'').toUpperCase(),departamento:f.obra?.nome||'',
+          situacao:'AUSENTE',horario_entrada:null,marcacoes:null}))
       :[];
     efetivoFiltrado=[...presentesDia,...ausentesSinteticos];
   } else {
-    // Sem filtro de obra: presentes do banco + ausentes sintéticos de TODOS os funcionários ativos
     const temImportacaoDia=efetivoData.some(r=>r.data===ds);
     if(temImportacaoDia){
       const presentesDiaGeral=efetivoData.filter(r=>r.data===ds&&r.situacao==='PRESENTE');
       const crachasPresentesGeral=new Set(presentesDiaGeral.map(r=>normMat(r.cracha)));
-      const ausentesGeral=funcionarios
-        .filter(f=>f.situacao!=='inativo'&&!crachasPresentesGeral.has(normMat(f.matricula)))
-        .map(f=>({
-          id:'_sint_'+f.id,
-          data:ds,
-          cracha:String(f.matricula||'').trim(),
-          nome:(f.nome_completo||f.nome||'').toUpperCase(),
-          departamento:f.obra?.nome||f.obra?.codigo||'',
-          situacao:'AUSENTE',
-          horario_entrada:null,
-          marcacoes:null,
-        }));
+      const ausentesGeral=funcionarios.filter(f=>f.situacao!=='inativo'&&!crachasPresentesGeral.has(normMat(f.matricula)))
+        .map(f=>({id:'_sint_'+f.id,data:ds,cracha:String(f.matricula||'').trim(),
+          nome:(f.nome_completo||f.nome||'').toUpperCase(),departamento:f.obra?.nome||'',
+          situacao:'AUSENTE',horario_entrada:null,marcacoes:null}));
       efetivoFiltrado=[...presentesDiaGeral,...ausentesGeral];
     } else {
       efetivoFiltrado=efetivoData;
     }
   }
 
+  // ── Dados do dia ────────────────────────────────────────────────────────
   const datas=globalObraFiltro?_todasDatas:[...new Set(efetivoFiltrado.map(r=>r.data))].sort((a,b)=>b.localeCompare(a));
   const reg=efetivoFiltrado.filter(r=>r.data===ds);
   const pres=reg.filter(r=>r.situacao==='PRESENTE').sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
   const ause=reg.filter(r=>r.situacao==='AUSENTE').sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
   const tot=reg.length,pct=tot?Math.round(pres.length/tot*100):0;
   const corPct=pct>=90?'var(--success)':pct>=70?'var(--warning)':'var(--danger)';
-
-  // Label da obra no header
   const _obraLabel=globalObraFiltro?(obras.find(o=>o.id===globalObraFiltro)?.codigo||''):'Todas as obras';
+
+  // ── Pills de data ───────────────────────────────────────────────────────
   const dPills=datas.slice(0,30).map(d=>{
     const[y,m,dia]=d.split('-');const sel=d===ds;
     return '<button onclick="efetivoDataFiltro=\''+d+'\';efetivoSituacaoFiltro=\'\';renderEfetivo()" style="font-size:12px;padding:4px 10px;border-radius:20px;border:1px solid '+(sel?'var(--primary)':'var(--border)')+';background:'+(sel?'var(--primary)':'var(--surface)')+';color:'+(sel?'#fff':'var(--text-muted)')+';cursor:pointer;font-weight:'+(sel?'600':'400')+'">'+dia+'/'+m+'</button>';
   }).join('');
 
+  // ── Tabs ────────────────────────────────────────────────────────────────
   const tabHtml=['dia','historico','ranking','horas'].map(m=>{
     const lbl={dia:'📋 Dia',historico:'📅 Histórico',ranking:'🏆 Ranking Faltas',horas:'⏱️ Horas'}[m];
     const sel=efetivoViewMode===m;
     return '<button onclick="efetivoViewMode=\''+m+'\';renderEfetivo()" style="padding:6px 16px;border-radius:6px;border:1px solid '+(sel?'var(--primary)':'var(--border)')+';background:'+(sel?'var(--primary)':'transparent')+';color:'+(sel?'#fff':'var(--text)')+';cursor:pointer;font-size:13px;font-weight:'+(sel?'600':'400')+'">'+lbl+'</button>';
   }).join('');
 
-  // ── View Horas ──────────────────────────────────────────────────────────
+  // ── Ranking faltas ──────────────────────────────────────────────────────
+  const fm={};
+  efetivoFiltrado.filter(r=>r.situacao==='AUSENTE').forEach(r=>{
+    if(!fm[r.cracha])fm[r.cracha]={matricula:r.cracha,nome:r.nome,faltas:0};
+    fm[r.cracha].faltas++;
+  });
+  const rank=Object.values(fm).sort((a,b)=>b.faltas-a.faltas).slice(0,30);
+
+  // ── Histórico ───────────────────────────────────────────────────────────
+  const hm={};
+  efetivoFiltrado.forEach(r=>{
+    if(!hm[r.data])hm[r.data]={data:r.data,p:0,a:0};
+    if(r.situacao==='PRESENTE')hm[r.data].p++;else hm[r.data].a++;
+  });
+  const hist=Object.values(hm).sort((a,b)=>b.data.localeCompare(a.data));
+
+  // ── Gerar view ──────────────────────────────────────────────────────────
+  let view='';
+
   if(efetivoViewMode==='horas'){
-    // Acumulado por funcionário
-    const horasMap={};
+    function fmtMins(m){if(!m)return'000:00';const h=Math.floor(m/60);const mn=m%60;return String(h).padStart(3,'0')+':'+String(mn).padStart(2,'0');}
     const horasFiltradas=globalObraFiltro
       ?efetivoHoras.filter(h=>{const f=funcionarios.find(x=>normMat(x.matricula)===normMat(h.matricula));return f&&f.obra_id===globalObraFiltro;})
       :efetivoHoras;
-
-    horasFiltradas.forEach(h=>{
-      if(!horasMap[h.matricula])horasMap[h.matricula]={matricula:h.matricula,nome:h.nome,minsTrab:0,minsJust:0,minsATrabalhar:0,dias:0};
-      horasMap[h.matricula].minsTrab+=h.mins_trabalhadas||0;
-      horasMap[h.matricula].minsJust+=h.mins_justificadas||0;
-      horasMap[h.matricula].minsATrabalhar+=h.mins_a_trabalhar||0;
-      if(h.mins_trabalhadas>0||h.mins_justificadas>0)horasMap[h.matricula].dias++;
-    });
-
-    function fmtMins(m){if(!m)return'000:00';const h=Math.floor(m/60);const mn=m%60;return String(h).padStart(3,'0')+':'+String(mn).padStart(2,'0');}
-
-    // Filtro de período para horas
-    const datasHoras=[...new Set(horasFiltradas.map(h=>h.data))].sort((a,b)=>b.localeCompare(a));
     const horasFiltroPeriodo=window._horasFiltroPeriodo||'acumulado';
+    const datasHoras=[...new Set(horasFiltradas.map(h=>h.data))].sort((a,b)=>b.localeCompare(a));
     const horasFiltroDe=window._horasFiltroDe||datasHoras[datasHoras.length-1]||'';
     const horasFiltroAte=window._horasFiltroAte||datasHoras[0]||'';
-
-    // Filtrar por período se não acumulado
     const horasPerMap={};
     horasFiltradas.filter(h=>{
       if(horasFiltroPeriodo==='acumulado')return true;
@@ -4013,105 +3997,32 @@ async function renderEfetivo(){
       horasPerMap[h.matricula].minsATrabalhar+=h.mins_a_trabalhar||0;
       if(h.mins_trabalhadas>0||h.mins_justificadas>0)horasPerMap[h.matricula].dias++;
     });
-
     const listaHoras=Object.values(horasPerMap).sort((a,b)=>b.minsTrab-a.minsTrab);
     const totalMinsTrab=listaHoras.reduce((s,h)=>s+h.minsTrab,0);
     const totalMinsJust=listaHoras.reduce((s,h)=>s+h.minsJust,0);
+    const periodoOpts=[{v:'acumulado',l:'Acumulado total'},{v:'dia',l:'Dia selecionado'},{v:'periodo',l:'Período personalizado'}];
+    const periodoHtml='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+periodoOpts.map(o=>'<button onclick="window._horasFiltroPeriodo=\''+o.v+'\';renderEfetivo()" style="font-size:12px;padding:4px 12px;border-radius:20px;border:1px solid '+(horasFiltroPeriodo===o.v?'var(--primary)':'var(--border)')+';background:'+(horasFiltroPeriodo===o.v?'var(--primary)':'var(--surface)')+';color:'+(horasFiltroPeriodo===o.v?'#fff':'var(--text-muted)')+';cursor:pointer">'+o.l+'</button>').join('')+(horasFiltroPeriodo==='periodo'?'<input type="date" value="'+horasFiltroDe+'" onchange="window._horasFiltroDe=this.value;renderEfetivo()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px"> até <input type="date" value="'+horasFiltroAte+'" onchange="window._horasFiltroAte=this.value;renderEfetivo()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">':'')+'</div>';
+    const rowsHoras=listaHoras.map((h,i)=>{const saldo=h.minsTrab-h.minsATrabalhar;const cor=saldo>0?'var(--success)':saldo<0?'var(--danger)':'var(--text-muted)';return '<tr><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(i+1)+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+h.nome+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+h.matricula+'</td><td style="padding:8px 12px;font-size:13px;font-weight:600">'+fmtMins(h.minsTrab)+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+fmtMins(h.minsJust)+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+fmtMins(h.minsATrabalhar)+'</td><td style="padding:8px 12px;font-size:13px;font-weight:600;color:'+cor+'">'+(saldo>=0?'+':'')+fmtMins(Math.abs(saldo))+'</td><td style="padding:8px 12px;font-size:12px">'+h.dias+' dia(s)</td></tr>';}).join('');
+    view=periodoHtml+'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px"><div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Total Trabalhadas</div><div style="font-size:24px;font-weight:700;color:var(--primary-dark)">'+fmtMins(totalMinsTrab)+'</div></div><div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Total Justificadas</div><div style="font-size:24px;font-weight:700;color:var(--warning)">'+fmtMins(totalMinsJust)+'</div></div></div>'+(listaHoras.length===0?'<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-clock-upload" style="font-size:40px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum dado. Use "Importar Horas".</div>':'<div class="table-container"><table><thead><tr><th>#</th><th>Funcionário</th><th>Matrícula</th><th>Trabalhadas</th><th>Justificadas</th><th>A Trabalhar</th><th>Saldo</th><th>Dias</th></tr></thead><tbody>'+rowsHoras+'</tbody></table></div>');
 
-    const periodoOpts=[
-      {v:'acumulado',l:'Acumulado total'},
-      {v:'dia',l:'Dia selecionado ('+( ds?ds.split('-').reverse().join('/'):'—')+')'},
-      {v:'periodo',l:'Período personalizado'},
-    ];
-
-    const periodoHtml='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
-      +'<span style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase">Período:</span>'
-      +periodoOpts.map(o=>'<button onclick="window._horasFiltroPeriodo=\''+o.v+'\';renderEfetivo()" style="font-size:12px;padding:4px 12px;border-radius:20px;border:1px solid '+(horasFiltroPeriodo===o.v?'var(--primary)':'var(--border)')+';background:'+(horasFiltroPeriodo===o.v?'var(--primary)':'var(--surface)')+';color:'+(horasFiltroPeriodo===o.v?'#fff':'var(--text-muted)')+';cursor:pointer">'+o.l+'</button>').join('')
-      +(horasFiltroPeriodo==='periodo'?'<input type="date" value="'+horasFiltroDe+'" onchange="window._horasFiltroDe=this.value;renderEfetivo()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px"> <span style="font-size:12px">até</span> <input type="date" value="'+horasFiltroAte+'" onchange="window._horasFiltroAte=this.value;renderEfetivo()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">':'')
-      +'</div>';
-
-    const rowsHoras=listaHoras.map((h,i)=>{
-      const saldo=h.minsTrab-h.minsATrabalhar;
-      const corSaldo=saldo>0?'var(--success)':saldo<0?'var(--danger)':'var(--text-muted)';
-      return '<tr>'
-        +'<td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(i+1)+'</td>'
-        +'<td style="padding:8px 12px;font-size:13px;font-weight:500">'+h.nome+'</td>'
-        +'<td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+h.matricula+'</td>'
-        +'<td style="padding:8px 12px;font-size:13px;font-weight:600">'+fmtMins(h.minsTrab)+'</td>'
-        +'<td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+fmtMins(h.minsJust)+'</td>'
-        +'<td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+fmtMins(h.minsATrabalhar)+'</td>'
-        +'<td style="padding:8px 12px;font-size:13px;font-weight:600;color:'+corSaldo+'">'+(saldo>=0?'+':'')+fmtMins(Math.abs(saldo))+'</td>'
-        +'<td style="padding:8px 12px;font-size:12px">'+h.dias+' dia(s)</td>'
-        +'</tr>';
-    }).join('');
-
-    view=periodoHtml
-      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">'
-      +'<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Total Horas Trabalhadas</div><div style="font-size:24px;font-weight:700;color:var(--primary-dark)">'+fmtMins(totalMinsTrab)+'</div></div>'
-      +'<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">Total Horas Justificadas</div><div style="font-size:24px;font-weight:700;color:var(--warning)">'+fmtMins(totalMinsJust)+'</div></div>'
-      +'</div>'
-      +(listaHoras.length===0?'<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-clock-upload" style="font-size:40px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum dado de horas. Use "Importar Horas".</div>'
-        :'<div class="table-container"><table><thead><tr><th>#</th><th>Funcionário</th><th>Matrícula</th><th>Trabalhadas</th><th>Justificadas</th><th>A Trabalhar</th><th>Saldo</th><th>Dias</th></tr></thead><tbody>'+rowsHoras+'</tbody></table></div>');
-  } // fim bloco horas
-
-  // Ranking e histórico (usados nas views dia/historico/ranking)
-  const fm={};
-  efetivoFiltrado.filter(r=>r.situacao==='AUSENTE').forEach(r=>{
-    if(!fm[r.cracha])fm[r.cracha]={matricula:r.cracha,nome:r.nome,faltas:0};
-    fm[r.cracha].faltas++;
-  });
-  const rank=Object.values(fm).sort((a,b)=>b.faltas-a.faltas).slice(0,30);
-
-  const hm={};
-  efetivoFiltrado.forEach(r=>{
-    if(!hm[r.data])hm[r.data]={data:r.data,p:0,a:0};
-    if(r.situacao==='PRESENTE')hm[r.data].p++;else hm[r.data].a++;
-  });
-  const hist=Object.values(hm).sort((a,b)=>b.data.localeCompare(a.data));
-
-  let view='';
-  if(efetivoViewMode!=='horas'){
-  if(efetivoViewMode==='dia'){
-    // Aplicar filtro de situação se ativo
+  } else if(efetivoViewMode==='dia'){
     const _presShow=efetivoSituacaoFiltro===''||efetivoSituacaoFiltro==='PRESENTE';
     const _auseShow=efetivoSituacaoFiltro===''||efetivoSituacaoFiltro==='AUSENTE';
     const th='<tr><th>Crachá</th><th>Funcionário</th><th>Departamento</th><th>Marcações</th></tr>';
-    const rP=pres.map(r=>'<tr>'
-      +'<td style="padding:8px 12px;font-size:12px">'+r.cracha+'</td>'
-      +'<td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+'</td>'
-      +'<td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(r.departamento||'—')+'</td>'
-      +'<td style="padding:8px 12px"><div style="display:flex;align-items:center;gap:6px">'
-        +'<span id="marc-'+r.id+'" style="font-size:12px;min-width:48px">'+(r.marcacoes||'—')+'</span>'
-        +'<button onclick="editarMarcacaoClick(this)" data-id="'+r.id+'" data-val="'+(r.marcacoes||'')+'" style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;color:var(--text-muted)" title="Editar marcação"><i class="ti ti-edit" style="font-size:11px"></i></button>'
-      +'</div></td>'
-      +'</tr>').join('');
-    const rA=ause.map(r=>'<tr>'
-      +'<td style="padding:8px 12px;font-size:12px">'+r.cracha+'</td>'
-      +'<td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+'</td>'
-      +'<td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(r.departamento||'—')+'</td>'
-      +'<td style="padding:8px 12px"><div style="display:flex;align-items:center;gap:6px">'
-        +'<span id="marc-'+r.id+'" style="font-size:12px;color:var(--text-muted);min-width:48px">—</span>'
-        +'<button onclick="editarMarcacaoClick(this)" data-id="'+r.id+'" data-val="" style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;color:var(--text-muted)" title="Lançar marcação"><i class="ti ti-edit" style="font-size:11px"></i></button>'
-      +'</div></td>'
-      +'</tr>').join('');
-    view=(_presShow?'<div class="table-container" style="margin-bottom:12px"><div style="padding:10px 16px;background:var(--success-light);border-bottom:1px solid var(--border)"><span style="font-size:12px;font-weight:600;color:var(--success)">✓ PRESENTES — '+pres.length+'</span></div><table><thead>'+th+'</thead><tbody>'+(rP||'<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum</td></tr>')+'</tbody></table></div>':'')
-      +(_auseShow?'<div class="table-container"><div style="padding:10px 16px;background:var(--danger-light);border-bottom:1px solid var(--border)"><span style="font-size:12px;font-weight:600;color:var(--danger)">✗ AUSENTES — '+ause.length+'</span></div><table><thead>'+th+'</thead><tbody>'+(rA||'<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum</td></tr>')+'</tbody></table></div>':'');
+    const rP=pres.map(r=>'<tr><td style="padding:8px 12px;font-size:12px">'+r.cracha+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(r.departamento||'—')+'</td><td style="padding:8px 12px"><div style="display:flex;align-items:center;gap:6px"><span id="marc-'+r.id+'" style="font-size:12px;min-width:48px">'+(r.marcacoes||'—')+'</span><button onclick="editarMarcacaoClick(this)" data-id="'+r.id+'" data-val="'+(r.marcacoes||'')+'" style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;color:var(--text-muted)" title="Editar"><i class="ti ti-edit" style="font-size:11px"></i></button></div></td></tr>').join('');
+    const rA=ause.map(r=>'<tr><td style="padding:8px 12px;font-size:12px">'+r.cracha+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(r.departamento||'—')+'</td><td style="padding:8px 12px;color:var(--text-muted);font-size:12px">—</td></tr>').join('');
+    view=(_presShow?'<div class="table-container" style="margin-bottom:12px"><div style="padding:10px 16px;background:var(--success-light);border-bottom:1px solid var(--border)"><span style="font-size:12px;font-weight:600;color:var(--success)">✓ PRESENTES — '+pres.length+'</span></div><table><thead>'+th+'</thead><tbody>'+(rP||'<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum</td></tr>')+'</tbody></table></div>':'')
+      +(_auseShow?'<div class="table-container"><div style="padding:10px 16px;background:var(--danger-light);border-bottom:1px solid var(--border)"><span style="font-size:12px;font-weight:600;color:var(--danger)">✗ AUSENTES — '+ause.length+'</span></div><table><thead>'+th+'</thead><tbody>'+(rA||'<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum</td></tr>')+'</tbody></table></div>':'');
+
   } else if(efetivoViewMode==='historico'){
-    const rows=hist.map(h=>{
-      const[y,m,d]=h.data.split('-');const t=h.p+h.a;const p=t?Math.round(h.p/t*100):0;
-      const cor=p>=90?'var(--success)':p>=70?'var(--warning)':'var(--danger)';
-      return '<tr onclick="efetivoDataFiltro=\''+h.data+'\';efetivoViewMode=\'dia\';renderEfetivo()" style="cursor:pointer"><td style="padding:10px 14px;font-weight:500">'+d+'/'+m+'/'+y+'</td><td style="padding:10px 14px;color:var(--success);font-weight:600">'+h.p+'</td><td style="padding:10px 14px;color:var(--danger);font-weight:600">'+h.a+'</td><td style="padding:10px 14px">'+t+'</td><td style="padding:10px 14px"><div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:6px;background:var(--border);border-radius:3px"><div style="height:6px;border-radius:3px;background:'+cor+';width:'+p+'%"></div></div><span style="font-size:12px;font-weight:600;color:'+cor+';min-width:36px">'+p+'%</span></div></td><td style="padding:10px 14px;color:var(--text-muted);font-size:12px">→</td></tr>';
-    }).join('');
+    const rows=hist.map(h=>{const[y,m,d]=h.data.split('-');const t=h.p+h.a;const p=t?Math.round(h.p/t*100):0;const cor=p>=90?'var(--success)':p>=70?'var(--warning)':'var(--danger)';return '<tr onclick="efetivoDataFiltro=\''+h.data+'\';efetivoViewMode=\'dia\';renderEfetivo()" style="cursor:pointer"><td style="padding:10px 14px;font-weight:500">'+d+'/'+m+'/'+y+'</td><td style="padding:10px 14px;color:var(--success);font-weight:600">'+h.p+'</td><td style="padding:10px 14px;color:var(--danger);font-weight:600">'+h.a+'</td><td style="padding:10px 14px">'+t+'</td><td style="padding:10px 14px"><div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:6px;background:var(--border);border-radius:3px"><div style="height:6px;border-radius:3px;background:'+cor+';width:'+p+'%"></div></div><span style="font-size:12px;font-weight:600;color:'+cor+';min-width:36px">'+p+'%</span></div></td><td style="padding:10px 14px;color:var(--text-muted);font-size:12px">→</td></tr>';}).join('');
     view='<div class="table-container"><table><thead><tr><th>Data</th><th>Presentes</th><th>Ausentes</th><th>Total</th><th style="min-width:200px">% Presença</th><th></th></tr></thead><tbody>'+(rows||'<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--text-muted)">Sem histórico</td></tr>')+'</tbody></table></div>';
-  } else {
-    const rows=rank.map((r,i)=>{
-      const cor=i===0?'var(--danger)':i===1?'var(--warning)':i===2?'#B45309':'var(--text-muted)';
-      return '<tr><td style="padding:10px 14px;font-weight:700;color:'+cor+'">#'+(i+1)+'</td><td style="padding:10px 14px;font-size:12px">'+r.matricula+'</td><td style="padding:10px 14px;font-weight:500">'+r.nome+'</td><td style="padding:10px 14px"><span style="font-size:20px;font-weight:700;color:'+(r.faltas>=10?'var(--danger)':r.faltas>=5?'var(--warning)':'var(--text)')+'">'+r.faltas+'</span><span style="font-size:11px;color:var(--text-muted);margin-left:4px">falta(s)</span></td></tr>';
-    }).join('');
+
+  } else if(efetivoViewMode==='ranking'){
+    const rows=rank.map((r,i)=>{const cor=i===0?'var(--danger)':i===1?'var(--warning)':i===2?'#B45309':'var(--text-muted)';return '<tr><td style="padding:10px 14px;font-weight:700;color:'+cor+'">#'+(i+1)+'</td><td style="padding:10px 14px;font-size:12px">'+r.matricula+'</td><td style="padding:10px 14px;font-weight:500">'+r.nome+'</td><td style="padding:10px 14px"><span style="font-size:20px;font-weight:700;color:'+(r.faltas>=10?'var(--danger)':r.faltas>=5?'var(--warning)':'var(--text)')+'">'+r.faltas+'</span><span style="font-size:11px;color:var(--text-muted);margin-left:4px">falta(s)</span></td></tr>';}).join('');
     view='<div class="table-container"><table><thead><tr><th>#</th><th>Crachá</th><th>Funcionário</th><th>Faltas</th></tr></thead><tbody>'+(rows||'<tr><td colspan="4" style="text-align:center;padding:30px;color:var(--text-muted)">Nenhum dado</td></tr>')+'</tbody></table></div>';
   }
 
-  } // fim if não-horas
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div><div class="page-title"><i class="ti ti-users-group"></i> Efetivo</div><div class="page-subtitle">Controle de presença diário${globalObraFiltro?' · <strong>'+_obraLabel+'</strong>':''}</div></div>
@@ -4132,6 +4043,7 @@ async function renderEfetivo(){
     ${view}`}
   `;
 }
+
 
 showPage('dashboard');
 </script>
