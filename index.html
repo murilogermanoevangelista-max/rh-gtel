@@ -3747,7 +3747,7 @@ let efetivoDataFiltro='';
 let efetivoViewMode='dia';
 
 async function loadEfetivo(){
-  const{data}=await sb.from('efetivo_presenca').select('*').order('data',{ascending:false}).order('nome');
+  const{data}=await sb.from('efetivo_presenca').select('*').order('data',{ascending:false});
   efetivoData=data||[];
 }
 
