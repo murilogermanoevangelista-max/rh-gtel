@@ -3860,7 +3860,27 @@ async function renderEfetivo(){
       :[];
     efetivoFiltrado=[...presentesDia,...ausentesSinteticos];
   } else {
-    efetivoFiltrado=efetivoData;
+    // Sem filtro de obra: presentes do banco + ausentes sintéticos de TODOS os funcionários ativos
+    const temImportacaoDia=efetivoData.some(r=>r.data===ds);
+    if(temImportacaoDia){
+      const presentesDiaGeral=efetivoData.filter(r=>r.data===ds&&r.situacao==='PRESENTE');
+      const crachasPresentesGeral=new Set(presentesDiaGeral.map(r=>normMat(r.cracha)));
+      const ausentesGeral=funcionarios
+        .filter(f=>f.situacao!=='inativo'&&!crachasPresentesGeral.has(normMat(f.matricula)))
+        .map(f=>({
+          id:'_sint_'+f.id,
+          data:ds,
+          cracha:String(f.matricula||'').trim(),
+          nome:(f.nome_completo||f.nome||'').toUpperCase(),
+          departamento:f.obra?.nome||f.obra?.codigo||'',
+          situacao:'AUSENTE',
+          horario_entrada:null,
+          marcacoes:null,
+        }));
+      efetivoFiltrado=[...presentesDiaGeral,...ausentesGeral];
+    } else {
+      efetivoFiltrado=efetivoData;
+    }
   }
 
   const datas=globalObraFiltro?_todasDatas:[...new Set(efetivoFiltrado.map(r=>r.data))].sort((a,b)=>b.localeCompare(a));
