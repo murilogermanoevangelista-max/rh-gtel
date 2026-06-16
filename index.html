@@ -3130,6 +3130,12 @@ function renderAlojamentos(){
       lista=lista.filter(a=>{const d=parseDate(a.data_termino);if(!d)return false;const diff=Math.floor((d-_hj)/86400000);return diff>=0&&diff<=60;});
     } else if(alojFiltroAtivo==='contas_pendentes'){
       lista=lista.filter(a=>alojamentosContas.some(c=>String(c.alojamento_id)===String(a.id)&&c.mes===_mes&&c.ano===_ano&&c.status==='pendente'));
+    } else if(alojFiltroAtivo==='nao_lancadas'){
+      const _obrig=['agua','energia','gas','condominio'];
+      lista=lista.filter(a=>{
+        const tiposLanc=new Set(alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===_mes&&c.ano===_ano).map(c=>c.tipo));
+        return _obrig.some(t=>!tiposLanc.has(t)&&!a['isenta_'+t]);
+      });
     }
     return lista;
   })();
@@ -3249,10 +3255,10 @@ function renderAlojamentos(){
 
   const bannerSemContas=_alojSemContas.length>0?`
     <div style="background:#FFF7ED;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:8px;overflow:hidden">
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#FFFBEB;border-bottom:1px solid #FCD34D;flex-wrap:wrap">
+      <div onclick="alojFiltroAtivo=alojFiltroAtivo==='nao_lancadas'?null:'nao_lancadas';renderAlojamentos()" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#FFFBEB;border-bottom:1px solid #FCD34D;flex-wrap:wrap;cursor:pointer" ${alojFiltroAtivo==='nao_lancadas'?'class="aloj-filtro-ativo"':''}>
         <i class="ti ti-alert-circle" style="font-size:18px;color:#B45309;flex-shrink:0"></i>
         <strong style="color:#92400E;font-size:13px">${_alojSemContas.length} alojamento(s) com contas não lançadas em ${_bmLabel}</strong>
-        <span style="margin-left:auto;font-size:11px;color:#92400E;opacity:.7">Clique em Lançar para abrir direto</span>
+        <span style="margin-left:auto;font-size:11px;color:#92400E;opacity:.7">${alojFiltroAtivo==='nao_lancadas'?'✕ Limpar filtro':'Clique para filtrar · Lançar para abrir direto'}</span>
       </div>
       <div style="padding:8px 14px;display:flex;flex-direction:column;gap:5px">
         ${_alojSemContas.map(a=>{
