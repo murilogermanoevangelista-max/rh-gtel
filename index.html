@@ -503,7 +503,7 @@ async function renderDashboard(){
   const alojSemContas=alojamentos.filter(a=>{
     const contasMesAloj=alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===mesAtual&&c.ano===anoAtual);
     const tiposLancados=new Set(contasMesAloj.map(c=>c.tipo));
-    return contasObrigatorias.some(t=>!tiposLancados.has(t));
+    return contasObrigatorias.some(t=>!tiposLancados.has(t)&&!a['isenta_'+t]);
   });
   const qtdAlojSemContas=alojSemContas.length;
 
@@ -3145,12 +3145,13 @@ function renderAlojamentos(){
     const caucaoVal=Number(a.caucao||0);
     const pendMes=contasMes.filter(c=>c.status==='pendente').length;
     const tiposLancadosCard=new Set(contasMes.map(c=>c.tipo));
-    const contasFaltandoCard=['agua','energia','gas','condominio'].filter(t=>!tiposLancadosCard.has(t));
+    const _isentasCard=new Set(['agua','energia','gas','condominio'].filter(t=>a['isenta_'+t]));
+    const contasFaltandoCard=['agua','energia','gas','condominio'].filter(t=>!tiposLancadosCard.has(t)&&!_isentasCard.has(t));
     const contasFaltLabel={agua:'💧Água',energia:'⚡Energia',gas:'🔥Gás',condominio:'🏢Cond.'};
     const badgeContasFaltando=contasFaltandoCard.length>0?`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;padding:6px 8px;background:#FFF7ED;border:1px solid #FCD34D;border-radius:6px">
       <i class="ti ti-alert-circle" style="color:#B45309;font-size:13px;flex-shrink:0"></i>
       <span style="font-size:11px;color:#92400E;font-weight:600">Faltam:</span>
-      ${contasFaltandoCard.map(t=>`<span style="font-size:11px;color:#B45309;background:#FFFBEB;border:1px solid #FDE68A;border-radius:4px;padding:1px 5px">${contasFaltLabel[t]}</span>`).join('')}
+      ${contasFaltandoCard.map(t=>'<span onclick="openModalContas(\''+a.id+'\','+( hoje.getMonth()+1)+','+hoje.getFullYear()+',\''+t+'\')" style="font-size:11px;color:#B45309;background:#FFFBEB;border:1px solid #FDE68A;border-radius:4px;padding:2px 7px;cursor:pointer" onmouseover="this.style.background=\'#FDE68A\'" onmouseout="this.style.background=\'#FFFBEB\'">'+contasFaltLabel[t]+'</span>').join('')}
     </div>`:'';
 
     return`<div class="aloj-card">
@@ -3209,25 +3210,26 @@ function renderAlojamentos(){
   const _alojSemContas=alojsFiltrados.map(a=>{
     const contasMesAloj=alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===_mesAtual&&c.ano===_anoAtual);
     const tiposLancados=new Set(contasMesAloj.map(c=>c.tipo));
-    const faltando=_contasObrig.filter(t=>!tiposLancados.has(t));
+    const faltando=_contasObrig.filter(t=>!tiposLancados.has(t)&&!a['isenta_'+t]);
     return{...a,faltando};
   }).filter(a=>a.faltando.length>0);
 
+  // Filtros do banner (persistidos como variáveis globais na página)
+  if(typeof window._bannerMes==='undefined'){window._bannerMes=_mesAtual;window._bannerAno=_anoAtual;}
+  const _bmLabel=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][_mesAtual-1]+'/'+_anoAtual;
+
   const bannerSemContas=_alojSemContas.length>0?`
     <div style="background:#FFF7ED;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:8px;overflow:hidden">
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#FFFBEB;border-bottom:1px solid #FCD34D">
-        <i class="ti ti-alert-circle" style="font-size:18px;color:#B45309"></i>
-        <strong style="color:#92400E;font-size:13px">${_alojSemContas.length} alojamento(s) com contas obrigatórias não lançadas em ${hoje.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</strong>
-        <span style="margin-left:auto;font-size:11px;color:#92400E;opacity:.7">Clique em 💳 Contas para lançar</span>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#FFFBEB;border-bottom:1px solid #FCD34D;flex-wrap:wrap">
+        <i class="ti ti-alert-circle" style="font-size:18px;color:#B45309;flex-shrink:0"></i>
+        <strong style="color:#92400E;font-size:13px">${_alojSemContas.length} alojamento(s) com contas não lançadas em ${_bmLabel}</strong>
+        <span style="margin-left:auto;font-size:11px;color:#92400E;opacity:.7">Clique em Lançar para abrir direto</span>
       </div>
-      <div style="padding:10px 14px;display:flex;flex-direction:column;gap:6px">
-        ${_alojSemContas.map(a=>`
-          <div style="display:flex;align-items:center;gap:10px;font-size:12px">
-            <i class="ti ti-home" style="color:#B45309;flex-shrink:0"></i>
-            <span style="font-weight:600;color:#92400E;min-width:160px">${a.nome}</span>
-            <span style="color:#B45309">${a.faltando.map(t=>_contasObrigLabel[t]).join(' · ')}</span>
-            <button class="btn btn-sm" style="margin-left:auto;font-size:11px;padding:3px 8px;border-color:#FCD34D" onclick="openModalContas('${a.id}')"><i class="ti ti-receipt"></i> Lançar</button>
-          </div>`).join('')}
+      <div style="padding:8px 14px;display:flex;flex-direction:column;gap:5px">
+        ${_alojSemContas.map(a=>{
+          const btnItems=a.faltando.map(t=>'<button class="btn btn-sm" style="font-size:11px;padding:2px 8px;border-color:#FCD34D;color:#92400E" onclick="openModalContas(\''+a.id+'\','+_mesAtual+','+_anoAtual+',\''+t+'\')">'+_contasObrigLabel[t]+'</button>').join('');
+          return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #FDE68A"><i class="ti ti-home" style="color:#B45309;flex-shrink:0;font-size:13px"></i><span style="font-weight:600;color:#92400E;min-width:180px;font-size:12px">'+a.nome+'</span><div style="display:flex;gap:4px;flex-wrap:wrap">'+btnItems+'</div></div>';
+        }).join('')}
       </div>
     </div>`:'';
 
@@ -3287,6 +3289,24 @@ function openModalAlojamento(id){
           <div class="form-group"><label>Prazo isenção multa (meses)</label><input id="aloj-isencao" type="number" value="${a?.isencao_meses||''}"></div>
           <div class="form-group"><label>Índice de reajuste</label><input id="aloj-indice" value="${a?.indice_reajuste||'IVAR'}"></div>
           <div class="form-group full"><label>Observações</label><textarea id="aloj-obs" rows="2">${a?.observacoes||''}</textarea></div>
+          <div class="form-group full" style="background:var(--bg);border-radius:var(--radius);padding:12px;border:1px solid var(--border)">
+            <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">⚙️ Contas Isentas / Incluídas no Aluguel</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Marque as contas que NÃO precisam ser lançadas todo mês (ex: água inclusa, sem gás)</div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:400;color:var(--text)">
+                <input type="checkbox" id="isenta-agua" ${a?.isenta_agua?'checked':''} style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer"> 💧 Água isenta
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:400;color:var(--text)">
+                <input type="checkbox" id="isenta-energia" ${a?.isenta_energia?'checked':''} style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer"> ⚡ Energia isenta
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:400;color:var(--text)">
+                <input type="checkbox" id="isenta-gas" ${a?.isenta_gas?'checked':''} style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer"> 🔥 Gás isento / sem gás
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:400;color:var(--text)">
+                <input type="checkbox" id="isenta-condominio" ${a?.isenta_condominio?'checked':''} style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer"> 🏢 Condomínio isento / incluso
+              </label>
+            </div>
+          </div>
         </div>
         <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:4px">
           <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:12px">Anexos</div>
@@ -3355,6 +3375,10 @@ async function saveAlojamento(id){
     isencao_meses:parseInt(document.getElementById('aloj-isencao').value)||null,
     indice_reajuste:document.getElementById('aloj-indice').value.trim()||null,
     observacoes:document.getElementById('aloj-obs').value.trim()||null,
+    isenta_agua:document.getElementById('isenta-agua')?.checked||false,
+    isenta_energia:document.getElementById('isenta-energia')?.checked||false,
+    isenta_gas:document.getElementById('isenta-gas')?.checked||false,
+    isenta_condominio:document.getElementById('isenta-condominio')?.checked||false,
     contrato_url:contratoUrl,
     laudo_url:laudoUrl,
     fotos_url:fotosUrl,
@@ -3431,64 +3455,80 @@ async function removeMorador(funcId,alojId,nome){
   closeModal('modal-moradores');openModalMoradores(alojId);renderAlojamentos();
 }
 
-function openModalContas(alojId){
-  const a=alojamentos.find(x=>x.id===alojId);
+function openModalContas(alojId,filtroMes,filtroAno,tipoPresel){
+  const a=alojamentos.find(x=>String(x.id)===String(alojId));
   const hoje=new Date();
+  const mesAtualN=filtroMes?parseInt(filtroMes):hoje.getMonth()+1;
+  const anoAtualN=filtroAno?parseInt(filtroAno):hoje.getFullYear();
   const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
   const tipos=['agua','energia','gas','condominio','outros'];
   const tiposLabel={agua:'🚿 Água',energia:'⚡ Energia',gas:'🔥 Gás',condominio:'🏢 Condomínio',outros:'📄 Outros'};
+  const isentas=new Set(['agua','energia','gas','condominio'].filter(t=>a?.['isenta_'+t]));
 
-  // Últimos 6 meses de contas
   const contasAloj=alojamentosContas.filter(c=>String(c.alojamento_id)===String(alojId)).sort((a,b)=>b.ano-a.ano||b.mes-a.mes);
+  const mesesDisp=[];const seen=new Set();
+  contasAloj.forEach(c=>{const k=c.ano+'-'+String(c.mes).padStart(2,'0');if(!seen.has(k)){seen.add(k);mesesDisp.push({mes:c.mes,ano:c.ano});}});
+  const keyAtual=anoAtualN+'-'+String(mesAtualN).padStart(2,'0');
+  if(!seen.has(keyAtual))mesesDisp.unshift({mes:mesAtualN,ano:anoAtualN});
+  mesesDisp.sort((a,b)=>b.ano-a.ano||b.mes-a.mes);
 
-  // Agrupar por ano/mês
-  const grupos={};
-  contasAloj.forEach(c=>{
-    const k=`${c.ano}-${String(c.mes).padStart(2,'0')}`;
-    if(!grupos[k])grupos[k]={ano:c.ano,mes:c.mes,contas:[]};
-    grupos[k].contas.push(c);
-  });
-  const gruposHtml=Object.values(grupos).slice(0,6).map(g=>{
-    const totalG=g.contas.reduce((s,c)=>s+(c.valor||0),0);
-    return`<div style="background:var(--bg);border-radius:var(--radius);padding:12px;margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <strong>${meses[g.mes-1]}/${g.ano}</strong>
-        <span style="font-weight:600">R$ ${totalG.toLocaleString('pt-BR',{minimumFractionDigits:2})}</span>
-      </div>
-      ${g.contas.map(c=>`
-        <div class="conta-row">
-          <span>${tiposLabel[c.tipo]||c.tipo}</span>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-weight:500">R$ ${(c.valor||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</span>
-            <span class="conta-status ${c.status}">${c.status==='pendente'?'⏳ Pendente':c.status==='enviado'?'📤 Enviado':'✅ Pago'}</span>
-            <button class="btn btn-sm" onclick="toggleContaStatus('${c.id}','${c.status}','${alojId}')"><i class="ti ti-refresh"></i></button>
-            <button class="btn btn-sm btn-danger" onclick="deleteConta('${c.id}','${alojId}')"><i class="ti ti-trash"></i></button>
-          </div>
-        </div>`).join('')}
-    </div>`;
+  const contasMesSel=contasAloj.filter(c=>c.mes===mesAtualN&&c.ano===anoAtualN);
+  const tiposLancadosSel=new Set(contasMesSel.map(c=>c.tipo));
+
+  const statusItems=['agua','energia','gas','condominio'].map(t=>{
+    const lanc=tiposLancadosSel.has(t);
+    const isento=isentas.has(t);
+    const bg=isento?'#F3F4F6':lanc?'var(--success-light)':'#FFF7ED';
+    const cor=isento?'var(--text-muted)':lanc?'var(--success)':'#B45309';
+    const lbl=(isento?'– ':lanc?'✓ ':'! ')+tiposLabel[t]+(isento?' (isento)':'');
+    return '<span style="padding:3px 8px;border-radius:20px;font-size:12px;font-weight:500;background:'+bg+';color:'+cor+'">'+lbl+'</span>';
   }).join('');
 
+  const contasHistoricoHtml=contasMesSel.length?contasMesSel.map(c=>{
+    const tl=tiposLabel[c.tipo]||c.tipo;
+    const vl='R$ '+(c.valor||0).toLocaleString('pt-BR',{minimumFractionDigits:2});
+    const st=c.status==='pendente'?'⏳ Pendente':c.status==='enviado'?'📤 Enviado':'✅ Pago';
+    return '<div class="conta-row"><span>'+tl+'</span><div style="display:flex;align-items:center;gap:8px"><span style="font-weight:500">'+vl+'</span><span class="conta-status '+c.status+'">'+st+'</span><button class="btn btn-sm" onclick="toggleContaStatus(\''+c.id+'\',\''+c.status+'\',\''+alojId+'\')"><i class="ti ti-refresh"></i></button><button class="btn btn-sm btn-danger" onclick="deleteConta(\''+c.id+'\',\''+alojId+'\')"><i class="ti ti-trash"></i></button></div></div>';
+  }).join(''):'<div style="text-align:center;padding:16px;color:var(--text-muted);font-size:13px">Nenhuma conta lançada neste mês</div>';
+
+  const filtroMesOpts=mesesDisp.map(m=>'<option value="'+m.mes+'" '+(m.mes===mesAtualN&&m.ano===anoAtualN?'selected':'')+'>'+meses[m.mes-1]+'/'+m.ano+'</option>').join('');
+  const tipoOpts=tipos.map(t=>'<option value="'+t+'" '+(t===(tipoPresel||'agua')?'selected':'')+'>'+tiposLabel[t]+'</option>').join('');
+  const mesLancOpts=meses.map((m,i)=>'<option value="'+(i+1)+'" '+((i+1)===mesAtualN?'selected':'')+'>'+m+'</option>').join('');
+  const isentaInfo=isentas.size>0?'<span style="margin-left:auto;font-size:11px;color:var(--text-muted)">Isentos: '+[...isentas].map(t=>tiposLabel[t]).join(', ')+'</span>':'';
+
   insertModal('modal-contas',`
-    <div class="modal" style="max-width:620px">
+    <div class="modal" style="max-width:660px">
       <div class="modal-header">
         <span class="modal-title"><i class="ti ti-receipt"></i> Contas — ${a?.nome||''}</span>
         <button class="btn btn-sm" onclick="closeModal('modal-contas')"><i class="ti ti-x"></i></button>
       </div>
       <div class="modal-body">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+          <label style="font-size:12px;font-weight:600;color:var(--text-muted)">MÊS</label>
+          <select id="c-filtro-mes" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px" onchange="openModalContas('${alojId}',this.value,document.getElementById('c-filtro-ano').value)">
+            ${filtroMesOpts}
+          </select>
+          <input id="c-filtro-ano" type="number" value="${anoAtualN}" style="width:78px;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px" onchange="openModalContas('${alojId}',document.getElementById('c-filtro-mes').value,this.value)">
+          ${isentaInfo}
+        </div>
+        <div style="background:var(--bg);border-radius:var(--radius);padding:10px 12px;margin-bottom:14px;border:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <span style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-right:4px">Status:</span>
+          ${statusItems}
+        </div>
         <div style="background:var(--primary-light);border-radius:var(--radius);padding:12px;margin-bottom:16px">
           <div style="font-size:12px;font-weight:600;color:var(--primary-dark);margin-bottom:8px">LANÇAR NOVA CONTA</div>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr 80px;gap:8px;align-items:flex-end">
             <div class="form-group" style="margin:0"><label>Mês</label>
               <select id="c-mes" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius)">
-                ${meses.map((m,i)=>`<option value="${i+1}" ${i+1===hoje.getMonth()+1?'selected':''}>${m}</option>`).join('')}
+                ${mesLancOpts}
               </select>
             </div>
             <div class="form-group" style="margin:0"><label>Ano</label>
-              <input id="c-ano" type="number" value="${hoje.getFullYear()}" style="padding:8px;border:1px solid var(--border);border-radius:var(--radius);width:100%">
+              <input id="c-ano" type="number" value="${anoAtualN}" style="padding:8px;border:1px solid var(--border);border-radius:var(--radius);width:100%">
             </div>
             <div class="form-group" style="margin:0"><label>Tipo</label>
               <select id="c-tipo" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius)">
-                ${tipos.map(t=>`<option value="${t}">${tiposLabel[t]}</option>`).join('')}
+                ${tipoOpts}
               </select>
             </div>
             <div class="form-group" style="margin:0"><label>Valor R$</label>
@@ -3498,7 +3538,7 @@ function openModalContas(alojId){
           <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="saveConta('${alojId}')"><i class="ti ti-plus"></i> Lançar</button>
         </div>
         <div id="contas-historico">
-          ${gruposHtml||'<div style="text-align:center;padding:20px;color:var(--text-muted)">Nenhuma conta lançada</div>'}
+          ${contasHistoricoHtml}
         </div>
       </div>
       <div class="modal-footer"><button class="btn" onclick="closeModal('modal-contas')">Fechar</button></div>
@@ -3509,8 +3549,9 @@ async function saveConta(alojId){
   const mes=parseInt(document.getElementById('c-mes').value);
   const ano=parseInt(document.getElementById('c-ano').value);
   const tipo=document.getElementById('c-tipo').value;
-  const valor=parseFloat(document.getElementById('c-valor').value);
-  if(!valor){showToast('Informe o valor','error');return;}
+  const valorRaw=document.getElementById('c-valor').value;
+  const valor=parseFloat(String(valorRaw).replace(',','.'));
+  if(valorRaw===''||isNaN(valor)){showToast('Informe o valor','error');return;}
   const{error}=await sb.from('alojamentos_contas').insert({alojamento_id:alojId,mes,ano,tipo,valor,status:'pendente'});
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast('Conta lançada!');
