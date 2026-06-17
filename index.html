@@ -278,10 +278,12 @@ const SUPABASE_URL='https://lqggoshphakeuufibdno.supabase.co';
 const SUPABASE_KEY='sb_publishable_QlnJaa5xdUXePvXFV6QFwQ_AmMk639T';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],efetivoData=[];
+let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[];
 let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'nao_lancadas' | null
 let bannerNaoLancadasAberto=false;
 let bannerFiltroObra='';
+let bannerRelatoriosAberto=false;
+let bannerRelatoriosFiltroObra='';
 let tabelaMesFiltro=0; // 0 = mês atual
 let tabelaAnoFiltro=0; // 0 = ano atual
 let globalObraFiltro=''; // filtro global de obra — propaga para todos os módulos
@@ -388,11 +390,12 @@ async function loadFerias(){
 }
 
 async function loadAlojamentos(){
-  const [a,c]=await Promise.all([
+  const [a,c,r]=await Promise.all([
     sb.from('alojamentos').select('*,obra:obras(nome,codigo)').order('nome'),
     sb.from('alojamentos_contas').select('*').order('ano',{ascending:false}).order('mes',{ascending:false}),
+    sb.from('alojamentos_relatorios').select('*').order('ano',{ascending:false}).order('mes',{ascending:false}),
   ]);
-  alojamentos=a.data||[];alojamentosContas=c.data||[];
+  alojamentos=a.data||[];alojamentosContas=c.data||[];alojamentosRelatorios=r.data||[];
 }
 
 let currentPage='dashboard';
@@ -425,7 +428,7 @@ async function showPage(page){
     else if(page==='experiencia')renderExperiencia();
     else if(page==='folgas')renderFolgas();
     else if(page==='ferias')renderFerias();
-    else if(page==='alojamentos'){alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';await loadAlojamentos();renderAlojamentos();}
+    else if(page==='alojamentos'){alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';bannerRelatoriosAberto=false;bannerRelatoriosFiltroObra='';await loadAlojamentos();renderAlojamentos();}
     else if(page==='efetivo'){efetivoSituacaoFiltro='';await loadEfetivo();renderEfetivo();}
     else if(page==='usuarios')renderUsuarios();
     else if(page==='obras')renderObras();
@@ -2880,6 +2883,11 @@ async function renderUsuarios(){
   const rows=(usuarios||[]).map(u=>{
     let senhaLeg='—';
     try{if(u.senha)senhaLeg=u.senha;}catch(e){senhaLeg='(criptografada)'}
+    const obrasIds=(u.obras_acesso||[]).map(String);
+    const obrasCodigos=obrasIds.map(oid=>obras.find(o=>String(o.id)===oid)?.codigo).filter(Boolean);
+    const obrasCell=obrasIds.length===0
+      ?'<span style="font-size:11px;color:var(--text-muted)">Sem restrição</span>'
+      :'<span style="font-size:11px;background:var(--primary-light);color:var(--primary-dark);padding:2px 8px;border-radius:20px;font-weight:500" title="'+obrasCodigos.join(', ')+'">'+obrasIds.length+' obra(s)'+(obrasCodigos.length?': '+obrasCodigos.slice(0,3).join(', ')+(obrasCodigos.length>3?'...':''):'')+'</span>';
     return`<tr>
       <td><div style="font-weight:500">${u.nome||'—'}</div><div style="font-size:11px;color:var(--text-muted)">👤 ${u.usuario||'—'}</div></td>
       <td>${nivelBadge(u.perfil)}</td>
@@ -2890,7 +2898,7 @@ async function renderUsuarios(){
           <button class="btn btn-sm" style="padding:2px 6px;font-size:11px" onclick="toggleSenha('${u.id}','${u.senha||''}')"><i class="ti ti-eye" id="eye-${u.id}"></i></button>
         </div>
       </td>
-      <td>—</td>
+      <td>${obrasCell}</td>
       <td>
         <div style="display:flex;gap:6px">
           <button class="btn btn-sm" onclick="openModalUsuario('${u.id}')"><i class="ti ti-edit"></i> Editar</button>
@@ -2908,7 +2916,7 @@ async function renderUsuarios(){
     <div class="table-container">
       <table class="table">
         <thead><tr>
-          <th>Nome / Usuário</th><th>Nível de Acesso</th><th>Senha</th><th>Criado em</th><th>Ações</th>
+          <th>Nome / Usuário</th><th>Nível de Acesso</th><th>Senha</th><th>Obras com acesso</th><th>Ações</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
@@ -2918,9 +2926,15 @@ async function renderUsuarios(){
 function openModalUsuario(id){
   sb.from('usuarios_acesso').select('*').eq('id',id||'00000000-0000-0000-0000-000000000000').single().then(({data:u})=>{
     const isEdit=!!id;
+    const obrasAtuais=new Set((u?.obras_acesso||[]).map(String));
+    const obrasOrdenadas=[...obras].sort((a,b)=>(a.codigo||a.nome||'').localeCompare(b.codigo||b.nome||'','pt-BR',{sensitivity:'base'}));
+    const obrasCheckboxes=obrasOrdenadas.length?obrasOrdenadas.map(o=>{
+      const checked=obrasAtuais.has(String(o.id));
+      return '<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;padding:3px 0"><input type="checkbox" class="u-obra-chk" value="'+o.id+'" '+(checked?'checked':'')+'> '+(o.codigo?'<strong>'+o.codigo+'</strong> — ':'')+(o.nome||'')+'</label>';
+    }).join(''):'<div style="font-size:12px;color:var(--text-muted);padding:6px 0">Nenhuma obra cadastrada</div>';
     document.body.insertAdjacentHTML('beforeend',`
       <div class="modal-overlay" id="modal-usuario" onclick="if(event.target===this)closeModal('modal-usuario')">
-        <div class="modal" style="max-width:440px">
+        <div class="modal" style="max-width:480px">
           <div class="modal-header">
             <span class="modal-title">${isEdit?'✏️ Editar Usuário':'➕ Novo Usuário'}</span>
             <button class="btn btn-sm" onclick="closeModal('modal-usuario')"><i class="ti ti-x"></i></button>
@@ -2936,8 +2950,12 @@ function openModalUsuario(id){
                 <input type="text" id="u-email" value="${u?.usuario||''}" placeholder="Nome de usuário para login" autocomplete="off">
               </div>
               <div class="form-group" style="grid-column:1/-1">
-                <label>${isEdit?'Nova senha (deixe em branco para manter)':'Senha *'}</label>
-                <input type="password" id="u-senha" placeholder="${isEdit?'Nova senha (opcional)':'Senha de acesso'}">
+                <label>Senha *</label>
+                <div style="display:flex;gap:6px">
+                  <input type="password" id="u-senha" value="${(u?.senha||'').replace(/"/g,'&quot;')}" placeholder="Senha de acesso" autocomplete="new-password" style="flex:1">
+                  <button type="button" class="btn btn-sm" onclick="toggleSenhaModal()" id="u-senha-eye-btn"><i class="ti ti-eye" id="u-senha-eye"></i></button>
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${isEdit?'Senha atual preenchida acima — clique no olho para ver, ou edite para trocar.':'Defina a senha de acesso do usuário.'}</div>
               </div>
               <div class="form-group">
                 <label>Nível de acesso *</label>
@@ -2954,6 +2972,16 @@ function openModalUsuario(id){
                   <option value="false" ${u?.ativo===false?'selected':''}>Inativo</option>
                 </select>
               </div>
+              <div class="form-group" style="grid-column:1/-1">
+                <label>Obras com acesso <span style="font-weight:400;color:var(--text-muted)">(nenhuma marcada = sem restrição)</span></label>
+                <div style="display:flex;gap:8px;margin-bottom:6px">
+                  <button type="button" class="btn btn-sm" onclick="document.querySelectorAll('.u-obra-chk').forEach(c=>c.checked=true)">Marcar todas</button>
+                  <button type="button" class="btn btn-sm" onclick="document.querySelectorAll('.u-obra-chk').forEach(c=>c.checked=false)">Limpar seleção</button>
+                </div>
+                <div style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);padding:8px 10px">
+                  ${obrasCheckboxes}
+                </div>
+              </div>
             </div>
           </div>
           <div class="modal-footer">
@@ -2964,6 +2992,14 @@ function openModalUsuario(id){
       </div>`);
   });
 
+}
+
+function toggleSenhaModal(){
+  const inp=document.getElementById('u-senha');
+  const icon=document.getElementById('u-senha-eye');
+  if(!inp||!icon)return;
+  if(inp.type==='password'){inp.type='text';icon.className='ti ti-eye-off';}
+  else{inp.type='password';icon.className='ti ti-eye';}
 }
 
 function toggleSenha(id, hash){
@@ -2984,10 +3020,10 @@ async function salvarUsuario(id){
   const senha=document.getElementById('u-senha').value;
   const nivel=document.getElementById('u-nivel').value;
   const ativo=document.getElementById('u-ativo').value==='true';
+  const obrasAcesso=[...document.querySelectorAll('.u-obra-chk:checked')].map(c=>c.value);
   if(!nome||!email){showToast('Nome e usuário são obrigatórios','error');return;}
-  if(!id&&!senha){showToast('Senha é obrigatória para novo usuário','error');return;}
-  const payload={nome,usuario:email,perfil:nivel};
-  if(senha)payload.senha=senha; // hash simples base64
+  if(!senha){showToast('Senha é obrigatória','error');return;}
+  const payload={nome,usuario:email,perfil:nivel,senha,obras_acesso:obrasAcesso};
   let error;
   if(id){({error}=await sb.from('usuarios_acesso').update(payload).eq('id',id));}
   else{({error}=await sb.from('usuarios_acesso').insert({...payload,}));}
@@ -3210,6 +3246,9 @@ function renderAlojamentos(){
         const tiposLanc=new Set(contasMes.map(c=>c.tipo));
         const isentas=new Set(_contasObrigTab.filter(t=>a['isenta_'+t]));
         const faltando=_contasObrigTab.filter(t=>!tiposLanc.has(t)&&!isentas.has(t));
+        const relMes=alojamentosRelatorios.find(r=>String(r.alojamento_id)===String(a.id)&&r.mes===_mesTabela&&r.ano===_anoTabela);
+        const relTip=relMes?'Relatório ADM 31 — recebido em '+(relMes.data_recebimento?formatDate(relMes.data_recebimento):'—'):'Relatório ADM 31 — não recebido';
+        const relPill='<span onclick="openModalRelatorios(\''+a.id+'\','+_mesTabela+','+_anoTabela+')" title="'+relTip+'" style="font-size:15px;cursor:pointer;padding:3px 5px;border-radius:6px;background:'+(relMes?'var(--success-light)':'#FEE2E2')+';opacity:'+(relMes?'1':'0.4')+'">📋</span>';
 
         const contasPills=_contasObrigTab.map(t=>{
           if(isentas.has(t))return '<span title="'+_nomesTab[t]+' isento" style="font-size:18px;opacity:.25;cursor:default">'+_labTab[t]+'</span>';
@@ -3236,9 +3275,11 @@ function renderAlojamentos(){
           +'<td style="padding:10px 14px">'+termBadge+'</td>'
           +'<td style="padding:10px 14px"><div style="font-size:13px;font-weight:500">R$ '+custoMes.toLocaleString('pt-BR',{minimumFractionDigits:2})+'</div></td>'
           +'<td style="padding:10px 14px" id="section-pendentes"><div style="display:flex;gap:4px;align-items:center">'+contasPills+'</div>'+(faltando.length?'<div style="font-size:10px;color:#DC2626;margin-top:2px">'+faltando.length+' não lançada(s)</div>':'<div style="font-size:10px;color:var(--success)">Completo</div>')+'</td>'
+          +'<td style="padding:10px 14px">'+relPill+(relMes?'':'<div style="font-size:10px;color:#DC2626;margin-top:2px">Pendente</div>')+'</td>'
           +'<td style="padding:8px 14px;white-space:nowrap">'
           +'<button class="btn btn-sm" title="Moradores" onclick="openModalMoradores(&apos;'+ a.id +'&apos;)"><i class="ti ti-users"></i></button> '
           +'<button class="btn btn-sm" title="Contas" onclick="openModalContas(&apos;'+ a.id +'&apos;)"><i class="ti ti-receipt"></i></button> '
+          +'<button class="btn btn-sm" title="Relatório ADM 31" onclick="openModalRelatorios(&apos;'+ a.id +'&apos;)"><i class="ti ti-clipboard-check"></i></button> '
           +'<button class="btn btn-sm" title="Editar" onclick="openModalAlojamento(&apos;'+ a.id +'&apos;)"><i class="ti ti-edit"></i></button> '
           +'<button class="btn btn-sm btn-danger" title="Excluir" onclick="deleteAlojamento(&apos;'+ a.id +'&apos;,&apos;'+(a.nome||'').replace(/&apos;/g,'\\&apos;')+'&apos;)"><i class="ti ti-trash"></i></button>'
           +'</td></tr>';
@@ -3261,6 +3302,7 @@ function renderAlojamentos(){
         +'<th style="min-width:120px">Contrato</th>'
         +'<th>Custo '+_mesLabel+'</th>'
         +'<th>Contas '+_mesLabel+'</th>'
+        +'<th>ADM 31 '+_mesLabel+'</th>'
         +'<th>Ações</th>'
         +'</tr></thead><tbody>'+linhas+'</tbody></table></div>';
     }).join('');
@@ -3314,6 +3356,40 @@ function renderAlojamentos(){
     return '<div style="background:#FFF7ED;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:8px;overflow:hidden">'+headerHtml+filtroObrasHtml+'<div style="padding:6px 14px;max-height:300px;overflow-y:auto">'+linhas+'</div></div>';
   })():'';
 
+  // Calcular alojamentos sem Relatório ADM 31 enviado no mês para o banner
+  const _alojSemRelatorio=alojsFiltrados.filter(a=>!alojamentosRelatorios.some(r=>String(r.alojamento_id)===String(a.id)&&r.mes===_mesAtual&&r.ano===_anoAtual));
+  const _obrasSemRelatorio=[...new Set(_alojSemRelatorio.map(a=>a.obra?.codigo?(a.obra.codigo+' — '+a.obra.nome):'Sem obra'))];
+  const _listaFiltradaRel=bannerRelatoriosFiltroObra?_alojSemRelatorio.filter(a=>(a.obra?.codigo?(a.obra.codigo+' — '+a.obra.nome):'Sem obra')===bannerRelatoriosFiltroObra):_alojSemRelatorio;
+
+  const bannerSemRelatorio=_alojSemRelatorio.length>0?(()=>{
+    const headerHtml='<div onclick="bannerRelatoriosAberto=!bannerRelatoriosAberto;renderAlojamentos()" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#FEF2F2;border-bottom:'+(bannerRelatoriosAberto?'1px solid #FCA5A5':'none')+';cursor:pointer;user-select:none">'
+      +'<i class="ti ti-clipboard-x" style="font-size:18px;color:#991B1B;flex-shrink:0"></i>'
+      +'<strong style="color:#991B1B;font-size:13px">'+_alojSemRelatorio.length+' alojamento(s) sem Relatório ADM 31 (Check List) recebido em '+_bmLabel+'</strong>'
+      +'<div style="margin-left:auto;display:flex;align-items:center;gap:6px">'
+      +'<span style="font-size:11px;color:#991B1B;opacity:.6">'+(bannerRelatoriosAberto?'fechar':'ver detalhes')+'</span>'
+      +'<i class="ti ti-chevron-'+(bannerRelatoriosAberto?'up':'down')+'" style="color:#991B1B;font-size:15px"></i>'
+      +'</div></div>';
+
+    if(!bannerRelatoriosAberto)return '<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:var(--radius);margin-bottom:8px;overflow:hidden">'+headerHtml+'</div>';
+
+    const filtroObrasHtml='<div style="padding:8px 14px;border-bottom:1px solid #FCA5A5;display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:#FEF2F2">'
+      +'<span style="font-size:11px;font-weight:600;color:#991B1B;margin-right:4px">Obra:</span>'
+      +'<button onclick="event.stopPropagation();bannerRelatoriosFiltroObra=\'\';renderAlojamentos()" style="font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid '+(!bannerRelatoriosFiltroObra?'#991B1B':'#FCA5A5')+';background:'+(!bannerRelatoriosFiltroObra?'#991B1B':'transparent')+';color:'+(!bannerRelatoriosFiltroObra?'#fff':'#991B1B')+';cursor:pointer">Todas ('+_alojSemRelatorio.length+')</button>'
+      +_obrasSemRelatorio.map(o=>{
+        const cnt=_alojSemRelatorio.filter(a=>(a.obra?.codigo?(a.obra.codigo+' — '+a.obra.nome):'Sem obra')===o).length;
+        const ativo=bannerRelatoriosFiltroObra===o;
+        return '<button onclick="event.stopPropagation();bannerRelatoriosFiltroObra=bannerRelatoriosFiltroObra===\''+o+'\'?\'\':\''+o+'\';renderAlojamentos()" style="font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid '+(ativo?'#991B1B':'#FCA5A5')+';background:'+(ativo?'#991B1B':'transparent')+';color:'+(ativo?'#fff':'#991B1B')+';cursor:pointer">'+(o.split(' — ')[0]||o)+' ('+cnt+')</button>';
+      }).join('')
+      +'</div>';
+
+    const linhasRel=_listaFiltradaRel.map(a=>{
+      const obraLabel=a.obra?.codigo||'—';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #FCA5A5"><i class="ti ti-home" style="color:#991B1B;flex-shrink:0;font-size:12px"></i><span style="font-size:11px;color:var(--text-muted);min-width:44px">'+obraLabel+'</span><span style="font-weight:600;color:#991B1B;flex:1;font-size:12px;cursor:pointer;text-decoration:underline" onclick="event.stopPropagation();bannerRelatoriosAberto=false;scrollToAlojamento(&apos;'+a.id+'&apos;)">'+ a.nome +'</span><button class="btn btn-sm" style="font-size:11px;padding:2px 8px;border-color:#FCA5A5;color:#991B1B" onclick="event.stopPropagation();openModalRelatorios(&apos;'+a.id+'&apos;,'+_mesAtual+','+_anoAtual+')">📋 Lançar recebimento</button></div>';
+    }).join('');
+
+    return '<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:var(--radius);margin-bottom:8px;overflow:hidden">'+headerHtml+filtroObrasHtml+'<div style="padding:6px 14px;max-height:300px;overflow-y:auto">'+linhasRel+'</div></div>';
+  })():'';
+
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div><div class="page-title"><i class="ti ti-home-2"></i> Alojamentos</div>
@@ -3327,6 +3403,7 @@ function renderAlojamentos(){
     ${vencidos>0?`<div onclick="alojFiltroAtivo=alojFiltroAtivo==='contratos_vencidos'?null:'contratos_vencidos';renderAlojamentos()" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:var(--danger-light);border:1px solid #FCA5A5;color:#991B1B;cursor:pointer;transition:opacity .15s" ${alojFiltroAtivo==='contratos_vencidos'?'class="aloj-filtro-ativo"':''}><i class="ti ti-alert-triangle" style="font-size:18px"></i><strong>${vencidos} contrato(s) vencido(s) — providenciar renovação!</strong><i class="ti ti-${alojFiltroAtivo==='contratos_vencidos'?'x':'chevron-right'}" style="margin-left:auto"></i></div>`:''}
     ${vencProx>0?`<div onclick="alojFiltroAtivo=alojFiltroAtivo==='contratos_vencendo'?null:'contratos_vencendo';renderAlojamentos()" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:var(--warning-light);border:1px solid #FCD34D;color:#92400E;cursor:pointer" ${alojFiltroAtivo==='contratos_vencendo'?'class="aloj-filtro-ativo"':''}><i class="ti ti-clock" style="font-size:18px"></i><strong>${vencProx} contrato(s) vencendo em 60 dias</strong><i class="ti ti-${alojFiltroAtivo==='contratos_vencendo'?'x':'chevron-right'}" style="margin-left:auto"></i></div>`:''}
     ${bannerSemContas}
+    ${bannerSemRelatorio}
 
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:16px">
       <!-- Totais gerais -->
@@ -3614,7 +3691,12 @@ function openModalContas(alojId,filtroMes,filtroAno,tipoPresel){
     const tl=tiposLabel[c.tipo]||c.tipo;
     const vl='R$ '+(c.valor||0).toLocaleString('pt-BR',{minimumFractionDigits:2});
     const mesLabel=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][c.mes-1]||'';
-    return '<div class="conta-row"><div style="display:flex;flex-direction:column;gap:1px"><span>'+tl+'</span><span style="font-size:11px;color:var(--text-muted)">'+mesLabel+'/'+c.ano+'</span></div><div style="display:flex;align-items:center;gap:8px"><span style="font-weight:500">'+vl+'</span><span style="font-size:11px;background:var(--success-light);color:var(--success);padding:2px 8px;border-radius:20px;font-weight:500">✅ Lançado</span><button class="btn btn-sm btn-danger" onclick="deleteConta(\''+c.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-trash"></i></button></div></div>';
+    const enviado=!!(c.adm35_numero&&c.adm35_envio);
+    const dataEnvioFmt=c.adm35_envio?c.adm35_envio.split('-').reverse().join('/'):'';
+    const admBadge=enviado
+      ?'<span style="font-size:11px;background:var(--success-light);color:var(--success);padding:2px 8px;border-radius:20px;font-weight:500">✓ ADM 35 nº '+c.adm35_numero+' · '+dataEnvioFmt+'</span>'
+      :'<span style="font-size:11px;background:var(--danger-light);color:var(--danger);padding:2px 8px;border-radius:20px;font-weight:500">❗ Não enviado p/ pagamento</span>';
+    return '<div class="conta-row"><div style="display:flex;flex-direction:column;gap:1px"><span>'+tl+'</span><span style="font-size:11px;color:var(--text-muted)">'+mesLabel+'/'+c.ano+'</span></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:500">'+vl+'</span>'+admBadge+'<button class="btn btn-sm" onclick="editarAdm35Click(this)" data-id="'+c.id+'" data-alojid="'+alojId+'" data-mes="'+mesAtualN+'" data-ano="'+anoAtualN+'" data-num="'+(c.adm35_numero||'')+'" data-data="'+(c.adm35_envio||'')+'" title="Lançar/editar envio ADM 35"><i class="ti ti-send"></i></button><button class="btn btn-sm btn-danger" onclick="deleteConta(\''+c.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-trash"></i></button></div></div>';
   }).join(''):'<div style="text-align:center;padding:16px;color:var(--text-muted);font-size:13px">Nenhuma conta lançada neste mês</div>';
 
   const filtroMesOpts=mesesDisp.map(m=>'<option value="'+m.mes+'" '+(m.mes===mesAtualN&&m.ano===anoAtualN?'selected':'')+'>'+meses[m.mes-1]+'/'+m.ano+'</option>').join('');
@@ -3661,6 +3743,15 @@ function openModalContas(alojId,filtroMes,filtroAno,tipoPresel){
               <input id="c-valor" type="number" step="0.01" placeholder="0,00" style="padding:8px;border:1px solid var(--border);border-radius:var(--radius);width:100%">
             </div>
           </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:flex-end;margin-top:8px">
+            <div class="form-group" style="margin:0"><label>Nº da ADM 35</label>
+              <input id="c-adm35-num" type="text" placeholder="Ex: 1234" style="padding:8px;border:1px solid var(--border);border-radius:var(--radius);width:100%">
+            </div>
+            <div class="form-group" style="margin:0"><label>Data envio ADM 35</label>
+              <input id="c-adm35-data" type="date" style="padding:8px;border:1px solid var(--border);border-radius:var(--radius);width:100%">
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Pode deixar em branco e lançar depois, clicando em <i class="ti ti-send"></i> na conta já lançada.</div>
           <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="saveConta('${alojId}')"><i class="ti ti-plus"></i> Lançar</button>
         </div>
         <div id="contas-historico">
@@ -3677,11 +3768,13 @@ async function saveConta(alojId){
   const tipo=document.getElementById('c-tipo').value;
   const valorRaw=document.getElementById('c-valor').value;
   const valor=parseFloat(String(valorRaw).replace(',','.'));
+  const adm35Num=(document.getElementById('c-adm35-num').value||'').trim();
+  const adm35Data=document.getElementById('c-adm35-data').value||null;
   console.log('[saveConta] alojId=',alojId,'mes=',mes,'ano=',ano,'tipo=',tipo,'valor=',valor,'valorRaw=',valorRaw);
   if(valorRaw===''||isNaN(valor)){showToast('Informe o valor','error');return;}
   if(!alojId||alojId==='undefined'||alojId==='null'){showToast('Erro: ID do alojamento inválido: '+alojId,'error');return;}
   if(!mes||!ano){showToast('Mês/ano inválido: mes='+mes+' ano='+ano,'error');return;}
-  const payload={alojamento_id:alojId,mes,ano,tipo,valor:Number(valor)};
+  const payload={alojamento_id:alojId,mes,ano,tipo,valor:Number(valor),adm35_numero:adm35Num||null,adm35_envio:adm35Data};
   console.log('[saveConta] payload=',JSON.stringify(payload));
   const res=await sb.from('alojamentos_contas').insert(payload);
   console.log('[saveConta] res=',res);
@@ -3697,6 +3790,35 @@ async function saveConta(alojId){
   renderAlojamentos();
 }
 
+async function editarAdm35Click(btn){
+  const id=btn.dataset.id;
+  const alojId=btn.dataset.alojid;
+  const mes=btn.dataset.mes;
+  const ano=btn.dataset.ano;
+  const numAtual=btn.dataset.num||'';
+  const dataAtual=btn.dataset.data||'';
+  const num=prompt('Nº da ADM 35:',numAtual);
+  if(num===null)return;
+  const dataAtualBr=dataAtual?dataAtual.split('-').reverse().join('/'):'';
+  const dataEnvio=prompt('Data do envio (dd/mm/aaaa):',dataAtualBr);
+  if(dataEnvio===null)return;
+  let dataIso=null;
+  if(dataEnvio.trim()){
+    const m=dataEnvio.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if(!m){showToast('Data inválida, use dd/mm/aaaa','error');return;}
+    dataIso=m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');
+  }
+  const res=await sb.from('alojamentos_contas').update({adm35_numero:num.trim()||null,adm35_envio:dataIso}).eq('id',id);
+  if(res.error){
+    console.error('Erro editarAdm35:',res.error);
+    showToast('Erro: '+res.error.message,'error');
+    return;
+  }
+  showToast('ADM 35 atualizada! ✓');
+  await loadAlojamentos();
+  openModalContas(alojId,parseInt(mes),parseInt(ano));
+}
+
 // toggleContaStatus removido — status único ao lançar
 
 async function deleteConta(id,alojId,mes,ano){
@@ -3705,16 +3827,125 @@ async function deleteConta(id,alojId,mes,ano){
   await loadAlojamentos();closeModal('modal-contas');openModalContas(alojId,mes,ano);renderAlojamentos();
 }
 
+function openModalRelatorios(alojId,filtroMes,filtroAno){
+  const a=alojamentos.find(x=>String(x.id)===String(alojId));
+  const hoje=new Date();
+  const mesAtualN=filtroMes?parseInt(filtroMes):hoje.getMonth()+1;
+  const anoAtualN=filtroAno?parseInt(filtroAno):hoje.getFullYear();
+  const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+  const relAloj=alojamentosRelatorios.filter(r=>String(r.alojamento_id)===String(alojId)).sort((a,b)=>b.ano-a.ano||b.mes-a.mes);
+  const mesesDisp=[];const seen=new Set();
+  relAloj.forEach(r=>{const k=r.ano+'-'+String(r.mes).padStart(2,'0');if(!seen.has(k)){seen.add(k);mesesDisp.push({mes:r.mes,ano:r.ano});}});
+  const keyAtual=anoAtualN+'-'+String(mesAtualN).padStart(2,'0');
+  if(!seen.has(keyAtual))mesesDisp.unshift({mes:mesAtualN,ano:anoAtualN});
+  mesesDisp.sort((a,b)=>b.ano-a.ano||b.mes-a.mes);
+
+  const relMesSel=relAloj.find(r=>r.mes===mesAtualN&&r.ano===anoAtualN);
+  const statusHtml=relMesSel
+    ?'<span style="padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;background:var(--success-light);color:var(--success)">✓ Recebido em '+formatDate(relMesSel.data_recebimento)+'</span>'
+    :'<span style="padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;background:var(--danger-light);color:var(--danger)">❗ Não recebido este mês</span>';
+
+  const historicoHtml=relAloj.length?relAloj.map(r=>{
+    const mesLabel=meses[r.mes-1]||'';
+    return '<div class="conta-row"><div style="display:flex;flex-direction:column;gap:1px"><span>Relatório ADM 31</span><span style="font-size:11px;color:var(--text-muted)">'+mesLabel+'/'+r.ano+'</span></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:12px;color:var(--text-muted)">Avaliador: '+(r.avaliador||'—')+'</span><span style="font-size:11px;background:var(--success-light);color:var(--success);padding:2px 8px;border-radius:20px;font-weight:500">✓ Recebido '+(r.data_recebimento?formatDate(r.data_recebimento):'—')+'</span><button class="btn btn-sm btn-danger" onclick="deleteRelatorio(\''+r.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-trash"></i></button></div></div>';
+  }).join(''):'<div style="text-align:center;padding:16px;color:var(--text-muted);font-size:13px">Nenhum relatório recebido ainda</div>';
+
+  const filtroMesOpts=mesesDisp.map(m=>'<option value="'+m.mes+'" '+(m.mes===mesAtualN&&m.ano===anoAtualN?'selected':'')+'>'+meses[m.mes-1]+'/'+m.ano+'</option>').join('');
+  const mesLancOpts=meses.map((m,i)=>'<option value="'+(i+1)+'" '+((i+1)===mesAtualN?'selected':'')+'>'+m+'</option>').join('');
+
+  insertModal('modal-relatorios',`
+    <div class="modal" style="max-width:640px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-clipboard-check"></i> Relatório ADM 31 — ${a?.nome||''}</span>
+        <button class="btn btn-sm" onclick="closeModal('modal-relatorios')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+          <label style="font-size:12px;font-weight:600;color:var(--text-muted)">MÊS</label>
+          <select id="r-filtro-mes" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px" onchange="openModalRelatorios('${alojId}',this.value,document.getElementById('r-filtro-ano').value)">
+            ${filtroMesOpts}
+          </select>
+          <input id="r-filtro-ano" type="number" value="${anoAtualN}" style="width:78px;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px" onchange="openModalRelatorios('${alojId}',document.getElementById('r-filtro-mes').value,this.value)">
+          ${statusHtml}
+        </div>
+        <div style="background:var(--primary-light);border-radius:var(--radius);padding:12px;margin-bottom:16px">
+          <div style="font-size:12px;font-weight:600;color:var(--primary-dark);margin-bottom:8px">LANÇAR RECEBIMENTO DO RELATÓRIO (ADM 31)</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:flex-end">
+            <div class="form-group" style="margin:0"><label>Mês</label>
+              <select id="r-mes" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius)">
+                ${mesLancOpts}
+              </select>
+            </div>
+            <div class="form-group" style="margin:0"><label>Ano</label>
+              <input id="r-ano" type="number" value="${anoAtualN}" style="padding:8px;border:1px solid var(--border);border-radius:var(--radius);width:100%">
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:flex-end;margin-top:8px">
+            <div class="form-group" style="margin:0"><label>Avaliador</label>
+              <input id="r-avaliador" type="text" placeholder="Nome do avaliador" style="padding:8px;border:1px solid var(--border);border-radius:var(--radius);width:100%">
+            </div>
+            <div class="form-group" style="margin:0"><label>Data da Avaliação</label>
+              <input id="r-data-avaliacao" type="date" style="padding:8px;border:1px solid var(--border);border-radius:var(--radius);width:100%">
+            </div>
+          </div>
+          <div class="form-group" style="margin:8px 0 0"><label>Data do Recebimento</label>
+            <input id="r-data-recebimento" type="date" value="${toISO(new Date())}" style="padding:8px;border:1px solid var(--border);border-radius:var(--radius);width:100%">
+          </div>
+          <div class="form-group" style="margin:8px 0 0"><label>Observações (opcional)</label>
+            <textarea id="r-obs" rows="2" placeholder="Pendências encontradas no check list, etc." style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);resize:vertical"></textarea>
+          </div>
+          <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="saveRelatorio('${alojId}')"><i class="ti ti-plus"></i> Lançar recebimento</button>
+        </div>
+        <div id="relatorios-historico">
+          ${historicoHtml}
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeModal('modal-relatorios')">Fechar</button></div>
+    </div>`);
+}
+
+async function saveRelatorio(alojId){
+  const mes=parseInt(document.getElementById('r-mes').value);
+  const ano=parseInt(document.getElementById('r-ano').value);
+  const avaliador=(document.getElementById('r-avaliador').value||'').trim();
+  const dataAvaliacao=document.getElementById('r-data-avaliacao').value||null;
+  const dataRecebimento=document.getElementById('r-data-recebimento').value||toISO(new Date());
+  const obs=(document.getElementById('r-obs').value||'').trim();
+  if(!alojId||alojId==='undefined'||alojId==='null'){showToast('Erro: ID do alojamento inválido: '+alojId,'error');return;}
+  if(!mes||!ano){showToast('Mês/ano inválido: mes='+mes+' ano='+ano,'error');return;}
+  const payload={alojamento_id:alojId,mes,ano,avaliador:avaliador||null,data_avaliacao:dataAvaliacao,data_recebimento:dataRecebimento,observacoes:obs||null};
+  const res=await sb.from('alojamentos_relatorios').insert(payload);
+  if(res.error){
+    console.error('Erro saveRelatorio:',res.error);
+    showToast('Erro: '+res.error.message+' | code: '+res.error.code,'error');
+    return;
+  }
+  showToast('Relatório ADM 31 lançado! ✓');
+  await loadAlojamentos();
+  closeModal('modal-relatorios');
+  openModalRelatorios(alojId,mes,ano);
+  renderAlojamentos();
+}
+
+async function deleteRelatorio(id,alojId,mes,ano){
+  if(!confirm('Excluir este lançamento?'))return;
+  await sb.from('alojamentos_relatorios').delete().eq('id',id);
+  await loadAlojamentos();closeModal('modal-relatorios');openModalRelatorios(alojId,mes,ano);renderAlojamentos();
+}
+
 function exportAlojamentosExcel(){
   const hoje=new Date();
   const rows=[];
   rows.push(['RELATÓRIO DE ALOJAMENTOS — GTEL','','','','','','','','']);
   rows.push([`Emitido em: ${hoje.toLocaleDateString('pt-BR')}  ·  ${alojamentos.length} alojamento(s)`,'','','','','','','','']);
   rows.push([]);
-  rows.push(['NOME','ENDEREÇO','OBRA','VAGAS','OCUPADAS','DISPONÍVEIS','ALUGUEL','INÍCIO','TÉRMINO','IMOBILIÁRIA']);
+  rows.push(['NOME','ENDEREÇO','OBRA','VAGAS','OCUPADAS','DISPONÍVEIS','ALUGUEL','INÍCIO','TÉRMINO','IMOBILIÁRIA','ADM 31 ('+(hoje.getMonth()+1)+'/'+hoje.getFullYear()+')']);
   alojamentos.forEach(a=>{
     const ocup=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length;
-    rows.push([a.nome||'—',a.endereco||'—',a.obra?.codigo||'—',a.vagas_total||0,ocup,(a.vagas_total||0)-ocup,a.custo_mensal||0,formatDate(a.data_inicio),formatDate(a.data_termino),a.imobiliaria||'—']);
+    const relMesAtual=alojamentosRelatorios.find(r=>String(r.alojamento_id)===String(a.id)&&r.mes===hoje.getMonth()+1&&r.ano===hoje.getFullYear());
+    const admStatus=relMesAtual?('Recebido '+formatDate(relMesAtual.data_recebimento)):'Pendente';
+    rows.push([a.nome||'—',a.endereco||'—',a.obra?.codigo||'—',a.vagas_total||0,ocup,(a.vagas_total||0)-ocup,a.custo_mensal||0,formatDate(a.data_inicio),formatDate(a.data_termino),a.imobiliaria||'—',admStatus]);
   });
   rows.push([]);
   rows.push(['MORADORES POR ALOJAMENTO','','','','','','','','','']);
@@ -3726,8 +3957,8 @@ function exportAlojamentosExcel(){
     }
   });
   const ws=XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=[{wch:28},{wch:40},{wch:12},{wch:8},{wch:10},{wch:12},{wch:14},{wch:12},{wch:12},{wch:28}];
-  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:9}},{s:{r:1,c:0},e:{r:1,c:9}}];
+  ws['!cols']=[{wch:28},{wch:40},{wch:12},{wch:8},{wch:10},{wch:12},{wch:14},{wch:12},{wch:12},{wch:28},{wch:20}];
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:10}},{s:{r:1,c:0},e:{r:1,c:10}}];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Alojamentos');
   XLSX.writeFile(wb,`Alojamentos_GTEL_${hoje.toLocaleDateString('pt-BR').replace(/\//g,'-')}.xlsx`);
@@ -4116,23 +4347,15 @@ async function renderEfetivo(){
   // ── Pills de data ───────────────────────────────────────────────────────
   const dPills=datas.slice(0,30).map(d=>{
     const[y,m,dia]=d.split('-');const sel=d===ds;
-    return '<button onclick="efetivoDataFiltro=\''+d+'\';efetivoSituacaoFiltro=\'\';renderEfetivo()" style="font-size:12px;padding:4px 10px;border-radius:20px;border:1px solid '+(sel?'var(--primary)':'var(--border)')+';background:'+(sel?'var(--primary)':'var(--surface)')+';color:'+(sel?'#fff':'var(--text-muted)')+';cursor:pointer;font-weight:'+(sel?'600':'400')+'">'+dia+'/'+m+'</button>';
+    return '<button onclick="efetivoDataFiltro=\''+d+'\';efetivoSituacaoFiltro=\'\';renderEfetivo()" style="display:block;width:100%;text-align:left;font-size:12px;padding:6px 12px;border-radius:6px;border:1px solid '+(sel?'var(--primary)':'var(--border)')+';background:'+(sel?'var(--primary)':'var(--surface)')+';color:'+(sel?'#fff':'var(--text-muted)')+';cursor:pointer;font-weight:'+(sel?'600':'400')+'">'+dia+'/'+m+'</button>';
   }).join('');
 
   // ── Tabs ────────────────────────────────────────────────────────────────
-  const tabHtml=['dia','historico','ranking','horas','he','resumo'].map(m=>{
-    const lbl={dia:'📋 Dia',historico:'📅 Histórico',ranking:'🏆 Ranking Faltas',horas:'⏱️ Horas',he:'⚡ H. Extras',resumo:'📊 Resumo'}[m];
+  const tabHtml=['dia','historico','horas','he','resumo'].map(m=>{
+    const lbl={dia:'📋 Dia',historico:'📅 Histórico',horas:'⏱️ Horas',he:'⚡ H. Extras',resumo:'📊 Resumo'}[m];
     const sel=efetivoViewMode===m;
     return '<button onclick="efetivoViewMode=\''+m+'\';renderEfetivo()" style="padding:6px 16px;border-radius:6px;border:1px solid '+(sel?'var(--primary)':'var(--border)')+';background:'+(sel?'var(--primary)':'transparent')+';color:'+(sel?'#fff':'var(--text)')+';cursor:pointer;font-size:13px;font-weight:'+(sel?'600':'400')+'">'+lbl+'</button>';
   }).join('');
-
-  // ── Ranking faltas ──────────────────────────────────────────────────────
-  const fm={};
-  efetivoFiltrado.filter(r=>r.situacao==='AUSENTE').forEach(r=>{
-    if(!fm[r.cracha])fm[r.cracha]={matricula:r.cracha,nome:r.nome,faltas:0};
-    fm[r.cracha].faltas++;
-  });
-  const rank=Object.values(fm).sort((a,b)=>b.faltas-a.faltas).slice(0,30);
 
   // ── Histórico ───────────────────────────────────────────────────────────
   const hm={};
@@ -4352,20 +4575,22 @@ async function renderEfetivo(){
   } else if(efetivoViewMode==='dia'){
     const _presShow=efetivoSituacaoFiltro===''||efetivoSituacaoFiltro==='PRESENTE';
     const _auseShow=efetivoSituacaoFiltro===''||efetivoSituacaoFiltro==='AUSENTE';
-    const th='<tr><th>Crachá</th><th>Funcionário</th><th>Função</th><th>Departamento</th><th>Marcações</th></tr>';
-    const rP=pres.map(r=>'<tr><td style="padding:8px 12px;font-size:12px">'+r.cracha+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+'</td><td style="padding:8px 12px;font-size:12px;color:var(--primary-dark)">'+getFuncao(r.cracha)+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(r.departamento||'—')+'</td><td style="padding:8px 12px"><div style="display:flex;align-items:center;gap:6px"><span id="marc-'+r.id+'" style="font-size:12px;min-width:48px">'+(r.marcacoes||'—')+'</span><button onclick="editarMarcacaoClick(this)" data-id="'+r.id+'" data-val="'+(r.marcacoes||'')+'" style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;color:var(--text-muted)" title="Editar"><i class="ti ti-edit" style="font-size:11px"></i></button></div></td></tr>').join('');
-    const rA=ause.map(r=>'<tr><td style="padding:8px 12px;font-size:12px">'+r.cracha+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+'</td><td style="padding:8px 12px;font-size:12px;color:var(--primary-dark)">'+getFuncao(r.cracha)+'</td><td style="padding:8px 12px;font-size:12px;color:var(--text-muted)">'+(r.departamento||'—')+'</td><td style="padding:8px 12px"><div style="display:flex;align-items:center;gap:6px"><span id="marc-'+r.id+'" style="font-size:12px;min-width:48px;color:var(--text-muted)">'+(r.marcacoes||'—')+'</span><button onclick="editarMarcacaoClick(this)" data-id="'+r.id+'" data-val="'+(r.marcacoes||'')+'" style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;color:var(--text-muted)" title="Lançar marcação"><i class="ti ti-edit" style="font-size:11px"></i></button></div></td></tr>').join('');
+    const th='<tr><th>Crachá</th><th>Funcionário</th><th>Função</th><th>Status</th></tr>';
+    const linhas=[...(_presShow?pres.map(r=>({...r,_st:'P'})):[]),...(_auseShow?ause.map(r=>({...r,_st:'A'})):[])]
+      .sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
+    const rows=linhas.map(r=>{
+      const badge=r._st==='P'
+        ?'<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:var(--success-light);color:var(--success)">✓ Presente</span>'
+        :'<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:var(--danger-light);color:var(--danger)">✗ Ausente</span>';
+      return '<tr><td style="padding:8px 12px;font-size:12px">'+r.cracha+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+'</td><td style="padding:8px 12px;font-size:12px;color:var(--primary-dark)">'+getFuncao(r.cracha)+'</td><td style="padding:8px 12px">'+badge+'</td></tr>';
+    }).join('');
     const _btnExport='<button onclick="exportarEfetivoExcel(\''+efetivoViewMode+'\')" class="btn btn-sm" style="margin-bottom:8px"><i class="ti ti-file-type-csv"></i> Exportar CSV</button>';
-    view=_btnExport+(_presShow?'<div class="table-container" style="margin-bottom:12px"><div style="padding:10px 16px;background:var(--success-light);border-bottom:1px solid var(--border)"><span style="font-size:12px;font-weight:600;color:var(--success)">✓ PRESENTES — '+pres.length+'</span></div><table><thead>'+th+'</thead><tbody>'+(rP||'<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum</td></tr>')+'</tbody></table></div>':'')
-      +(_auseShow?'<div class="table-container"><div style="padding:10px 16px;background:var(--danger-light);border-bottom:1px solid var(--border)"><span style="font-size:12px;font-weight:600;color:var(--danger)">✗ AUSENTES — '+ause.length+'</span></div><table><thead>'+th+'</thead><tbody>'+(rA||'<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum</td></tr>')+'</tbody></table></div>':'');
+    view=_btnExport+'<div class="table-container"><table><thead>'+th+'</thead><tbody>'+(rows||'<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum</td></tr>')+'</tbody></table></div>';
 
   } else if(efetivoViewMode==='historico'){
     const rows=hist.map(h=>{const[y,m,d]=h.data.split('-');const t=h.p+h.a;const p=t?Math.round(h.p/t*100):0;const cor=p>=90?'var(--success)':p>=70?'var(--warning)':'var(--danger)';return '<tr onclick="efetivoDataFiltro=\''+h.data+'\';efetivoViewMode=\'dia\';renderEfetivo()" style="cursor:pointer"><td style="padding:10px 14px;font-weight:500">'+d+'/'+m+'/'+y+'</td><td style="padding:10px 14px;color:var(--success);font-weight:600">'+h.p+'</td><td style="padding:10px 14px;color:var(--danger);font-weight:600">'+h.a+'</td><td style="padding:10px 14px">'+t+'</td><td style="padding:10px 14px"><div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:6px;background:var(--border);border-radius:3px"><div style="height:6px;border-radius:3px;background:'+cor+';width:'+p+'%"></div></div><span style="font-size:12px;font-weight:600;color:'+cor+';min-width:36px">'+p+'%</span></div></td><td style="padding:10px 14px;color:var(--text-muted);font-size:12px">→</td></tr>';}).join('');
     view='<button onclick="exportarEfetivoExcel(\'historico\')" class="btn btn-sm" style="margin-bottom:8px"><i class="ti ti-file-type-csv"></i> Exportar CSV</button>'+'<div class="table-container"><table><thead><tr><th>Data</th><th>Presentes</th><th>Ausentes</th><th>Total</th><th style="min-width:200px">% Presença</th><th></th></tr></thead><tbody>'+(rows||'<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--text-muted)">Sem histórico</td></tr>')+'</tbody></table></div>';
 
-  } else if(efetivoViewMode==='ranking'){
-    const rows=rank.map((r,i)=>{const cor=i===0?'var(--danger)':i===1?'var(--warning)':i===2?'#B45309':'var(--text-muted)';return '<tr><td style="padding:10px 14px;font-weight:700;color:'+cor+'">#'+(i+1)+'</td><td style="padding:10px 14px;font-size:12px">'+r.matricula+'</td><td style="padding:10px 14px;font-weight:500">'+r.nome+'</td><td style="padding:10px 14px"><span style="font-size:20px;font-weight:700;color:'+(r.faltas>=10?'var(--danger)':r.faltas>=5?'var(--warning)':'var(--text)')+'">'+r.faltas+'</span><span style="font-size:11px;color:var(--text-muted);margin-left:4px">falta(s)</span></td></tr>';}).join('');
-    view='<button onclick="exportarEfetivoExcel(\'ranking\')" class="btn btn-sm" style="margin-bottom:8px"><i class="ti ti-file-type-csv"></i> Exportar CSV</button>'+'<div class="table-container"><table><thead><tr><th>#</th><th>Crachá</th><th>Funcionário</th><th>Faltas</th></tr></thead><tbody>'+(rows||'<tr><td colspan="4" style="text-align:center;padding:30px;color:var(--text-muted)">Nenhum dado</td></tr>')+'</tbody></table></div>';
   }
 
   document.getElementById('main-content').innerHTML=`
@@ -4384,7 +4609,9 @@ async function renderEfetivo(){
       <div onclick="efetivoSituacaoFiltro=efetivoSituacaoFiltro==='AUSENTE'?'':'AUSENTE';efetivoViewMode='dia';renderEfetivo()" style="background:var(--danger-light);border:2px solid ${efetivoSituacaoFiltro==='AUSENTE'?'var(--danger)':'#FCA5A5'};border-radius:var(--radius);padding:16px;cursor:pointer"><div style="font-size:11px;color:var(--danger);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">✗ Ausentes ${efetivoSituacaoFiltro==='AUSENTE'?'· Filtrado':''}</div><div style="font-size:28px;font-weight:700;color:var(--danger)">${ause.length}</div><div style="font-size:11px;color:var(--danger);margin-top:4px">${100-pct}% do efetivo</div></div>
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">% Presença</div><div style="font-size:28px;font-weight:700;color:${corPct}">${pct}%</div><div style="margin-top:8px;height:6px;background:var(--border);border-radius:3px"><div style="height:6px;border-radius:3px;background:${corPct};width:${pct}%"></div></div></div>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Data:</span>${dPills}</div>
+    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+      <div style="min-width:110px"><div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Data:</div><div style="display:flex;flex-direction:column;gap:4px;max-height:240px;overflow-y:auto">${dPills}</div></div>
+    </div>
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
       <div style="display:flex;gap:8px;flex-wrap:wrap">${tabHtml}</div>
       <div style="margin-left:auto;position:relative">
