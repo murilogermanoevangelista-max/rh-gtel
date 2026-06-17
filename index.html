@@ -599,7 +599,7 @@ async function renderDashboard(){
   folgasDash.forEach(f=>{
     const vencs=calcVencimentos(f);
     vencs.forEach((v,i)=>{
-      const st=vencStatus(v,f[`saida${i+1}_real`]);
+      const st=vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado);
       if(st==='danger')folgasVencidas++;
       if(st==='warn')folgasVencendo++;
     });
@@ -667,7 +667,7 @@ async function renderDashboard(){
   if(folgasVencidas>0)alertas.push({tipo:'danger',icon:'ti-beach',msg:`${folgasVencidas} folga(s) vencida(s)`,link:'folgas'});
   if(feriasVencidas>0)alertas.push({tipo:'danger',icon:'ti-palm-tree',msg:`${feriasVencidas} período(s) de férias vencido(s) — ação legal necessária`,link:'ferias'});
   if(expVencendo>0)alertas.push({tipo:'warning',icon:'ti-certificate',msg:`${expVencendo} experiência(s) vencendo em 15 dias`,link:'experiencia'});
-  if(folgasVencendo>0)alertas.push({tipo:'warning',icon:'ti-beach',msg:`${folgasVencendo} folga(s) vencendo em 15 dias`,link:'folgas'});
+  if(folgasVencendo>0)alertas.push({tipo:'warning',icon:'ti-beach',msg:`${folgasVencendo} folga(s) com vencimento próximo`,link:'folgas'});
   if(feriasVencendo60>0)alertas.push({tipo:'warning',icon:'ti-palm-tree',msg:`${feriasVencendo60} férias vencendo em 60 dias`,link:'ferias'});
   if(feriasProgEmCurso>0)alertas.push({tipo:'info',icon:'ti-plane-departure',msg:`${feriasProgEmCurso} funcionário(s) atualmente em férias`,link:'ferias'});
 
@@ -1716,12 +1716,13 @@ function calcVencimentos(folga){
   }
   return vencs;
 }
-function vencStatus(venc,realDate){
+function vencStatus(venc,realDate,periodo){
   if(realDate)return'ok';
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const diff=Math.floor((venc-hoje)/86400000);
+  const limiteWarn=parseInt(periodo)===30?10:30;
   if(diff<0)return'danger';
-  if(diff<=15)return'warn';
+  if(diff<=limiteWarn)return'warn';
   return'future';
 }
 function diasFolga(periodo){
@@ -1734,8 +1735,8 @@ async function renderFolgas(){
   let lista=folgas;
   if(globalObraFiltro){const obraObj=obras.find(o=>o.id===globalObraFiltro);const obraCod=obraObj?.codigo||'';lista=lista.filter(f=>f.funcionario?.obra?.codigo===obraCod);}
   if(folgasBusca)lista=lista.filter(f=>f.funcionario?.nome_completo?.toLowerCase().includes(folgasBusca.toLowerCase())||f.funcionario?.matricula?.includes(folgasBusca));
-  if(folgasFiltro==='warn')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`])==='warn');});
-  if(folgasFiltro==='danger')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`])==='danger');});
+  if(folgasFiltro==='warn')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado)==='warn');});
+  if(folgasFiltro==='danger')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado)==='danger');});
   lista=[...lista].sort((a,b)=>{
     const aVencs=calcVencimentos(a);const bVencs=calcVencimentos(b);
     const aMin=Math.min(...aVencs.filter((_,i)=>!a[`saida${i+1}_real`]).map(v=>v.getTime()),Infinity);
@@ -1745,13 +1746,13 @@ async function renderFolgas(){
   // totalVenc/totalWarn baseados na lista já filtrada por obra
   const listaBase=globalObraFiltro?folgas.filter(f=>{const obraObj=obras.find(o=>o.id===globalObraFiltro);return f.funcionario?.obra?.codigo===(obraObj?.codigo||'');}):folgas;
   let totalVenc=0,totalWarn=0;
-  listaBase.forEach(f=>{const vencs=calcVencimentos(f);vencs.forEach((v,i)=>{const st=vencStatus(v,f[`saida${i+1}_real`]);if(st==='danger')totalVenc++;if(st==='warn')totalWarn++;});});
+  listaBase.forEach(f=>{const vencs=calcVencimentos(f);vencs.forEach((v,i)=>{const st=vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado);if(st==='danger')totalVenc++;if(st==='warn')totalWarn++;});});
   const obraOptions=obras.map(o=>`<option value="${o.id}">${o.codigo} — ${o.nome}</option>`).join('');
   const rows=lista.map(f=>{
     const vencs=calcVencimentos(f);
     const nDias=diasFolga(f.periodo_trabalhado);
     const vencCells=vencs.map((v,i)=>{
-      const st=vencStatus(v,f[`saida${i+1}_real`]);
+      const st=vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado);
       const realDate=f[`saida${i+1}_real`];
       const projDate=f[`saida${i+1}_projecao`];
       const diff=Math.floor((v-hoje)/86400000);
@@ -1893,7 +1894,7 @@ async function renderFolgas(){
   }
   const alertsHtml=[
     totalVenc>0?`<div class="folga-alert-banner danger"><i class="ti ti-alert-triangle" style="font-size:18px"></i><strong>${totalVenc} vencimento(s) em atraso</strong> — colaboradores sem folga realizada</div>`:'',
-    totalWarn>0?`<div class="folga-alert-banner warn"><i class="ti ti-clock" style="font-size:18px"></i><strong>${totalWarn} vencimento(s) nos próximos 15 dias</strong> — planejar saídas</div>`:'',
+    totalWarn>0?`<div class="folga-alert-banner warn"><i class="ti ti-clock" style="font-size:18px"></i><strong>${totalWarn} vencimento(s) próximo(s)</strong> — planejar saídas</div>`:'',
   ].join('');
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
@@ -1907,7 +1908,7 @@ async function renderFolgas(){
     ${alertsHtml}
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px">
       <div class="metric-card" style="cursor:pointer;border-color:${folgasFiltro==='todos'?'var(--primary)':'var(--border)'}" onclick="folgasFiltro='todos';renderFolgas()"><div class="metric-label">Total de registros</div><div class="metric-value">${listaBase.length}</div></div>
-      <div class="metric-card amber" style="cursor:pointer;border-color:${folgasFiltro==='warn'?'var(--warning)':'var(--border)'}" onclick="folgasFiltro='warn';renderFolgas()"><div class="metric-label">🟡 Vencendo (15d)</div><div class="metric-value">${totalWarn}</div></div>
+      <div class="metric-card amber" style="cursor:pointer;border-color:${folgasFiltro==='warn'?'var(--warning)':'var(--border)'}" onclick="folgasFiltro='warn';renderFolgas()"><div class="metric-label">🟡 Vencendo (30d / 10d p/ ciclo 30d)</div><div class="metric-value">${totalWarn}</div></div>
       <div class="metric-card red" style="cursor:pointer;border-color:${folgasFiltro==='danger'?'var(--danger)':'var(--border)'}" onclick="folgasFiltro='danger';renderFolgas()"><div class="metric-label">🔴 Vencidas</div><div class="metric-value">${totalVenc}</div></div>
     </div>
     <div class="filters">
@@ -3024,7 +3025,7 @@ async function renderUsuarios(){
     return`<tr>
       <td><div style="font-weight:500">${u.nome||'—'}</div><div style="font-size:11px;color:var(--text-muted)">👤 ${u.usuario||'—'}</div></td>
       <td>${nivelBadge(u.perfil)}</td>
-      <td>${'<span class="badge badge-green">Ativo</span>'}</td>
+      <td>${u.ativo===false?'<span class="badge badge-red">Inativo</span>':'<span class="badge badge-green">Ativo</span>'}</td>
       <td>
         <div style="display:flex;align-items:center;gap:6px">
           <span style="font-family:monospace;font-size:12px;background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border)" id="pw-${u.id}">••••••••</span>
@@ -3040,7 +3041,7 @@ async function renderUsuarios(){
           </button>
         </div>
       </td>
-    </tr>`;}).join('')||'<tr><td colspan="5"><div class="empty-state"><i class="ti ti-users"></i><div>Nenhum usuário cadastrado</div></div></td></tr>';
+    </tr>`;}).join('')||'<tr><td colspan="6"><div class="empty-state"><i class="ti ti-users"></i><div>Nenhum usuário cadastrado</div></div></td></tr>';
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div><div class="page-title">Usuários do Sistema</div><div class="page-subtitle">${(usuarios||[]).length} usuários cadastrados</div></div>
@@ -3049,7 +3050,7 @@ async function renderUsuarios(){
     <div class="table-container">
       <table class="table">
         <thead><tr>
-          <th>Nome / Usuário</th><th>Nível de Acesso</th><th>Senha</th><th>Obras com acesso</th><th>Ações</th>
+          <th>Nome / Usuário</th><th>Nível de Acesso</th><th>Status</th><th>Senha</th><th>Obras com acesso</th><th>Ações</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
