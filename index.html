@@ -1353,7 +1353,8 @@ function previewFoto(input){
   reader.readAsDataURL(file);
 }
 function openModalFuncionario(func=null){
-  funcaoModoManual=false;tipoTransferencia='';fotoFile=null;
+  funcaoModoManual=!!(func&&func.funcao_manual&&!func.funcao_id);
+  tipoTransferencia='';fotoFile=null;
   const isEdit=!!func;
   const obraOptions=obras.map(o=>`<option value="${o.id}" ${func?.obra_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
   const obraTransfOptions=obras.map(o=>`<option value="${o.id}" ${func?.obra_transferencia_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
@@ -1410,9 +1411,9 @@ function openModalFuncionario(func=null){
           </div>
           <div class="form-group full">
             <label>Função</label>
-            <select id="f-funcao-select" style="display:block"><option value="">Selecione...</option>${funcaoOptions}</select>
-            <input id="f-funcao-input" value="${func?.funcao_manual||''}" placeholder="Digite a função..." style="display:none">
-            <span class="funcao-toggle" id="f-funcao-toggle" onclick="toggleFuncaoModo()">✏️ Digitar manualmente</span>
+            <select id="f-funcao-select" style="display:${funcaoModoManual?'none':'block'}"><option value="">Selecione...</option>${funcaoOptions}</select>
+            <input id="f-funcao-input" value="${func?.funcao_manual||''}" placeholder="Digite a função..." style="display:${funcaoModoManual?'block':'none'}">
+            <span class="funcao-toggle" id="f-funcao-toggle" onclick="toggleFuncaoModo()">${funcaoModoManual?'← Escolher da lista':'✏️ Digitar manualmente'}</span>
           </div>
           <div class="form-group"><label>Empresa</label><select id="f-empresa"><option value="">Selecione...</option>${empresaOptions}</select></div>
           <div class="form-group"><label>Obra / Contrato</label><select id="f-obra"><option value="">Selecione...</option>${obraOptions}</select></div>
