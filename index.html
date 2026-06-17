@@ -138,6 +138,15 @@ input:focus,select:focus{border-color:var(--primary)}
 .action-btns{display:flex;gap:4px}
 .filters{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
 .filter-select{padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text);outline:none}
+.login-screen{position:fixed;inset:0;background:linear-gradient(135deg,var(--primary-dark),var(--primary));display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}
+.login-card{background:var(--surface);border-radius:var(--radius-lg);box-shadow:0 20px 50px rgba(0,0,0,.25);padding:36px 32px;width:100%;max-width:380px}
+.login-logo{display:flex;align-items:center;gap:8px;font-size:20px;font-weight:700;color:var(--primary-dark);margin-bottom:2px}
+.login-sub{font-size:12px;color:var(--text-muted);margin-bottom:24px}
+.login-field{margin-bottom:14px}
+.login-field label{display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:5px}
+.login-field input{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px}
+.login-error{display:none;background:var(--danger-light);color:var(--danger);font-size:12px;padding:8px 10px;border-radius:var(--radius);margin-bottom:14px}
+.login-btn{width:100%;justify-content:center;padding:11px;font-size:14px}
 @media(max-width:768px){.sidebar{display:none}.main{margin-left:0}.form-grid{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}.ficha-grid{grid-template-columns:1fr}}
 /* EXPERIÊNCIA */
 .exp-alert{border-radius:var(--radius-lg);padding:16px 20px;display:flex;align-items:center;gap:16px;margin-bottom:20px;border:1px solid}
@@ -242,6 +251,23 @@ input:focus,select:focus{border-color:var(--primary)}
 </style>
 </head>
 <body>
+<div class="login-screen" id="login-screen">
+  <div class="login-card">
+    <div class="login-logo"><i class="ti ti-building-factory"></i> RH Manager</div>
+    <div class="login-sub">GTEL — Gestão de Colaboradores</div>
+    <div class="login-error" id="login-erro"></div>
+    <div class="login-field">
+      <label>Usuário</label>
+      <input type="text" id="login-usuario" placeholder="Seu usuário" autocomplete="username" onkeydown="if(event.key==='Enter')fazerLogin()">
+    </div>
+    <div class="login-field">
+      <label>Senha</label>
+      <input type="password" id="login-senha" placeholder="Sua senha" autocomplete="current-password" onkeydown="if(event.key==='Enter')fazerLogin()">
+    </div>
+    <button class="btn btn-primary login-btn" id="login-btn" onclick="fazerLogin()"><i class="ti ti-login"></i> Entrar</button>
+  </div>
+</div>
+<div id="app-shell" style="display:none">
 <aside class="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-logo"><i class="ti ti-building-factory"></i> RH Manager</div>
@@ -264,13 +290,22 @@ input:focus,select:focus{border-color:var(--primary)}
     <div class="nav-item" onclick="showPage('alojamentos')"><i class="ti ti-home-2"></i> Alojamentos</div>
     <div class="nav-item" onclick="showPage('efetivo')"><i class="ti ti-users-group"></i> Efetivo</div>
     <div class="nav-section">Cadastros</div>
-    <div class="nav-item" onclick="showPage('usuarios')"><i class="ti ti-shield-lock"></i> Usuários</div>
+    <div class="nav-item" id="nav-usuarios" onclick="showPage('usuarios')"><i class="ti ti-shield-lock"></i> Usuários</div>
     <div class="nav-item" onclick="showPage('obras')"><i class="ti ti-building-skyscraper"></i> Obras / Contratos</div>
     <div class="nav-item" onclick="showPage('empresas')"><i class="ti ti-briefcase"></i> Empresas</div>
   </nav>
+  <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px">
+    <div style="width:30px;height:30px;border-radius:50%;background:var(--primary-light);color:var(--primary-dark);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0" id="sidebar-user-avatar">—</div>
+    <div style="overflow:hidden;flex:1">
+      <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" id="sidebar-user-nome">—</div>
+      <div style="font-size:10px;color:var(--text-muted)" id="sidebar-user-perfil">—</div>
+    </div>
+    <button class="btn btn-sm" title="Sair" onclick="fazerLogout()"><i class="ti ti-logout"></i></button>
+  </div>
 </aside>
 
 <main class="main" id="main-content"></main>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -287,6 +322,78 @@ let bannerRelatoriosFiltroObra='';
 let tabelaMesFiltro=0; // 0 = mês atual
 let tabelaAnoFiltro=0; // 0 = ano atual
 let globalObraFiltro=''; // filtro global de obra — propaga para todos os módulos
+let currentUser=null; // usuário logado (sessão)
+let obrasPermitidasIds=null; // null = sem restrição | Set de obra_id permitidos para o usuário logado
+
+// ─── AUTENTICAÇÃO ───────────────────────────────────────────────────────────
+const SESSION_KEY='gtel_rh_session';
+
+function computeObrasPermitidas(){
+  const lista=(currentUser?.obras_acesso||[]).map(String);
+  obrasPermitidasIds=lista.length?new Set(lista):null;
+}
+
+function atualizarSidebarUsuario(){
+  if(!currentUser)return;
+  const nomeEl=document.getElementById('sidebar-user-nome');
+  const perfilEl=document.getElementById('sidebar-user-perfil');
+  const avatarEl=document.getElementById('sidebar-user-avatar');
+  if(nomeEl)nomeEl.textContent=currentUser.nome||currentUser.usuario||'—';
+  if(perfilEl)perfilEl.textContent={admin:'Admin',gerente:'Gerente'}[currentUser.perfil]||'Usuário';
+  if(avatarEl)avatarEl.textContent=initials(currentUser.nome||currentUser.usuario||'?');
+  const navUsuarios=document.getElementById('nav-usuarios');
+  if(navUsuarios)navUsuarios.style.display=currentUser.perfil==='admin'?'':'none';
+}
+
+function entrarNoApp(){
+  computeObrasPermitidas();
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('app-shell').style.display='';
+  atualizarSidebarUsuario();
+  showPage('dashboard');
+}
+
+function checkSessao(){
+  try{
+    const raw=sessionStorage.getItem(SESSION_KEY);
+    if(!raw)return false;
+    currentUser=JSON.parse(raw);
+    return !!currentUser;
+  }catch(e){return false;}
+}
+
+async function fazerLogin(){
+  const usuario=(document.getElementById('login-usuario').value||'').trim();
+  const senha=document.getElementById('login-senha').value||'';
+  const erroEl=document.getElementById('login-erro');
+  erroEl.style.display='none';
+  if(!usuario||!senha){erroEl.textContent='Informe usuário e senha.';erroEl.style.display='block';return;}
+  const btn=document.getElementById('login-btn');
+  btn.disabled=true;btn.innerHTML='<i class="ti ti-loader ti-spin"></i> Entrando...';
+  try{
+    const{data,error}=await sb.from('usuarios_acesso').select('*').eq('usuario',usuario).maybeSingle();
+    if(error||!data||String(data.senha||'')!==senha||data.ativo===false){
+      erroEl.textContent='Usuário ou senha inválidos.';
+      erroEl.style.display='block';
+      btn.disabled=false;btn.innerHTML='<i class="ti ti-login"></i> Entrar';
+      return;
+    }
+    currentUser=data;
+    sessionStorage.setItem(SESSION_KEY,JSON.stringify(data));
+    entrarNoApp();
+  }catch(e){
+    erroEl.textContent='Erro ao conectar: '+e.message;
+    erroEl.style.display='block';
+  }
+  btn.disabled=false;btn.innerHTML='<i class="ti ti-login"></i> Entrar';
+}
+
+function fazerLogout(){
+  if(!confirm('Deseja realmente sair?'))return;
+  sessionStorage.removeItem(SESSION_KEY);
+  currentUser=null;obrasPermitidasIds=null;
+  location.reload();
+}
 
 function setGlobalObraFiltro(obraId){
   globalObraFiltro=obraId;
@@ -377,16 +484,30 @@ async function loadAll(){
     sb.from('funcoes').select('*').order('nome'),
   ]);
   funcionarios=f.data||[];obras=o.data||[];empresas=e.data||[];funcoes=fn.data||[];
+  if(obrasPermitidasIds){
+    obras=obras.filter(o=>obrasPermitidasIds.has(String(o.id)));
+    funcionarios=funcionarios.filter(f=>f.obra_id&&obrasPermitidasIds.has(String(f.obra_id)));
+  }
 }
 
 async function loadFolgas(){
   const {data}=await sb.from('folgas').select('*,funcionario:funcionarios(nome_completo,matricula,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo))').order('funcionario_id');
-  folgas=data||[];
+  let lista=data||[];
+  if(obrasPermitidasIds){
+    const codigosPermitidos=new Set(obras.map(o=>o.codigo));
+    lista=lista.filter(x=>x.funcionario?.obra?.codigo&&codigosPermitidos.has(x.funcionario.obra.codigo));
+  }
+  folgas=lista;
 }
 
 async function loadFerias(){
   const {data}=await sb.from('ferias').select('*,funcionario:funcionarios(nome_completo,matricula,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo,centro_custo))').order('dt_limite_maxima');
-  feriasData=data||[];
+  let lista=data||[];
+  if(obrasPermitidasIds){
+    const codigosPermitidos=new Set(obras.map(o=>o.codigo));
+    lista=lista.filter(x=>x.funcionario?.obra?.codigo&&codigosPermitidos.has(x.funcionario.obra.codigo));
+  }
+  feriasData=lista;
 }
 
 async function loadAlojamentos(){
@@ -395,12 +516,23 @@ async function loadAlojamentos(){
     sb.from('alojamentos_contas').select('*').order('ano',{ascending:false}).order('mes',{ascending:false}),
     sb.from('alojamentos_relatorios').select('*').order('ano',{ascending:false}).order('mes',{ascending:false}),
   ]);
-  alojamentos=a.data||[];alojamentosContas=c.data||[];alojamentosRelatorios=r.data||[];
+  let listaAloj=a.data||[],listaContas=c.data||[],listaRel=r.data||[];
+  if(obrasPermitidasIds){
+    listaAloj=listaAloj.filter(x=>x.obra_id&&obrasPermitidasIds.has(String(x.obra_id)));
+    const idsAlojPermitidos=new Set(listaAloj.map(x=>String(x.id)));
+    listaContas=listaContas.filter(x=>idsAlojPermitidos.has(String(x.alojamento_id)));
+    listaRel=listaRel.filter(x=>idsAlojPermitidos.has(String(x.alojamento_id)));
+  }
+  alojamentos=listaAloj;alojamentosContas=listaContas;alojamentosRelatorios=listaRel;
 }
 
 let currentPage='dashboard';
 
 async function showPage(page){
+  if(page==='usuarios'&&currentUser?.perfil!=='admin'){
+    showToast('Acesso restrito a administradores','error');
+    page='dashboard';
+  }
   currentPage=page;
   document.querySelectorAll('.nav-item').forEach(el=>{
     const t=el.textContent.trim().toLowerCase();
@@ -3023,7 +3155,7 @@ async function salvarUsuario(id){
   const obrasAcesso=[...document.querySelectorAll('.u-obra-chk:checked')].map(c=>c.value);
   if(!nome||!email){showToast('Nome e usuário são obrigatórios','error');return;}
   if(!senha){showToast('Senha é obrigatória','error');return;}
-  const payload={nome,usuario:email,perfil:nivel,senha,obras_acesso:obrasAcesso};
+  const payload={nome,usuario:email,perfil:nivel,senha,obras_acesso:obrasAcesso,ativo};
   let error;
   if(id){({error}=await sb.from('usuarios_acesso').update(payload).eq('id',id));}
   else{({error}=await sb.from('usuarios_acesso').insert({...payload,}));}
@@ -3995,9 +4127,17 @@ async function loadEfetivo(){
       sb.from('efetivo_horas').select('*').order('data',{ascending:false}),
       sb.from('efetivo_he').select('*').order('data',{ascending:false}),
     ]);
-    efetivoData=r1.data||[];
-    efetivoHoras=r2.data||[];
-    efetivoHE=r3.data||[];
+    let dPres=r1.data||[],dHoras=r2.data||[],dHE=r3.data||[];
+    if(obrasPermitidasIds){
+      const normM=v=>String(v||'').trim().replace(/^0+/,'');
+      const matriculasPermitidas=new Set(funcionarios.map(f=>normM(f.matricula)));
+      dPres=dPres.filter(x=>matriculasPermitidas.has(normM(x.cracha)));
+      dHoras=dHoras.filter(x=>matriculasPermitidas.has(normM(x.matricula)));
+      dHE=dHE.filter(x=>matriculasPermitidas.has(normM(x.matricula)));
+    }
+    efetivoData=dPres;
+    efetivoHoras=dHoras;
+    efetivoHE=dHE;
   }catch(e){console.error('loadEfetivo erro:',e);}
 }
 
@@ -4336,7 +4476,7 @@ async function renderEfetivo(){
   // ── Dados do dia ────────────────────────────────────────────────────────
   const datas=globalObraFiltro?_todasDatas:[...new Set(efetivoFiltrado.map(r=>r.data))].sort((a,b)=>b.localeCompare(a));
   const reg=efetivoFiltrado.filter(r=>r.data===ds);
-  function getFuncao(cracha){const f=funcionarios.find(x=>normMat(x.matricula)===normMat(cracha));return f&&f.funcao&&f.funcao.nome?f.funcao.nome:'—';}
+  function getFuncao(cracha){const f=funcionarios.find(x=>normMat(x.matricula)===normMat(cracha));return (f&&(f.funcao?.nome||f.funcao_manual))||'—';}
   const _busca=efetivoBusca.toLowerCase().trim();
   const pres=reg.filter(r=>r.situacao==='PRESENTE'&&(!_busca||(r.nome||'').toLowerCase().includes(_busca)||(r.cracha||'').includes(_busca))).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
   const ause=reg.filter(r=>r.situacao==='AUSENTE'&&(!_busca||(r.nome||'').toLowerCase().includes(_busca)||(r.cracha||'').includes(_busca))).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
@@ -4487,7 +4627,7 @@ async function renderEfetivo(){
     const crachasPresentes=new Set(pres.map(r=>normMat(r.cracha)));
 
     funcsBase.forEach(f=>{
-      const funcNome=f.funcao?.nome||'Sem função';
+      const funcNome=f.funcao?.nome||f.funcao_manual||'Sem função';
       if(!funcMap[funcNome])funcMap[funcNome]={funcao:funcNome,total:0,presentes:0,ausentes:0,nomes_presentes:[],nomes_ausentes:[]};
       funcMap[funcNome].total++;
       if(crachasPresentes.has(normMat(f.matricula))){
@@ -4624,7 +4764,11 @@ async function renderEfetivo(){
 }
 
 
-showPage('dashboard');
+if(checkSessao()){
+  entrarNoApp();
+} else {
+  document.getElementById('login-screen').style.display='flex';
+}
 </script>
 </body>
 </html>
