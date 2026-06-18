@@ -2693,10 +2693,10 @@ function processImportFile(file){
               periodoFim  =new Date(`${matchPer[2].split('/').reverse().join('-')}T12:00:00`);
             }
             const dtIdeal =COL.dtIdeal>=0?cellToDate(r[COL.dtIdeal]):null;
-            // Calcular dt_limite_maxima = fim do período + 12 meses (CLT art. 134 — o empregado
-            // tem até 12 meses após o fim do período aquisitivo para gozar as férias)
-            let dtMaxima=null;
-            if(periodoFim){
+            // Bug 2 fix: usar o limite máximo real que vem da coluna do TOTVS.
+            // Fallback: periodoFim + 12 meses (CLT art. 134) caso a coluna esteja vazia.
+            let dtMaxima=COL.dtMaxima>=0?cellToDate(r[COL.dtMaxima]):null;
+            if(!dtMaxima&&periodoFim){
               dtMaxima=new Date(periodoFim);
               dtMaxima.setMonth(dtMaxima.getMonth()+12);
             }
@@ -2707,32 +2707,10 @@ function processImportFile(file){
               nomeDP:String(r[COL.nome]||''),centroCusto:cc,rowRaw:r};
           }).filter(p=>p.periodoInicio);
           parsedPeriodos.sort((a,b)=>a.periodoInicio-b.periodoInicio);
-          // Derivar período anterior ao mais antigo do TOTVS
-          // O TOTVS só exporta períodos com saldo aberto; o período imediatamente anterior
-          // (vencendo ou já vencido) precisa ser derivado para exibição correta.
-          // Regra CLT: limite_máxima = fim_periodo + 11 meses
-          if(parsedPeriodos.length>0){
-            const maisAntigo=parsedPeriodos[0];
-            const iniRef=maisAntigo.periodoInicio;
-            const iniDer=new Date(iniRef);iniDer.setFullYear(iniDer.getFullYear()-1);
-            const fimDer=new Date(iniRef);fimDer.setDate(fimDer.getDate()-1);
-            const limDer=new Date(fimDer);limDer.setMonth(limDer.getMonth()+12);
-            // Usar data_admissao do cadastro; se não cadastrada, usar da planilha (col dataAdmis)
-            const admRaw=COL.dataAdmis>=0?maisAntigo.rowRaw?.[COL.dataAdmis]:null;
-            const admDP=admRaw?cellToDate(admRaw):null;
-            const admissaoFunc=func.data_admissao
-              ? new Date(func.data_admissao+'T12:00:00')
-              : admDP;
-            // Derivar apenas se iniDer >= data_admissao (não criar período antes da admissão)
-            const periodoValido=!admissaoFunc||(iniDer>=admissaoFunc);
-            const cutoff=new Date();
-            if(limDer>cutoff&&periodoValido){
-              encontrados.push({func,mat,periodoInicio:iniDer,periodoFim:fimDer,
-                dtIdeal:null,dtMaxima:limDer,diasDir:maisAntigo.diasDir||30,diasVenc:0,
-                nomeDP:maisAntigo.nomeDP,centroCusto:maisAntigo.centroCusto,_derivado:true});
-            }
-          }
-          // Adicionar todos os períodos do TOTVS
+          // Bug 1 fix: NÃO criar período fantasma anterior.
+          // O TOTVS lista todos os períodos pendentes de cada funcionário.
+          // Se há só 1 período, ele É o 1º período — o 2º será projetado na tela pelo projetarPer2().
+          // Adicionar todos os períodos do TOTVS diretamente.
           parsedPeriodos.forEach(p=>encontrados.push(p));
         }else{
           const nomeDP=periodos.length>0?String(periodos[0][COL.nome]||''):'';
