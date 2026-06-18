@@ -325,7 +325,7 @@ const SUPABASE_URL='https://lqggoshphakeuufibdno.supabase.co';
 const SUPABASE_KEY='sb_publishable_QlnJaa5xdUXePvXFV6QFwQ_AmMk639T';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[];
+let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[];
 let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'nao_lancadas' | null
 let bannerNaoLancadasAberto=false;
 let bannerFiltroObra='';
@@ -4863,6 +4863,19 @@ function exportarHEDetalhado(){
   }).catch(e=>showToast('Erro ao exportar: '+e.message,'error'));
 }
 
+async function togglePresencaPrestador(prestadorId,data){
+  const reg=prestadoresPresenca.find(x=>x.prestador_id===prestadorId&&x.data===data);
+  // Lógica: default = PRESENTE (sem registro). Clicar → AUSENTE. Clicar de novo → remove (volta PRESENTE)
+  if(reg&&reg.situacao==='AUSENTE'){
+    // Estava ausente → volta para presente (deleta o registro)
+    await sb.from('prestadores_presenca').delete().eq('id',reg.id);
+  } else if(!reg){
+    // Estava presente (sem registro) → marca ausente
+    await sb.from('prestadores_presenca').insert({prestador_id:prestadorId,data,situacao:'AUSENTE'});
+  }
+  await renderEfetivo();
+}
+
 function editarMarcacaoClick(btn){
   const id=btn.dataset.id;
   const val=btn.dataset.val||'';
@@ -4909,6 +4922,10 @@ async function editarMarcacao(id,valorAtual,btn){
 
 async function renderEfetivo(){
   await loadPrestadores();
+  // Carregar presenças manuais de prestadores para a data selecionada
+  const _dataPrest=efetivoDataFiltro||new Date().toISOString().slice(0,10);
+  const{data:ppData}=await sb.from('prestadores_presenca').select('*').eq('data',_dataPrest);
+  prestadoresPresenca=ppData||[];
   function normMat(v){return String(v||'').trim().replace(/^0+/,'');}
 
   // ── Determinar data ─────────────────────────────────────────────────────
@@ -4931,12 +4948,15 @@ async function renderEfetivo(){
           nome:(f.nome_completo||f.nome||'').toUpperCase(),departamento:f.obra?.nome||'',
           situacao:'AUSENTE',horario_entrada:null,marcacoes:null}))
       :[];
-    // Prestadores ativos da obra — sempre presentes (sem ponto eletrônico)
+    // Prestadores ativos da obra — situação baseada no registro manual do dia
     const prestObra=prestadores.filter(p=>p.obra_id===globalObraFiltro&&p.situacao==='ativo');
-    const prestSint=prestObra.map(p=>({
-      id:'_prest_'+p.id,data:ds,cracha:'PREST',
-      nome:(p.nome_completo||'').toUpperCase(),departamento:p.funcao||'Prestador',
-      situacao:'PRESENTE',horario_entrada:null,marcacoes:null,_prestador:true,_funcao:p.funcao}));
+    const prestSint=prestObra.map(p=>{
+      const reg=prestadoresPresenca.find(x=>x.prestador_id===p.id);
+      const sit=reg?reg.situacao:'PRESENTE';
+      return{id:'_prest_'+p.id,data:ds,cracha:'PREST',nome:(p.nome_completo||'').toUpperCase(),
+        departamento:p.funcao||'Prestador',situacao:sit,horario_entrada:null,marcacoes:null,
+        _prestador:true,_prestadorId:p.id,_funcao:p.funcao};
+    });
     efetivoFiltrado=[...presentesDia,...ausentesSinteticos,...prestSint];
   } else {
     const temImportacaoDia=efetivoData.some(r=>r.data===ds);
@@ -4947,11 +4967,14 @@ async function renderEfetivo(){
         .map(f=>({id:'_sint_'+f.id,data:ds,cracha:String(f.matricula||'').trim(),
           nome:(f.nome_completo||f.nome||'').toUpperCase(),departamento:f.obra?.nome||'',
           situacao:'AUSENTE',horario_entrada:null,marcacoes:null}));
-      // Todos os prestadores ativos — presentes
-      const prestSintGeral=prestadores.filter(p=>p.situacao==='ativo').map(p=>({
-        id:'_prest_'+p.id,data:ds,cracha:'PREST',
-        nome:(p.nome_completo||'').toUpperCase(),departamento:p.funcao||'Prestador',
-        situacao:'PRESENTE',horario_entrada:null,marcacoes:null,_prestador:true,_funcao:p.funcao}));
+      // Todos os prestadores ativos — situação baseada no registro manual do dia
+      const prestSintGeral=prestadores.filter(p=>p.situacao==='ativo').map(p=>{
+        const reg=prestadoresPresenca.find(x=>x.prestador_id===p.id);
+        const sit=reg?reg.situacao:'PRESENTE';
+        return{id:'_prest_'+p.id,data:ds,cracha:'PREST',nome:(p.nome_completo||'').toUpperCase(),
+          departamento:p.funcao||'Prestador',situacao:sit,horario_entrada:null,marcacoes:null,
+          _prestador:true,_prestadorId:p.id,_funcao:p.funcao};
+      });
       efetivoFiltrado=[...presentesDiaGeral,...ausentesGeral,...prestSintGeral];
     } else {
       efetivoFiltrado=efetivoData;
@@ -5223,9 +5246,17 @@ async function renderEfetivo(){
     const linhas=[...(_presShow?pres.map(r=>({...r,_st:'P'})):[]),...(_auseShow?ause.map(r=>({...r,_st:'A'})):[])]
       .sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
     const rows=linhas.map(r=>{
-      const badge=r._st==='P'
-        ?'<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:var(--success-light);color:var(--success)">✓ Presente</span>'
-        :'<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:var(--danger-light);color:var(--danger)">✗ Ausente</span>';
+      let badge;
+      if(r._prestador){
+        const sit=r.situacao==='PRESENTE';
+        badge=`<button onclick="togglePresencaPrestador('${r._prestadorId}','${ds}')" style="padding:4px 12px;border-radius:20px;font-size:11px;font-weight:600;border:2px solid ${sit?'var(--success)':'var(--danger)'};background:${sit?'var(--success-light)':'var(--danger-light)'};color:${sit?'var(--success)':'var(--danger)'};cursor:pointer">
+          ${sit?'✓ Presente':'✗ Ausente'}
+        </button>`;
+      } else {
+        badge=r._st==='P'
+          ?'<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:var(--success-light);color:var(--success)">✓ Presente</span>'
+          :'<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:var(--danger-light);color:var(--danger)">✗ Ausente</span>';
+      }
       const prestBadge=r._prestador?'<span style="display:inline-block;margin-left:4px;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;background:#EDE9FE;color:#5B21B6">Prestador</span>':'';
       const funcaoCell=r._prestador?(r._funcao||'Prestador'):getFuncao(r.cracha);
       const crachaCell=r._prestador?'—':r.cracha;
