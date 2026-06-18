@@ -616,9 +616,11 @@ async function renderDashboard(){
   const hoje=new Date();hoje.setHours(0,0,0,0);
   // Aplicar filtro global de obra em todos os cálculos do dashboard
   const funcsFiltrados=globalObraFiltro?funcionarios.filter(f=>f.obra_id===globalObraFiltro):funcionarios;
-  const ativos=funcsFiltrados.filter(f=>f.situacao==='ativo').length;
-  const inativos=funcsFiltrados.filter(f=>f.situacao==='inativo').length;
-  const transferidos=funcionarios.filter(f=>f.obra_transferencia_id).length;
+  // Transferidos: têm obra_transferencia_id (saíram de alguma obra) — separados dos ativos
+  const transferidos=funcsFiltrados.filter(f=>f.obra_transferencia_id).length;
+  // Ativos e inativos excluem os transferidos para não dupla-contagem
+  const ativos=funcsFiltrados.filter(f=>f.situacao==='ativo'&&!f.obra_transferencia_id).length;
+  const inativos=funcsFiltrados.filter(f=>f.situacao==='inativo'&&!f.obra_transferencia_id).length;
   const admMes=funcsFiltrados.filter(f=>{
     if(!f.data_admissao||f.situacao==='transferido')return false;
     const d=new Date(f.data_admissao+'T12:00:00');
@@ -848,7 +850,7 @@ async function renderDashboard(){
     ${alertas.length?`<div style="margin-bottom:20px">${alertasHtml}</div>`:''}
     <!-- MÉTRICAS PRINCIPAIS -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:20px">
-      <div class="metric-card" style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Total</div><div class="metric-value">${funcsFiltrados.length}</div></div>
+      <div class="metric-card" style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Total</div><div class="metric-value">${ativos+inativos}</div></div>
       <div class="metric-card green" style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Ativos</div><div class="metric-value">${ativos}</div></div>
       <div class="metric-card red" style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Inativos</div><div class="metric-value">${inativos}</div></div>
       <div class="metric-card amber" style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Transferidos</div><div class="metric-value">${transferidos}</div></div>
@@ -2387,9 +2389,21 @@ async function renderFerias(){
     </tr>`;
   }).join('')||`<tr><td colspan="8"><div class="empty-state"><i class="ti ti-palm-tree"></i><div>Nenhum registro encontrado</div><div style="font-size:12px;margin-top:8px">Importe a planilha do DP para começar</div></div></td></tr>`;
 
+  // Verificar ativos sem registro de férias
+  const matsComFerias=new Set(feriasData.map(f=>String(f.matricula||'').trim().replace(/^0+/,'')));
+  const ativosSemFerias=funcionarios.filter(f=>{
+    if(f.situacao!=='ativo'||f.obra_transferencia_id)return false;
+    if(globalObraFiltro&&f.obra_id!==globalObraFiltro)return false;
+    const mat=String(f.matricula||'').trim().replace(/^0+/,'');
+    return mat&&!matsComFerias.has(mat);
+  });
+
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
-      <div><div class="page-title">Controle de Férias</div><div class="page-subtitle">${totalFuncs} funcionários · ${totalPeriodos} períodos</div></div>
+      <div>
+        <div class="page-title">Controle de Férias</div>
+        <div class="page-subtitle">${totalFuncs} funcionários · ${totalPeriodos} períodos${ativosSemFerias.length?` · <span style="color:var(--warning);font-weight:600">⚠ ${ativosSemFerias.length} ativo(s) sem registro na planilha DP</span>`:''}</div>
+      </div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-sm" onclick="exportFeriasExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
         <button class="btn btn-sm btn-success" onclick="exportFeriasPDF()"><i class="ti ti-file-type-pdf"></i> PDF</button>
