@@ -4476,6 +4476,13 @@ function exportarHEDetalhado(){
 
   if(!heFiltradas.length){showToast('Nenhum dado para exportar','error');return;}
 
+  // Filtrar registros com horas zeradas (dados corrompidos de imports anteriores)
+  const comHoras=heFiltradas.filter(h=>(h.mins||0)>0);
+  const semHoras=heFiltradas.length-comHoras.length;
+  if(semHoras>0)console.warn(`[exportHE] ${semHoras} registros com mins=0 ignorados`);
+  heFiltradas=comHoras;
+  if(!heFiltradas.length){showToast('Dados com horas zeradas — reimporte o arquivo H.E.','error');return;}
+
   // Ordenar por data e nome
   heFiltradas=[...heFiltradas].sort((a,b)=>{
     const dc=a.data.localeCompare(b.data);
@@ -4730,10 +4737,10 @@ async function renderEfetivo(){
       return h.data>=heFiltroDe&&h.data<=heFiltroAte;
     });
 
-    // Agrupar por funcionário e tipo
+    // Agrupar por funcionário e tipo — ignorar registros com horas zeradas
     function fmtMins(m){if(!m)return'000:00';const h=Math.floor(m/60);const mn=m%60;return String(h).padStart(3,'0')+':'+String(mn).padStart(2,'0');}
     const heMap={};
-    hePerFiltradas.forEach(h=>{
+    hePerFiltradas.filter(h=>(h.mins||0)>0).forEach(h=>{
       if(!heMap[h.matricula])heMap[h.matricula]={matricula:h.matricula,nome:h.nome,tipos:{},total:0};
       const tipo=h.tipo||'Outros';
       if(!heMap[h.matricula].tipos[tipo])heMap[h.matricula].tipos[tipo]=0;
