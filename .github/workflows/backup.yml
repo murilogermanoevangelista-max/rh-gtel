@@ -25,7 +25,7 @@ jobs:
         run: |
           mkdir -p backups
           DATA=$(date +%Y-%m-%d)
-          pg_dump "${{ secrets.SUPABASE_DB_URL }}" --no-owner --no-privileges -f "backups/backup_${DATA}.sql"
+          /usr/lib/postgresql/17/bin/pg_dump "${{ secrets.SUPABASE_DB_URL }}" --no-owner --no-privileges -f "backups/backup_${DATA}.sql"
 
       - name: Apagar backups com mais de 30 dias (evita o repositório crescer demais)
         run: |
