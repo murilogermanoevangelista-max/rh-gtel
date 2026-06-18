@@ -440,6 +440,16 @@ function showToast(msg,type='success'){
   setTimeout(()=>t.className='toast',3000);
 }
 function initials(n){if(!n)return'?';return n.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();}
+// Debounce para campos de busca — evita re-render a cada tecla e perda de foco
+function makeBuscaHandler(setter,renderFn,delay){
+  let timer=null;
+  return function(val){
+    setter(val);
+    if(timer)clearTimeout(timer);
+    timer=setTimeout(()=>{renderFn();},delay||300);
+  };
+}
+const _buscaHandlers={};
 function openFotoLightbox(url,nome){
   document.getElementById('foto-lightbox-img').src=url;
   document.getElementById('foto-lightbox-nome').textContent=nome||'';
@@ -1072,7 +1082,7 @@ function renderFuncionarios(){
     </div>
     <div class="filters">
       <div class="search-box"><i class="ti ti-search"></i>
-        <input id="func-busca" placeholder="Buscar por nome ou matrícula..." value="${busca}" oninput="busca=this.value;atualizarTabelaFuncionarios()">
+        <input id="func-busca" placeholder="Buscar por nome ou matrícula..." value="${busca}" oninput="busca=this.value;if(!_buscaHandlers.func)_buscaHandlers.func=makeBuscaHandler(v=>busca=v,atualizarTabelaFuncionarios,300);_buscaHandlers.func(this.value);this.focus()">
       </div>
       <select id="filtro-situacao-sel" class="filter-select" style="${funcTab==='transferidos'?'display:none':''}" onchange="filtroSituacao=this.value;atualizarTabelaFuncionarios()">
         <option value="">Todas situações</option>
@@ -1676,7 +1686,7 @@ function renderExperiencia(){
     <div class="exp-cards">${cardsHtml}</div>
     <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:12px">
       <div style="display:flex;gap:8px">
-        <div class="search-box" style="min-width:180px"><i class="ti ti-search"></i><input placeholder="Buscar..." oninput="expBusca(this.value)" id="exp-search" value="${expBuscaVal}"></div>
+        <div class="search-box" style="min-width:180px"><i class="ti ti-search"></i><input placeholder="Buscar..." oninput="expBuscaVal=this.value;if(!_buscaHandlers.exp)_buscaHandlers.exp=makeBuscaHandler(v=>expBuscaVal=v,renderExperiencia,300);_buscaHandlers.exp(this.value);this.focus()" id="exp-search" value="${expBuscaVal}"></div>
         <button class="btn btn-sm" onclick="expFiltro='';expBuscaVal='';renderExperiencia()"><i class="ti ti-x"></i> Limpar</button>
       </div>
     </div>
@@ -1940,7 +1950,7 @@ async function renderFolgas(){
       <div class="metric-card red" style="cursor:pointer;border-color:${folgasFiltro==='danger'?'var(--danger)':'var(--border)'}" onclick="folgasFiltro='danger';renderFolgas()"><div class="metric-label">🔴 Vencidas</div><div class="metric-value">${totalVenc}</div></div>
     </div>
     <div class="filters">
-      <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar funcionário..." value="${folgasBusca}" oninput="folgasBusca=this.value;renderFolgas()"></div>
+      <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar funcionário..." value="${folgasBusca}" oninput="folgasBusca=this.value;if(!_buscaHandlers.folgas)_buscaHandlers.folgas=makeBuscaHandler(v=>folgasBusca=v,renderFolgas,300);_buscaHandlers.folgas(this.value);this.focus()"></div>
       <button class="btn btn-sm" onclick="folgasFiltro='todos';folgasBusca='';renderFolgas()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div class="folga-header-row">
@@ -2440,7 +2450,7 @@ async function renderFerias(){
 
     <!-- Filtros -->
     <div class="filters">
-      <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar por nome ou matrícula..." value="${feriasBusca}" oninput="feriasBusca=this.value;renderFerias()"></div>
+      <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar por nome ou matrícula..." value="${feriasBusca}" oninput="feriasBusca=this.value;if(!_buscaHandlers.ferias)_buscaHandlers.ferias=makeBuscaHandler(v=>feriasBusca=v,renderFerias,300);_buscaHandlers.ferias(this.value);this.focus()"></div>
       <select class="filter-select" onchange="feriasObraFiltro=this.value;renderFerias()">
         <option value="">Todas as obras</option>${obraFilterOpts}
       </select>
@@ -4450,6 +4460,79 @@ function exportarEfetivoExcel(tipo){
   showToast('Exportado com sucesso!');
 }
 
+function exportarHEDetalhado(){
+  // Buscar dados filtrados (mesma lógica da view HE)
+  const heFiltroPeriodo=window._heFiltroPeriodo||'acumulado';
+  const heFiltroDe=window._heFiltroDe||'';
+  const heFiltroAte=window._heFiltroAte||'';
+
+  let heFiltradas=globalObraFiltro
+    ?efetivoHE.filter(h=>{const f=funcionarios.find(x=>{const fm=String(x.matricula||'').trim().replace(/^0+/,'');return fm===String(h.matricula||'').trim().replace(/^0+/,'');});return f&&f.obra_id===globalObraFiltro;})
+    :efetivoHE;
+
+  if(heFiltroPeriodo==='periodo'&&heFiltroDe&&heFiltroAte){
+    heFiltradas=heFiltradas.filter(h=>h.data>=heFiltroDe&&h.data<=heFiltroAte);
+  }
+
+  if(!heFiltradas.length){showToast('Nenhum dado para exportar','error');return;}
+
+  // Ordenar por data e nome
+  heFiltradas=[...heFiltradas].sort((a,b)=>{
+    const dc=a.data.localeCompare(b.data);
+    if(dc!==0)return dc;
+    return(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'});
+  });
+
+  // Montar cabeçalho do período
+  const datas=heFiltradas.map(h=>h.data).sort();
+  const deStr=datas[0]?datas[0].split('-').reverse().join('/'):'';
+  const ateStr=datas[datas.length-1]?datas[datas.length-1].split('-').reverse().join('/'):'';
+  const periodoLabel=heFiltroPeriodo==='periodo'&&heFiltroDe
+    ?`Período: ${deStr} a ${ateStr}`
+    :`Período: ${deStr} a ${ateStr} (Acumulado)`;
+
+  // Função para formatar horas (mins → HH:MM)
+  function fmtH(m){if(!m)return'00:00';return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');}
+
+  // Função para buscar estrutura organizacional (obra) do funcionário
+  function getEstrutura(mat){
+    const f=funcionarios.find(x=>{const fm=String(x.matricula||'').trim().replace(/^0+/,'');return fm===String(mat||'').trim().replace(/^0+/,'');});
+    return f?.obra?.nome||'—';
+  }
+
+  // Montar linhas
+  const headerPeriodo=[periodoLabel,'','','','','','','','',''];
+  const cabecalho=['Data','Nome','Matrícula','Estrutura Organizacional','Ocorrência','Horas','Abono','Justificativa','Transferência B.H','CID'];
+  const linhas=heFiltradas.map(h=>{
+    const dataFmt=h.data?h.data.split('-').reverse().join('/'):'';
+    // Normalizar tipo de volta: "HE 60%" → "Hora Extra 60%"
+    const tipoFmt=(h.tipo||'').replace(/^HE\s*/i,'Hora Extra ');
+    return[
+      dataFmt,
+      h.nome||'—',
+      h.matricula||'—',
+      getEstrutura(h.matricula),
+      tipoFmt,
+      fmtH(h.mins||0),
+      '00:00','00:00','','',
+    ];
+  });
+
+  const todasLinhas=[headerPeriodo,cabecalho,...linhas];
+
+  // Exportar como XLSX
+  import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm').then(({utils,writeFile})=>{
+    const ws=utils.aoa_to_sheet(todasLinhas);
+    // Larguras
+    ws['!cols']=[{wch:14},{wch:32},{wch:12},{wch:28},{wch:20},{wch:10},{wch:10},{wch:14},{wch:18},{wch:6}];
+    const wb=utils.book_new();
+    utils.book_append_sheet(wb,ws,'H. Extras');
+    const hoje=new Date().toLocaleDateString('pt-BR').replace(/\//g,'-');
+    writeFile(wb,`HE_${hoje}.xlsx`);
+    showToast('Excel exportado!');
+  }).catch(e=>showToast('Erro ao exportar: '+e.message,'error'));
+}
+
 function editarMarcacaoClick(btn){
   const id=btn.dataset.id;
   const val=btn.dataset.val||'';
@@ -4685,7 +4768,7 @@ async function renderEfetivo(){
 
     const heThead='<tr><th>#</th><th>Funcionário</th><th>Matrícula</th>'+tiposHE.map(t=>'<th style="text-align:center">'+t+'</th>').join('')+'<th>Total H.E.</th></tr>';
 
-    view=hePeriodoHtml+'<button onclick="exportarEfetivoExcel(\'he\')" class="btn btn-sm" style="margin-bottom:8px"><i class="ti ti-file-type-csv"></i> Exportar CSV</button>'+(listaHE.length===0
+    view=hePeriodoHtml+'<button onclick="exportarHEDetalhado()" class="btn btn-sm" style="margin-bottom:8px"><i class="ti ti-file-type-xls"></i> Exportar Excel</button>'+(listaHE.length===0
       ?'<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-bolt" style="font-size:40px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum dado. Use "Importar H.E.".</div>'
       :'<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:16px;display:flex;gap:24px;flex-wrap:wrap">'
         +tiposHE.map(t=>'<div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">'+t+'</div><div style="font-size:20px;font-weight:700;color:var(--warning)">'+fmtMins(totalPorTipo[t])+'</div></div>').join('')
@@ -4835,7 +4918,7 @@ async function renderEfetivo(){
       <div style="display:flex;gap:8px;flex-wrap:wrap">${tabHtml}</div>
       <div style="margin-left:auto;position:relative">
         <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:14px"></i>
-        <input type="text" placeholder="Buscar funcionário..." value="${efetivoBusca}" oninput="efetivoBusca=this.value;renderEfetivo()" style="padding:6px 12px 6px 32px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;width:220px;background:var(--surface)">
+        <input type="text" placeholder="Buscar funcionário..." value="${efetivoBusca}" oninput="efetivoBusca=this.value;if(!_buscaHandlers.efetivo)_buscaHandlers.efetivo=makeBuscaHandler(v=>efetivoBusca=v,renderEfetivo,300);_buscaHandlers.efetivo(this.value);this.focus()" style="padding:6px 12px 6px 32px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;width:220px;background:var(--surface)">
       </div>
     </div>
     ${view}`}
