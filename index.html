@@ -4275,7 +4275,13 @@ async function importarHE(file){
 
     if(!regs.length){showToast('Nenhum registro de H.E. encontrado','error');return;}
 
-    // Deletar registros do mesmo período antes de inserir
+    // Deletar registros de TODAS as datas presentes no arquivo
+    // (não só por periodo_ini, para evitar duplicatas entre imports com datas de referência diferentes)
+    const datasNoArquivo=[...new Set(regs.map(r=>r.data))];
+    for(const d of datasNoArquivo){
+      await sb.from('efetivo_he').delete().eq('data',d);
+    }
+    // Também limpar por periodo_ini por segurança (imports antigos)
     await sb.from('efetivo_he').delete().eq('periodo_ini',dataISO);
 
     for(let i=0;i<regs.length;i+=500){
@@ -4623,8 +4629,11 @@ async function renderEfetivo(){
     // Filtro de período HE
     const heFiltroPeriodo=window._heFiltroPeriodo||'acumulado';
     const datasHE=[...new Set(heFiltradas.map(h=>h.data))].sort((a,b)=>b.localeCompare(a));
-    const heFiltroDe=window._heFiltroDe||datasHE[datasHE.length-1]||'';
-    const heFiltroAte=window._heFiltroAte||datasHE[0]||'';
+    // Inicializar datas apenas se ainda não foram definidas pelo usuário
+    if(!window._heFiltroDe)window._heFiltroDe=datasHE[datasHE.length-1]||'';
+    if(!window._heFiltroAte)window._heFiltroAte=datasHE[0]||'';
+    const heFiltroDe=window._heFiltroDe;
+    const heFiltroAte=window._heFiltroAte;
 
     const heFiltPeriodoOpts=[{v:'acumulado',l:'Acumulado'},{v:'periodo',l:'Período'}];
     const hePeriodoHtml='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">'
