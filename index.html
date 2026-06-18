@@ -2188,7 +2188,10 @@ async function renderFerias(){
 
     if (f.programado) {
       cor='var(--success)'; bg='var(--success-light)'; border='none'; icon='✓ ';
-      corpo = '<span style="font-size:11px;font-weight:600;color:var(--success)">Programado · ' + dias + 'd</span>';
+      corpo = '<span style="font-size:11px;font-weight:600;color:var(--success)">Programado · ' + dias + 'd</span>'
+            + (f.validado_dp
+                ? '<br><span style="font-size:10px;font-weight:700;color:var(--success)">✓ Validado DP</span>'
+                : '<br><span style="font-size:10px;font-weight:700;color:var(--warning)">⏳ Aguardando DP</span>');
 
     } else if (isSegundo) {
       // ── 2º PERÍODO ──
@@ -2319,7 +2322,13 @@ async function renderFerias(){
       ${pendente?`<button class="prog-btn" style="font-size:11px;padding:3px 8px" onclick="openModalProgramarFerias('${pendente.id}')">📅 Programar${arr.length>1?' Per.'+(arr.indexOf(pendente)+1):''}</button>`:''}
     </div>`;
     const progResume=programados.map(f=>
-      `<div style="font-size:11px;color:var(--success)">✓ ${f.dias_programados||'?'}d: ${formatDate(f.data_inicio_programada)} → ${formatDate(f.data_fim_programada)}</div>`
+      `<div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+        <span style="font-size:11px;color:var(--success)">✓ ${f.dias_programados||'?'}d: ${formatDate(f.data_inicio_programada)} → ${formatDate(f.data_fim_programada)}</span>
+        <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:10px;font-weight:600;white-space:nowrap;color:${f.validado_dp?'var(--success)':'var(--warning)'}" title="Marque quando o DP confirmar que a programação foi lançada/efetivada">
+          <input type="checkbox" ${f.validado_dp?'checked':''} onchange="toggleValidadoDP('${f.id}',this.checked)" style="cursor:pointer;margin:0">
+          ${f.validado_dp?'Validado DP':'Aguardando DP'}
+        </label>
+      </div>`
     ).join('')||'<span style="color:var(--text-muted);font-size:12px">—</span>';
 
     return`<tr style="${rowStyle}">
@@ -2496,22 +2505,29 @@ async function salvarProgFerias(id){
   const inicio=document.getElementById('prog-inicio').value;
   const fim=document.getElementById('prog-fim').value;
   if(!inicio||!fim){showToast('Data início e fim são obrigatórias','error');return;}
-  const{error}=await sb.from('ferias').update({programado:true,dias_programados:dias,data_inicio_programada:inicio,data_fim_programada:fim}).eq('id',id);
+  const{error}=await sb.from('ferias').update({programado:true,dias_programados:dias,data_inicio_programada:inicio,data_fim_programada:fim,validado_dp:false}).eq('id',id);
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast('Férias programadas!');closeModal('modal-prog-ferias');await loadFerias();renderFerias();
 }
 
 async function desproramarFerias(id){
   if(!confirm('Remover programação de férias?'))return;
-  await sb.from('ferias').update({programado:false,dias_programados:null,data_inicio_programada:null,data_fim_programada:null}).eq('id',id);
+  await sb.from('ferias').update({programado:false,dias_programados:null,data_inicio_programada:null,data_fim_programada:null,validado_dp:false}).eq('id',id);
   showToast('Programação removida.');closeModal('modal-prog-ferias');renderFerias();
 }
 
 async function cancelarProgFerias(id){
   if(!confirm('Cancelar a programação de férias deste funcionário?'))return;
-  const{error}=await sb.from('ferias').update({programado:false,dias_programados:null,data_inicio_programada:null,data_fim_programada:null}).eq('id',id);
+  const{error}=await sb.from('ferias').update({programado:false,dias_programados:null,data_inicio_programada:null,data_fim_programada:null,validado_dp:false}).eq('id',id);
   if(error){showToast('Erro ao cancelar: '+error.message,'error');return;}
   showToast('Programação cancelada.','success');
+  await loadFerias();renderFerias();
+}
+
+async function toggleValidadoDP(id,checked){
+  const{error}=await sb.from('ferias').update({validado_dp:checked}).eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast(checked?'Marcado como validado pelo DP!':'Marcado como aguardando validação do DP.');
   await loadFerias();renderFerias();
 }
 
