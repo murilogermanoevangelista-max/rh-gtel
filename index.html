@@ -294,6 +294,7 @@ input:focus,select:focus{border-color:var(--primary)}
     <div class="nav-item" onclick="showPage('folgas')"><i class="ti ti-beach"></i> Folgas de Campo</div>
     <div class="nav-item" onclick="showPage('ferias')"><i class="ti ti-sunglasses"></i> Férias</div>
     <div class="nav-item" onclick="showPage('alojamentos')"><i class="ti ti-home-2"></i> Alojamentos</div>
+    <div class="nav-item" onclick="showPage('prestadores')"><i class="ti ti-id-badge"></i> Prestadores</div>
     <div class="nav-item" onclick="showPage('efetivo')"><i class="ti ti-users-group"></i> Efetivo</div>
     <div class="nav-section">Cadastros</div>
     <div class="nav-item" id="nav-usuarios" onclick="showPage('usuarios')"><i class="ti ti-shield-lock"></i> Usuários</div>
@@ -324,7 +325,7 @@ const SUPABASE_URL='https://lqggoshphakeuufibdno.supabase.co';
 const SUPABASE_KEY='sb_publishable_QlnJaa5xdUXePvXFV6QFwQ_AmMk639T';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[];
+let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[];
 let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'nao_lancadas' | null
 let bannerNaoLancadasAberto=false;
 let bannerFiltroObra='';
@@ -564,6 +565,17 @@ async function loadAlojamentos(){
   alojamentos=listaAloj;alojamentosContas=listaContas;alojamentosRelatorios=listaRel;
 }
 
+async function loadPrestadores(){
+  const{data}=await sb.from('prestadores')
+    .select('*,obra:obras(nome,codigo),alojamento:alojamentos(nome)')
+    .order('nome_completo');
+  let lista=data||[];
+  if(obrasPermitidasIds){
+    lista=lista.filter(x=>x.obra_id&&obrasPermitidasIds.has(String(x.obra_id)));
+  }
+  prestadores=lista;
+}
+
 let currentPage='dashboard';
 
 async function showPage(page){
@@ -581,6 +593,7 @@ async function showPage(page){
       (page==='folgas'&&t.includes('folga'))||
       (page==='ferias'&&t.includes('férias'))||
       (page==='alojamentos'&&t.includes('alojamento'))||
+      (page==='prestadores'&&t.includes('prestador'))||
       (page==='usuarios'&&t.includes('usuário'))||
       (page==='obras'&&t.includes('obra'))||
       (page==='empresas'&&t.includes('empresa'))
@@ -599,6 +612,7 @@ async function showPage(page){
     else if(page==='folgas')renderFolgas();
     else if(page==='ferias')renderFerias();
     else if(page==='alojamentos'){alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';bannerRelatoriosAberto=false;bannerRelatoriosFiltroObra='';await loadAlojamentos();renderAlojamentos();}
+    else if(page==='prestadores'){await loadPrestadores();renderPrestadores();}
     else if(page==='efetivo'){efetivoSituacaoFiltro='';await loadEfetivo();renderEfetivo();}
     else if(page==='usuarios')renderUsuarios();
     else if(page==='obras')renderObras();
@@ -3055,6 +3069,204 @@ function exportFeriasPDF(){
   doc.save('Controle_Ferias.pdf');showToast('PDF exportado!');
 }
 
+// ─── PRESTADORES ──────────────────────────────────────────────────────────────
+let prestadoresBusca='',prestadoresFiltroSit='ativo',prestadoresFiltroObra='';
+
+async function renderPrestadores(){
+  await loadPrestadores();
+  await loadAlojamentos();
+  const lista=prestadores.filter(p=>{
+    if(prestadoresFiltroSit&&p.situacao!==prestadoresFiltroSit)return false;
+    if(prestadoresFiltroObra&&String(p.obra_id)!==String(prestadoresFiltroObra))return false;
+    if(prestadoresBusca){
+      const b=prestadoresBusca.toLowerCase();
+      return(p.nome_completo||'').toLowerCase().includes(b)||(p.razao_social||'').toLowerCase().includes(b)||(p.cnpj||'').includes(b)||(p.funcao||'').toLowerCase().includes(b);
+    }
+    return true;
+  });
+
+  const total=prestadores.length;
+  const ativos=prestadores.filter(p=>p.situacao==='ativo').length;
+  const inativos=prestadores.filter(p=>p.situacao==='inativo').length;
+
+  const obrasOpts=obras.map(o=>`<option value="${o.id}" ${prestadoresFiltroObra===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''} ${o.nome||''}</option>`).join('');
+
+  const rows=lista.map(p=>{
+    const obraLabel=p.obra?`${p.obra.codigo?p.obra.codigo+' — ':''}${p.obra.nome||''}`:' — ';
+    const sitBadge=p.situacao==='ativo'
+      ?'<span class="badge badge-green">Ativo</span>'
+      :'<span class="badge badge-red">Inativo</span>';
+    return`<tr>
+      <td>
+        <div style="font-weight:500">${p.nome_completo||'—'}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${p.funcao||'—'}</div>
+      </td>
+      <td>
+        <div style="font-size:13px">${p.razao_social||'—'}</div>
+        ${p.nome_fantasia?`<div style="font-size:11px;color:var(--text-muted)">${p.nome_fantasia}</div>`:''}
+        ${p.cnpj?`<div style="font-size:11px;color:var(--text-muted);font-family:monospace">${p.cnpj}</div>`:''}
+      </td>
+      <td style="font-size:12px">${obraLabel}</td>
+      <td style="font-size:12px">${p.alojamento?.nome||'<span style="color:var(--text-muted)">—</span>'}</td>
+      <td style="font-size:12px">${formatDate(p.data_mobilizacao)||'—'}</td>
+      <td style="font-size:12px">${formatDate(p.data_integracao)||'—'}</td>
+      <td>${sitBadge}</td>
+      <td>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm" onclick="openModalPrestador('${p.id}')"><i class="ti ti-edit"></i> Editar</button>
+          <button class="btn btn-sm btn-danger" onclick="deletarPrestador('${p.id}','${(p.nome_completo||'').replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i></button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="8"><div class="empty-state"><i class="ti ti-id-badge"></i><div>Nenhum prestador encontrado</div></div></td></tr>';
+
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title">Prestadores de Serviço</div><div class="page-subtitle">${ativos} ativos · ${inativos} inativos</div></div>
+      <button class="btn btn-primary" onclick="openModalPrestador()"><i class="ti ti-plus"></i> Novo prestador</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+      <div class="metric-card" onclick="prestadoresFiltroSit='';renderPrestadores()" style="cursor:pointer;border-color:${!prestadoresFiltroSit?'var(--primary)':'var(--border)'}">
+        <div class="metric-label">Total</div><div class="metric-value">${total}</div>
+      </div>
+      <div class="metric-card green" onclick="prestadoresFiltroSit='ativo';renderPrestadores()" style="cursor:pointer;border-color:${prestadoresFiltroSit==='ativo'?'var(--success)':'var(--border)'}">
+        <div class="metric-label">Ativos</div><div class="metric-value">${ativos}</div>
+      </div>
+      <div class="metric-card red" onclick="prestadoresFiltroSit='inativo';renderPrestadores()" style="cursor:pointer;border-color:${prestadoresFiltroSit==='inativo'?'var(--danger)':'var(--border)'}">
+        <div class="metric-label">Inativos</div><div class="metric-value">${inativos}</div>
+      </div>
+    </div>
+    <div class="filters">
+      <div class="search-box"><i class="ti ti-search"></i>
+        <input placeholder="Buscar por nome, empresa, CNPJ, função..." value="${prestadoresBusca}"
+          oninput="prestadoresBusca=this.value;if(!_buscaHandlers.prest)_buscaHandlers.prest=makeBuscaHandler(v=>prestadoresBusca=v,renderPrestadores,300);_buscaHandlers.prest(this.value);this.focus()">
+      </div>
+      <select class="filter-select" onchange="prestadoresFiltroObra=this.value;renderPrestadores()">
+        <option value="">Todas as obras</option>${obrasOpts}
+      </select>
+      <button class="btn btn-sm" onclick="prestadoresBusca='';prestadoresFiltroSit='ativo';prestadoresFiltroObra='';renderPrestadores()"><i class="ti ti-x"></i> Limpar</button>
+    </div>
+    <div class="table-container"><table>
+      <thead><tr>
+        <th>Nome / Função</th><th>Empresa</th><th>Obra</th><th>Alojamento</th>
+        <th>Mobilização</th><th>Integração</th><th>Status</th><th>Ações</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function openModalPrestador(id){
+  const p=id?prestadores.find(x=>x.id===id):null;
+  const obrasSel=obras.map(o=>`<option value="${o.id}" ${String(p?.obra_id||'')===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
+  const alojSel=alojamentos.map(a=>`<option value="${a.id}" ${String(p?.alojamento_id||'')===String(a.id)?'selected':''}>${a.nome||''} ${a.obra?.codigo?'('+a.obra.codigo+')':''}</option>`).join('');
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-prestador" onclick="if(event.target===this)closeModal('modal-prestador')">
+      <div class="modal" style="max-width:580px">
+        <div class="modal-header">
+          <span class="modal-title"><i class="ti ti-id-badge"></i> ${p?'Editar':'Novo'} Prestador</span>
+          <button class="btn btn-sm" onclick="closeModal('modal-prestador')"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Dados da Empresa</div>
+          <div class="form-grid">
+            <div class="form-group" style="grid-column:1/-1">
+              <label>Razão Social</label>
+              <input id="prest-razao" value="${p?.razao_social||''}" placeholder="Ex: Engenharia ABC Ltda">
+            </div>
+            <div class="form-group">
+              <label>Nome Fantasia</label>
+              <input id="prest-fantasia" value="${p?.nome_fantasia||''}" placeholder="Ex: ABC Engenharia">
+            </div>
+            <div class="form-group">
+              <label>CNPJ</label>
+              <input id="prest-cnpj" value="${p?.cnpj||''}" placeholder="00.000.000/0000-00">
+            </div>
+          </div>
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin:16px 0 10px">Dados do Profissional</div>
+          <div class="form-grid">
+            <div class="form-group" style="grid-column:1/-1">
+              <label>Nome Completo *</label>
+              <input id="prest-nome" value="${p?.nome_completo||''}" placeholder="Nome do profissional" required>
+            </div>
+            <div class="form-group" style="grid-column:1/-1">
+              <label>Função *</label>
+              <input id="prest-funcao" value="${p?.funcao||''}" placeholder="Ex: Engenheiro Civil, Inspetor de Solda...">
+            </div>
+            <div class="form-group">
+              <label>Data de Mobilização</label>
+              <input type="date" id="prest-mobilizacao" value="${p?.data_mobilizacao||''}">
+            </div>
+            <div class="form-group">
+              <label>Data de Integração</label>
+              <input type="date" id="prest-integracao" value="${p?.data_integracao||''}">
+            </div>
+          </div>
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin:16px 0 10px">Obra e Alojamento</div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Obra *</label>
+              <select id="prest-obra"><option value="">Selecione...</option>${obrasSel}</select>
+            </div>
+            <div class="form-group">
+              <label>Alojamento <span style="font-size:10px;color:var(--text-muted)">(opcional)</span></label>
+              <select id="prest-alojamento"><option value="">Sem alojamento</option>${alojSel}</select>
+            </div>
+            <div class="form-group">
+              <label>Status</label>
+              <select id="prest-sit">
+                <option value="ativo" ${(p?.situacao||'ativo')==='ativo'?'selected':''}>Ativo</option>
+                <option value="inativo" ${p?.situacao==='inativo'?'selected':''}>Inativo</option>
+              </select>
+            </div>
+            <div class="form-group" style="grid-column:1/-1">
+              <label>Observação</label>
+              <textarea id="prest-obs" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;resize:vertical">${p?.observacao||''}</textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" onclick="closeModal('modal-prestador')">Cancelar</button>
+          <button class="btn btn-primary" onclick="salvarPrestador('${id||''}')"><i class="ti ti-check"></i> Salvar</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+async function salvarPrestador(id){
+  const nome=document.getElementById('prest-nome').value.trim();
+  const obraId=document.getElementById('prest-obra').value;
+  if(!nome){showToast('Nome completo é obrigatório','error');return;}
+  if(!obraId){showToast('Selecione uma obra','error');return;}
+  const payload={
+    razao_social:document.getElementById('prest-razao').value.trim()||null,
+    cnpj:document.getElementById('prest-cnpj').value.trim()||null,
+    nome_fantasia:document.getElementById('prest-fantasia').value.trim()||null,
+    nome_completo:nome,
+    funcao:document.getElementById('prest-funcao').value.trim()||null,
+    data_mobilizacao:document.getElementById('prest-mobilizacao').value||null,
+    data_integracao:document.getElementById('prest-integracao').value||null,
+    obra_id:obraId,
+    alojamento_id:document.getElementById('prest-alojamento').value||null,
+    situacao:document.getElementById('prest-sit').value,
+    observacao:document.getElementById('prest-obs').value.trim()||null,
+  };
+  let error;
+  if(id){({error}=await sb.from('prestadores').update(payload).eq('id',id));}
+  else{({error}=await sb.from('prestadores').insert(payload));}
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast(id?'Prestador atualizado!':'Prestador cadastrado!');
+  closeModal('modal-prestador');
+  await loadPrestadores();renderPrestadores();
+}
+
+async function deletarPrestador(id,nome){
+  if(!confirm(`Remover prestador "${nome}"?`))return;
+  const{error}=await sb.from('prestadores').delete().eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Prestador removido!');
+  await loadPrestadores();renderPrestadores();
+}
+
 // ─── USUÁRIOS ─────────────────────────────────────────────────────────────────
 async function renderUsuarios(){
   const{data:usuarios,error}=await sb.from('usuarios_acesso').select('*').order('nome');
@@ -4599,6 +4811,7 @@ async function editarMarcacao(id,valorAtual,btn){
 }
 
 async function renderEfetivo(){
+  await loadPrestadores();
   function normMat(v){return String(v||'').trim().replace(/^0+/,'');}
 
   // ── Determinar data ─────────────────────────────────────────────────────
@@ -4621,7 +4834,13 @@ async function renderEfetivo(){
           nome:(f.nome_completo||f.nome||'').toUpperCase(),departamento:f.obra?.nome||'',
           situacao:'AUSENTE',horario_entrada:null,marcacoes:null}))
       :[];
-    efetivoFiltrado=[...presentesDia,...ausentesSinteticos];
+    // Prestadores ativos da obra — sempre presentes (sem ponto eletrônico)
+    const prestObra=prestadores.filter(p=>p.obra_id===globalObraFiltro&&p.situacao==='ativo');
+    const prestSint=prestObra.map(p=>({
+      id:'_prest_'+p.id,data:ds,cracha:'PREST',
+      nome:(p.nome_completo||'').toUpperCase(),departamento:p.funcao||'Prestador',
+      situacao:'PRESENTE',horario_entrada:null,marcacoes:null,_prestador:true,_funcao:p.funcao}));
+    efetivoFiltrado=[...presentesDia,...ausentesSinteticos,...prestSint];
   } else {
     const temImportacaoDia=efetivoData.some(r=>r.data===ds);
     if(temImportacaoDia){
@@ -4631,7 +4850,12 @@ async function renderEfetivo(){
         .map(f=>({id:'_sint_'+f.id,data:ds,cracha:String(f.matricula||'').trim(),
           nome:(f.nome_completo||f.nome||'').toUpperCase(),departamento:f.obra?.nome||'',
           situacao:'AUSENTE',horario_entrada:null,marcacoes:null}));
-      efetivoFiltrado=[...presentesDiaGeral,...ausentesGeral];
+      // Todos os prestadores ativos — presentes
+      const prestSintGeral=prestadores.filter(p=>p.situacao==='ativo').map(p=>({
+        id:'_prest_'+p.id,data:ds,cracha:'PREST',
+        nome:(p.nome_completo||'').toUpperCase(),departamento:p.funcao||'Prestador',
+        situacao:'PRESENTE',horario_entrada:null,marcacoes:null,_prestador:true,_funcao:p.funcao}));
+      efetivoFiltrado=[...presentesDiaGeral,...ausentesGeral,...prestSintGeral];
     } else {
       efetivoFiltrado=efetivoData;
     }
@@ -4905,7 +5129,10 @@ async function renderEfetivo(){
       const badge=r._st==='P'
         ?'<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:var(--success-light);color:var(--success)">✓ Presente</span>'
         :'<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:var(--danger-light);color:var(--danger)">✗ Ausente</span>';
-      return '<tr><td style="padding:8px 12px;font-size:12px">'+r.cracha+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+'</td><td style="padding:8px 12px;font-size:12px;color:var(--primary-dark)">'+getFuncao(r.cracha)+'</td><td style="padding:8px 12px">'+badge+'</td></tr>';
+      const prestBadge=r._prestador?'<span style="display:inline-block;margin-left:4px;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;background:#EDE9FE;color:#5B21B6">Prestador</span>':'';
+      const funcaoCell=r._prestador?(r._funcao||'Prestador'):getFuncao(r.cracha);
+      const crachaCell=r._prestador?'—':r.cracha;
+      return '<tr><td style="padding:8px 12px;font-size:12px">'+crachaCell+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+prestBadge+'</td><td style="padding:8px 12px;font-size:12px;color:var(--primary-dark)">'+funcaoCell+'</td><td style="padding:8px 12px">'+badge+'</td></tr>';
     }).join('');
     const _btnExport='<button onclick="exportarEfetivoExcel(\''+efetivoViewMode+'\')" class="btn btn-sm" style="margin-bottom:8px"><i class="ti ti-file-type-csv"></i> Exportar CSV</button>';
     view=_btnExport+'<div class="table-container"><table><thead>'+th+'</thead><tbody>'+(rows||'<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum</td></tr>')+'</tbody></table></div>';
