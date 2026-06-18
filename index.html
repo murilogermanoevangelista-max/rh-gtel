@@ -4169,49 +4169,82 @@ async function importarHE(file){
   if(!file)return;
   showToast('Importando H.E...');
   try{
-    const{read,utils}=await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm');
+    // Kairos exporta XLS como HTML disfarçado — precisamos detectar e tratar os dois formatos
     const buf=await file.arrayBuffer();
-    const wb=read(buf,{type:'array'});
-    const ws=wb.Sheets[wb.SheetNames[0]];
-    const rows=utils.sheet_to_json(ws,{header:1,defval:''});
+    const rawText=new TextDecoder('utf-8').decode(buf);
+    const isHTML=rawText.trimStart().startsWith('\uFEFF<html')||rawText.trimStart().startsWith('<html');
 
-    // Encontrar header: linha com "Matrícula" ou "Nome"
+    let rows=[];
+
+    if(isHTML){
+      // Parsear HTML do Kairos: <table> com colunas
+      // Data | Nome | Matrícula | Estrutura | Ocorrência | Horas | Abono | Justificativa | ...
+      const parser=new DOMParser();
+      const doc=parser.parseFromString(rawText,'text/html');
+      const trs=doc.querySelectorAll('tr');
+      trs.forEach(tr=>{
+        const cells=[...tr.querySelectorAll('td,th')].map(td=>td.textContent.trim());
+        rows.push(cells);
+      });
+    } else {
+      const{read,utils}=await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm');
+      const wb=read(buf,{type:'array'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      rows=utils.sheet_to_json(ws,{header:1,defval:''});
+    }
+
+    // Encontrar linha de cabeçalho
     let hi=rows.findIndex(r=>r.some(c=>String(c).toLowerCase().includes('matrícula')||String(c).toLowerCase().includes('matricula')));
     if(hi<0)hi=rows.findIndex(r=>r.some(c=>String(c).toLowerCase().includes('nome')));
     if(hi<0){showToast('Formato não reconhecido','error');return;}
 
-    // Detectar período do cabeçalho
+    // Detectar período: buscar data no título/cabeçalho do HTML ou nas linhas de dados
     let dataISO='';
     for(let i=0;i<hi;i++){
       const row=rows[i]||[];
       for(let j=0;j<row.length;j++){
-        const cell=String(row[j]||'').toLowerCase();
-        if(cell.includes('período')||cell.includes('periodo')){
-          const m=cell.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-          if(m){dataISO=m[3]+'-'+m[2]+'-'+m[1];break;}
-        }
+        const cell=String(row[j]||'');
+        const m=cell.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+        if(m){dataISO=m[3]+'-'+m[2]+'-'+m[1];break;}
       }
       if(dataISO)break;
     }
+
+    // Converter horas no formato HH:MM ou fração de dia para minutos
+    function parseHoras(v){
+      if(!v||v===''||v==='00:00')return 0;
+      const s=String(v).trim();
+      // Formato texto "HH:MM"
+      const mHM=s.match(/^(\d+):(\d{2})$/);
+      if(mHM)return parseInt(mHM[1])*60+parseInt(mHM[2]);
+      // Fração de dia (Excel numérico)
+      const n=parseFloat(s);
+      if(!isNaN(n)&&n>0&&n<5)return Math.round(n*24*60);
+      return 0;
+    }
+
+    // Converter data DD/MM/YYYY para ISO
+    function parseDataLinha(v){
+      const s=String(v||'').trim();
+      const m=s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if(m)return m[3]+'-'+m[2]+'-'+m[1];
+      // Serial Excel
+      if(typeof v==='number'&&v>40000&&v<60000){
+        const d=new Date(Math.round((v-25569)*86400000));
+        return d.toISOString().slice(0,10);
+      }
+      return dataISO||new Date().toISOString().slice(0,10);
+    }
+
     if(!dataISO){
-      // Tentar primeira data serial nas linhas de dados
+      // Usar a data da primeira linha de dados como período de referência
       for(let i=hi+1;i<rows.length;i++){
-        const v=rows[i][0];
-        if(typeof v==='number'&&v>40000&&v<55000){
-          const d=new Date(Math.round((v-25569)*86400000));
-          dataISO=d.toISOString().slice(0,10);break;
-        }
+        const d=parseDataLinha(rows[i][0]);
+        if(d){dataISO=d;break;}
       }
     }
     if(!dataISO)dataISO=new Date().toISOString().slice(0,10);
-    console.log('[importarHE] data:',dataISO);
-
-    // Horas: valor em fração de dia -> converter para minutos
-    // 1 dia = 1440 min, 1 hora = 1/24 dia
-    function fracToMins(v){
-      if(!v||v===0)return 0;
-      return Math.round(Number(v)*24*60);
-    }
+    console.log('[importarHE] data referência:',dataISO);
 
     const regs=[];
     rows.slice(hi+1).forEach(r=>{
@@ -4219,26 +4252,23 @@ async function importarHE(file){
       const nome=String(r[1]||'').trim();
       const mat=String(r[2]||'').trim();
       const tipo=String(r[4]||'').trim(); // Ocorrência
-      const horas=r[5]; // Horas em fração de dia
+      const horasVal=r[5]; // Horas
 
       if(!mat||!nome||!tipo||!tipo.toLowerCase().includes('hora extra'))return;
 
-      // Data da linha (serial Excel ou usar data do período)
-      let linhaData=dataISO;
-      if(typeof dataVal==='number'&&dataVal>40000&&dataVal<55000){
-        const d=new Date(Math.round((dataVal-25569)*86400000));
-        linhaData=d.toISOString().slice(0,10);
-      }
-
-      const mins=fracToMins(horas);
+      const linhaData=parseDataLinha(dataVal)||dataISO;
+      const mins=parseHoras(horasVal);
       if(mins<=0)return;
+
+      // Normalizar tipo: "Hora Extra 60%" → "HE 60%", "Hora Extra 100%" → "HE 100%", etc.
+      const tipoNorm=tipo.replace(/^Hora Extra\s*/i,'HE ').trim();
 
       regs.push({
         data:linhaData,
         periodo_ini:dataISO,
         matricula:mat,
         nome:nome.toUpperCase(),
-        tipo:tipo.replace('Hora Extra ','HE ').trim(),
+        tipo:tipoNorm,
         mins,
       });
     });
@@ -4522,8 +4552,24 @@ async function renderEfetivo(){
   }).join('');
 
   // ── Histórico ───────────────────────────────────────────────────────────
+  // Usar todos os dados (não só o dia selecionado) para montar o histórico completo
+  const efetivoParaHist=globalObraFiltro
+    ?(()=>{
+        const funcsObra=funcionarios.filter(f=>f.obra_id===globalObraFiltro&&f.situacao!=='inativo');
+        const crachasObra=new Set(funcsObra.map(f=>normMat(f.matricula)));
+        const todasDatasImport=[...new Set(efetivoData.map(r=>r.data))].sort((a,b)=>b.localeCompare(a));
+        const rows=[];
+        todasDatasImport.forEach(dia=>{
+          const presentesDia=efetivoData.filter(r=>r.data===dia&&r.situacao==='PRESENTE'&&crachasObra.has(normMat(r.cracha)));
+          const crachasPresentes=new Set(presentesDia.map(r=>normMat(r.cracha)));
+          const ausentesDia=funcsObra.filter(f=>!crachasPresentes.has(normMat(f.matricula))).map(f=>({situacao:'AUSENTE',data:dia}));
+          rows.push(...presentesDia,...ausentesDia);
+        });
+        return rows;
+      })()
+    :efetivoData;
   const hm={};
-  efetivoFiltrado.forEach(r=>{
+  efetivoParaHist.forEach(r=>{
     if(!hm[r.data])hm[r.data]={data:r.data,p:0,a:0};
     if(r.situacao==='PRESENTE')hm[r.data].p++;else hm[r.data].a++;
   });
