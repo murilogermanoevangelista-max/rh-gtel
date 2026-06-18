@@ -2412,11 +2412,13 @@ async function renderFerias(){
     return mat&&!matsComFerias.has(mat);
   });
 
+  window._ativosSemFerias=ativosSemFerias;
+
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div>
         <div class="page-title">Controle de Férias</div>
-        <div class="page-subtitle">${totalFuncs} funcionários · ${totalPeriodos} períodos${ativosSemFerias.length?` · <span style="color:var(--warning);font-weight:600">⚠ ${ativosSemFerias.length} ativo(s) sem registro na planilha DP</span>`:''}</div>
+        <div class="page-subtitle">${totalFuncs} funcionários · ${totalPeriodos} períodos${ativosSemFerias.length?` · <span onclick="abrirModalSemFerias()" style="color:var(--warning);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px">⚠ ${ativosSemFerias.length} ativo(s) sem registro na planilha DP</span>`:''}</div>
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-sm" onclick="exportFeriasExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
@@ -2512,6 +2514,57 @@ async function renderFerias(){
 
 
 // Modal programar férias
+function abrirModalSemFerias(){
+  const lista=window._ativosSemFerias||[];
+  if(!lista.length)return;
+  const rows=lista.map(f=>{
+    const obraLabel=f.obra?(f.obra.codigo?f.obra.codigo+' — ':'')+f.obra.nome:'—';
+    return`<tr style="cursor:pointer" onclick="closeModal('modal-sem-ferias');showPage('funcionarios');setTimeout(()=>{busca='${(f.nome_completo||'').replace(/'/g,"\\'")}';atualizarTabelaFuncionarios();},400)"
+      onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">
+      <td style="padding:10px 12px">
+        <div style="display:flex;align-items:center;gap:10px">
+          ${avatarHtml(f.foto_url,f.nome_completo)}
+          <div>
+            <div style="font-weight:500">${f.nome_completo||'—'}</div>
+            <div style="font-size:11px;color:var(--text-muted)">${f.matricula||'—'}</div>
+          </div>
+        </div>
+      </td>
+      <td style="padding:10px 12px;font-size:12px;color:var(--text-muted)">${obraLabel}</td>
+      <td style="padding:10px 12px;font-size:12px;color:var(--text-muted)">${f.funcao?.nome||f.funcao_manual||'—'}</td>
+      <td style="padding:10px 12px;font-size:12px;color:var(--primary);font-weight:500">→ Ver ficha</td>
+    </tr>`;
+  }).join('');
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-sem-ferias" onclick="if(event.target===this)closeModal('modal-sem-ferias')">
+      <div class="modal" style="max-width:600px">
+        <div class="modal-header">
+          <span class="modal-title" style="color:var(--warning)"><i class="ti ti-alert-triangle"></i> Ativos sem registro na planilha DP</span>
+          <button class="btn btn-sm" onclick="closeModal('modal-sem-ferias')"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body" style="padding:0">
+          <div style="padding:12px 16px;background:var(--warning-light);border-bottom:1px solid #FCD34D;font-size:12px;color:#92400E">
+            <i class="ti ti-info-circle"></i> Estes funcionários estão ativos no sistema mas não constam na última planilha de férias importada do DP. Clique em um nome para ir à ficha do funcionário.
+          </div>
+          <div style="max-height:400px;overflow-y:auto">
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr style="background:var(--bg)">
+                <th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--text-muted)">Funcionário</th>
+                <th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--text-muted)">Obra</th>
+                <th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--text-muted)">Função</th>
+                <th></th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" onclick="closeModal('modal-sem-ferias')">Fechar</button>
+        </div>
+      </div>
+    </div>`);
+}
+
 function openModalProgramarFerias(id){
   const f=feriasData.find(x=>x.id===id);if(!f)return;
   const nomeFunc=f.funcionario?.nome_completo||f.matricula||'—';
@@ -3098,8 +3151,13 @@ async function renderPrestadores(){
       :'<span class="badge badge-red">Inativo</span>';
     return`<tr>
       <td>
-        <div style="font-weight:500">${p.nome_completo||'—'}</div>
-        <div style="font-size:11px;color:var(--text-muted)">${p.funcao||'—'}</div>
+        <div class="name-cell">
+          ${avatarHtml(p.foto_url,p.nome_completo)}
+          <div>
+            <div style="font-weight:500">${p.nome_completo||'—'}</div>
+            <div style="font-size:11px;color:var(--text-muted)">${p.funcao||'—'}</div>
+          </div>
+        </div>
       </td>
       <td>
         <div style="font-size:13px">${p.razao_social||'—'}</div>
@@ -3159,6 +3217,10 @@ function openModalPrestador(id){
   const p=id?prestadores.find(x=>x.id===id):null;
   const obrasSel=obras.map(o=>`<option value="${o.id}" ${String(p?.obra_id||'')===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
   const alojSel=alojamentos.map(a=>`<option value="${a.id}" ${String(p?.alojamento_id||'')===String(a.id)?'selected':''}>${a.nome||''} ${a.obra?.codigo?'('+a.obra.codigo+')':''}</option>`).join('');
+  window._prestFotoFile=null;
+  const fotoPreview=p?.foto_url
+    ?`<img src="${p.foto_url}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
+    :`<i class="ti ti-user" style="font-size:28px;opacity:.4"></i>`;
   document.body.insertAdjacentHTML('beforeend',`
     <div class="modal-overlay" id="modal-prestador" onclick="if(event.target===this)closeModal('modal-prestador')">
       <div class="modal" style="max-width:580px">
@@ -3167,6 +3229,17 @@ function openModalPrestador(id){
           <button class="btn btn-sm" onclick="closeModal('modal-prestador')"><i class="ti ti-x"></i></button>
         </div>
         <div class="modal-body">
+          <!-- Foto -->
+          <div class="foto-upload" style="margin-bottom:16px">
+            <div class="foto-preview" id="prest-foto-prev" style="width:72px;height:72px;flex-shrink:0">${fotoPreview}</div>
+            <div>
+              <div style="font-weight:500;margin-bottom:4px">Foto do profissional</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">JPG ou PNG até 2MB</div>
+              <input type="file" accept="image/*" id="prest-foto-input" style="display:none" onchange="previewFotoPrestador(this)">
+              <button class="btn btn-sm" onclick="document.getElementById('prest-foto-input').click()"><i class="ti ti-upload"></i> Selecionar foto</button>
+              ${p?.foto_url?`<button class="btn btn-sm btn-danger" style="margin-left:6px" onclick="window._prestFotoFile=null;window._prestRemoverFoto=true;document.getElementById('prest-foto-prev').innerHTML='<i class=\\"ti ti-user\\" style=\\"font-size:28px;opacity:.4\\"></i>'"><i class="ti ti-trash"></i></button>`:''}
+            </div>
+          </div>
           <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Dados da Empresa</div>
           <div class="form-grid">
             <div class="form-group" style="grid-column:1/-1">
@@ -3232,11 +3305,33 @@ function openModalPrestador(id){
     </div>`);
 }
 
+function previewFotoPrestador(input){
+  const file=input.files[0];if(!file)return;
+  window._prestFotoFile=file;
+  window._prestRemoverFoto=false;
+  const reader=new FileReader();
+  reader.onload=e=>{document.getElementById('prest-foto-prev').innerHTML=`<img src="${e.target.result}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`};
+  reader.readAsDataURL(file);
+}
+
 async function salvarPrestador(id){
   const nome=document.getElementById('prest-nome').value.trim();
   const obraId=document.getElementById('prest-obra').value;
   if(!nome){showToast('Nome completo é obrigatório','error');return;}
   if(!obraId){showToast('Selecione uma obra','error');return;}
+
+  // Upload de foto
+  let fotoUrl=id?prestadores.find(x=>x.id===id)?.foto_url||null:null;
+  if(window._prestFotoFile){
+    const ext=window._prestFotoFile.name.split('.').pop();
+    const path=`prestadores/${Date.now()}.${ext}`;
+    const{error:upErr}=await sb.storage.from('funcionarios').upload(path,window._prestFotoFile,{contentType:window._prestFotoFile.type});
+    if(!upErr){const{data:urlData}=sb.storage.from('funcionarios').getPublicUrl(path);fotoUrl=urlData.publicUrl;}
+    else{showToast('Erro no upload da foto: '+upErr.message,'error');}
+  } else if(window._prestRemoverFoto){
+    fotoUrl=null;
+  }
+
   const payload={
     razao_social:document.getElementById('prest-razao').value.trim()||null,
     cnpj:document.getElementById('prest-cnpj').value.trim()||null,
@@ -3249,6 +3344,7 @@ async function salvarPrestador(id){
     alojamento_id:document.getElementById('prest-alojamento').value||null,
     situacao:document.getElementById('prest-sit').value,
     observacao:document.getElementById('prest-obs').value.trim()||null,
+    foto_url:fotoUrl,
   };
   let error;
   if(id){({error}=await sb.from('prestadores').update(payload).eq('id',id));}
@@ -3256,6 +3352,7 @@ async function salvarPrestador(id){
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast(id?'Prestador atualizado!':'Prestador cadastrado!');
   closeModal('modal-prestador');
+  window._prestFotoFile=null;window._prestRemoverFoto=false;
   await loadPrestadores();renderPrestadores();
 }
 
