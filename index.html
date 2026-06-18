@@ -58,6 +58,12 @@ tbody tr:last-child{border-bottom:none}
 tbody tr:hover{background:#FAFAFA}
 tbody td{padding:10px 16px;font-size:13px}
 .avatar{width:36px;height:36px;border-radius:50%;background:var(--primary-light);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--primary-dark);overflow:hidden;flex-shrink:0}
+.avatar.has-foto{cursor:zoom-in}
+#foto-lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:9999;align-items:center;justify-content:center;flex-direction:column;gap:14px}
+#foto-lightbox.open{display:flex}
+#foto-lightbox img{max-width:min(90vw,380px);max-height:min(80vh,380px);border-radius:50%;border:4px solid #fff;box-shadow:0 8px 40px rgba(0,0,0,.6);object-fit:cover}
+#foto-lightbox .lb-nome{color:#fff;font-size:15px;font-weight:600;text-align:center;max-width:320px}
+#foto-lightbox .lb-close{position:absolute;top:18px;right:22px;color:#fff;font-size:30px;cursor:pointer;opacity:.8;line-height:1;user-select:none}
 .avatar img{width:100%;height:100%;object-fit:cover}
 .name-cell{display:flex;align-items:center;gap:10px}
 .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:500}
@@ -305,6 +311,11 @@ input:focus,select:focus{border-color:var(--primary)}
 </aside>
 
 <main class="main" id="main-content"></main>
+<div id="foto-lightbox" onclick="closeFotoLightbox()">
+  <span class="lb-close" onclick="closeFotoLightbox()">✕</span>
+  <img id="foto-lightbox-img" src="" alt="">
+  <div class="lb-nome" id="foto-lightbox-nome"></div>
+</div>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -429,6 +440,23 @@ function showToast(msg,type='success'){
   setTimeout(()=>t.className='toast',3000);
 }
 function initials(n){if(!n)return'?';return n.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();}
+function openFotoLightbox(url,nome){
+  document.getElementById('foto-lightbox-img').src=url;
+  document.getElementById('foto-lightbox-nome').textContent=nome||'';
+  document.getElementById('foto-lightbox').classList.add('open');
+}
+function closeFotoLightbox(){document.getElementById('foto-lightbox').classList.remove('open');}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeFotoLightbox();});
+// Helper: renderiza avatar clicável se tiver foto
+function avatarHtml(fotoUrl,nome,size){
+  const s=size||36;
+  const style=s!==36?`width:${s}px;height:${s}px;font-size:${Math.round(s*0.35)}px`:'';
+  if(fotoUrl){
+    const click=`openFotoLightbox('${fotoUrl}','${(nome||'').replace(/'/g,"\\'")}')`;
+    return`<div class="avatar has-foto" style="${style}" onclick="${click}"><img src="${fotoUrl}" alt=""></div>`;
+  }
+  return`<div class="avatar" style="${style}">${initials(nome)}</div>`;
+}
 function badgeSituacao(s){
   const map={ativo:'badge-green',inativo:'badge-red',transferido:'badge-amber'};
   const labels={ativo:'Ativo',inativo:'Inativo',transferido:'Transferido'};
@@ -501,7 +529,7 @@ async function loadFolgas(){
 }
 
 async function loadFerias(){
-  const {data}=await sb.from('ferias').select('*,funcionario:funcionarios(nome_completo,matricula,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo,centro_custo))').order('dt_limite_maxima');
+  const {data}=await sb.from('ferias').select('*,funcionario:funcionarios(nome_completo,matricula,foto_url,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo,centro_custo))').order('dt_limite_maxima');
   let lista=data||[];
   if(obrasPermitidasIds){
     const codigosPermitidos=new Set(obras.map(o=>o.codigo));
@@ -956,7 +984,7 @@ function getFuncionariosRows(lista){
       const avatarContent=f.foto_url?`<img src="${f.foto_url}" alt="">`:initials(f.nome_completo);
       return`<tr style="opacity:.85">
         <td><div class="name-cell">
-          <div class="avatar" style="background:var(--border);color:var(--text-muted)">${avatarContent}</div>
+          ${avatarHtml(f.foto_url,f.nome_completo)}
           <div><div style="font-weight:500">${f.nome_completo}</div><div style="font-size:11px;color:var(--text-muted)">${f.matricula||'—'}</div></div>
         </div></td>
         <td>${funcaoNome}</td>
@@ -979,7 +1007,7 @@ function getFuncionariosRows(lista){
     const avatarContent=f.foto_url?`<img src="${f.foto_url}" alt="">`:initials(f.nome_completo);
     return`<tr>
       <td><div class="name-cell">
-        <div class="avatar">${avatarContent}</div>
+        ${avatarHtml(f.foto_url,f.nome_completo)}
         <div><div style="font-weight:500">${f.nome_completo}</div><div style="font-size:11px;color:var(--text-muted)">${f.matricula||'—'}</div></div>
       </div></td>
       <td>${funcaoNome}</td>
@@ -1619,7 +1647,7 @@ function renderExperiencia(){
       const efetBtn=e.status!=='efetivado'?`<button class="efetivar-btn" onclick="efetivarFunc('${f.id}')">✓ Efetivar</button>`:'<span style="color:var(--success);font-size:12px">✓ Efetivado</span>';
       return`<tr>
         <td><div class="name-cell">
-          <div class="avatar">${f.foto_url?`<img src="${f.foto_url}" alt="">`:initials(f.nome_completo)}</div>
+          ${avatarHtml(f.foto_url,f.nome_completo)}
           <div><div style="font-weight:500">${f.nome_completo}</div><div style="font-size:11px;color:var(--text-muted)">${f.matricula||'—'}</div></div>
         </div></td>
         <td style="font-size:12px">${funcaoNome}</td>
@@ -2333,7 +2361,7 @@ async function renderFerias(){
 
     return`<tr style="${rowStyle}">
       <td><div class="name-cell">
-        <div class="avatar">${initials(nomeFunc)}</div>
+        ${avatarHtml(f0.funcionario?.foto_url, nomeFunc)}
         <div>
           <div style="font-weight:500">${nomeFunc}</div>
           <div style="font-size:11px;color:var(--text-muted)">${f0.matricula||'—'}</div>
