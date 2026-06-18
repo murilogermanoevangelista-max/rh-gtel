@@ -12,8 +12,8 @@ jobs:
       - name: Baixar o repositório
         uses: actions/checkout@v4
 
-      - name: Instalar ferramenta do Postgres
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+     - name: Instalar ferramenta do Postgres (versão compatível com o Supabase)
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client-17
 
       - name: Gerar o backup do banco
         run: |
