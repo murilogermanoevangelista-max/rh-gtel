@@ -458,6 +458,11 @@ function openFotoLightbox(url,nome){
 }
 function closeFotoLightbox(){document.getElementById('foto-lightbox').classList.remove('open');}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeFotoLightbox();});
+document.addEventListener('click',e=>{
+  const cont=document.getElementById('add-morador-resultados');
+  const input=document.getElementById('add-morador-busca');
+  if(cont&&input&&!input.contains(e.target)&&!cont.contains(e.target))cont.style.display='none';
+});
 // Helper: renderiza avatar clicável se tiver foto
 function avatarHtml(fotoUrl,nome,size){
   const s=size||36;
@@ -4091,8 +4096,8 @@ async function deleteAlojamento(id,nome){
 function openModalMoradores(alojId){
   const a=alojamentos.find(x=>String(x.id)===String(alojId));
   const moradores=funcionarios.filter(f=>String(f.alojamento_id)===String(alojId)&&f.situacao!=='inativo');
-  const disponiveis=funcionarios.filter(f=>(!f.alojamento_id||String(f.alojamento_id)!==String(alojId))&&f.situacao!=='inativo');
-  const dispOpts=disponiveis.map(f=>`<option value="${f.id}">${f.nome_completo} (${f.matricula})</option>`).join('');
+  window._alojDisponiveis=funcionarios.filter(f=>(!f.alojamento_id||String(f.alojamento_id)!==String(alojId))&&f.situacao!=='inativo');
+  window._alojMoradorSelId='';
   insertModal('modal-moradores',`
     <div class="modal" style="max-width:600px">
       <div class="modal-header">
@@ -4100,13 +4105,20 @@ function openModalMoradores(alojId){
         <button class="btn btn-sm" onclick="closeModal('modal-moradores')"><i class="ti ti-x"></i></button>
       </div>
       <div class="modal-body">
-        <div style="margin-bottom:16px;padding:12px;background:var(--bg);border-radius:var(--radius);display:flex;gap:8px;align-items:flex-end">
-          <div class="form-group" style="flex:1;margin:0"><label>Adicionar funcionário ao alojamento</label>
-            <select id="add-morador-sel" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius)">
-              <option value="">— Selecione —</option>${dispOpts}
-            </select>
+        <div style="margin-bottom:16px;padding:12px;background:var(--bg);border-radius:var(--radius)">
+          <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px">Adicionar funcionário ao alojamento</label>
+          <div style="position:relative">
+            <div class="search-box" style="margin:0">
+              <i class="ti ti-search"></i>
+              <input id="add-morador-busca" placeholder="Buscar por nome ou matrícula..." autocomplete="off"
+                oninput="filtrarMoradorCandidatos(this.value)" onfocus="filtrarMoradorCandidatos(this.value)">
+            </div>
+            <div id="add-morador-resultados" style="position:absolute;top:100%;left:0;right:0;z-index:20;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-top:4px;max-height:220px;overflow-y:auto;display:none;box-shadow:0 8px 24px rgba(0,0,0,.12)"></div>
           </div>
-          <button class="btn btn-primary btn-sm" onclick="addMorador('${alojId}')"><i class="ti ti-plus"></i> Adicionar</button>
+          <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+            <span id="add-morador-selecionado" style="font-size:12px;color:var(--text-muted);flex:1">Nenhum funcionário selecionado</span>
+            <button class="btn btn-primary btn-sm" onclick="addMorador('${alojId}')"><i class="ti ti-plus"></i> Adicionar</button>
+          </div>
         </div>
         <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase">
           ${moradores.length} morador(es) — ${(a?.vagas_total||0)-moradores.length} vaga(s) livre(s)
@@ -4128,9 +4140,36 @@ function openModalMoradores(alojId){
     </div>`);
 }
 
+function filtrarMoradorCandidatos(q){
+  const cont=document.getElementById('add-morador-resultados');
+  const lista=window._alojDisponiveis||[];
+  const termo=(q||'').trim().toLowerCase();
+  const filtrados=termo
+    ?lista.filter(f=>(f.nome_completo||'').toLowerCase().includes(termo)||(f.matricula||'').toLowerCase().includes(termo)).slice(0,8)
+    :lista.slice(0,8);
+  if(!filtrados.length){
+    cont.innerHTML='<div style="padding:12px;font-size:12px;color:var(--text-muted)">Nenhum funcionário encontrado</div>';
+  } else {
+    cont.innerHTML=filtrados.map(f=>`
+      <div onclick="selecionarMoradorCandidato('${f.id}','${(f.nome_completo||'').replace(/'/g,"\\'")}','${f.matricula||''}')"
+        style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center"
+        onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">
+        <div><div style="font-size:13px;font-weight:500">${f.nome_completo}</div><div style="font-size:11px;color:var(--text-muted)">${f.matricula||'—'} · ${f.funcao?.nome||'—'}</div></div>
+      </div>`).join('');
+  }
+  cont.style.display='block';
+}
+
+function selecionarMoradorCandidato(id,nome,matricula){
+  window._alojMoradorSelId=id;
+  document.getElementById('add-morador-busca').value=nome;
+  document.getElementById('add-morador-resultados').style.display='none';
+  document.getElementById('add-morador-selecionado').innerHTML=`<span style="color:var(--success);font-weight:600">✓ Selecionado: ${nome} (${matricula||'—'})</span>`;
+}
+
 async function addMorador(alojId){
-  const funcId=document.getElementById('add-morador-sel').value;
-  if(!funcId){showToast('Selecione um funcionário','error');return;}
+  const funcId=window._alojMoradorSelId;
+  if(!funcId){showToast('Busque e selecione um funcionário primeiro','error');return;}
   const{error}=await sb.from('funcionarios').update({alojamento_id:alojId}).eq('id',funcId);
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast('Funcionário adicionado ao alojamento!');
