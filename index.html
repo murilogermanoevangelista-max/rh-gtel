@@ -521,17 +521,21 @@ function toISO(d){
 const UFS=['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];
 
 async function loadAll(){
-  const [f,o,e,fn]=await Promise.all([
+  const [f,o,e,fn,al]=await Promise.all([
     sb.from('funcionarios').select('*,funcao:funcoes!funcionarios_funcao_id_fkey(nome),empresa:empresas!funcionarios_empresa_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo),obra_transferencia:obras!funcionarios_obra_transferencia_id_fkey(nome,codigo)').order('nome_completo'),
     sb.from('obras').select('*,empresa:empresas(nome)').order('nome'),
     sb.from('empresas').select('*').order('nome'),
     sb.from('funcoes').select('*').order('nome'),
+    sb.from('alojamentos').select('*,obra:obras(nome,codigo)').order('nome'),
   ]);
   funcionarios=f.data||[];obras=o.data||[];empresas=e.data||[];funcoes=fn.data||[];
+  let listaAloj=al.data||[];
   if(obrasPermitidasIds){
     obras=obras.filter(o=>obrasPermitidasIds.has(String(o.id)));
     funcionarios=funcionarios.filter(f=>f.obra_id&&obrasPermitidasIds.has(String(f.obra_id)));
+    listaAloj=listaAloj.filter(x=>x.obra_id&&obrasPermitidasIds.has(String(x.obra_id)));
   }
+  alojamentos=listaAloj;
 }
 
 async function loadFolgas(){
@@ -1412,7 +1416,7 @@ function previewFoto(input){
   reader.readAsDataURL(file);
 }
 function openModalFuncionario(func=null){
-  funcaoModoManual=!!(func&&func.funcao_manual&&!func.funcao_id);
+  funcaoModoManual=!!(func&&func.funcao_manual&&!func.funcao_id&&!func.funcao);
   tipoTransferencia='';fotoFile=null;
   const isEdit=!!func;
   const obraOptions=obras.map(o=>`<option value="${o.id}" ${func?.obra_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
@@ -1537,8 +1541,20 @@ async function saveFuncionario(id){
   const nome=document.getElementById('f-nome').value.trim();
   if(!mat||!nome){showToast('Matrícula e nome são obrigatórios','error');return;}
   const isMod=funcaoModoManual;
-  const funcaoId=isMod?null:document.getElementById('f-funcao-select').value||null;
-  const funcaoManual=isMod?document.getElementById('f-funcao-input').value.trim():null;
+  let funcaoId=isMod?null:document.getElementById('f-funcao-select').value||null;
+  const funcaoManualTexto=isMod?document.getElementById('f-funcao-input').value.trim():null;
+  if(isMod&&funcaoManualTexto){
+    const existente=funcoes.find(f=>(f.nome||'').trim().toUpperCase()===funcaoManualTexto.toUpperCase());
+    if(existente){
+      funcaoId=existente.id;
+    }else{
+      const{data:novaFuncao,error:errFuncao}=await sb.from('funcoes').insert({nome:funcaoManualTexto}).select().single();
+      if(errFuncao){showToast('Erro ao salvar função: '+errFuncao.message,'error');return;}
+      funcoes.push(novaFuncao);
+      funcaoId=novaFuncao.id;
+    }
+  }
+  const funcaoManual=null;
   const situacao=document.getElementById('f-situacao').value;
   const isTransf=situacao==='transferido';
   const tipoTransf=isTransf?tipoTransferencia:'';
