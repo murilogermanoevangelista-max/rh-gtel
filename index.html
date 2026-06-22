@@ -407,6 +407,18 @@ function fazerLogout(){
   location.reload();
 }
 
+// Navega para um módulo a partir de um alerta do Dashboard, já aplicando o filtro correspondente
+function irParaAlertaDashboard(link,filtroVar,filtroVal){
+  if(filtroVar&&filtroVal){
+    if(filtroVar==='alojFiltroAtivo')alojFiltroAtivo=filtroVal;
+    else if(filtroVar==='expFiltro')expFiltro=filtroVal;
+    else if(filtroVar==='folgasFiltro')folgasFiltro=filtroVal;
+    else if(filtroVar==='feriasFiltro')feriasFiltro=filtroVal;
+  }
+  window._filtroViaAlerta=true;
+  showPage(link);
+}
+
 function setGlobalObraFiltro(obraId){
   globalObraFiltro=obraId;
   const obra=obraId?obras.find(o=>o.id===obraId):null;
@@ -589,6 +601,8 @@ async function loadPrestadores(){
 let currentPage='dashboard';
 
 async function showPage(page){
+  const _vindoDeAlerta=window._filtroViaAlerta;
+  window._filtroViaAlerta=false;
   if(page==='usuarios'&&currentUser?.perfil!=='admin'){
     showToast('Acesso restrito a administradores','error');
     page='dashboard';
@@ -621,7 +635,7 @@ async function showPage(page){
     else if(page==='experiencia')renderExperiencia();
     else if(page==='folgas')renderFolgas();
     else if(page==='ferias')renderFerias();
-    else if(page==='alojamentos'){alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';bannerRelatoriosAberto=false;bannerRelatoriosFiltroObra='';await loadAlojamentos();renderAlojamentos();}
+    else if(page==='alojamentos'){if(!_vindoDeAlerta)alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';bannerRelatoriosAberto=false;bannerRelatoriosFiltroObra='';await loadAlojamentos();renderAlojamentos();}
     else if(page==='prestadores'){await loadPrestadores();renderPrestadores();}
     else if(page==='efetivo'){efetivoSituacaoFiltro='';await loadEfetivo();renderEfetivo();}
     else if(page==='usuarios')renderUsuarios();
@@ -724,26 +738,53 @@ async function renderDashboard(){
   const alojContratosVencendo=alojamentos.filter(a=>{const d=parseDate(a.data_termino);if(!d)return false;const diff=Math.floor((d-hoje)/86400000);return diff>=0&&diff<=60;});
 
   const alertas=[];
-  if(alojContratosVencidos.length>0)alertas.push({tipo:'danger',icon:'ti-home-off',msg:`${alojContratosVencidos.length} contrato(s) de alojamento vencido(s) — renovar urgente`,link:'alojamentos'});
-  if(qtdAlojSemContas>0)alertas.push({tipo:'warning',icon:'ti-home-exclamation',msg:`${qtdAlojSemContas} alojamento(s) com contas não lançadas este mês`,link:'alojamentos'});
-  if(alojContratosVencendo.length>0)alertas.push({tipo:'warning',icon:'ti-home-clock',msg:`${alojContratosVencendo.length} contrato(s) de alojamento vencendo em 60 dias`,link:'alojamentos'});
-  if(expVencidas>0)alertas.push({tipo:'danger',icon:'ti-certificate',msg:`${expVencidas} experiência(s) vencida(s)`,link:'experiencia'});
-  if(folgasVencidas>0)alertas.push({tipo:'danger',icon:'ti-beach',msg:`${folgasVencidas} folga(s) vencida(s)`,link:'folgas'});
-  if(feriasVencidas>0)alertas.push({tipo:'danger',icon:'ti-palm-tree',msg:`${feriasVencidas} período(s) de férias vencido(s) — ação legal necessária`,link:'ferias'});
-  if(expVencendo>0)alertas.push({tipo:'warning',icon:'ti-certificate',msg:`${expVencendo} experiência(s) vencendo em 15 dias`,link:'experiencia'});
-  if(folgasVencendo>0)alertas.push({tipo:'warning',icon:'ti-beach',msg:`${folgasVencendo} folga(s) com vencimento próximo`,link:'folgas'});
-  if(feriasVencendo60>0)alertas.push({tipo:'warning',icon:'ti-palm-tree',msg:`${feriasVencendo60} férias vencendo em 60 dias`,link:'ferias'});
-  if(feriasProgEmCurso>0)alertas.push({tipo:'info',icon:'ti-plane-departure',msg:`${feriasProgEmCurso} funcionário(s) atualmente em férias`,link:'ferias'});
+  if(alojContratosVencidos.length>0)alertas.push({tipo:'danger',icon:'ti-home-off',modulo:'Alojamentos',destino:'Ver alojamentos',msg:`Contrato de alojamento vencido`,qtd:alojContratosVencidos.length,link:'alojamentos',filtroVar:'alojFiltroAtivo',filtroVal:'contratos_vencidos'});
+  if(qtdAlojSemContas>0)alertas.push({tipo:'warning',icon:'ti-home-exclamation',modulo:'Alojamentos',destino:'Ver alojamentos',msg:`Contas não lançadas este mês`,qtd:qtdAlojSemContas,link:'alojamentos',filtroVar:'alojFiltroAtivo',filtroVal:'nao_lancadas'});
+  if(alojContratosVencendo.length>0)alertas.push({tipo:'warning',icon:'ti-home-clock',modulo:'Alojamentos',destino:'Ver alojamentos',msg:`Contrato vencendo em 60 dias`,qtd:alojContratosVencendo.length,link:'alojamentos',filtroVar:'alojFiltroAtivo',filtroVal:'contratos_vencendo'});
+  if(expVencidas>0)alertas.push({tipo:'danger',icon:'ti-certificate',modulo:'Experiência',destino:'Ver funcionários',msg:`Experiência(s) vencida(s)`,qtd:expVencidas,link:'experiencia',filtroVar:'expFiltro',filtroVal:'vencida'});
+  if(folgasVencidas>0)alertas.push({tipo:'danger',icon:'ti-beach',modulo:'Folgas de campo',destino:'Ver funcionários',msg:`Folga(s) vencida(s)`,qtd:folgasVencidas,link:'folgas',filtroVar:'folgasFiltro',filtroVal:'danger'});
+  if(feriasVencidas>0)alertas.push({tipo:'danger',icon:'ti-palm-tree',modulo:'Férias',destino:'Ver funcionários',msg:`Período(s) de férias vencido(s) — ação legal necessária`,qtd:feriasVencidas,link:'ferias',filtroVar:'feriasFiltro',filtroVal:'vencidas'});
+  if(expVencendo>0)alertas.push({tipo:'warning',icon:'ti-certificate',modulo:'Experiência',destino:'Ver funcionários',msg:`Vencendo em 15 dias`,qtd:expVencendo,link:'experiencia',filtroVar:'expFiltro',filtroVal:'vencendo'});
+  if(folgasVencendo>0)alertas.push({tipo:'warning',icon:'ti-beach',modulo:'Folgas de campo',destino:'Ver funcionários',msg:`Vencimento próximo`,qtd:folgasVencendo,link:'folgas',filtroVar:'folgasFiltro',filtroVal:'warn'});
+  if(feriasVencendo60>0)alertas.push({tipo:'warning',icon:'ti-palm-tree',modulo:'Férias',destino:'Ver funcionários',msg:`Vencendo em 60 dias`,qtd:feriasVencendo60,link:'ferias',filtroVar:'feriasFiltro',filtroVal:'vencendo60'});
+  if(feriasProgEmCurso>0)alertas.push({tipo:'info',icon:'ti-plane-departure',modulo:'Férias',destino:'Ver funcionários',msg:`Atualmente em férias`,qtd:feriasProgEmCurso,link:'ferias',filtroVar:'feriasFiltro',filtroVal:'emferias'});
 
-  const alertasHtml=alertas.map(a=>`
-    <div onclick="showPage('${a.link}')" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);cursor:pointer;margin-bottom:6px;
-      background:${a.tipo==='danger'?'var(--danger-light)':a.tipo==='info'?'var(--info-light)':'var(--warning-light)'};
-      border:1px solid ${a.tipo==='danger'?'#FCA5A5':a.tipo==='info'?'#93C5FD':'#FCD34D'};
-      color:${a.tipo==='danger'?'#991B1B':a.tipo==='info'?'#185FA5':'#92400E'}">
-      <i class="ti ${a.icon}" style="font-size:18px;flex-shrink:0"></i>
-      <span style="font-size:13px;font-weight:500">${a.msg}</span>
-      <i class="ti ti-chevron-right" style="margin-left:auto;opacity:.5"></i>
-    </div>`).join('');
+  const qtdCriticos=alertas.filter(a=>a.tipo==='danger').length;
+  const qtdAvisos=alertas.filter(a=>a.tipo==='warning').length;
+  const qtdInfo=alertas.filter(a=>a.tipo==='info').length;
+  const totalAlertas=alertas.length;
+  const resumoPartes=[qtdCriticos?`${qtdCriticos} crítica${qtdCriticos>1?'s':''}`:'',qtdAvisos?`${qtdAvisos} aviso${qtdAvisos>1?'s':''}`:'',qtdInfo?`${qtdInfo} informativo${qtdInfo>1?'s':''}`:''].filter(Boolean).join(' · ');
+
+  const corAlerta=t=>t==='danger'?{bg:'var(--danger-light)',border:'#FCA5A5',text:'#991B1B'}:t==='info'?{bg:'var(--info-light)',border:'#93C5FD',text:'#185FA5'}:{bg:'var(--warning-light)',border:'#FCD34D',text:'#92400E'};
+
+  const alertasHtml=!totalAlertas?'':`
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <div style="width:36px;height:36px;border-radius:50%;background:${corAlerta('danger').bg};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <i class="ti ti-alert-triangle" style="font-size:18px;color:${corAlerta('danger').text}"></i>
+      </div>
+      <div>
+        <div style="font-size:15px;font-weight:600">${totalAlertas} pendência${totalAlertas>1?'s':''} exige${totalAlertas>1?'m':''} atenção</div>
+        <div style="font-size:13px;color:var(--text-muted)">${resumoPartes}</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px">
+      ${alertas.map(a=>{const c=corAlerta(a.tipo);return`
+      <div onclick="irParaAlertaDashboard('${a.link}','${a.filtroVar||''}','${a.filtroVal||''}')" style="background:${c.bg};border:1px solid ${c.border};border-radius:var(--radius-lg);padding:14px;cursor:pointer">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:6px;color:${c.text}">
+            <i class="ti ${a.icon}" style="font-size:18px"></i>
+            <span style="font-size:12px;font-weight:600">${a.modulo}</span>
+          </div>
+          <span style="font-size:11px;font-weight:600;color:${c.text}">${a.tipo==='danger'?'Crítico':a.tipo==='warning'?'Aviso':'Info'}</span>
+        </div>
+        <div style="font-size:22px;font-weight:700;color:${c.text};margin-bottom:2px">${a.qtd}</div>
+        <div style="font-size:13px;color:var(--text);margin-bottom:8px">${a.msg}</div>
+        <div style="display:flex;align-items:center;gap:4px;font-size:12px;color:${c.text}">
+          <span>${a.destino}</span>
+          <i class="ti ti-arrow-right" style="font-size:13px"></i>
+        </div>
+      </div>`}).join('')}
+    </div>`;
 
   const obraRows=Object.entries(byObra).sort((a,b)=>b[1]-a[1]).map(([obra,qtd])=>{
     const obraObj=obras.find(o=>`${o.codigo} — ${o.nome}`===obra||o.codigo===obra.split(' — ')[0]);
@@ -871,7 +912,7 @@ async function renderDashboard(){
       <div><div class="page-title">Dashboard ${obraFiltroLabel?`<span style="font-size:14px;font-weight:400;color:var(--primary-dark);background:var(--primary-light);padding:2px 10px;border-radius:20px;margin-left:6px">🏗 ${obraFiltroLabel}</span>`:''}</div><div class="page-subtitle">Visão geral em tempo real — ${new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'})}</div></div>
       <button class="btn btn-primary" onclick="showPage('funcionarios')"><i class="ti ti-users"></i> Ver funcionários</button>
     </div>
-    ${alertas.length?`<div style="margin-bottom:20px">${alertasHtml}</div>`:''}
+    ${totalAlertas?`<div style="margin-bottom:20px">${alertasHtml}</div>`:''}
     <!-- MÉTRICAS PRINCIPAIS -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:20px">
       <div class="metric-card" style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Total</div><div class="metric-value">${ativos+inativos}</div></div>
@@ -2136,6 +2177,15 @@ async function renderFerias(){
   const totalFuncs=Object.keys(byMat).length;
   const totalPeriodos=feriasBase.length;
 
+  // Funcionários atualmente em férias (programado com data_inicio_programada<=hoje<=data_fim_programada)
+  const matsEmFerias=new Set();
+  feriasBase.forEach(f=>{
+    if(!f.programado||!f.data_inicio_programada||!f.data_fim_programada)return;
+    const ini=parseDate(f.data_inicio_programada),fim=parseDate(f.data_fim_programada);
+    if(ini&&fim&&ini<=hoje&&fim>=hoje)matsEmFerias.add(f.matricula);
+  });
+  const emFeriasCount=matsEmFerias.size;
+
   // Stats
   let progCount=0,naoProgCount=0;
   let per1Vencidas=0,per1Vencendo60=0;
@@ -2186,6 +2236,7 @@ async function renderFerias(){
   });
   if(feriasFiltro==='programado')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>f.programado));
   if(feriasFiltro==='naoprog')listaFuncs=listaFuncs.filter(arr=>arr.some(p=>ePendente(p)));
+  if(feriasFiltro==='emferias')listaFuncs=listaFuncs.filter(arr=>matsEmFerias.has(arr[0]?.matricula));
   if(feriasFiltro==='vencidas')listaFuncs=listaFuncs.filter(arr=>{const p=getPeriodoUrgente(arr);if(!p)return false;const l=parseDate(p.dt_limite_maxima);return l&&l<hoje;});
   if(feriasFiltro==='vencendo60')listaFuncs=listaFuncs.filter(arr=>{const p=getPeriodoUrgente(arr);if(!p)return false;const l=parseDate(p.dt_limite_maxima);if(!l)return false;const d=Math.floor((l-hoje)/86400000);return d>=0&&d<=60;});
   if(feriasFiltro==='per1vencida')listaFuncs=listaFuncs.filter(arr=>{const p=arr[0];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);return l&&l<hoje;});
@@ -2457,7 +2508,7 @@ async function renderFerias(){
     ${alertas.length?`<div style="margin-bottom:16px">${alertas.join('')}</div>`:''}
 
     <!-- Cards linha 1: geral -->
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">
       <div class="ferias-card ${feriasFiltro==='todos'?'active':''}" onclick="feriasFiltro='todos';renderFerias()">
         <div class="ferias-card-value" style="color:var(--text)">${totalFuncs}</div>
         <div class="ferias-card-label">Funcionários</div>
@@ -2469,6 +2520,10 @@ async function renderFerias(){
       <div class="ferias-card blue ${feriasFiltro==='naoprog'?'active':''}" onclick="feriasFiltro='naoprog';renderFerias()">
         <div class="ferias-card-value">${naoProgCount}</div>
         <div class="ferias-card-label">Não Progr.</div>
+      </div>
+      <div class="ferias-card ${feriasFiltro==='emferias'?'active':''}" style="${emFeriasCount?'border-color:#93C5FD':''}" onclick="feriasFiltro='emferias';renderFerias()">
+        <div class="ferias-card-value" style="color:#185FA5">${emFeriasCount}</div>
+        <div class="ferias-card-label">Em Férias</div>
       </div>
     </div>
 
