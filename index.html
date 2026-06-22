@@ -420,6 +420,7 @@ function setGlobalObraFiltro(obraId){
   }
   // propagar para módulos que têm filtro local próprio
   filtroObra=obraId; // funcionários (usa id)
+  filtroObraTocado=false; // troca no menu lateral sempre prevalece sobre escolha local antiga
   feriasObraFiltro=obra?.codigo||''; // férias (usa código)
   // re-renderizar a aba atual
   const pageMap={funcionarios:renderFuncionarios,experiencia:renderExperiencia,folgas:renderFolgas,ferias:renderFerias,alojamentos:renderAlojamentos,efetivo:renderEfetivo,dashboard:renderDashboard};
@@ -989,25 +990,29 @@ function calcFeriasStats(data,hoje){
 
 // ─── FUNCIONÁRIOS ─────────────────────────────────────────────────────────────
 let filtroSituacao='',filtroObra='',busca='';
+let filtroObraTocado=false; // true quando o usuário interage manualmente com o select de obra desta página
 
 let funcTab='ativos'; // 'ativos' | 'transferidos'
 
 function getFuncionariosFiltrados(){
   let lista=funcionarios;
+  // Obra efetiva: se o usuário já interagiu com o select local desta página, respeita a escolha dele (mesmo que seja "Todas obras");
+  // caso contrário, herda o filtro global do menu lateral
+  const obraEfetiva=filtroObraTocado?filtroObra:(filtroObra||globalObraFiltro);
   // Aba ativos: ativo + inativo (nunca transferido)
   // Aba transferidos: apenas transferido
   if(funcTab==='transferidos'){
     // Histórico: quem SAIU de alguma obra (tem obra_transferencia_id preenchido)
     lista=lista.filter(f=>f.obra_transferencia_id);
-    if(filtroObra){
+    if(obraEfetiva){
       // Na obra X: mostra quem SAIU dela (obra_transferencia_id = X)
-      lista=lista.filter(f=>f.obra_transferencia_id===filtroObra);
+      lista=lista.filter(f=>f.obra_transferencia_id===obraEfetiva);
     }
   } else {
     // Ativos/Inativos: filtra por obra_id atual — onde o funcionário ESTÁ agora
     // Não exclui ninguém por tipo_transferencia; quem foi transferido está na nova obra
     if(filtroSituacao)lista=lista.filter(f=>f.situacao===filtroSituacao);
-    if(filtroObra)lista=lista.filter(f=>f.obra_id===filtroObra);
+    if(obraEfetiva)lista=lista.filter(f=>f.obra_id===obraEfetiva);
   }
   if(busca){const b=busca.toLowerCase();lista=lista.filter(f=>f.nome_completo?.toLowerCase().includes(b)||f.matricula?.toLowerCase().includes(b));}
   return lista;
@@ -1083,10 +1088,11 @@ function atualizarTabelaFuncionarios(){
   if(banner)banner.style.display=funcTab==='transferidos'?'':'none';
 }
 function renderFuncionarios(){
-  const obraOptions=obras.map(o=>`<option value="${o.id}" ${filtroObra===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
+  const obraEfetiva=filtroObraTocado?filtroObra:(filtroObra||globalObraFiltro);
+  const obraOptions=obras.map(o=>`<option value="${o.id}" ${obraEfetiva===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
   const lista=getFuncionariosFiltrados();
-  const baseAtivos=filtroObra?funcionarios.filter(f=>f.obra_id===filtroObra):funcionarios;
-  const baseTransf=filtroObra?funcionarios.filter(f=>f.obra_transferencia_id===filtroObra):funcionarios.filter(f=>f.obra_transferencia_id);
+  const baseAtivos=obraEfetiva?funcionarios.filter(f=>f.obra_id===obraEfetiva):funcionarios;
+  const baseTransf=obraEfetiva?funcionarios.filter(f=>f.obra_transferencia_id===obraEfetiva):funcionarios.filter(f=>f.obra_transferencia_id);
   const totalAtivos=baseAtivos.length;
   const totalTransf=baseTransf.length;
   const theadTransf=`<tr><th>Funcionário</th><th>Função</th><th>Obra Origem → Destino</th><th>Empresa</th><th>Admissão</th><th>Transferência</th><th></th></tr>`;
@@ -1114,10 +1120,10 @@ function renderFuncionarios(){
         <option value="ativo" ${filtroSituacao==='ativo'?'selected':''}>Ativo</option>
         <option value="inativo" ${filtroSituacao==='inativo'?'selected':''}>Inativo</option>
       </select>
-      <select class="filter-select" onchange="filtroObra=this.value;atualizarTabelaFuncionarios()">
+      <select class="filter-select" onchange="filtroObra=this.value;filtroObraTocado=true;atualizarTabelaFuncionarios()">
         <option value="">Todas obras</option>${obraOptions}
       </select>
-      <button class="btn btn-sm" onclick="filtroSituacao='';filtroObra='';busca='';document.getElementById('func-busca').value='';atualizarTabelaFuncionarios()"><i class="ti ti-x"></i> Limpar</button>
+      <button class="btn btn-sm" onclick="filtroSituacao='';filtroObra='';filtroObraTocado=false;busca='';document.getElementById('func-busca').value='';atualizarTabelaFuncionarios()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div id="transf-banner" style="display:${funcTab==='transferidos'?'flex':'none'};align-items:center;gap:8px;padding:10px 14px;background:#FEF3C7;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:12px;font-size:13px;color:#92400E"><i class="ti ti-info-circle" style="font-size:16px;flex-shrink:0"></i><span>Funcionários transferidos aparecem aqui como <strong>histórico</strong> e não são contabilizados nos indicadores da obra de origem.</span></div>
     <div class="table-container"><table>
@@ -1130,17 +1136,18 @@ function renderFuncionarios(){
 function exportFuncionariosExcel(){
   const hoje=new Date();
   const dataEmissao=hoje.toLocaleDateString('pt-BR');
+  const obraEfetiva=filtroObraTocado?filtroObra:(filtroObra||globalObraFiltro);
 
   // Usar a lista filtrada atual (respeita busca, situação e obra)
   let lista=funcionarios;
   if(filtroSituacao)lista=lista.filter(f=>f.situacao===filtroSituacao);
-  if(filtroObra)lista=lista.filter(f=>f.obra_id===filtroObra);
+  if(obraEfetiva)lista=lista.filter(f=>f.obra_id===obraEfetiva);
   if(busca)lista=lista.filter(f=>f.nome_completo?.toLowerCase().includes(busca.toLowerCase())||f.matricula?.includes(busca));
 
   if(!lista.length){showToast('Nenhum funcionário para exportar.','error');return;}
 
   // Título dinâmico conforme filtros ativos
-  const obraLabel=filtroObra?obras.find(o=>o.id===filtroObra)?.codigo||'':'Todas as Obras';
+  const obraLabel=obraEfetiva?obras.find(o=>o.id===obraEfetiva)?.codigo||'':'Todas as Obras';
   const situLabel=filtroSituacao?filtroSituacao.charAt(0).toUpperCase()+filtroSituacao.slice(1):'Todas Situações';
 
   const rows=[];
@@ -1165,7 +1172,7 @@ function exportFuncionariosExcel(){
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Efetivo');
 
-  const sufixo=filtroObra?`_${obras.find(o=>o.id===filtroObra)?.codigo||'filtro'}`:'';
+  const sufixo=obraEfetiva?`_${obras.find(o=>o.id===obraEfetiva)?.codigo||'filtro'}`:'';
   XLSX.writeFile(wb,`Efetivo_GTEL${sufixo}_${dataEmissao.replace(/\//g,'-')}.xlsx`);
   showToast(`Excel exportado — ${lista.length} funcionário(s)!`);
 }
@@ -3714,7 +3721,8 @@ function renderAlojamentos(){
     return lista;
   })();
   const totalVagas=alojsFiltrados.reduce((s,a)=>s+(a.vagas_total||0),0);
-  const totalOcup=funcionarios.filter(f=>f.alojamento_id&&f.situacao!=='inativo').length;
+  const _idsAlojFiltrados=new Set(alojsFiltrados.map(a=>String(a.id)));
+  const totalOcup=funcionarios.filter(f=>f.alojamento_id&&f.situacao!=='inativo'&&_idsAlojFiltrados.has(String(f.alojamento_id))).length;
   const totalDisp=totalVagas-totalOcup;
   const totalAluguel=alojsFiltrados.reduce((s,a)=>s+Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0),0);
   const totalCaucao=alojsFiltrados.reduce((s,a)=>s+Number(a.caucao||0),0);
