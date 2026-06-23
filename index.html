@@ -749,6 +749,52 @@ async function renderDashboard(){
   if(feriasVencendo60>0)alertas.push({tipo:'warning',icon:'ti-palm-tree',modulo:'Férias',destino:'Ver funcionários',msg:`Vencendo em 60 dias`,qtd:feriasVencendo60,link:'ferias',filtroVar:'feriasFiltro',filtroVal:'vencendo60'});
   if(feriasProgEmCurso>0)alertas.push({tipo:'info',icon:'ti-plane-departure',modulo:'Férias',destino:'Ver funcionários',msg:`Atualmente em férias`,qtd:feriasProgEmCurso,link:'ferias',filtroVar:'feriasFiltro',filtroVal:'emferias'});
 
+  // ── Pendências agrupadas por obra ──────────────────────────────────────
+  // Estrutura: { 'CODIGO — NOME': { danger:0, warning:0, itens:{ 'chave do tipo de alerta': {tipo,icon,msg,qtd} } } }
+  const pendObra={};
+  const obraKeyDe=o=>o?`${o.codigo||'?'} — ${o.nome||''}`:'Sem obra';
+  function addPend(obraKey,tipo,icon,msg){
+    if(!obraKey)return;
+    if(!pendObra[obraKey])pendObra[obraKey]={danger:0,warning:0,itens:{}};
+    const chave=icon+'|'+msg;
+    if(!pendObra[obraKey].itens[chave])pendObra[obraKey].itens[chave]={tipo,icon,msg,qtd:0};
+    pendObra[obraKey].itens[chave].qtd++;
+    pendObra[obraKey][tipo==='danger'?'danger':'warning']++;
+  }
+  // Alojamentos — contrato vencido / vencendo / contas não lançadas
+  alojContratosVencidos.forEach(a=>addPend(obraKeyDe(a.obra),'danger','ti-home-off','Contrato de alojamento vencido'));
+  alojContratosVencendo.forEach(a=>addPend(obraKeyDe(a.obra),'warning','ti-home-clock','Contrato vencendo em 60 dias'));
+  alojSemContas.forEach(a=>addPend(obraKeyDe(a.obra),'warning','ti-home-exclamation','Conta(s) não lançada(s) este mês'));
+  // Experiência — vencida / vencendo
+  comExp.forEach(f=>{
+    if(f._exp.status==='vencida')addPend(obraKeyDe(f.obra),'danger','ti-certificate','Experiência vencida');
+    if(f._exp.status==='vencendo')addPend(obraKeyDe(f.obra),'warning','ti-certificate','Experiência vencendo em 15 dias');
+  });
+  // Folgas — vencida / vencendo
+  folgasDash.forEach(f=>{
+    const vencs=calcVencimentos(f);
+    vencs.forEach((v,i)=>{
+      const st=vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado);
+      const obraKey=obraKeyDe(f.funcionario?.obra);
+      if(st==='danger')addPend(obraKey,'danger','ti-beach','Folga vencida');
+      if(st==='warn')addPend(obraKey,'warning','ti-beach','Folga com vencimento próximo');
+    });
+  });
+  // Férias — vencida / vencendo 60 dias (não inclui "em férias" pois é informativo, não cobrança)
+  feriasDash.forEach(f=>{
+    const limMax=parseDate(f.dt_limite_maxima);
+    if(!f.programado&&limMax){
+      const diff=Math.floor((limMax-hoje)/86400000);
+      const obraKey=obraKeyDe(f.funcionario?.obra);
+      if(diff<0)addPend(obraKey,'danger','ti-palm-tree','Período de férias vencido');
+      else if(diff<=60)addPend(obraKey,'warning','ti-palm-tree','Férias vencendo em 60 dias');
+    }
+  });
+  // Ordenar obras: mais críticas primeiro, depois por total de pendências
+  const obrasComPendencia=Object.entries(pendObra)
+    .map(([key,v])=>({obraKey:key,...v,total:v.danger+v.warning,itensArr:Object.values(v.itens).sort((a,b)=>(a.tipo==='danger'?0:1)-(b.tipo==='danger'?0:1))}))
+    .sort((a,b)=>b.danger-a.danger||b.total-a.total);
+
   const qtdCriticos=alertas.filter(a=>a.tipo==='danger').length;
   const qtdAvisos=alertas.filter(a=>a.tipo==='warning').length;
   const qtdInfo=alertas.filter(a=>a.tipo==='info').length;
@@ -782,6 +828,32 @@ async function renderDashboard(){
         <div style="display:flex;align-items:center;gap:4px;font-size:12px;color:${c.text}">
           <span>${a.destino}</span>
           <i class="ti ti-arrow-right" style="font-size:13px"></i>
+        </div>
+      </div>`}).join('')}
+    </div>`;
+
+  const pendObraHtml=!obrasComPendencia.length?'':`
+    <div style="display:flex;align-items:center;gap:8px;margin:24px 0 14px">
+      <i class="ti ti-building" style="font-size:18px;color:var(--text-muted)"></i>
+      <span style="font-size:13px;font-weight:600;color:var(--text-muted)">Pendências por obra</span>
+      <span style="font-size:12px;color:var(--text-muted);opacity:.7">· ${obrasComPendencia.length} obra${obrasComPendencia.length>1?'s':''} com pendência${obrasComPendencia.length>1?'s':''}</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      ${obrasComPendencia.map(o=>{
+        const badgeTxt=o.danger>0?`${o.danger} crítica${o.danger>1?'s':''}`:`${o.warning} aviso${o.warning>1?'s':''}`;
+        const badgeCor=o.danger>0?corAlerta('danger'):corAlerta('warning');
+        return`
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--bg-subtle);border-bottom:1px solid var(--border)">
+          <div style="font-size:14px;font-weight:600">${o.obraKey}</div>
+          <span style="font-size:11px;font-weight:600;color:${badgeCor.text};background:${badgeCor.bg};padding:2px 10px;border-radius:var(--radius)">${badgeTxt}</span>
+        </div>
+        <div style="padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px">
+          ${o.itensArr.map(it=>{const c=corAlerta(it.tipo);return`
+          <div style="display:flex;align-items:center;gap:6px;font-size:13px;background:${c.bg};color:${c.text};padding:5px 10px;border-radius:var(--radius)">
+            <i class="ti ${it.icon}" style="font-size:14px"></i>
+            <span style="font-weight:600">${it.qtd}</span> ${it.msg}
+          </div>`}).join('')}
         </div>
       </div>`}).join('')}
     </div>`;
@@ -913,6 +985,7 @@ async function renderDashboard(){
       <button class="btn btn-primary" onclick="showPage('funcionarios')"><i class="ti ti-users"></i> Ver funcionários</button>
     </div>
     ${totalAlertas?`<div style="margin-bottom:20px">${alertasHtml}</div>`:''}
+    ${pendObraHtml?`<div style="margin-bottom:20px">${pendObraHtml}</div>`:''}
     <!-- MÉTRICAS PRINCIPAIS -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:20px">
       <div class="metric-card" style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Total</div><div class="metric-value">${ativos+inativos}</div></div>
