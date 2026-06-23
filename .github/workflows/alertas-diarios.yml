@@ -1,0 +1,273 @@
+// supabase/functions/alertas-diarios/index.ts
+//
+// Edge Function que replica os cálculos de alertas do Dashboard do RH Manager
+// (alojamentos, experiência, folgas, férias) e envia um e-mail diário via Resend.
+//
+// Variáveis de ambiente necessárias (configuradas como "Secrets" no painel do Supabase):
+//   RESEND_API_KEY   -> chave da API do Resend
+//   ALERTA_EMAIL_TO  -> e-mail de destino (o seu, por enquanto)
+//   ALERTA_EMAIL_FROM-> remetente (ex: "RH Manager <onboarding@resend.dev>" enquanto não há domínio próprio)
+//
+// SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY já são injetadas automaticamente pelo Supabase
+// em toda Edge Function — não é necessário configurá-las manualmente.
+
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+// ── Helpers de data (mesma lógica do index.html) ──────────────────────────
+function parseDate(str: string | null): Date | null {
+  if (!str) return null;
+  const d = new Date(str + 'T12:00:00');
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function hojeSemHora(): Date {
+  const h = new Date();
+  h.setHours(0, 0, 0, 0);
+  return h;
+}
+
+function diffDias(a: Date, b: Date): number {
+  return Math.floor((a.getTime() - b.getTime()) / 86400000);
+}
+
+// ── Lógica de Experiência (replica calcExp do index.html) ─────────────────
+function calcExpStatus(f: any): string | null {
+  if (!f.data_admissao) return null;
+  if (f.efetivado) return 'efetivado';
+  const admissao = new Date(f.data_admissao + 'T12:00:00');
+  const periodoRaw = f.periodo_experiencia;
+  const unico = periodoRaw === '30s';
+  const periodo = unico ? 30 : (parseInt(periodoRaw) || 45);
+  const fim1 = new Date(admissao); fim1.setDate(fim1.getDate() + periodo - 1);
+  const hoje = hojeSemHora();
+  const diff1 = diffDias(fim1, hoje);
+  if (unico) {
+    if (diff1 < 0) return 'vencida';
+    if (diff1 <= 15) return 'vencendo';
+    return 'exp1';
+  }
+  const fim2 = new Date(admissao); fim2.setDate(fim2.getDate() + periodo * 2 - 1);
+  const diff2 = diffDias(fim2, hoje);
+  if (diff2 < 0) return 'vencida';
+  if (diff2 <= 15) return 'vencendo';
+  if (diff1 < 0) return 'exp2';
+  return 'exp1';
+}
+
+// ── Lógica de Folgas (replica calcVencimentos + vencStatus) ───────────────
+function calcVencimentosFolga(folga: any): Date[] {
+  const vencs: Date[] = [];
+  const baseDate = parseDate(folga.data_inicio);
+  if (!baseDate) return vencs;
+  const periodo = parseInt(folga.periodo_trabalhado) || 30;
+  const ciclos = periodo === 180 ? [180, 360, 540, 720, 900]
+    : periodo === 90 ? [90, 180, 270, 360, 450]
+    : periodo === 60 ? [60, 120, 180, 240, 300]
+    : periodo === 45 ? [45, 90, 135, 180, 225]
+    : [30, 60, 90, 120, 150];
+  for (let i = 0; i < 5; i++) {
+    const v = new Date(baseDate); v.setDate(v.getDate() + ciclos[i]); vencs.push(v);
+  }
+  return vencs;
+}
+
+function vencStatusFolga(venc: Date, realDate: string | null, periodo: string): 'ok' | 'danger' | 'warn' | 'future' {
+  if (realDate) return 'ok';
+  const hoje = hojeSemHora();
+  const diff = diffDias(venc, hoje);
+  const limiteWarn = parseInt(periodo) === 30 ? 10 : 30;
+  if (diff < 0) return 'danger';
+  if (diff <= limiteWarn) return 'warn';
+  return 'future';
+}
+
+// ── Handler principal ──────────────────────────────────────────────────────
+export default {
+  fetch: async (req: Request) => {
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const resendApiKey = Deno.env.get('RESEND_API_KEY')!;
+    const emailTo = Deno.env.get('ALERTA_EMAIL_TO')!;
+    const emailFrom = Deno.env.get('ALERTA_EMAIL_FROM') || 'RH Manager <onboarding@resend.dev>';
+
+    const sb = createClient(supabaseUrl, supabaseKey);
+    const hoje = hojeSemHora();
+
+    // ── Buscar dados ──────────────────────────────────────────────────────
+    const [funcRes, alojRes, alojContasRes, folgasRes, feriasRes] = await Promise.all([
+      sb.from('funcionarios').select('*'),
+      sb.from('alojamentos').select('*'),
+      sb.from('alojamentos_contas').select('*'),
+      sb.from('folgas').select('*'),
+      sb.from('ferias').select('*'),
+    ]);
+
+    const funcionarios = funcRes.data || [];
+    const alojamentos = alojRes.data || [];
+    const alojamentosContas = alojContasRes.data || [];
+    const folgas = folgasRes.data || [];
+    const feriasData = feriasRes.data || [];
+
+    // ── Alertas de Experiência ──────────────────────────────────────────
+    const ativos = funcionarios.filter((f: any) => f.situacao === 'ativo');
+    let expVencidas = 0, expVencendo = 0;
+    ativos.forEach((f: any) => {
+      const status = calcExpStatus(f);
+      if (status === 'vencida') expVencidas++;
+      if (status === 'vencendo') expVencendo++;
+    });
+
+    // ── Alertas de Folgas ────────────────────────────────────────────────
+    let folgasVencidas = 0, folgasVencendo = 0;
+    folgas.forEach((f: any) => {
+      const vencs = calcVencimentosFolga(f);
+      vencs.forEach((v, i) => {
+        const st = vencStatusFolga(v, f[`saida${i + 1}_real`], f.periodo_trabalhado);
+        if (st === 'danger') folgasVencidas++;
+        if (st === 'warn') folgasVencendo++;
+      });
+    });
+
+    // ── Alertas de Férias ────────────────────────────────────────────────
+    let feriasVencidas = 0, feriasVencendo60 = 0, feriasProgEmCurso = 0;
+    feriasData.forEach((f: any) => {
+      const limMax = parseDate(f.dt_limite_maxima);
+      if (!f.programado && limMax) {
+        const diff = diffDias(limMax, hoje);
+        if (diff < 0) feriasVencidas++;
+        else if (diff <= 60) feriasVencendo60++;
+      }
+      const ini = parseDate(f.data_inicio_programada);
+      const fim = parseDate(f.data_fim_programada);
+      if (ini && fim) {
+        const diffIni = diffDias(ini, hoje);
+        const diffFim = diffDias(fim, hoje);
+        if (diffIni <= 0 && diffFim >= 0) feriasProgEmCurso++;
+      }
+    });
+
+    // ── Alertas de Alojamentos ───────────────────────────────────────────
+    const contasObrigatorias = ['agua', 'energia', 'gas', 'condominio'];
+    const mesAtual = hoje.getMonth() + 1;
+    const anoAtual = hoje.getFullYear();
+    const alojSemContas = alojamentos.filter((a: any) => {
+      const contasMesAloj = alojamentosContas.filter((c: any) =>
+        String(c.alojamento_id) === String(a.id) && c.mes === mesAtual && c.ano === anoAtual
+      );
+      const tiposLancados = new Set(contasMesAloj.map((c: any) => c.tipo));
+      return contasObrigatorias.some(t => !tiposLancados.has(t) && !a['isenta_' + t]);
+    });
+    const qtdAlojSemContas = alojSemContas.length;
+    const alojContratosVencidos = alojamentos.filter((a: any) => {
+      const d = parseDate(a.data_termino);
+      return d && d < hoje;
+    });
+    const alojContratosVencendo = alojamentos.filter((a: any) => {
+      const d = parseDate(a.data_termino);
+      if (!d) return false;
+      const diff = diffDias(d, hoje);
+      return diff >= 0 && diff <= 60;
+    });
+
+    // ── Montar lista de alertas (mesma estrutura do Dashboard) ───────────
+    type Alerta = { tipo: 'danger' | 'warning' | 'info'; modulo: string; msg: string; qtd: number; icon: string };
+    const alertas: Alerta[] = [];
+    if (alojContratosVencidos.length > 0) alertas.push({ tipo: 'danger', modulo: 'Alojamentos', msg: 'Contrato de alojamento vencido', qtd: alojContratosVencidos.length, icon: '🏠' });
+    if (qtdAlojSemContas > 0) alertas.push({ tipo: 'warning', modulo: 'Alojamentos', msg: 'Contas não lançadas este mês', qtd: qtdAlojSemContas, icon: '🏠' });
+    if (alojContratosVencendo.length > 0) alertas.push({ tipo: 'warning', modulo: 'Alojamentos', msg: 'Contrato vencendo em 60 dias', qtd: alojContratosVencendo.length, icon: '🏠' });
+    if (expVencidas > 0) alertas.push({ tipo: 'danger', modulo: 'Experiência', msg: 'Experiência(s) vencida(s)', qtd: expVencidas, icon: '📋' });
+    if (folgasVencidas > 0) alertas.push({ tipo: 'danger', modulo: 'Folgas de campo', msg: 'Folga(s) vencida(s)', qtd: folgasVencidas, icon: '🏖' });
+    if (feriasVencidas > 0) alertas.push({ tipo: 'danger', modulo: 'Férias', msg: 'Período(s) de férias vencido(s) — ação legal necessária', qtd: feriasVencidas, icon: '🌴' });
+    if (expVencendo > 0) alertas.push({ tipo: 'warning', modulo: 'Experiência', msg: 'Vencendo em 15 dias', qtd: expVencendo, icon: '📋' });
+    if (folgasVencendo > 0) alertas.push({ tipo: 'warning', modulo: 'Folgas de campo', msg: 'Vencimento próximo', qtd: folgasVencendo, icon: '🏖' });
+    if (feriasVencendo60 > 0) alertas.push({ tipo: 'warning', modulo: 'Férias', msg: 'Vencendo em 60 dias', qtd: feriasVencendo60, icon: '🌴' });
+    if (feriasProgEmCurso > 0) alertas.push({ tipo: 'info', modulo: 'Férias', msg: 'Atualmente em férias', qtd: feriasProgEmCurso, icon: '✈️' });
+
+    // ── Montar HTML do e-mail ─────────────────────────────────────────────
+    const cores = {
+      danger: { bg: '#FEF2F2', border: '#FCA5A5', text: '#991B1B' },
+      warning: { bg: '#FFFBEB', border: '#FCD34D', text: '#92400E' },
+      info: { bg: '#EFF6FF', border: '#93C5FD', text: '#185FA5' },
+    };
+    const qtdCriticos = alertas.filter(a => a.tipo === 'danger').length;
+    const qtdAvisos = alertas.filter(a => a.tipo === 'warning').length;
+    const qtdInfo = alertas.filter(a => a.tipo === 'info').length;
+
+    const dataHoje = hoje.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+
+    const cardsHtml = alertas.map(a => {
+      const c = cores[a.tipo];
+      const label = a.tipo === 'danger' ? 'Crítico' : a.tipo === 'warning' ? 'Aviso' : 'Info';
+      return `
+        <td style="padding:6px;width:50%;vertical-align:top">
+          <div style="background:${c.bg};border:1px solid ${c.border};border-radius:12px;padding:14px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-family:Arial,sans-serif">
+              <span style="font-size:12px;font-weight:bold;color:${c.text}">${a.icon} ${a.modulo}</span>
+              <span style="font-size:11px;font-weight:bold;color:${c.text}">${label}</span>
+            </div>
+            <div style="font-size:24px;font-weight:bold;color:${c.text};font-family:Arial,sans-serif">${a.qtd}</div>
+            <div style="font-size:13px;color:#374151;font-family:Arial,sans-serif">${a.msg}</div>
+          </div>
+        </td>`;
+    });
+
+    // Agrupar de 2 em 2 colunas (compatibilidade com clientes de e-mail)
+    const linhas: string[] = [];
+    for (let i = 0; i < cardsHtml.length; i += 2) {
+      linhas.push(`<tr>${cardsHtml[i]}${cardsHtml[i + 1] || '<td style="width:50%"></td>'}</tr>`);
+    }
+
+    const corpoHtml = alertas.length === 0
+      ? `<p style="font-family:Arial,sans-serif;color:#374151;font-size:14px">Nenhuma pendência hoje. Tudo certo! ✅</p>`
+      : `
+        <p style="font-family:Arial,sans-serif;font-size:15px;color:#111827;margin:0 0 4px">
+          <strong>${alertas.length} pendência${alertas.length > 1 ? 's' : ''} exige${alertas.length > 1 ? 'm' : ''} atenção</strong>
+        </p>
+        <p style="font-family:Arial,sans-serif;font-size:13px;color:#6B7280;margin:0 0 16px">
+          ${qtdCriticos} crítica${qtdCriticos !== 1 ? 's' : ''} · ${qtdAvisos} aviso${qtdAvisos !== 1 ? 's' : ''} · ${qtdInfo} informativo${qtdInfo !== 1 ? 's' : ''}
+        </p>
+        <table style="width:100%;border-collapse:collapse">${linhas.join('')}</table>`;
+
+    const htmlEmail = `
+      <div style="max-width:600px;margin:0 auto;padding:20px;font-family:Arial,sans-serif">
+        <h2 style="color:#111827;margin:0 0 4px">RH Manager — Alertas diários</h2>
+        <p style="color:#6B7280;font-size:13px;margin:0 0 20px">${dataHoje}</p>
+        ${corpoHtml}
+        <p style="color:#9CA3AF;font-size:11px;margin-top:24px">E-mail automático gerado pelo RH Manager GTEL.</p>
+      </div>`;
+
+    // ── Enviar via Resend ───────────────────────────────────────────────
+    const resendRes = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${resendApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: emailFrom,
+        to: emailTo,
+        subject: alertas.length > 0
+          ? `RH Manager: ${alertas.length} pendência${alertas.length > 1 ? 's' : ''} hoje (${qtdCriticos} crítica${qtdCriticos !== 1 ? 's' : ''})`
+          : 'RH Manager: nenhuma pendência hoje ✅',
+        html: htmlEmail,
+      }),
+    });
+
+    const resendData = await resendRes.json();
+    if (!resendRes.ok) {
+      throw new Error(`Resend error: ${JSON.stringify(resendData)}`);
+    }
+
+    return new Response(JSON.stringify({ ok: true, alertas: alertas.length, resend: resendData }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (err) {
+    console.error(err);
+    return new Response(JSON.stringify({ ok: false, error: String(err) }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  },
+};
