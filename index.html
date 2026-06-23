@@ -328,6 +328,7 @@ const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
 let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[];
 let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'nao_lancadas' | null
+let alojBusca='';
 let bannerNaoLancadasAberto=false;
 let bannerFiltroObra='';
 let bannerRelatoriosAberto=false;
@@ -674,18 +675,19 @@ async function renderDashboard(){
 
   const folgasDash=globalObraFiltro?folgas.filter(f=>{const obraObj=obras.find(o=>o.id===globalObraFiltro);return f.funcionario?.obra?.codigo===(obraObj?.codigo||'');}):folgas;
   const feriasDash=globalObraFiltro?feriasData.filter(f=>{const obraObj=obras.find(o=>o.id===globalObraFiltro);return f.funcionario?.obra?.codigo===(obraObj?.codigo||'');}):feriasData;
-  let folgasVencidas=0,folgasVencendo=0;
+  let folgasVencidas=0,folgasVencendo=0,folgasProgramadasQtd=0;
   folgasDash.forEach(f=>{
     const vencs=calcVencimentos(f);
     vencs.forEach((v,i)=>{
       const st=vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado);
       if(st==='danger')folgasVencidas++;
       if(st==='warn')folgasVencendo++;
+      if(f[`saida${i+1}_programada`]&&!f[`saida${i+1}_real`])folgasProgramadasQtd++;
     });
   });
 
   // Férias stats
-  const {feriasVencidas,feriasVencendo60,feriasProgTotal}=calcFeriasStats(feriasData,hoje);
+  const {feriasVencidas,feriasVencendo60,feriasProgTotal}=calcFeriasStats(feriasDash,hoje);
 
   const byObra={};
   ativosLista.forEach(f=>{
@@ -727,16 +729,17 @@ async function renderDashboard(){
   const feriasProgEmCurso=feriasProgramadas.filter(f=>f.emCurso).length;
 
   // Alertas de alojamentos
+  const alojDash=globalObraFiltro?alojamentos.filter(a=>a.obra_id===globalObraFiltro):alojamentos;
   const contasObrigatorias=['agua','energia','gas','condominio'];
   const mesAtual=hoje.getMonth()+1;const anoAtual=hoje.getFullYear();
-  const alojSemContas=alojamentos.filter(a=>{
+  const alojSemContas=alojDash.filter(a=>{
     const contasMesAloj=alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===mesAtual&&c.ano===anoAtual);
     const tiposLancados=new Set(contasMesAloj.map(c=>c.tipo));
     return contasObrigatorias.some(t=>!tiposLancados.has(t)&&!a['isenta_'+t]);
   });
   const qtdAlojSemContas=alojSemContas.length;
-  const alojContratosVencidos=alojamentos.filter(a=>{const d=parseDate(a.data_termino);return d&&d<hoje;});
-  const alojContratosVencendo=alojamentos.filter(a=>{const d=parseDate(a.data_termino);if(!d)return false;const diff=Math.floor((d-hoje)/86400000);return diff>=0&&diff<=60;});
+  const alojContratosVencidos=alojDash.filter(a=>{const d=parseDate(a.data_termino);return d&&d<hoje;});
+  const alojContratosVencendo=alojDash.filter(a=>{const d=parseDate(a.data_termino);if(!d)return false;const diff=Math.floor((d-hoje)/86400000);return diff>=0&&diff<=60;});
 
   const alertas=[];
   if(alojContratosVencidos.length>0)alertas.push({tipo:'danger',icon:'ti-home-off',modulo:'Alojamentos',destino:'Ver alojamentos',msg:`Contrato de alojamento vencido`,qtd:alojContratosVencidos.length,link:'alojamentos',filtroVar:'alojFiltroAtivo',filtroVal:'contratos_vencidos'});
@@ -749,6 +752,7 @@ async function renderDashboard(){
   if(folgasVencendo>0)alertas.push({tipo:'warning',icon:'ti-beach',modulo:'Folgas de campo',destino:'Ver funcionários',msg:`Vencimento próximo`,qtd:folgasVencendo,link:'folgas',filtroVar:'folgasFiltro',filtroVal:'warn'});
   if(feriasVencendo60>0)alertas.push({tipo:'warning',icon:'ti-palm-tree',modulo:'Férias',destino:'Ver funcionários',msg:`Vencendo em 60 dias`,qtd:feriasVencendo60,link:'ferias',filtroVar:'feriasFiltro',filtroVal:'vencendo60'});
   if(feriasProgEmCurso>0)alertas.push({tipo:'info',icon:'ti-plane-departure',modulo:'Férias',destino:'Ver funcionários',msg:`Atualmente em férias`,qtd:feriasProgEmCurso,link:'ferias',filtroVar:'feriasFiltro',filtroVal:'emferias'});
+  if(folgasProgramadasQtd>0)alertas.push({tipo:'info',icon:'ti-calendar-event',modulo:'Folgas de campo',destino:'Ver funcionários',msg:`Folga(s) programada(s)`,qtd:folgasProgramadasQtd,link:'folgas',filtroVar:'folgasFiltro',filtroVal:'programadas'});
 
   // ── Pendências agrupadas por obra ──────────────────────────────────────
   // Estrutura: { 'CODIGO — NOME': { danger:0, warning:0, itens:{ 'chave do tipo de alerta': {tipo,icon,msg,qtd} } } }
@@ -833,7 +837,7 @@ async function renderDashboard(){
       </div>`}).join('')}
     </div>`;
 
-  const pendObraHtml=!obrasComPendencia.length?'':`
+  const pendObraHtml=(!obrasComPendencia.length||globalObraFiltro)?'':`
     <div style="display:flex;align-items:center;gap:8px;margin:24px 0 14px">
       <i class="ti ti-building" style="font-size:18px;color:var(--text-muted)"></i>
       <span style="font-size:13px;font-weight:600;color:var(--text-muted)">Pendências por obra</span>
@@ -1928,12 +1932,16 @@ function diasFolga(periodo){
 
 async function renderFolgas(){
   await loadFolgas();
+  renderFolgasLocal();
+}
+function renderFolgasLocal(){
   const hoje=new Date();hoje.setHours(0,0,0,0);
   let lista=folgas;
   if(globalObraFiltro){const obraObj=obras.find(o=>o.id===globalObraFiltro);const obraCod=obraObj?.codigo||'';lista=lista.filter(f=>f.funcionario?.obra?.codigo===obraCod);}
   if(folgasBusca)lista=lista.filter(f=>f.funcionario?.nome_completo?.toLowerCase().includes(folgasBusca.toLowerCase())||f.funcionario?.matricula?.includes(folgasBusca));
   if(folgasFiltro==='warn')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado)==='warn');});
   if(folgasFiltro==='danger')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado)==='danger');});
+  if(folgasFiltro==='programadas')lista=lista.filter(f=>[1,2,3,4,5].some(n=>f[`saida${n}_programada`]&&!f[`saida${n}_real`]));
   lista=[...lista].sort((a,b)=>{
     const aVencs=calcVencimentos(a);const bVencs=calcVencimentos(b);
     const aMin=Math.min(...aVencs.filter((_,i)=>!a[`saida${i+1}_real`]).map(v=>v.getTime()),Infinity);
@@ -1942,8 +1950,8 @@ async function renderFolgas(){
   });
   // totalVenc/totalWarn baseados na lista já filtrada por obra
   const listaBase=globalObraFiltro?folgas.filter(f=>{const obraObj=obras.find(o=>o.id===globalObraFiltro);return f.funcionario?.obra?.codigo===(obraObj?.codigo||'');}):folgas;
-  let totalVenc=0,totalWarn=0;
-  listaBase.forEach(f=>{const vencs=calcVencimentos(f);vencs.forEach((v,i)=>{const st=vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado);if(st==='danger')totalVenc++;if(st==='warn')totalWarn++;});});
+  let totalVenc=0,totalWarn=0,totalProg=0;
+  listaBase.forEach(f=>{const vencs=calcVencimentos(f);vencs.forEach((v,i)=>{const st=vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado);if(st==='danger')totalVenc++;if(st==='warn')totalWarn++;if(f[`saida${i+1}_programada`]&&!f[`saida${i+1}_real`])totalProg++;});});
   const obraOptions=obras.map(o=>`<option value="${o.id}">${o.codigo} — ${o.nome}</option>`).join('');
   const rows=lista.map(f=>{
     const vencs=calcVencimentos(f);
@@ -2106,8 +2114,8 @@ async function renderFolgas(){
     cardsHtml=secTitle+'<div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">'+cardsCols+'</div>';
   }
   const alertsHtml=[
-    totalVenc>0?`<div class="folga-alert-banner danger"><i class="ti ti-alert-triangle" style="font-size:18px"></i><strong>${totalVenc} vencimento(s) em atraso</strong> — colaboradores sem folga realizada</div>`:'',
-    totalWarn>0?`<div class="folga-alert-banner warn"><i class="ti ti-clock" style="font-size:18px"></i><strong>${totalWarn} vencimento(s) próximo(s)</strong> — planejar saídas</div>`:'',
+    totalVenc>0?`<div class="folga-alert-banner danger" style="cursor:pointer" onclick="folgasFiltro='danger';renderFolgasLocal();setTimeout(()=>document.querySelector('.folga-row')?.scrollIntoView({behavior:'smooth',block:'center'}),50)"><i class="ti ti-alert-triangle" style="font-size:18px"></i><strong>${totalVenc} vencimento(s) em atraso</strong> — colaboradores sem folga realizada</div>`:'',
+    totalWarn>0?`<div class="folga-alert-banner warn" style="cursor:pointer" onclick="folgasFiltro='warn';renderFolgasLocal();setTimeout(()=>document.querySelector('.folga-row')?.scrollIntoView({behavior:'smooth',block:'center'}),50)"><i class="ti ti-clock" style="font-size:18px"></i><strong>${totalWarn} vencimento(s) próximo(s)</strong> — planejar saídas</div>`:'',
   ].join('');
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
@@ -2119,14 +2127,15 @@ async function renderFolgas(){
     </div>
     ${cardsHtml}
     ${alertsHtml}
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px">
-      <div class="metric-card" style="cursor:pointer;border-color:${folgasFiltro==='todos'?'var(--primary)':'var(--border)'}" onclick="folgasFiltro='todos';renderFolgas()"><div class="metric-label">Total de registros</div><div class="metric-value">${listaBase.length}</div></div>
-      <div class="metric-card amber" style="cursor:pointer;border-color:${folgasFiltro==='warn'?'var(--warning)':'var(--border)'}" onclick="folgasFiltro='warn';renderFolgas()"><div class="metric-label">🟡 Vencendo (30d / 10d p/ ciclo 30d)</div><div class="metric-value">${totalWarn}</div></div>
-      <div class="metric-card red" style="cursor:pointer;border-color:${folgasFiltro==='danger'?'var(--danger)':'var(--border)'}" onclick="folgasFiltro='danger';renderFolgas()"><div class="metric-label">🔴 Vencidas</div><div class="metric-value">${totalVenc}</div></div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
+      <div class="metric-card" style="cursor:pointer;border-color:${folgasFiltro==='todos'?'var(--primary)':'var(--border)'}" onclick="folgasFiltro='todos';renderFolgasLocal()"><div class="metric-label">Total de registros</div><div class="metric-value">${listaBase.length}</div></div>
+      <div class="metric-card amber" style="cursor:pointer;border-color:${folgasFiltro==='warn'?'var(--warning)':'var(--border)'}" onclick="folgasFiltro='warn';renderFolgasLocal()"><div class="metric-label">🟡 Vencendo (30d / 10d p/ ciclo 30d)</div><div class="metric-value">${totalWarn}</div></div>
+      <div class="metric-card red" style="cursor:pointer;border-color:${folgasFiltro==='danger'?'var(--danger)':'var(--border)'}" onclick="folgasFiltro='danger';renderFolgasLocal()"><div class="metric-label">🔴 Vencidas</div><div class="metric-value">${totalVenc}</div></div>
+      <div class="metric-card" style="cursor:pointer;border-color:${folgasFiltro==='programadas'?'var(--info)':'var(--border)'}" onclick="folgasFiltro='programadas';renderFolgasLocal()"><div class="metric-label">📅 Programadas</div><div class="metric-value" style="color:var(--info)">${totalProg}</div></div>
     </div>
     <div class="filters">
-      <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar funcionário..." value="${folgasBusca}" oninput="folgasBusca=this.value;if(!_buscaHandlers.folgas)_buscaHandlers.folgas=makeBuscaHandler(v=>folgasBusca=v,renderFolgas,300);_buscaHandlers.folgas(this.value);this.focus()"></div>
-      <button class="btn btn-sm" onclick="folgasFiltro='todos';folgasBusca='';renderFolgas()"><i class="ti ti-x"></i> Limpar</button>
+      <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar funcionário..." value="${folgasBusca}" oninput="folgasBusca=this.value;if(!_buscaHandlers.folgas)_buscaHandlers.folgas=makeBuscaHandler(v=>folgasBusca=v,renderFolgasLocal,300);_buscaHandlers.folgas(this.value);this.focus()"></div>
+      <button class="btn btn-sm" onclick="folgasFiltro='todos';folgasBusca='';renderFolgasLocal()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div class="folga-header-row">
       <div class="folga-header-cell">Funcionário</div>
@@ -2261,6 +2270,9 @@ let feriasFiltro='todos',feriasBusca='',feriasObraFiltro='';
 
 async function renderFerias(){
   await loadFerias();
+  renderFeriasLocal();
+}
+function renderFeriasLocal(){
   const hoje=new Date();hoje.setHours(0,0,0,0);
 
   // Aplicar filtro de obra (global ou local do módulo)
@@ -2671,7 +2683,7 @@ async function renderFerias(){
 
     <!-- Filtros -->
     <div class="filters">
-      <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar por nome ou matrícula..." value="${feriasBusca}" oninput="feriasBusca=this.value;if(!_buscaHandlers.ferias)_buscaHandlers.ferias=makeBuscaHandler(v=>feriasBusca=v,renderFerias,300);_buscaHandlers.ferias(this.value);this.focus()"></div>
+      <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar por nome ou matrícula..." value="${feriasBusca}" oninput="feriasBusca=this.value;if(!_buscaHandlers.ferias)_buscaHandlers.ferias=makeBuscaHandler(v=>feriasBusca=v,renderFeriasLocal,300);_buscaHandlers.ferias(this.value);this.focus()"></div>
       <select class="filter-select" onchange="feriasObraFiltro=this.value;renderFerias()">
         <option value="">Todas as obras</option>${obraFilterOpts}
       </select>
@@ -3319,6 +3331,9 @@ let prestadoresBusca='',prestadoresFiltroSit='ativo',prestadoresFiltroObra='';
 async function renderPrestadores(){
   await loadPrestadores();
   await loadAlojamentos();
+  renderPrestadoresLocal();
+}
+function renderPrestadoresLocal(){
   const lista=prestadores.filter(p=>{
     if(prestadoresFiltroSit&&p.situacao!==prestadoresFiltroSit)return false;
     if(prestadoresFiltroObra&&String(p.obra_id)!==String(prestadoresFiltroObra))return false;
@@ -3388,7 +3403,7 @@ async function renderPrestadores(){
     <div class="filters">
       <div class="search-box"><i class="ti ti-search"></i>
         <input placeholder="Buscar por nome, empresa, CNPJ, função..." value="${prestadoresBusca}"
-          oninput="prestadoresBusca=this.value;if(!_buscaHandlers.prest)_buscaHandlers.prest=makeBuscaHandler(v=>prestadoresBusca=v,renderPrestadores,300);_buscaHandlers.prest(this.value);this.focus()">
+          oninput="prestadoresBusca=this.value;if(!_buscaHandlers.prest)_buscaHandlers.prest=makeBuscaHandler(v=>prestadoresBusca=v,renderPrestadoresLocal,300);_buscaHandlers.prest(this.value);this.focus()">
       </div>
       <select class="filter-select" onchange="prestadoresFiltroObra=this.value;renderPrestadores()">
         <option value="">Todas as obras</option>${obrasOpts}
@@ -3881,6 +3896,10 @@ function renderAlojamentos(){
         return _obrig.some(t=>!tiposLanc.has(t)&&!a['isenta_'+t]);
       });
     }
+    if(alojBusca){
+      const b=alojBusca.toLowerCase();
+      lista=lista.filter(a=>a.endereco?.toLowerCase().includes(b)||a.nome?.toLowerCase().includes(b));
+    }
     return lista;
   })();
   const totalVagas=alojsFiltrados.reduce((s,a)=>s+(a.vagas_total||0),0);
@@ -4124,6 +4143,10 @@ function renderAlojamentos(){
           })()}
         </div>
       </div>
+    </div>
+    <div style="margin-bottom:12px;display:flex;gap:8px">
+      <div class="search-box" style="max-width:320px"><i class="ti ti-search"></i><input placeholder="Buscar por endereço ou nome..." value="${alojBusca}" oninput="alojBusca=this.value;if(!_buscaHandlers.aloj)_buscaHandlers.aloj=makeBuscaHandler(v=>alojBusca=v,renderAlojamentos,300);_buscaHandlers.aloj(this.value);this.focus()"></div>
+      ${alojBusca?`<button class="btn btn-sm" onclick="alojBusca='';renderAlojamentos()"><i class="ti ti-x"></i> Limpar</button>`:''}
     </div>
     <!-- Seletor de mês para tabela -->
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
@@ -5152,6 +5175,9 @@ async function renderEfetivo(){
   const _dataPrest=efetivoDataFiltro||new Date().toISOString().slice(0,10);
   const{data:ppData}=await sb.from('prestadores_presenca').select('*').eq('data',_dataPrest);
   prestadoresPresenca=ppData||[];
+  renderEfetivoLocal();
+}
+function renderEfetivoLocal(){
   function normMat(v){return String(v||'').trim().replace(/^0+/,'');}
 
   // ── Determinar data ─────────────────────────────────────────────────────
@@ -5520,7 +5546,7 @@ async function renderEfetivo(){
       <div style="display:flex;gap:8px;flex-wrap:wrap">${tabHtml}</div>
       <div style="margin-left:auto;position:relative">
         <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:14px"></i>
-        <input type="text" placeholder="Buscar funcionário..." value="${efetivoBusca}" oninput="efetivoBusca=this.value;if(!_buscaHandlers.efetivo)_buscaHandlers.efetivo=makeBuscaHandler(v=>efetivoBusca=v,renderEfetivo,300);_buscaHandlers.efetivo(this.value);this.focus()" style="padding:6px 12px 6px 32px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;width:220px;background:var(--surface)">
+        <input type="text" placeholder="Buscar funcionário..." value="${efetivoBusca}" oninput="efetivoBusca=this.value;if(!_buscaHandlers.efetivo)_buscaHandlers.efetivo=makeBuscaHandler(v=>efetivoBusca=v,renderEfetivoLocal,300);_buscaHandlers.efetivo(this.value);this.focus()" style="padding:6px 12px 6px 32px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;width:220px;background:var(--surface)">
       </div>
     </div>
     ${view}`}
