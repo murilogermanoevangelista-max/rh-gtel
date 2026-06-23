@@ -195,6 +195,7 @@ input:focus,select:focus{border-color:var(--primary)}
 .folga-cell-header{font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
 .folga-venc{border-radius:6px;padding:4px 8px;font-size:12px;font-weight:600;text-align:center;margin-bottom:4px}
 .folga-venc.ok{background:var(--success-light);color:var(--success)}
+.folga-venc.prog{background:var(--info-light);color:var(--info)}
 .folga-venc.warn{background:#FFF3CD;color:#856404;border:1px solid #FCD34D}
 .folga-venc.danger{background:var(--danger-light);color:var(--danger)}
 .folga-venc.future{background:var(--bg);color:var(--text-muted)}
@@ -1950,15 +1951,31 @@ async function renderFolgas(){
     const vencCells=vencs.map((v,i)=>{
       const st=vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado);
       const realDate=f[`saida${i+1}_real`];
+      const progDate=f[`saida${i+1}_programada`];
       const projDate=f[`saida${i+1}_projecao`];
       const diff=Math.floor((v-hoje)/86400000);
       const diffTxt=realDate?'✓':(diff<0?`${Math.abs(diff)}d atrás`:`${diff}d`);
+      let acoesHtml;
+      if(realDate){
+        acoesHtml=`<div style="font-size:11px;color:var(--success)">✓ Saiu: ${formatDate(realDate)} <span style="cursor:pointer;color:var(--danger);margin-left:4px" onclick="removeSaidaReal('${f.id}',${i+1})">✕</span></div>`;
+      } else if(progDate){
+        acoesHtml=`<div style="font-size:11px;color:var(--info);font-weight:600">📅 Programado: ${formatDate(progDate)}</div>
+        <div style="display:flex;gap:6px;margin-top:2px">
+          <span style="font-size:11px;color:var(--info);cursor:pointer" onclick="programarSaida('${f.id}',${i+1})">✎ Editar</span>
+          <span style="font-size:11px;color:var(--success);cursor:pointer" onclick="lancarSaidaReal('${f.id}',${i+1})">✓ Confirmar</span>
+          <span style="font-size:11px;color:var(--danger);cursor:pointer" onclick="removeSaidaProgramada('${f.id}',${i+1})">✕</span>
+        </div>`;
+      } else {
+        acoesHtml=`<div class="folga-saida-proj">Proj: ${formatDate(projDate)||'—'}</div>
+        <div style="display:flex;gap:6px">
+          <span class="folga-saida-real" style="color:var(--info)" onclick="programarSaida('${f.id}',${i+1})">+ Programar</span>
+          <span class="folga-saida-real" onclick="lancarSaidaReal('${f.id}',${i+1})">+ Confirmar saída</span>
+        </div>`;
+      }
       return`<div class="folga-cell">
         <div class="folga-cell-header">Venc.${i+1}</div>
-        <div class="folga-venc ${realDate?'ok':st}">${formatDate(v)}<br><small>${diffTxt}</small></div>
-        ${realDate?`<div style="font-size:11px;color:var(--success)">✓ Saiu: ${formatDate(realDate)} <span style="cursor:pointer;color:var(--danger);margin-left:4px" onclick="removeSaidaReal('${f.id}',${i+1})">✕</span></div>`:
-        `<div class="folga-saida-proj">Proj: ${formatDate(projDate)||'—'}</div>
-        <div class="folga-saida-real" onclick="lancarSaidaReal('${f.id}',${i+1})">+ Lançar saída</div>`}
+        <div class="folga-venc ${realDate?'ok':(progDate?'prog':st)}">${formatDate(v)}<br><small>${diffTxt}</small></div>
+        ${acoesHtml}
       </div>`;}).join('');
     const passagemBadges=`
       ${f.tipo_passagem_aerea?'<span class="passagem-badge passagem-aerea">✈ Aérea</span>':''}
@@ -2189,34 +2206,52 @@ async function deleteFolgaConfirm(id){
   showToast('Folga excluída!');await loadFolgas();renderFolgas();
 }
 
-async function lancarSaidaReal(folgaId,num){
-  // Input no formato brasileiro DD/MM/AAAA
-  const entrada=prompt(`Data de saída real (saída ${num}) — formato DD/MM/AAAA:`);
-  if(!entrada)return;
-  // Converter DD/MM/AAAA → AAAA-MM-DD para o banco
+function parseDataBR(entrada){
+  // Converte DD/MM/AAAA ou AAAA-MM-DD para AAAA-MM-DD. Retorna null se inválido.
   const partes=entrada.trim().split('/');
   let dataISO;
   if(partes.length===3&&partes[0].length<=2&&partes[1].length<=2&&partes[2].length===4){
     dataISO=`${partes[2]}-${partes[1].padStart(2,'0')}-${partes[0].padStart(2,'0')}`;
   } else if(/^\d{4}-\d{2}-\d{2}$/.test(entrada.trim())){
-    // Aceita também AAAA-MM-DD caso o usuário insira assim
     dataISO=entrada.trim();
   } else {
-    showToast('Formato inválido. Use DD/MM/AAAA (ex: 15/06/2026)','error');
-    return;
+    return null;
   }
-  // Validar data
   const d=new Date(dataISO+'T12:00:00');
-  if(isNaN(d.getTime())){showToast('Data inválida. Use DD/MM/AAAA','error');return;}
+  if(isNaN(d.getTime()))return null;
+  return dataISO;
+}
+
+async function lancarSaidaReal(folgaId,num){
+  const entrada=prompt(`Confirmar saída real (saída ${num}) — formato DD/MM/AAAA:`);
+  if(!entrada)return;
+  const dataISO=parseDataBR(entrada);
+  if(!dataISO){showToast('Data inválida. Use DD/MM/AAAA','error');return;}
   const{error}=await sb.from('folgas').update({[`saida${num}_real`]:dataISO}).eq('id',folgaId);
   if(error){showToast('Erro: '+error.message,'error');return;}
-  showToast('Saída real lançada!');renderFolgas();
+  showToast('Saída real confirmada!');renderFolgas();
 }
 
 async function removeSaidaReal(folgaId,num){
-  if(!confirm('Remover saída real lançada?'))return;
+  if(!confirm('Remover confirmação de saída real?'))return;
   await sb.from('folgas').update({[`saida${num}_real`]:null}).eq('id',folgaId);
-  showToast('Saída removida.');renderFolgas();
+  showToast('Confirmação removida.');renderFolgas();
+}
+
+async function programarSaida(folgaId,num){
+  const entrada=prompt(`Programar saída (saída ${num}) — formato DD/MM/AAAA:\n(Esta data ainda pode ser alterada depois)`);
+  if(!entrada)return;
+  const dataISO=parseDataBR(entrada);
+  if(!dataISO){showToast('Data inválida. Use DD/MM/AAAA','error');return;}
+  const{error}=await sb.from('folgas').update({[`saida${num}_programada`]:dataISO}).eq('id',folgaId);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Saída programada!');renderFolgas();
+}
+
+async function removeSaidaProgramada(folgaId,num){
+  if(!confirm('Remover programação desta saída?'))return;
+  await sb.from('folgas').update({[`saida${num}_programada`]:null}).eq('id',folgaId);
+  showToast('Programação removida.');renderFolgas();
 }
 
 function exportFolgasExcel(){showToast('Exportando Excel de folgas...');}
