@@ -727,6 +727,7 @@ async function renderDashboard(){
   });
   feriasProgramadas.sort((a,b)=>a.diffIni-b.diffIni);
   const feriasProgEmCurso=feriasProgramadas.filter(f=>f.emCurso).length;
+  const feriasProgFuturas=feriasProgramadas.filter(f=>!f.emCurso&&f.diffIni>0).length;
 
   // Alertas de alojamentos
   const alojDash=globalObraFiltro?alojamentos.filter(a=>a.obra_id===globalObraFiltro):alojamentos;
@@ -753,6 +754,7 @@ async function renderDashboard(){
   if(feriasVencendo60>0)alertas.push({tipo:'warning',icon:'ti-palm-tree',modulo:'Férias',destino:'Ver funcionários',msg:`Vencendo em 60 dias`,qtd:feriasVencendo60,link:'ferias',filtroVar:'feriasFiltro',filtroVal:'vencendo60'});
   if(feriasProgEmCurso>0)alertas.push({tipo:'info',icon:'ti-plane-departure',modulo:'Férias',destino:'Ver funcionários',msg:`Atualmente em férias`,qtd:feriasProgEmCurso,link:'ferias',filtroVar:'feriasFiltro',filtroVal:'emferias'});
   if(folgasProgramadasQtd>0)alertas.push({tipo:'info',icon:'ti-calendar-event',modulo:'Folgas de campo',destino:'Ver funcionários',msg:`Folga(s) programada(s)`,qtd:folgasProgramadasQtd,link:'folgas',filtroVar:'folgasFiltro',filtroVal:'programadas'});
+  if(feriasProgFuturas>0)alertas.push({tipo:'info',icon:'ti-calendar-event',modulo:'Férias',destino:'Ver funcionários',msg:`Férias programada(s) — ainda não iniciadas`,qtd:feriasProgFuturas,link:'ferias',filtroVar:'feriasFiltro',filtroVal:'programado'});
 
   // ── Pendências agrupadas por obra ──────────────────────────────────────
   // Estrutura: { 'CODIGO — NOME': { danger:0, warning:0, itens:{ 'chave do tipo de alerta': {tipo,icon,msg,qtd} } } }
