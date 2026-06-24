@@ -2626,6 +2626,7 @@ function renderFeriasLocal(){
       <div style="display:flex;gap:8px">
         <button class="btn btn-sm" onclick="exportFeriasExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
         <button class="btn btn-sm btn-success" onclick="exportFeriasPDF()"><i class="ti ti-file-type-pdf"></i> PDF</button>
+        <button class="btn btn-sm" onclick="openModalFeriasManual()"><i class="ti ti-calendar-plus"></i> Lançar Período</button>
         <button class="btn btn-primary" onclick="openImportFerias()"><i class="ti ti-upload"></i> Importar planilha DP</button>
       </div>
     </div>
@@ -2858,6 +2859,169 @@ async function toggleValidadoDP(id,checked){
 }
 
 // ─── IMPORT FÉRIAS ────────────────────────────────────────────────────────────
+// Lançamento manual de período de férias (casos não cobertos pela planilha DP — ex: DP avisa verbalmente antes de constar na folha)
+function openModalFeriasManual(funcId=null){
+  const f=funcId?funcionarios.find(x=>x.id===funcId):null;
+  const ativosLista=funcionarios.filter(x=>x.situacao==='ativo'&&!x.obra_transferencia_id).sort((a,b)=>(a.nome_completo||'').localeCompare(b.nome_completo||'','pt-BR'));
+  const funcOptions=ativosLista.map(x=>`<option value="${x.id}" ${f&&f.id===x.id?'selected':''}>${x.nome_completo} — ${x.matricula||'s/mat'}</option>`).join('');
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-ferias-manual" onclick="if(event.target===this)closeModal('modal-ferias-manual')">
+      <div class="modal" style="max-width:480px">
+        <div class="modal-header">
+          <span class="modal-title"><i class="ti ti-calendar-plus"></i> Lançar Período de Férias</span>
+          <button class="btn btn-sm" onclick="closeModal('modal-ferias-manual')"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div style="margin-bottom:14px;padding:10px;background:var(--info-light);border-radius:var(--radius);font-size:12px;color:var(--info)">
+            Use isto quando o DP avisar uma saída de férias (ex: por telefone/WhatsApp) antes de constar na planilha oficial. O registro fica salvo normalmente e, se depois a planilha do DP trouxer o mesmo período, a programação é preservada.
+          </div>
+          <div class="form-group">
+            <label>Funcionário *</label>
+            <select id="fm-func" ${f?'disabled':''} onchange="fmAtualizarDireito()">
+              <option value="">Selecione...</option>${funcOptions}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Início do período aquisitivo *</label>
+            <input type="date" id="fm-periodo-inicio" onchange="fmCalcularDatas()">
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Normalmente a data de admissão ou o dia seguinte ao fim do período aquisitivo anterior</div>
+          </div>
+          <div class="form-group">
+            <label>Dias de direito</label>
+            <select id="fm-dias-direito">
+              <option value="30">30 dias</option>
+              <option value="24">24 dias (1 falta)</option>
+              <option value="18">18 dias (2 faltas)</option>
+              <option value="12">12 dias (3+ faltas)</option>
+            </select>
+          </div>
+          <div id="fm-datas-calc" style="display:none;margin-bottom:4px;padding:10px;background:var(--bg);border-radius:var(--radius);font-size:12px">
+            <div>Fim do período aquisitivo: <strong id="fm-fim-periodo">—</strong></div>
+            <div>Limite ideal de gozo: <strong id="fm-lim-ideal">—</strong></div>
+            <div>Limite máximo legal: <strong id="fm-lim-max">—</strong></div>
+          </div>
+          <hr style="border:none;border-top:1px solid var(--border);margin:14px 0">
+          <div style="font-size:13px;font-weight:600;margin-bottom:8px">📅 Já programar a saída?</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+            <div class="form-group">
+              <label>Dias programados</label>
+              <select id="fm-dias-prog">
+                <option value="30">30 dias</option>
+                <option value="20">20 dias</option>
+                <option value="15">15 dias</option>
+                <option value="10">10 dias</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Data de saída</label>
+              <input type="date" id="fm-saida" onchange="fmCalcularRetorno()">
+            </div>
+            <div class="form-group">
+              <label>Data de retorno</label>
+              <input type="date" id="fm-retorno">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" onclick="closeModal('modal-ferias-manual')">Cancelar</button>
+          <button class="btn btn-primary" onclick="salvarFeriasManual()"><i class="ti ti-check"></i> Salvar Período</button>
+        </div>
+      </div>
+    </div>`);
+  if(f)fmAtualizarDireito();
+}
+
+function fmAtualizarDireito(){
+  // Sugere data de início do período aquisitivo com base na admissão, se disponível e ainda sem registro
+  const funcId=document.getElementById('fm-func')?.value;
+  if(!funcId)return;
+  const f=funcionarios.find(x=>x.id===funcId);
+  if(!f)return;
+  const jaTem=feriasData.filter(x=>x.matricula===f.matricula);
+  const inicioInput=document.getElementById('fm-periodo-inicio');
+  if(!inicioInput.value){
+    if(jaTem.length){
+      // Sugere o dia seguinte ao fim do último período já cadastrado
+      const ultimo=[...jaTem].sort((a,b)=>(parseDate(b.periodo_aquisitivo_fim)||new Date(0))-(parseDate(a.periodo_aquisitivo_fim)||new Date(0)))[0];
+      const fimAnterior=parseDate(ultimo.periodo_aquisitivo_fim);
+      if(fimAnterior){const prox=new Date(fimAnterior);prox.setDate(prox.getDate()+1);inicioInput.value=toISO(prox);}
+    }else if(f.data_admissao){
+      inicioInput.value=toISO(parseDate(f.data_admissao));
+    }
+  }
+  fmCalcularDatas();
+}
+
+function fmCalcularDatas(){
+  const iniVal=document.getElementById('fm-periodo-inicio').value;
+  const box=document.getElementById('fm-datas-calc');
+  if(!iniVal){box.style.display='none';return;}
+  const ini=parseDate(iniVal);
+  if(!ini){box.style.display='none';return;}
+  const fimPeriodo=new Date(ini);fimPeriodo.setFullYear(fimPeriodo.getFullYear()+1);fimPeriodo.setDate(fimPeriodo.getDate()-1);
+  const limMax=new Date(fimPeriodo);limMax.setFullYear(limMax.getFullYear()+1);
+  document.getElementById('fm-fim-periodo').textContent=formatDate(toISO(fimPeriodo));
+  document.getElementById('fm-lim-ideal').textContent=formatDate(toISO(fimPeriodo));
+  document.getElementById('fm-lim-max').textContent=formatDate(toISO(limMax));
+  box.style.display='block';
+}
+
+function fmCalcularRetorno(){
+  const saidaVal=document.getElementById('fm-saida').value;
+  const dias=parseInt(document.getElementById('fm-dias-prog').value||'30');
+  if(!saidaVal)return;
+  const saida=parseDate(saidaVal);
+  const retorno=new Date(saida);retorno.setDate(retorno.getDate()+dias);
+  document.getElementById('fm-retorno').value=toISO(retorno);
+}
+
+async function salvarFeriasManual(){
+  const funcId=document.getElementById('fm-func').value;
+  const periodoInicio=document.getElementById('fm-periodo-inicio').value;
+  if(!funcId){showToast('Selecione o funcionário','error');return;}
+  if(!periodoInicio){showToast('Informe o início do período aquisitivo','error');return;}
+  const f=funcionarios.find(x=>x.id===funcId);
+  if(!f){showToast('Funcionário não encontrado','error');return;}
+
+  const ini=parseDate(periodoInicio);
+  const fimPeriodo=new Date(ini);fimPeriodo.setFullYear(fimPeriodo.getFullYear()+1);fimPeriodo.setDate(fimPeriodo.getDate()-1);
+  const limMax=new Date(fimPeriodo);limMax.setFullYear(limMax.getFullYear()+1);
+  const diasDireito=parseInt(document.getElementById('fm-dias-direito').value||'30');
+
+  const saida=document.getElementById('fm-saida').value;
+  const retorno=document.getElementById('fm-retorno').value;
+  const diasProg=document.getElementById('fm-dias-prog').value;
+
+  // Verifica se já existe um período com a mesma data de início para essa matrícula (evita duplicar)
+  const existente=feriasData.find(x=>x.matricula===f.matricula&&(x.periodo_aquisitivo_inicio||'').substring(0,10)===toISO(ini));
+  if(existente){
+    showToast('Já existe um período aquisitivo cadastrado com esse início para esse funcionário','error');
+    return;
+  }
+
+  const payload={
+    funcionario_id:funcId,
+    matricula:f.matricula,
+    periodo_aquisitivo_inicio:toISO(ini),
+    periodo_aquisitivo_fim:toISO(fimPeriodo),
+    dt_limite_ideal:toISO(fimPeriodo),
+    dt_limite_maxima:toISO(limMax),
+    dias_direito:diasDireito,
+    dias_vencidos:0,
+    importado_em:new Date().toISOString(),
+    programado:!!(saida&&retorno),
+    dias_programados:saida&&retorno?parseInt(diasProg):null,
+    data_inicio_programada:saida||null,
+    data_fim_programada:retorno||null,
+    validado_dp:false,
+  };
+  const{error}=await sb.from('ferias').insert(payload);
+  if(error){showToast('Erro ao salvar: '+error.message,'error');console.error(error);return;}
+  showToast('Período de férias lançado com sucesso!');
+  closeModal('modal-ferias-manual');
+  await loadFerias();renderFerias();
+}
+
 function openImportFerias(){
   document.body.insertAdjacentHTML('beforeend',`
     <div class="modal-overlay" id="modal-import-ferias" onclick="if(event.target===this)closeModal('modal-import-ferias')">
