@@ -2565,7 +2565,8 @@ function renderFeriasLocal(){
     const per1=arr[0]||null;
     const per2=arr[1]||( per1?projetarPer2(per1):null );
     const st=getStatus(arr);
-    const rowStyle=st==='vencida'?'border-left:4px solid var(--danger)':st==='vencendo'?'border-left:4px solid var(--warning)':'';
+    const estaEmFerias=matsEmFerias.has(f0.matricula);
+    const rowStyle=estaEmFerias?'border-left:4px solid #2563EB;background:#EFF6FF':st==='vencida'?'border-left:4px solid var(--danger)':st==='vencendo'?'border-left:4px solid var(--warning)':'';
     const pendente=arr.find(f=>!f.programado);
     const programados=arr.filter(f=>f.programado);
     const btnProg=`<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">
@@ -2590,10 +2591,11 @@ function renderFeriasLocal(){
       <td><div class="name-cell">
         ${avatarHtml(f0.funcionario?.foto_url, nomeFunc)}
         <div>
-          <div style="font-weight:500">${nomeFunc}</div>
+          <div style="font-weight:500;display:flex;align-items:center;gap:6px">${nomeFunc}${estaEmFerias?'<span style="background:#2563EB;color:#fff;font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;letter-spacing:.3px;white-space:nowrap">🌴 EM FÉRIAS</span>':''}</div>
           <div style="font-size:11px;color:var(--text-muted)">${f0.matricula||'—'}</div>
           ${f0.funcionario?.funcao?.nome?`<div style="font-size:11px;color:var(--primary-dark);font-weight:500;margin-top:1px">${f0.funcionario.funcao.nome}</div>`:''}
           ${f0.funcionario?.data_admissao?`<div style="font-size:10px;color:var(--text-muted);margin-top:1px">Admissão: ${formatDate(f0.funcionario.data_admissao)}</div>`:''}
+          ${estaEmFerias?(()=>{const fEm=arr.find(x=>x.programado&&x.data_inicio_programada&&x.data_fim_programada&&parseDate(x.data_inicio_programada)<=hoje&&parseDate(x.data_fim_programada)>=hoje);return fEm?`<div style="font-size:10px;color:#2563EB;font-weight:600;margin-top:1px">Retorna em ${formatDate(fEm.data_fim_programada)}</div>`:'';})():''}
         </div>
       </div></td>
       <td style="font-size:12px;white-space:nowrap">${obraFunc}</td>
