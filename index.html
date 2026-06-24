@@ -66,6 +66,7 @@ tbody td{padding:10px 16px;font-size:13px}
 #foto-lightbox .lb-close{position:absolute;top:18px;right:22px;color:#fff;font-size:30px;cursor:pointer;opacity:.8;line-height:1;user-select:none}
 .avatar img{width:100%;height:100%;object-fit:cover}
 .name-cell{display:flex;align-items:center;gap:10px}
+.name-cell [onclick*="verFicha"]:hover{color:var(--primary);text-decoration:underline}
 .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:500}
 .badge-green{background:var(--success-light);color:var(--success)}
 .badge-red{background:var(--danger-light);color:var(--danger)}
@@ -174,6 +175,7 @@ input:focus,select:focus{border-color:var(--primary)}
 .exp-tab.active{background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.1)}
 .status-badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap}
 .status-exp1{background:#DBEAFE;color:#1E40AF}
+.status-exp1-hoje{background:#FFEDD5;color:#9A3412;border:1px solid #FDBA74}
 .status-exp2{background:#FEF3C7;color:#92400E}
 .status-efetivado{background:var(--success-light);color:var(--success)}
 .status-vencendo{background:#FFF3CD;color:#856404;border:1px solid #FCD34D}
@@ -488,9 +490,14 @@ function avatarHtml(fotoUrl,nome,size){
   }
   return`<div class="avatar" style="${style}">${initials(nome)}</div>`;
 }
+// Nome do funcionário como link clicável que abre a ficha (verFicha). Use sempre que houver um funcionario_id válido disponível.
+function nomeFichaHtml(funcId,nome,extraStyle){
+  if(!funcId)return `<div style="font-weight:500${extraStyle?';'+extraStyle:''}">${nome||'—'}</div>`;
+  return `<div style="font-weight:500${extraStyle?';'+extraStyle:''};cursor:pointer" onclick="event.stopPropagation();verFicha('${funcId}')" title="Ver ficha">${nome||'—'}</div>`;
+}
 function badgeSituacao(s){
   const map={ativo:'badge-green',inativo:'badge-red',transferido:'badge-amber'};
-  const labels={ativo:'Ativo',inativo:'Inativo',transferido:'Transferido'};
+  const labels={ativo:'Ativo',inativo:'Demitido',transferido:'Transferido'};
   return`<span class="badge ${map[s]||'badge-blue'}">${labels[s]||s}</span>`;
 }
 function formatDate(d){
@@ -723,7 +730,7 @@ async function renderDashboard(){
     const diffFim=Math.floor((fim-hoje)/86400000);
     if(diffFim>=-7){
       const emCurso=(diffIni<=0&&diffFim>=0);
-      feriasProgramadas.push({nome:f.funcionario?.nome_completo||f.matricula,mat:f.matricula,obra:f.funcionario?.obra?.codigo||'',ini,fim,diffIni,diffFim,emCurso});
+      feriasProgramadas.push({nome:f.funcionario?.nome_completo||f.matricula,mat:f.matricula,obra:f.funcionario?.obra?.codigo||'',ini,fim,diffIni,diffFim,emCurso,funcId:f.funcionario_id});
     }
   });
   feriasProgramadas.sort((a,b)=>a.diffIni-b.diffIni);
@@ -907,14 +914,14 @@ async function renderDashboard(){
     vencs.forEach((v,i)=>{
       if(f[`saida${i+1}_real`])return;
       const diff=Math.floor((v-hoje)/86400000);
-      if(diff>=0&&diff<=60)proximasFolgas.push({nome:f.funcionario?.nome_completo||'—',mat:f.funcionario?.matricula||'',venc:v,diff,num:i+1});
+      if(diff>=0&&diff<=60)proximasFolgas.push({nome:f.funcionario?.nome_completo||'—',mat:f.funcionario?.matricula||'',venc:v,diff,num:i+1,funcId:f.funcionario_id});
     });
   });
   proximasFolgas.sort((a,b)=>a.diff-b.diff);
   const folgasRows=proximasFolgas.slice(0,6).map(f=>`
     <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
       <div>
-        <div style="font-size:13px;font-weight:500">${f.nome}</div>
+        ${nomeFichaHtml(f.funcId,f.nome,'font-size:13px')}
         <div style="font-size:11px;color:var(--text-muted)">${f.mat} · Venc.${f.num}</div>
       </div>
       <div style="text-align:right">
@@ -930,7 +937,7 @@ async function renderDashboard(){
   const efetRows=proxEfet.map(f=>`
     <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
       <div>
-        <div style="font-size:13px;font-weight:500">${f.nome_completo}</div>
+        ${nomeFichaHtml(f.id,f.nome_completo,'font-size:13px')}
         <div style="font-size:11px;color:var(--text-muted)">${f.matricula||''} · ${f._exp.status==='exp1'?'Exp.1':'Exp.2'}</div>
       </div>
       <div style="text-align:right">
@@ -952,7 +959,7 @@ async function renderDashboard(){
       // descobrir se é 1º ou 2º período
       const byMatArr=feriasData.filter(x=>x.matricula===f.matricula).sort((a,b)=>(parseDate(a.periodo_aquisitivo_inicio)||new Date(0))-(parseDate(b.periodo_aquisitivo_inicio)||new Date(0)));
       const per=byMatArr.indexOf(f)+1;
-      proximasFerias.push({nome:f.funcionario?.nome_completo||f.matricula,mat:f.matricula,lim:limMax,diff,per});
+      proximasFerias.push({nome:f.funcionario?.nome_completo||f.matricula,mat:f.matricula,lim:limMax,diff,per,funcId:f.funcionario_id});
     }
   });
   proximasFerias.sort((a,b)=>a.diff-b.diff);
@@ -960,7 +967,7 @@ async function renderDashboard(){
   const feriasProgramadasRows=feriasProgramadas.slice(0,8).map(f=>`
     <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
       <div style="min-width:0;flex:1;overflow:hidden">
-        <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.nome}</div>
+        ${nomeFichaHtml(f.funcId,f.nome,'font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis')}
         <div style="font-size:11px;color:var(--text-muted)">${f.mat}${f.obra?' · '+f.obra:''}</div>
       </div>
       <div style="text-align:right;flex-shrink:0;margin-left:8px">
@@ -976,7 +983,7 @@ async function renderDashboard(){
   const feriasRows=proximasFerias.slice(0,6).map(f=>`
     <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
       <div>
-        <div style="font-size:13px;font-weight:500">${f.nome}</div>
+        ${nomeFichaHtml(f.funcId,f.nome,'font-size:13px')}
         <div style="font-size:11px;color:var(--text-muted)">${f.mat} · Per.${f.per}</div>
       </div>
       <div style="text-align:right">
@@ -1148,7 +1155,7 @@ function getFuncionariosRows(lista){
       return`<tr style="opacity:.85">
         <td><div class="name-cell">
           ${avatarHtml(f.foto_url,f.nome_completo)}
-          <div><div style="font-weight:500">${f.nome_completo}</div><div style="font-size:11px;color:var(--text-muted)">${f.matricula||'—'}</div></div>
+          <div>${nomeFichaHtml(f.id,f.nome_completo)}<div style="font-size:11px;color:var(--text-muted)">${f.matricula||'—'}</div></div>
         </div></td>
         <td>${funcaoNome}</td>
         <td><div style="font-size:12px;color:var(--text-muted)">
@@ -1171,7 +1178,7 @@ function getFuncionariosRows(lista){
     return`<tr>
       <td><div class="name-cell">
         ${avatarHtml(f.foto_url,f.nome_completo)}
-        <div><div style="font-weight:500">${f.nome_completo}</div><div style="font-size:11px;color:var(--text-muted)">${f.matricula||'—'}</div></div>
+        <div>${nomeFichaHtml(f.id,f.nome_completo)}<div style="font-size:11px;color:var(--text-muted)">${f.matricula||'—'}</div></div>
       </div></td>
       <td>${funcaoNome}</td>
       <td>${f.obra?.codigo?f.obra.codigo+' ':''} ${f.obra?.nome||'—'}</td>
@@ -1241,7 +1248,7 @@ function renderFuncionarios(){
       <select id="filtro-situacao-sel" class="filter-select" style="${funcTab==='transferidos'?'display:none':''}" onchange="filtroSituacao=this.value;atualizarTabelaFuncionarios()">
         <option value="">Todas situações</option>
         <option value="ativo" ${filtroSituacao==='ativo'?'selected':''}>Ativo</option>
-        <option value="inativo" ${filtroSituacao==='inativo'?'selected':''}>Inativo</option>
+        <option value="inativo" ${filtroSituacao==='inativo'?'selected':''}>Demitido</option>
       </select>
       <select class="filter-select" onchange="filtroObra=this.value;filtroObraTocado=true;atualizarTabelaFuncionarios()">
         <option value="">Todas obras</option>${obraOptions}
@@ -1306,6 +1313,19 @@ function verFicha(id){
   if(!f)return;
   const funcaoNome=f.funcao?.nome||f.funcao_manual||'—';
 
+  // ── Demissão ──
+  let demissaoSection='';
+  if(f.situacao==='inativo'){
+    const tipoDemLabel={aviso_previo_indenizado:'Aviso Prévio Indenizado',aviso_previo_trabalhado:'Aviso Prévio Trabalhado',termino_experiencia:'Término de Experiência',quebra_contrato:'Quebra de Contrato'}[f.tipo_demissao]||'—';
+    demissaoSection='<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:16px">'
+      +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#B91C1C;margin-bottom:10px">🚫 Demissão</div>'
+      +'<div class="ficha-grid">'
+      +'<div class="ficha-field"><div class="ficha-field-label">Data de Demissão</div><div class="ficha-field-value">'+(formatDate(f.data_demissao)||'—')+'</div></div>'
+      +'<div class="ficha-field"><div class="ficha-field-label">Tipo de Demissão</div><div class="ficha-field-value">'+tipoDemLabel+'</div></div>'
+      +(f.motivo_demissao?'<div class="ficha-field" style="grid-column:1/-1"><div class="ficha-field-label">Motivo</div><div class="ficha-field-value">'+f.motivo_demissao+'</div></div>':'')
+      +'</div></div>';
+  }
+
   // ── Transferência ──
   const temTransf=f.obra_transferencia_id;
   const tipoTransf=f.tipo_transferencia||'';
@@ -1334,7 +1354,7 @@ function verFicha(id){
   const exp=calcExp(f);
   let expSection='';
   if(exp){
-    const stLabel={vencida:'🔴 Vencida',vencendo:'🟡 Vencendo',exp1:'🔵 1º Período',exp2:'🔵 2º Período',efetivado:'✅ Efetivado'}[exp.status]||exp.status;
+    const stLabel={vencida:'🔴 Vencida',vencendo:'🟡 Vencendo',exp1:'🔵 1º Período',exp1_hoje:'🟠 Fim do 1º Período Hoje',exp2:'🔵 2º Período',efetivado:'✅ Efetivado'}[exp.status]||exp.status;
     const periodoStr=f.periodo_experiencia==='30s'?'30 dias (único)':(f.periodo_experiencia||45)+' + '+(f.periodo_experiencia||45)+' dias';
     const diasColor=exp.restantes<0?'var(--danger)':exp.restantes<=15?'#92400E':'var(--success)';
     const diasStr=exp.status==='efetivado'?'—':exp.restantes+'d';
@@ -1444,6 +1464,7 @@ function verFicha(id){
               <div class="ficha-field"><div class="ficha-field-label">Cidade / UF</div><div class="ficha-field-value">${[f.cidade,f.uf].filter(Boolean).join(' — ')||'—'}</div></div>
             </div>
           </div>
+          ${demissaoSection}
           ${transferSection}
           ${expSection}
           ${folgasSection}
@@ -1519,6 +1540,9 @@ function onSituacaoChange(){
   else{block.classList.remove('visible');tipoTransferencia='';
     document.getElementById('transfer-fields').classList.remove('visible');
     document.querySelectorAll('.transfer-tipo-btn').forEach(b=>b.classList.remove('selected-envio','selected-recebimento'));}
+  const demBlock=document.getElementById('demissao-block');
+  if(val==='inativo'){demBlock.classList.add('visible');}
+  else{demBlock.classList.remove('visible');}
 }
 function selectTipoTransferencia(tipo){
   tipoTransferencia=tipo;
@@ -1556,6 +1580,7 @@ function openModalFuncionario(func=null){
   const funcaoOptions=funcoesUnicas.map(f=>`<option value="${f.id}" ${func?.funcao_id===f.id?'selected':''}>${f.nome}</option>`).join('');
   const isTransf=func?.situacao==='transferido';
   const tipoTransf=func?.tipo_transferencia||'';
+  const isDemitido=func?.situacao==='inativo';
   document.body.insertAdjacentHTML('beforeend',`
     <div class="modal-overlay" id="modal-func" onclick="if(event.target===this)closeModal('modal-func')">
       <div class="modal">
@@ -1582,11 +1607,10 @@ function openModalFuncionario(func=null){
             <label>Situação</label>
             <select id="f-situacao" onchange="onSituacaoChange()">
               <option value="ativo" ${(func?.situacao||'ativo')==='ativo'?'selected':''}>Ativo</option>
-              <option value="inativo" ${func?.situacao==='inativo'?'selected':''}>Inativo</option>
+              <option value="inativo" ${func?.situacao==='inativo'?'selected':''}>Demitido</option>
               <option value="transferido" ${func?.situacao==='transferido'?'selected':''}>Transferido</option>
             </select>
-          </div>
-          <div class="form-group">
+          </div>          <div class="form-group">
             <label>Tipo</label>
             <select id="f-tipo">
               <option value="nova_admissao" ${(func?.tipo||'nova_admissao')==='nova_admissao'?'selected':''}>Nova Admissão</option>
@@ -1647,6 +1671,24 @@ function openModalFuncionario(func=null){
               </div>
             </div>
           </div>
+          <div id="demissao-block" class="transfer-block ${isDemitido?'visible':''}">
+            <div class="form-section" style="margin-top:8px">Dados da Demissão</div>
+            <div class="form-group"><label>Data de Demissão</label><input type="date" id="f-data-demissao" value="${func?.data_demissao||''}"></div>
+            <div class="form-group">
+              <label>Tipo de Demissão</label>
+              <select id="f-tipo-demissao">
+                <option value="">Selecione...</option>
+                <option value="aviso_previo_indenizado" ${func?.tipo_demissao==='aviso_previo_indenizado'?'selected':''}>Aviso Prévio Indenizado</option>
+                <option value="aviso_previo_trabalhado" ${func?.tipo_demissao==='aviso_previo_trabalhado'?'selected':''}>Aviso Prévio Trabalhado</option>
+                <option value="termino_experiencia" ${func?.tipo_demissao==='termino_experiencia'?'selected':''}>Término de Experiência</option>
+                <option value="quebra_contrato" ${func?.tipo_demissao==='quebra_contrato'?'selected':''}>Quebra de Contrato</option>
+              </select>
+            </div>
+            <div class="form-group full">
+              <label>Motivo real da demissão</label>
+              <textarea id="f-motivo-demissao" rows="2" placeholder="Detalhe o motivo real da demissão...">${func?.motivo_demissao||''}</textarea>
+            </div>
+          </div>
           <div class="form-section" style="margin-top:8px">Observações</div>
           <div class="form-group full">
             <label>Observação Interna</label>
@@ -1687,6 +1729,7 @@ async function saveFuncionario(id){
   const funcaoManual=null;
   const situacao=document.getElementById('f-situacao').value;
   const isTransf=situacao==='transferido';
+  const isDemitido=situacao==='inativo';
   const tipoTransf=isTransf?tipoTransferencia:'';
   // Na transferência por Envio: o funcionário VAI para outra obra
   //   obra_id = nova obra (destino) → onde está agora
@@ -1737,6 +1780,9 @@ async function saveFuncionario(id){
     data_transferencia:isTransf?document.getElementById('f-data-transf').value||null:null,
     centro_custo_transferencia:isTransf?document.getElementById('f-centro-custo').value.trim()||null:null,
     data_desmobilizacao:isTransf&&tipoTransferencia==='envio'?document.getElementById('f-desmobilizacao').value||null:null,
+    data_demissao:isDemitido?document.getElementById('f-data-demissao').value||null:null,
+    tipo_demissao:isDemitido?document.getElementById('f-tipo-demissao').value||null:null,
+    motivo_demissao:isDemitido?document.getElementById('f-motivo-demissao').value.trim()||null:null,
   };
   if(fotoUrl)payload.foto_url=fotoUrl;
   const{error}=id?await sb.from('funcionarios').update(payload).eq('id',id):await sb.from('funcionarios').insert(payload);
@@ -1775,24 +1821,25 @@ function calcExp(f){
   if(diff2<0)return{status:'vencida',restantes:diff2,fim1,fim2};
   if(diff2<=15)return{status:'vencendo',restantes:diff2,fim1,fim2};
   if(diff1<0)return{status:'exp2',restantes:diff2,fim1,fim2};
+  if(diff1===0)return{status:'exp1_hoje',restantes:diff1,fim1,fim2};
   return{status:'exp1',restantes:diff1,fim1,fim2};
 }
 
 function renderExperiencia(){
   const ativosLista=funcionarios.filter(f=>f.situacao==='ativo'&&(!globalObraFiltro||f.obra_id===globalObraFiltro));
   const comExp=ativosLista.map(f=>({...f,_exp:calcExp(f)})).filter(f=>f._exp);
-  const counts={exp1:0,exp2:0,vencendo:0,vencida:0,efetivado:0};
+  const counts={exp1:0,exp1_hoje:0,exp2:0,vencendo:0,vencida:0,efetivado:0};
   comExp.forEach(f=>counts[f._exp.status]=(counts[f._exp.status]||0)+1);
   counts.vencehoje=comExp.filter(f=>f._exp.restantes===0&&f._exp.status!=='efetivado').length;
-  const emExpTotal=(counts.exp1||0)+(counts.exp2||0)+(counts.vencendo||0);
+  const emExpTotal=(counts.exp1||0)+(counts.exp1_hoje||0)+(counts.exp2||0)+(counts.vencendo||0);
   const taxaEfet=comExp.length?Math.round((counts.efetivado||0)/comExp.length*100):0;
   let lista=comExp;
-  if(expFiltro==='emexp')lista=comExp.filter(f=>['exp1','exp2','vencendo'].includes(f._exp.status));
+  if(expFiltro==='emexp')lista=comExp.filter(f=>['exp1','exp1_hoje','exp2','vencendo'].includes(f._exp.status));
   else if(expFiltro==='vencehoje')lista=comExp.filter(f=>f._exp.restantes===0&&f._exp.status!=='efetivado');
   else if(expFiltro&&expFiltro!=='todos')lista=comExp.filter(f=>f._exp.status===expFiltro);
   if(expBuscaVal)lista=lista.filter(f=>(f.nome_completo||'').toLowerCase().includes(expBuscaVal.toLowerCase())||(f.matricula||'').includes(expBuscaVal));
   lista=[...lista].sort((a,b)=>{
-    const order={vencida:0,vencendo:1,exp2:2,exp1:3,efetivado:4};
+    const order={vencida:0,vencendo:1,exp1_hoje:2,exp2:3,exp1:4,efetivado:5};
     const od=(order[a._exp.status]||0)-(order[b._exp.status]||0);
     if(od!==0)return od;
     return(a._exp.restantes||0)-(b._exp.restantes||0);
@@ -1820,8 +1867,8 @@ function renderExperiencia(){
   if(true){
     const rows=lista.map(f=>{
       const e=f._exp;
-      const stClass={vencida:'status-vencida',vencendo:'status-vencendo',exp1:'status-exp1',exp2:'status-exp2',efetivado:'status-efetivado'}[e.status]||'';
-      const stLabel={vencida:'Vencida',vencendo:'Vencendo',exp1:'Exp. 1º',exp2:'Exp. 2º',efetivado:'Efetivado'}[e.status]||e.status;
+      const stClass={vencida:'status-vencida',vencendo:'status-vencendo',exp1:'status-exp1',exp1_hoje:'status-exp1-hoje',exp2:'status-exp2',efetivado:'status-efetivado'}[e.status]||'';
+      const stLabel={vencida:'Vencida',vencendo:'Vencendo',exp1:'Exp. 1º',exp1_hoje:'Fim do 1º Hoje',exp2:'Exp. 2º',efetivado:'Efetivado'}[e.status]||e.status;
       const diasCls=e.restantes<0?'danger':e.restantes<=15?'warn':'ok';
       const diasTxt=e.status==='efetivado'?'—':`${e.restantes}d`;
       const funcaoNome=f.funcao?.nome||f.funcao_manual||'—';
@@ -1829,7 +1876,7 @@ function renderExperiencia(){
       return`<tr>
         <td><div class="name-cell">
           ${avatarHtml(f.foto_url,f.nome_completo)}
-          <div><div style="font-weight:500">${f.nome_completo}</div><div style="font-size:11px;color:var(--text-muted)">${f.matricula||'—'}</div></div>
+          <div>${nomeFichaHtml(f.id,f.nome_completo)}<div style="font-size:11px;color:var(--text-muted)">${f.matricula||'—'}</div></div>
         </div></td>
         <td style="font-size:12px">${funcaoNome}</td>
         <td>${f.periodo_experiencia==='30s'?'30d (único)':`${parseInt(f.periodo_experiencia)||45}+${parseInt(f.periodo_experiencia)||45}d`}</td>
@@ -2597,7 +2644,7 @@ function renderFeriasLocal(){
       <td><div class="name-cell">
         ${avatarHtml(f0.funcionario?.foto_url, nomeFunc)}
         <div>
-          <div style="font-weight:500;display:flex;align-items:center;gap:6px">${nomeFunc}${estaEmFerias?'<span style="background:#2563EB;color:#fff;font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;letter-spacing:.3px;white-space:nowrap">🌴 EM FÉRIAS</span>':''}</div>
+          <div style="font-weight:500;display:flex;align-items:center;gap:6px;cursor:pointer" onclick="event.stopPropagation();verFicha('${f0.funcionario_id}')" title="Ver ficha">${nomeFunc}${estaEmFerias?'<span style="background:#2563EB;color:#fff;font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;letter-spacing:.3px;white-space:nowrap">🌴 EM FÉRIAS</span>':''}</div>
           <div style="font-size:11px;color:var(--text-muted)">${f0.matricula||'—'}</div>
           ${f0.funcionario?.funcao?.nome?`<div style="font-size:11px;color:var(--primary-dark);font-weight:500;margin-top:1px">${f0.funcionario.funcao.nome}</div>`:''}
           ${f0.funcionario?.data_admissao?`<div style="font-size:10px;color:var(--text-muted);margin-top:1px">Admissão: ${formatDate(f0.funcionario.data_admissao)}</div>`:''}
@@ -4534,7 +4581,7 @@ function openModalMoradores(alojId){
             <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px">
               <div class="name-cell">
                 <div class="avatar">${initials(f.nome_completo)}</div>
-                <div><div style="font-weight:500;font-size:13px">${f.nome_completo}</div>
+                <div>${nomeFichaHtml(f.id,f.nome_completo,'font-size:13px')}
                   <div style="font-size:11px;color:var(--text-muted)">${f.matricula} · ${f.funcao?.nome||'—'}</div></div>
               </div>
               <button class="btn btn-sm btn-danger" onclick="removeMorador('${f.id}','${alojId}','${(f.nome_completo||'').replace(/'/g,"\\'")}')"><i class="ti ti-x"></i> Remover</button>
@@ -5433,6 +5480,7 @@ function renderEfetivoLocal(){
   const datas=globalObraFiltro?_todasDatas:[...new Set(efetivoFiltrado.map(r=>r.data))].sort((a,b)=>b.localeCompare(a));
   const reg=efetivoFiltrado.filter(r=>r.data===ds);
   function getFuncao(cracha){const f=funcionarios.find(x=>normMat(x.matricula)===normMat(cracha));return (f&&(f.funcao?.nome||f.funcao_manual))||'—';}
+  function getFuncIdPorCracha(cracha){const f=funcionarios.find(x=>normMat(x.matricula)===normMat(cracha));return f?f.id:null;}
   const _busca=efetivoBusca.toLowerCase().trim();
   const pres=reg.filter(r=>r.situacao==='PRESENTE'&&(!_busca||(r.nome||'').toLowerCase().includes(_busca)||(r.cracha||'').includes(_busca))).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
   const ause=reg.filter(r=>r.situacao==='AUSENTE'&&(!_busca||(r.nome||'').toLowerCase().includes(_busca)||(r.cracha||'').includes(_busca))).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
@@ -5708,7 +5756,8 @@ function renderEfetivoLocal(){
       const prestBadge=r._prestador?'<span style="display:inline-block;margin-left:4px;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;background:#EDE9FE;color:#5B21B6">Prestador</span>':'';
       const funcaoCell=r._prestador?(r._funcao||'Prestador'):getFuncao(r.cracha);
       const crachaCell=r._prestador?'—':r.cracha;
-      return '<tr><td style="padding:8px 12px;font-size:12px">'+crachaCell+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+r.nome+prestBadge+'</td><td style="padding:8px 12px;font-size:12px;color:var(--primary-dark)">'+funcaoCell+'</td><td style="padding:8px 12px">'+badge+'</td></tr>';
+      const nomeCell=r._prestador?r.nome:(()=>{const fid=getFuncIdPorCracha(r.cracha);return fid?`<span style="cursor:pointer" onclick="event.stopPropagation();verFicha('${fid}')" title="Ver ficha">${r.nome}</span>`:r.nome;})();
+      return '<tr><td style="padding:8px 12px;font-size:12px">'+crachaCell+'</td><td style="padding:8px 12px;font-size:13px;font-weight:500">'+nomeCell+prestBadge+'</td><td style="padding:8px 12px;font-size:12px;color:var(--primary-dark)">'+funcaoCell+'</td><td style="padding:8px 12px">'+badge+'</td></tr>';
     }).join('');
     const _btnExport='<button onclick="exportarEfetivoExcel(\''+efetivoViewMode+'\')" class="btn btn-sm" style="margin-bottom:8px"><i class="ti ti-file-type-csv"></i> Exportar CSV</button>';
     view=_btnExport+'<div class="table-container"><table><thead>'+th+'</thead><tbody>'+(rows||'<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum</td></tr>')+'</tbody></table></div>';
