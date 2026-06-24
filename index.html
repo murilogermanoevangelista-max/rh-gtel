@@ -2881,6 +2881,7 @@ function openModalFeriasManual(funcId=null){
               <option value="">Selecione...</option>${funcOptions}
             </select>
           </div>
+          <div id="fm-historico" style="display:none;margin-bottom:14px"></div>
           <div class="form-group">
             <label>Início do período aquisitivo *</label>
             <input type="date" id="fm-periodo-inicio" onchange="fmCalcularDatas()">
@@ -2934,15 +2935,36 @@ function openModalFeriasManual(funcId=null){
 function fmAtualizarDireito(){
   // Sugere data de início do período aquisitivo com base na admissão, se disponível e ainda sem registro
   const funcId=document.getElementById('fm-func')?.value;
-  if(!funcId)return;
+  const histBox=document.getElementById('fm-historico');
+  if(!funcId){histBox.style.display='none';histBox.innerHTML='';return;}
   const f=funcionarios.find(x=>x.id===funcId);
   if(!f)return;
-  const jaTem=feriasData.filter(x=>x.matricula===f.matricula);
+  const jaTem=feriasData.filter(x=>x.matricula===f.matricula).sort((a,b)=>(parseDate(a.periodo_aquisitivo_inicio)||new Date(0))-(parseDate(b.periodo_aquisitivo_inicio)||new Date(0)));
+
+  // Mostra o histórico completo de períodos já cadastrados (início e fim de cada um)
+  if(jaTem.length){
+    const linhasHist=jaTem.map((p,i)=>{
+      const progStr=p.programado?(' · ✅ Programado: '+formatDate(p.data_inicio_programada)+' → '+formatDate(p.data_fim_programada)):'';
+      return `<div style="font-size:12px;padding:4px 0;${i<jaTem.length-1?'border-bottom:1px solid var(--border)':''}">`
+        +`<strong>${i+1}º período:</strong> ${formatDate(p.periodo_aquisitivo_inicio)} → ${formatDate(p.periodo_aquisitivo_fim)}`
+        +` <span style="color:var(--text-muted)">(limite: ${formatDate(p.dt_limite_maxima)})</span>${progStr}`
+        +`</div>`;
+    }).join('');
+    histBox.innerHTML=`<div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius)">
+      <div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase">Períodos já cadastrados</div>
+      ${linhasHist}
+    </div>`;
+    histBox.style.display='block';
+  }else{
+    histBox.innerHTML=`<div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;color:var(--text-muted)">Nenhum período de férias cadastrado ainda para este funcionário.</div>`;
+    histBox.style.display='block';
+  }
+
   const inicioInput=document.getElementById('fm-periodo-inicio');
   if(!inicioInput.value){
     if(jaTem.length){
       // Sugere o dia seguinte ao fim do último período já cadastrado
-      const ultimo=[...jaTem].sort((a,b)=>(parseDate(b.periodo_aquisitivo_fim)||new Date(0))-(parseDate(a.periodo_aquisitivo_fim)||new Date(0)))[0];
+      const ultimo=jaTem[jaTem.length-1];
       const fimAnterior=parseDate(ultimo.periodo_aquisitivo_fim);
       if(fimAnterior){const prox=new Date(fimAnterior);prox.setDate(prox.getDate()+1);inicioInput.value=toISO(prox);}
     }else if(f.data_admissao){
