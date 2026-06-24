@@ -2029,7 +2029,7 @@ function exportExpExcel(){
 function exportExpPDF(){showToast('PDF gerado com base nos dados atuais.');}
 
 // ─── FOLGAS ───────────────────────────────────────────────────────────────────
-let folgasFiltro='todos',folgasBusca='';
+let folgasFiltro='todos',folgasBusca='',folgasNomesFiltro=null; // folgasNomesFiltro: Set de primeiros-nomes quando filtrando por card de mês
 
 function calcVencimentos(folga){
   const vencs=[];
@@ -2059,11 +2059,18 @@ async function renderFolgas(){
   await loadFolgas();
   renderFolgasLocal();
 }
+function irParaListaMesFolga(funcIds){
+  folgasNomesFiltro=new Set((funcIds||[]).filter(Boolean).map(String));
+  folgasFiltro='todos';folgasBusca='';
+  renderFolgasLocal();
+  setTimeout(()=>document.querySelector('.folga-row')?.scrollIntoView({behavior:'smooth',block:'center'}),50);
+}
 function renderFolgasLocal(){
   const hoje=new Date();hoje.setHours(0,0,0,0);
   let lista=folgas;
   if(globalObraFiltro){lista=lista.filter(f=>String(f.funcionario?.obra_id)===String(globalObraFiltro));}
   if(folgasBusca)lista=lista.filter(f=>f.funcionario?.nome_completo?.toLowerCase().includes(folgasBusca.toLowerCase())||f.funcionario?.matricula?.includes(folgasBusca));
+  if(folgasNomesFiltro)lista=lista.filter(f=>folgasNomesFiltro.has(String(f.funcionario_id)));
   if(folgasFiltro==='warn')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado)==='warn');});
   if(folgasFiltro==='danger')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado)==='danger');});
   if(folgasFiltro==='programadas')lista=lista.filter(f=>[1,2,3,4,5].some(n=>f[`saida${n}_programada`]&&!f[`saida${n}_real`]));
@@ -2159,7 +2166,7 @@ function renderFolgasLocal(){
       const saida=parseDate(real);if(!saida)continue;
       if(saida>hoje){
         const m=saida.getMonth(),a=saida.getFullYear();
-        const info={nome:(f.funcionario&&f.funcionario.nome_completo?f.funcionario.nome_completo.split(' ').slice(0,2).join(' '):'—'),saida:saida,busca:(f.funcionario&&f.funcionario.nome_completo?f.funcionario.nome_completo.split(' ')[0]:'')};
+        const info={nome:(f.funcionario&&f.funcionario.nome_completo?f.funcionario.nome_completo.split(' ').slice(0,2).join(' '):'—'),saida:saida,busca:(f.funcionario&&f.funcionario.nome_completo?f.funcionario.nome_completo.split(' ')[0]:''),funcId:f.funcionario_id};
         if(m===mesAtual&&a===anoAtual)agendMesAtual.push(info);
         else if(m===proxMes&&a===anoProxMes)agendProxMes.push(info);
         else if(m===mes2&&a===anoMes2)agendMes2.push(info);
@@ -2179,10 +2186,10 @@ function renderFolgasLocal(){
     var secTitle='<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><i class="ti ti-plane" style="color:var(--primary);font-size:16px"></i><span style="font-size:13px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px">Situação das Folgas</span></div>';
     var cardsCols='';
 
-    // Card "Em folga agora"
+    // Card "Em folga agora" — mantém estilo destacado com lista (geralmente poucos itens)
     if(temAgora){
       var itensAgora=emFolgaAgora.map(function(f){return itemAgoraRow(f);}).join('');
-      cardsCols+='<div style="background:linear-gradient(135deg,#0d5e46,#1D9E75);border-radius:var(--radius-lg);padding:16px 18px;flex:1;min-width:220px">'
+      cardsCols+='<div style="background:linear-gradient(135deg,#0d5e46,#1D9E75);border-radius:var(--radius-lg);padding:16px 18px;flex:1;min-width:220px;max-height:260px;overflow-y:auto">'
         +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
         +'<i class="ti ti-plane-departure" style="font-size:16px;color:rgba(255,255,255,.8)"></i>'
         +'<span style="font-size:11px;font-weight:700;color:rgba(255,255,255,.7);text-transform:uppercase;letter-spacing:.5px">Em folga agora</span>'
@@ -2192,19 +2199,10 @@ function renderFolgasLocal(){
         +'</div>';
     }
 
-    // helper: linha clicável por funcionário
-    function itemFolgaRow(f,borderColor){
-      var busca=f.busca||'';
-      return '<div onclick="event.stopPropagation();folgasBusca=\''+busca+'\';folgasFiltro=\'todos\';renderFolgas();setTimeout(function(){var el=document.querySelector(\'.folga-row[data-busca]\');if(!el){var rows=document.querySelectorAll(\'.folga-row\');rows.forEach(function(r){if(r.innerText.toUpperCase().indexOf(\''+busca.toUpperCase()+'\')>=0){el=r;}});}if(el){el.scrollIntoView({behavior:\'smooth\',block:\'center\'});el.style.outline=\'2px solid var(--primary)\';setTimeout(function(){el.style.outline=\'\';},2000);}},150)" '
-        +'style="display:flex;justify-content:space-between;align-items:center;padding:7px 8px;margin:0 -8px;border-radius:6px;cursor:pointer;transition:background .15s" '
-        +'onmouseover="this.style.background=\'var(--hover)\'" onmouseout="this.style.background=\'\'">'
-        +'<span style="font-size:12px;color:var(--text);font-weight:500">'+f.nome+'</span>'
-        +'<span style="font-size:11px;color:var(--text-muted)">'+formatDate(f.saida)+'<i class="ti ti-arrow-right" style="margin-left:4px;font-size:10px"></i></span>'
-        +'</div>';
-    }
+    // helper: linha clicável por funcionário (usado no card "Em folga agora")
     function itemAgoraRow(f){
       var busca=f.busca||'';
-      return '<div onclick="event.stopPropagation();folgasBusca=\''+busca+'\';folgasFiltro=\'todos\';renderFolgas();setTimeout(function(){var rows=document.querySelectorAll(\'.folga-row\');var el=null;rows.forEach(function(r){if(r.innerText.toUpperCase().indexOf(\''+busca.toUpperCase()+'\')>=0)el=r;});if(el){el.scrollIntoView({behavior:\'smooth\',block:\'center\'});el.style.outline=\'2px solid #1D9E75\';setTimeout(function(){el.style.outline=\'\';},2000);}},150)" '
+      return '<div onclick="event.stopPropagation();folgasNomesFiltro=null;folgasBusca=\''+busca+'\';folgasFiltro=\'todos\';renderFolgas();setTimeout(function(){var rows=document.querySelectorAll(\'.folga-row\');var el=null;rows.forEach(function(r){if(r.innerText.toUpperCase().indexOf(\''+busca.toUpperCase()+'\')>=0)el=r;});if(el){el.scrollIntoView({behavior:\'smooth\',block:\'center\'});el.style.outline=\'2px solid #1D9E75\';setTimeout(function(){el.style.outline=\'\';},2000);}},150)" '
         +'style="display:flex;justify-content:space-between;align-items:center;padding:7px 8px;margin:0 -8px;border-radius:6px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.15);transition:background .15s" '
         +'onmouseover="this.style.background=\'rgba(255,255,255,.1)\'" onmouseout="this.style.background=\'\'">'
         +'<span style="font-size:12px;color:rgba(255,255,255,.95);font-weight:500">'+f.nome+'</span>'
@@ -2212,51 +2210,32 @@ function renderFolgasLocal(){
         +'</div>';
     }
 
-    // Card mês atual
-    var itensMesAt=agendMesAtual.length>0
-      ?agendMesAtual.map(function(f){return itemFolgaRow(f);}).join('')
-      :'<div style="font-size:12px;color:var(--text-muted);padding:8px 0">Nenhuma saída agendada</div>';
-    cardsCols+='<div style="background:var(--surface);border:2px solid var(--primary);border-radius:var(--radius-lg);padding:16px 18px;flex:1;min-width:220px;transition:box-shadow .15s" onmouseover="this.style.boxShadow=\'0 4px 16px rgba(29,158,117,.15)\'" onmouseout="this.style.boxShadow=\'none\'">'
-      +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
-      +'<i class="ti ti-calendar-month" style="font-size:16px;color:var(--primary)"></i>'
-      +'<span style="font-size:11px;font-weight:700;color:var(--primary-dark);text-transform:uppercase;letter-spacing:.5px">'+mesLabel[mesAtual]+'/'+anoAtual+'</span>'
-      +'<span style="background:var(--primary);color:#fff;border-radius:20px;font-size:10px;font-weight:700;padding:1px 7px;margin-left:2px">MÊS ATUAL</span>'
-      +'</div>'
-      +'<div style="font-size:28px;font-weight:700;color:var(--primary-dark);margin-bottom:10px">'+agendMesAtual.length+'<span style="font-size:13px;font-weight:400;color:var(--text-muted);margin-left:6px">agendada(s)</span></div>'
-      +itensMesAt
-      +'</div>';
+    // helper: card compacto de mês — só ícone, label, contagem e próxima data; clique abre a lista filtrada daquele mês
+    function cardMesCompacto(label,ano,itens,destacado){
+      var qtd=itens.length;
+      var proxima=qtd>0?formatDate(itens[0].saida):null;
+      var idsMes=JSON.stringify(itens.map(function(f){return f.funcId;})).replace(/"/g,'&quot;');
+      var corNum=destacado?'var(--primary-dark)':(qtd>0?'var(--text)':'var(--text-muted)');
+      return '<div onclick="irParaListaMesFolga('+idsMes+')" style="background:var(--surface);border:'+(destacado?'2px solid var(--primary)':'1px solid var(--border)')+';border-radius:var(--radius-lg);padding:16px 18px;flex:1;min-width:160px;cursor:pointer;transition:box-shadow .15s" onmouseover="this.style.boxShadow=\'0 4px 16px rgba(0,0,0,.08)\'" onmouseout="this.style.boxShadow=\'none\'">'
+        +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">'
+        +'<i class="ti ti-calendar-month" style="font-size:15px;color:'+(destacado?'var(--primary)':'var(--text-muted)')+'"></i>'
+        +'<span style="font-size:11px;font-weight:700;color:'+(destacado?'var(--primary-dark)':'var(--text-muted)')+';text-transform:uppercase;letter-spacing:.5px">'+label+'/'+ano+'</span>'
+        +(destacado?'<span style="background:var(--primary);color:#fff;border-radius:20px;font-size:9px;font-weight:700;padding:1px 6px">ATUAL</span>':'')
+        +'</div>'
+        +'<div style="font-size:26px;font-weight:700;color:'+corNum+'">'+qtd+'<span style="font-size:12px;font-weight:400;color:var(--text-muted);margin-left:5px">agendada(s)</span></div>'
+        +(proxima?'<div style="font-size:11px;color:var(--text-muted);margin-top:6px">Próxima: '+proxima+' <i class="ti ti-arrow-right" style="margin-left:2px;font-size:9px"></i></div>':'')
+        +'</div>';
+    }
 
-    // Card próximo mês
-    var itensProxM=agendProxMes.length>0
-      ?agendProxMes.map(function(f){return itemFolgaRow(f);}).join('')
-      :'<div style="font-size:12px;color:var(--text-muted);padding:8px 0">Nenhuma saída agendada</div>';
-    cardsCols+='<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px;flex:1;min-width:220px;transition:box-shadow .15s" onmouseover="this.style.boxShadow=\'0 4px 16px rgba(0,0,0,.07)\'" onmouseout="this.style.boxShadow=\'none\'">'
-      +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
-      +'<i class="ti ti-calendar-month" style="font-size:16px;color:var(--text-muted)"></i>'
-      +'<span style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">'+mesLabel[proxMes]+'/'+anoProxMes+'</span>'
-      +'</div>'
-      +'<div style="font-size:28px;font-weight:700;color:var(--text);margin-bottom:10px">'+agendProxMes.length+'<span style="font-size:13px;font-weight:400;color:var(--text-muted);margin-left:6px">agendada(s)</span></div>'
-      +itensProxM
-      +'</div>';
-
-    // Card mês seguinte ao próximo (mes2)
-    var itensMes2=agendMes2.length>0
-      ?agendMes2.map(function(f){return itemFolgaRow(f);}).join('')
-      :'<div style="font-size:12px;color:var(--text-muted);padding:8px 0">Nenhuma saída agendada</div>';
-    cardsCols+='<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px;flex:1;min-width:220px;transition:box-shadow .15s" onmouseover="this.style.boxShadow=\'0 4px 16px rgba(0,0,0,.07)\'" onmouseout="this.style.boxShadow=\'none\'">'
-      +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
-      +'<i class="ti ti-calendar-month" style="font-size:16px;color:var(--text-muted)"></i>'
-      +'<span style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">'+mesLabel[mes2]+'/'+anoMes2+'</span>'
-      +'</div>'
-      +'<div style="font-size:28px;font-weight:700;color:var(--text);margin-bottom:10px">'+agendMes2.length+'<span style="font-size:13px;font-weight:400;color:var(--text-muted);margin-left:6px">agendada(s)</span></div>'
-      +itensMes2
-      +'</div>';
+    cardsCols+=cardMesCompacto(mesLabel[mesAtual],anoAtual,agendMesAtual,true);
+    cardsCols+=cardMesCompacto(mesLabel[proxMes],anoProxMes,agendProxMes,false);
+    cardsCols+=cardMesCompacto(mesLabel[mes2],anoMes2,agendMes2,false);
 
     cardsHtml=secTitle+'<div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">'+cardsCols+'</div>';
   }
   const alertsHtml=[
-    totalVenc>0?`<div class="folga-alert-banner danger" style="cursor:pointer" onclick="folgasFiltro='danger';renderFolgasLocal();setTimeout(()=>document.querySelector('.folga-row')?.scrollIntoView({behavior:'smooth',block:'center'}),50)"><i class="ti ti-alert-triangle" style="font-size:18px"></i><strong>${totalVenc} vencimento(s) em atraso</strong> — colaboradores sem folga realizada</div>`:'',
-    totalWarn>0?`<div class="folga-alert-banner warn" style="cursor:pointer" onclick="folgasFiltro='warn';renderFolgasLocal();setTimeout(()=>document.querySelector('.folga-row')?.scrollIntoView({behavior:'smooth',block:'center'}),50)"><i class="ti ti-clock" style="font-size:18px"></i><strong>${totalWarn} vencimento(s) próximo(s)</strong> — planejar saídas</div>`:'',
+    totalVenc>0?`<div class="folga-alert-banner danger" style="cursor:pointer" onclick="folgasNomesFiltro=null;folgasFiltro='danger';renderFolgasLocal();setTimeout(()=>document.querySelector('.folga-row')?.scrollIntoView({behavior:'smooth',block:'center'}),50)"><i class="ti ti-alert-triangle" style="font-size:18px"></i><strong>${totalVenc} vencimento(s) em atraso</strong> — colaboradores sem folga realizada</div>`:'',
+    totalWarn>0?`<div class="folga-alert-banner warn" style="cursor:pointer" onclick="folgasNomesFiltro=null;folgasFiltro='warn';renderFolgasLocal();setTimeout(()=>document.querySelector('.folga-row')?.scrollIntoView({behavior:'smooth',block:'center'}),50)"><i class="ti ti-clock" style="font-size:18px"></i><strong>${totalWarn} vencimento(s) próximo(s)</strong> — planejar saídas</div>`:'',
   ].join('');
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
@@ -2269,14 +2248,15 @@ function renderFolgasLocal(){
     ${cardsHtml}
     ${alertsHtml}
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
-      <div class="metric-card" style="cursor:pointer;border-color:${folgasFiltro==='todos'?'var(--primary)':'var(--border)'}" onclick="folgasFiltro='todos';renderFolgasLocal()"><div class="metric-label">Total de registros</div><div class="metric-value">${listaBase.length}</div></div>
-      <div class="metric-card amber" style="cursor:pointer;border-color:${folgasFiltro==='warn'?'var(--warning)':'var(--border)'}" onclick="folgasFiltro='warn';renderFolgasLocal()"><div class="metric-label">🟡 Vencendo (30d / 10d p/ ciclo 30d)</div><div class="metric-value">${totalWarn}</div></div>
-      <div class="metric-card red" style="cursor:pointer;border-color:${folgasFiltro==='danger'?'var(--danger)':'var(--border)'}" onclick="folgasFiltro='danger';renderFolgasLocal()"><div class="metric-label">🔴 Vencidas</div><div class="metric-value">${totalVenc}</div></div>
-      <div class="metric-card" style="cursor:pointer;border-color:${folgasFiltro==='programadas'?'var(--info)':'var(--border)'}" onclick="folgasFiltro='programadas';renderFolgasLocal()"><div class="metric-label">📅 Programadas</div><div class="metric-value" style="color:var(--info)">${totalProg}</div></div>
+      <div class="metric-card" style="cursor:pointer;border-color:${folgasFiltro==='todos'?'var(--primary)':'var(--border)'}" onclick="folgasNomesFiltro=null;folgasFiltro='todos';renderFolgasLocal()"><div class="metric-label">Total de registros</div><div class="metric-value">${listaBase.length}</div></div>
+      <div class="metric-card amber" style="cursor:pointer;border-color:${folgasFiltro==='warn'?'var(--warning)':'var(--border)'}" onclick="folgasNomesFiltro=null;folgasFiltro='warn';renderFolgasLocal()"><div class="metric-label">🟡 Vencendo (30d / 10d p/ ciclo 30d)</div><div class="metric-value">${totalWarn}</div></div>
+      <div class="metric-card red" style="cursor:pointer;border-color:${folgasFiltro==='danger'?'var(--danger)':'var(--border)'}" onclick="folgasNomesFiltro=null;folgasFiltro='danger';renderFolgasLocal()"><div class="metric-label">🔴 Vencidas</div><div class="metric-value">${totalVenc}</div></div>
+      <div class="metric-card" style="cursor:pointer;border-color:${folgasFiltro==='programadas'?'var(--info)':'var(--border)'}" onclick="folgasNomesFiltro=null;folgasFiltro='programadas';renderFolgasLocal()"><div class="metric-label">📅 Programadas</div><div class="metric-value" style="color:var(--info)">${totalProg}</div></div>
     </div>
+    ${folgasNomesFiltro?`<div style="display:flex;align-items:center;gap:8px;background:#E6F7F0;border:1px solid var(--primary);border-radius:var(--radius);padding:8px 14px;margin-bottom:14px;font-size:13px;color:var(--primary-dark)"><i class="ti ti-filter"></i><span>Mostrando apenas quem tem saída agendada no mês selecionado (${lista.length} de ${listaBase.length})</span><button class="btn btn-sm" style="margin-left:auto" onclick="folgasNomesFiltro=null;renderFolgasLocal()"><i class="ti ti-x"></i> Limpar filtro</button></div>`:''}
     <div class="filters">
-      <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar funcionário..." value="${folgasBusca}" oninput="folgasBusca=this.value;if(!_buscaHandlers.folgas)_buscaHandlers.folgas=makeBuscaHandler(v=>folgasBusca=v,renderFolgasLocal,300);_buscaHandlers.folgas(this.value);this.focus()"></div>
-      <button class="btn btn-sm" onclick="folgasFiltro='todos';folgasBusca='';renderFolgasLocal()"><i class="ti ti-x"></i> Limpar</button>
+      <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar funcionário..." value="${folgasBusca}" oninput="folgasNomesFiltro=null;folgasBusca=this.value;if(!_buscaHandlers.folgas)_buscaHandlers.folgas=makeBuscaHandler(v=>folgasBusca=v,renderFolgasLocal,300);_buscaHandlers.folgas(this.value);this.focus()"></div>
+      <button class="btn btn-sm" onclick="folgasNomesFiltro=null;folgasFiltro='todos';folgasBusca='';renderFolgasLocal()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div class="folga-header-row">
       <div class="folga-header-cell">Funcionário</div>
