@@ -85,6 +85,14 @@ tbody td{padding:10px 16px;font-size:13px}
 .modal-header{display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:1}
 .modal-title{font-size:16px;font-weight:600}
 .modal-body{padding:24px}
+.autocomplete-wrap{position:relative}
+.autocomplete-list{position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.12);max-height:220px;overflow-y:auto;z-index:50;display:none;margin-top:4px}
+.autocomplete-list.show{display:block}
+.autocomplete-item{padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)}
+.autocomplete-item:last-child{border-bottom:none}
+.autocomplete-item:hover,.autocomplete-item.highlighted{background:var(--hover)}
+.autocomplete-item .ac-mat{font-size:11px;color:var(--text-muted)}
+.autocomplete-empty{padding:10px 12px;font-size:12px;color:var(--text-muted)}
 .modal-footer{padding:16px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .form-group{display:flex;flex-direction:column;gap:5px}
@@ -495,6 +503,44 @@ function nomeFichaHtml(funcId,nome,extraStyle){
   if(!funcId)return `<div style="font-weight:500${extraStyle?';'+extraStyle:''}">${nome||'—'}</div>`;
   return `<div style="font-weight:500${extraStyle?';'+extraStyle:''};cursor:pointer" onclick="event.stopPropagation();verFicha('${funcId}')" title="Ver ficha">${nome||'—'}</div>`;
 }
+
+// ── Autocomplete reutilizável de funcionário (digitar nome/matrícula e selecionar da lista) ──
+// inputId: id do <input type="text"> visível | hiddenId: id do <input type="hidden"> que guarda o funcionario_id | lista: array de funcionários candidatos
+window._acState={};
+function initFuncAutocomplete(inputId,hiddenId,lista){
+  window._acState[inputId]=lista;
+  const input=document.getElementById(inputId);
+  if(input){
+    input.dataset.lastVal=input.value;
+    input.addEventListener('blur',()=>setTimeout(()=>{const list=document.getElementById(inputId+'-list');if(list)list.classList.remove('show');},150));
+  }
+}
+function funcAutocompleteInput(inputId,hiddenId){
+  const lista=window._acState[inputId]||[];
+  const input=document.getElementById(inputId);
+  const term=(input.value||'').toLowerCase().trim();
+  const listEl=document.getElementById(inputId+'-list');
+  // Só invalida a seleção anterior se o texto realmente mudou desde a última seleção (evita apagar ao só focar/abrir a lista)
+  if(input.value!==input.dataset.lastVal)document.getElementById(hiddenId).value='';
+  if(!term){listEl.classList.remove('show');listEl.innerHTML='';return;}
+  const matches=lista.filter(f=>(f.nome_completo||'').toLowerCase().includes(term)||(f.matricula||'').toLowerCase().includes(term)).slice(0,30);
+  if(!matches.length){
+    listEl.innerHTML='<div class="autocomplete-empty">Nenhum funcionário encontrado</div>';
+  }else{
+    listEl.innerHTML=matches.map(f=>`<div class="autocomplete-item" onclick="selecionarFuncAutocomplete('${inputId}','${hiddenId}','${f.id}')">${(f.matricula||'—')} — ${f.nome_completo}</div>`).join('');
+  }
+  listEl.classList.add('show');
+}
+function selecionarFuncAutocomplete(inputId,hiddenId,funcId){
+  const lista=window._acState[inputId]||[];
+  const f=lista.find(x=>x.id===funcId);
+  if(!f)return;
+  const input=document.getElementById(inputId);
+  input.value=`${f.matricula||'—'} — ${f.nome_completo}`;
+  input.dataset.lastVal=input.value;
+  document.getElementById(hiddenId).value=f.id;
+  document.getElementById(inputId+'-list').classList.remove('show');
+}
 function badgeSituacao(s){
   const map={ativo:'badge-green',inativo:'badge-red',transferido:'badge-amber'};
   const labels={ativo:'Ativo',inativo:'Demitido',transferido:'Transferido'};
@@ -561,7 +607,7 @@ async function loadAll(){
 }
 
 async function loadFolgas(){
-  const {data}=await sb.from('folgas').select('*,funcionario:funcionarios(nome_completo,matricula,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo))').order('funcionario_id');
+  const {data}=await sb.from('folgas').select('*,funcionario:funcionarios(nome_completo,matricula,obra_id,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo))').order('funcionario_id');
   let lista=data||[];
   if(obrasPermitidasIds){
     const codigosPermitidos=new Set(obras.map(o=>o.codigo));
@@ -571,7 +617,7 @@ async function loadFolgas(){
 }
 
 async function loadFerias(){
-  const {data}=await sb.from('ferias').select('*,funcionario:funcionarios(nome_completo,matricula,foto_url,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo,centro_custo))').order('dt_limite_maxima');
+  const {data}=await sb.from('ferias').select('*,funcionario:funcionarios(nome_completo,matricula,foto_url,obra_id,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo,centro_custo))').order('dt_limite_maxima');
   let lista=data||[];
   if(obrasPermitidasIds){
     const codigosPermitidos=new Set(obras.map(o=>o.codigo));
@@ -681,8 +727,8 @@ async function renderDashboard(){
   const expVencidas=comExp.filter(f=>f._exp.status==='vencida').length;
   const expVenceHoje=comExp.filter(f=>f._exp.restantes===0&&f._exp.status!=='efetivado').length;
 
-  const folgasDash=globalObraFiltro?folgas.filter(f=>{const obraObj=obras.find(o=>o.id===globalObraFiltro);return f.funcionario?.obra?.codigo===(obraObj?.codigo||'');}):folgas;
-  const feriasDash=globalObraFiltro?feriasData.filter(f=>{const obraObj=obras.find(o=>o.id===globalObraFiltro);return f.funcionario?.obra?.codigo===(obraObj?.codigo||'');}):feriasData;
+  const folgasDash=globalObraFiltro?folgas.filter(f=>String(f.funcionario?.obra_id)===String(globalObraFiltro)):folgas;
+  const feriasDash=globalObraFiltro?feriasData.filter(f=>String(f.funcionario?.obra_id)===String(globalObraFiltro)):feriasData;
   let folgasVencidas=0,folgasVencendo=0,folgasProgramadasQtd=0;
   folgasDash.forEach(f=>{
     const vencs=calcVencimentos(f);
@@ -1122,14 +1168,15 @@ function calcFeriasStats(data,hoje){
 let filtroSituacao='',filtroObra='',busca='';
 let filtroObraTocado=false; // true quando o usuário interage manualmente com o select de obra desta página
 
-let funcTab='ativos'; // 'ativos' | 'transferidos'
+let funcTab='ativos'; // 'ativos' | 'demitidos' | 'transferidos'
 
 function getFuncionariosFiltrados(){
   let lista=funcionarios;
   // Obra efetiva: se o usuário já interagiu com o select local desta página, respeita a escolha dele (mesmo que seja "Todas obras");
   // caso contrário, herda o filtro global do menu lateral
   const obraEfetiva=filtroObraTocado?filtroObra:(filtroObra||globalObraFiltro);
-  // Aba ativos: ativo + inativo (nunca transferido)
+  // Aba ativos: apenas situacao=ativo (nunca transferido, nunca demitido)
+  // Aba demitidos: apenas situacao=inativo
   // Aba transferidos: apenas transferido
   if(funcTab==='transferidos'){
     // Histórico: quem SAIU de alguma obra (tem obra_transferencia_id preenchido)
@@ -1138,16 +1185,40 @@ function getFuncionariosFiltrados(){
       // Na obra X: mostra quem SAIU dela (obra_transferencia_id = X)
       lista=lista.filter(f=>f.obra_transferencia_id===obraEfetiva);
     }
+  } else if(funcTab==='demitidos'){
+    lista=lista.filter(f=>f.situacao==='inativo');
+    if(obraEfetiva)lista=lista.filter(f=>f.obra_id===obraEfetiva);
   } else {
-    // Ativos/Inativos: filtra por obra_id atual — onde o funcionário ESTÁ agora
-    // Não exclui ninguém por tipo_transferencia; quem foi transferido está na nova obra
-    if(filtroSituacao)lista=lista.filter(f=>f.situacao===filtroSituacao);
+    // Ativos: filtra por obra_id atual — onde o funcionário ESTÁ agora
+    lista=lista.filter(f=>f.situacao==='ativo');
     if(obraEfetiva)lista=lista.filter(f=>f.obra_id===obraEfetiva);
   }
   if(busca){const b=busca.toLowerCase();lista=lista.filter(f=>f.nome_completo?.toLowerCase().includes(b)||f.matricula?.toLowerCase().includes(b));}
   return lista;
 }
 function getFuncionariosRows(lista){
+  if(funcTab==='demitidos'){
+    const tipoDemLabel={aviso_previo_indenizado:'Aviso Prévio Indenizado',aviso_previo_trabalhado:'Aviso Prévio Trabalhado',termino_experiencia:'Término de Experiência',quebra_contrato:'Quebra de Contrato'};
+    return lista.length?lista.map(f=>{
+      const funcaoNome=f.funcao?.nome||f.funcao_manual||'—';
+      return`<tr style="opacity:.85">
+        <td><div class="name-cell">
+          ${avatarHtml(f.foto_url,f.nome_completo)}
+          <div>${nomeFichaHtml(f.id,f.nome_completo)}<div style="font-size:11px;color:var(--text-muted)">${f.matricula||'—'}</div></div>
+        </div></td>
+        <td>${funcaoNome}</td>
+        <td>${f.obra?.codigo?f.obra.codigo+' ':''} ${f.obra?.nome||'—'}</td>
+        <td>${formatDate(f.data_demissao)||'—'}</td>
+        <td>${tipoDemLabel[f.tipo_demissao]||'—'}</td>
+        <td style="font-size:12px;color:var(--text-muted);max-width:260px">${f.motivo_demissao||'—'}</td>
+        <td><div class="action-btns">
+          <button class="btn btn-sm btn-info" title="Visualizar ficha" onclick="verFicha('${f.id}')"><i class="ti ti-eye"></i></button>
+          <button class="btn btn-sm" title="Editar" onclick="editFuncionario('${f.id}')"><i class="ti ti-edit"></i></button>
+          <button class="btn btn-sm btn-danger" title="Excluir" onclick="deleteFuncionario('${f.id}','${(f.nome_completo||'').replace(/'/g,"\\'")}')" ><i class="ti ti-trash"></i></button>
+        </div></td>
+      </tr>`;}).join('')
+    :`<tr><td colspan="7"><div class="empty-state"><i class="ti ti-user-off"></i><div>Nenhum demitido encontrado nesta obra</div></div></td></tr>`;
+  }
   if(funcTab==='transferidos'){
     return lista.length?lista.map(f=>{
       const funcaoNome=f.funcao?.nome||f.funcao_manual||'—';
@@ -1196,37 +1267,43 @@ function getFuncionariosRows(lista){
 function atualizarTabelaFuncionarios(){
   const lista=getFuncionariosFiltrados();
   // Contadores respeitam filtro de obra
-  const baseAtivos=filtroObra?funcionarios.filter(f=>f.obra_id===filtroObra):funcionarios;
+  const baseObra=filtroObra?funcionarios.filter(f=>f.obra_id===filtroObra):funcionarios;
+  const baseAtivos=baseObra.filter(f=>f.situacao==='ativo').length;
+  const baseDemitidos=baseObra.filter(f=>f.situacao==='inativo').length;
   const baseTransf=filtroObra?funcionarios.filter(f=>f.obra_transferencia_id===filtroObra):funcionarios.filter(f=>f.obra_transferencia_id);
-  const totalAtivos=baseAtivos.length;
+  const totalAtivos=baseAtivos;
+  const totalDemitidos=baseDemitidos;
   const totalTransf=baseTransf.length;
   const theadTransf='<tr><th>Funcionário</th><th>Função</th><th>Obra Origem → Destino</th><th>Empresa</th><th>Admissão</th><th>Transferência</th><th></th></tr>';
   const theadAtivos='<tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Empresa</th><th>Admissão</th><th>Situação</th><th></th></tr>';
+  const theadDemitidos='<tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Data Demissão</th><th>Tipo</th><th>Motivo</th><th></th></tr>';
   const sub=document.getElementById('func-subtitle');
   const tbody=document.getElementById('func-tbody');
   const thead=document.getElementById('func-thead');
   const tabAtivos=document.getElementById('tab-func-ativos');
+  const tabDemitidos=document.getElementById('tab-func-demitidos');
   const tabTransf=document.getElementById('tab-func-transf');
-  const fsEl=document.getElementById('filtro-situacao-sel');
   const banner=document.getElementById('transf-banner');
   if(sub)sub.textContent=lista.length+' de '+funcionarios.length+' registros';
   if(tbody)tbody.innerHTML=getFuncionariosRows(lista);
-  if(thead)thead.innerHTML=funcTab==='transferidos'?theadTransf:theadAtivos;
-  if(tabAtivos){tabAtivos.className='exp-tab'+(funcTab==='ativos'?' active':'');tabAtivos.innerHTML='Ativos / Inativos <span style="background:var(--primary);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">'+totalAtivos+'</span>';}
+  if(thead)thead.innerHTML=funcTab==='transferidos'?theadTransf:funcTab==='demitidos'?theadDemitidos:theadAtivos;
+  if(tabAtivos){tabAtivos.className='exp-tab'+(funcTab==='ativos'?' active':'');tabAtivos.innerHTML='Ativos <span style="background:var(--primary);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">'+totalAtivos+'</span>';}
+  if(tabDemitidos){tabDemitidos.className='exp-tab'+(funcTab==='demitidos'?' active':'');tabDemitidos.innerHTML='Demitidos <span style="background:var(--danger);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">'+totalDemitidos+'</span>';}
   if(tabTransf){tabTransf.className='exp-tab'+(funcTab==='transferidos'?' active':'');tabTransf.innerHTML='Transferidos <span style="background:#B45309;color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">'+totalTransf+'</span>';}
-  if(fsEl)fsEl.style.display=funcTab==='transferidos'?'none':'';
   if(banner)banner.style.display=funcTab==='transferidos'?'':'none';
 }
 function renderFuncionarios(){
   const obraEfetiva=filtroObraTocado?filtroObra:(filtroObra||globalObraFiltro);
   const obraOptions=obras.map(o=>`<option value="${o.id}" ${obraEfetiva===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
   const lista=getFuncionariosFiltrados();
-  const baseAtivos=obraEfetiva?funcionarios.filter(f=>f.obra_id===obraEfetiva):funcionarios;
+  const baseObra=obraEfetiva?funcionarios.filter(f=>f.obra_id===obraEfetiva):funcionarios;
   const baseTransf=obraEfetiva?funcionarios.filter(f=>f.obra_transferencia_id===obraEfetiva):funcionarios.filter(f=>f.obra_transferencia_id);
-  const totalAtivos=baseAtivos.length;
+  const totalAtivos=baseObra.filter(f=>f.situacao==='ativo').length;
+  const totalDemitidos=baseObra.filter(f=>f.situacao==='inativo').length;
   const totalTransf=baseTransf.length;
   const theadTransf=`<tr><th>Funcionário</th><th>Função</th><th>Obra Origem → Destino</th><th>Empresa</th><th>Admissão</th><th>Transferência</th><th></th></tr>`;
   const theadAtivos=`<tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Empresa</th><th>Admissão</th><th>Situação</th><th></th></tr>`;
+  const theadDemitidos=`<tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Data Demissão</th><th>Tipo</th><th>Motivo</th><th></th></tr>`;
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div><div class="page-title">Funcionários</div><div class="page-subtitle" id="func-subtitle">${lista.length} de ${funcionarios.length} registros</div></div>
@@ -1237,7 +1314,8 @@ function renderFuncionarios(){
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       <div class="exp-tabs">
-        <div class="exp-tab${funcTab==='ativos'?' active':''}" id="tab-func-ativos" onclick="funcTab='ativos';filtroSituacao='';atualizarTabelaFuncionarios()">Ativos / Inativos <span style="background:var(--primary);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalAtivos}</span></div>
+        <div class="exp-tab${funcTab==='ativos'?' active':''}" id="tab-func-ativos" onclick="funcTab='ativos';filtroSituacao='';atualizarTabelaFuncionarios()">Ativos <span style="background:var(--primary);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalAtivos}</span></div>
+        <div class="exp-tab${funcTab==='demitidos'?' active':''}" id="tab-func-demitidos" onclick="funcTab='demitidos';filtroSituacao='';atualizarTabelaFuncionarios()">Demitidos <span style="background:var(--danger);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalDemitidos}</span></div>
         <div class="exp-tab${funcTab==='transferidos'?' active':''}" id="tab-func-transf" onclick="funcTab='transferidos';filtroSituacao='';atualizarTabelaFuncionarios()">Transferidos <span style="background:#B45309;color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalTransf}</span></div>
       </div>
     </div>
@@ -1245,19 +1323,14 @@ function renderFuncionarios(){
       <div class="search-box"><i class="ti ti-search"></i>
         <input id="func-busca" placeholder="Buscar por nome ou matrícula..." value="${busca}" oninput="busca=this.value;if(!_buscaHandlers.func)_buscaHandlers.func=makeBuscaHandler(v=>busca=v,atualizarTabelaFuncionarios,300);_buscaHandlers.func(this.value);this.focus()">
       </div>
-      <select id="filtro-situacao-sel" class="filter-select" style="${funcTab==='transferidos'?'display:none':''}" onchange="filtroSituacao=this.value;atualizarTabelaFuncionarios()">
-        <option value="">Todas situações</option>
-        <option value="ativo" ${filtroSituacao==='ativo'?'selected':''}>Ativo</option>
-        <option value="inativo" ${filtroSituacao==='inativo'?'selected':''}>Demitido</option>
-      </select>
       <select class="filter-select" onchange="filtroObra=this.value;filtroObraTocado=true;atualizarTabelaFuncionarios()">
         <option value="">Todas obras</option>${obraOptions}
       </select>
-      <button class="btn btn-sm" onclick="filtroSituacao='';filtroObra='';filtroObraTocado=false;busca='';document.getElementById('func-busca').value='';atualizarTabelaFuncionarios()"><i class="ti ti-x"></i> Limpar</button>
+      <button class="btn btn-sm" onclick="filtroObra='';filtroObraTocado=false;busca='';document.getElementById('func-busca').value='';atualizarTabelaFuncionarios()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div id="transf-banner" style="display:${funcTab==='transferidos'?'flex':'none'};align-items:center;gap:8px;padding:10px 14px;background:#FEF3C7;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:12px;font-size:13px;color:#92400E"><i class="ti ti-info-circle" style="font-size:16px;flex-shrink:0"></i><span>Funcionários transferidos aparecem aqui como <strong>histórico</strong> e não são contabilizados nos indicadores da obra de origem.</span></div>
     <div class="table-container"><table>
-      <thead id="func-thead">${funcTab==='transferidos'?theadTransf:theadAtivos}</thead>
+      <thead id="func-thead">${funcTab==='transferidos'?theadTransf:funcTab==='demitidos'?theadDemitidos:theadAtivos}</thead>
       <tbody id="func-tbody">${getFuncionariosRows(lista)}</tbody>
     </table></div>`;
 }
@@ -1268,17 +1341,14 @@ function exportFuncionariosExcel(){
   const dataEmissao=hoje.toLocaleDateString('pt-BR');
   const obraEfetiva=filtroObraTocado?filtroObra:(filtroObra||globalObraFiltro);
 
-  // Usar a lista filtrada atual (respeita busca, situação e obra)
-  let lista=funcionarios;
-  if(filtroSituacao)lista=lista.filter(f=>f.situacao===filtroSituacao);
-  if(obraEfetiva)lista=lista.filter(f=>f.obra_id===obraEfetiva);
-  if(busca)lista=lista.filter(f=>f.nome_completo?.toLowerCase().includes(busca.toLowerCase())||f.matricula?.includes(busca));
+  // Usa a mesma lista exibida na tela (respeita aba ativa, busca e obra)
+  const lista=getFuncionariosFiltrados();
 
   if(!lista.length){showToast('Nenhum funcionário para exportar.','error');return;}
 
   // Título dinâmico conforme filtros ativos
   const obraLabel=obraEfetiva?obras.find(o=>o.id===obraEfetiva)?.codigo||'':'Todas as Obras';
-  const situLabel=filtroSituacao?filtroSituacao.charAt(0).toUpperCase()+filtroSituacao.slice(1):'Todas Situações';
+  const situLabel=funcTab==='demitidos'?'Demitidos':funcTab==='transferidos'?'Transferidos':'Ativos';
 
   const rows=[];
   rows.push([`LISTA DE EFETIVO — GTEL`,'','','','','']);
@@ -1992,7 +2062,7 @@ async function renderFolgas(){
 function renderFolgasLocal(){
   const hoje=new Date();hoje.setHours(0,0,0,0);
   let lista=folgas;
-  if(globalObraFiltro){const obraObj=obras.find(o=>o.id===globalObraFiltro);const obraCod=obraObj?.codigo||'';lista=lista.filter(f=>f.funcionario?.obra?.codigo===obraCod);}
+  if(globalObraFiltro){lista=lista.filter(f=>String(f.funcionario?.obra_id)===String(globalObraFiltro));}
   if(folgasBusca)lista=lista.filter(f=>f.funcionario?.nome_completo?.toLowerCase().includes(folgasBusca.toLowerCase())||f.funcionario?.matricula?.includes(folgasBusca));
   if(folgasFiltro==='warn')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado)==='warn');});
   if(folgasFiltro==='danger')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado)==='danger');});
@@ -2004,7 +2074,7 @@ function renderFolgasLocal(){
     return aMin-bMin;
   });
   // totalVenc/totalWarn baseados na lista já filtrada por obra
-  const listaBase=globalObraFiltro?folgas.filter(f=>{const obraObj=obras.find(o=>o.id===globalObraFiltro);return f.funcionario?.obra?.codigo===(obraObj?.codigo||'');}):folgas;
+  const listaBase=globalObraFiltro?folgas.filter(f=>String(f.funcionario?.obra_id)===String(globalObraFiltro)):folgas;
   let totalVenc=0,totalWarn=0,totalProg=0;
   listaBase.forEach(f=>{const vencs=calcVencimentos(f);vencs.forEach((v,i)=>{const st=vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado);if(st==='danger')totalVenc++;if(st==='warn')totalWarn++;if(f[`saida${i+1}_programada`]&&!f[`saida${i+1}_real`])totalProg++;});});
   const obraOptions=obras.map(o=>`<option value="${o.id}">${o.codigo} — ${o.nome}</option>`).join('');
@@ -2081,7 +2151,8 @@ function renderFolgasLocal(){
   const mesLabel=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   const mesAtual=hoje.getMonth(),anoAtual=hoje.getFullYear();
   const proxMes=(mesAtual+1)%12,anoProxMes=mesAtual===11?anoAtual+1:anoAtual;
-  const agendMesAtual=[],agendProxMes=[];
+  const mes2=(mesAtual+2)%12,anoMes2=mesAtual>=10?anoAtual+1:anoAtual;
+  const agendMesAtual=[],agendProxMes=[],agendMes2=[];
   listaBase.forEach(function(f){
     for(var i=1;i<=5;i++){
       const real=f['saida'+i+'_real'];if(!real)continue;
@@ -2091,17 +2162,19 @@ function renderFolgasLocal(){
         const info={nome:(f.funcionario&&f.funcionario.nome_completo?f.funcionario.nome_completo.split(' ').slice(0,2).join(' '):'—'),saida:saida,busca:(f.funcionario&&f.funcionario.nome_completo?f.funcionario.nome_completo.split(' ')[0]:'')};
         if(m===mesAtual&&a===anoAtual)agendMesAtual.push(info);
         else if(m===proxMes&&a===anoProxMes)agendProxMes.push(info);
+        else if(m===mes2&&a===anoMes2)agendMes2.push(info);
         break;
       }
     }
   });
   agendMesAtual.sort(function(a,b){return a.saida-b.saida;});
   agendProxMes.sort(function(a,b){return a.saida-b.saida;});
+  agendMes2.sort(function(a,b){return a.saida-b.saida;});
 
   // Montar seção de cards
   var cardsHtml='';
   const temAgora=emFolgaAgora.length>0;
-  const temAgend=agendMesAtual.length>0||agendProxMes.length>0;
+  const temAgend=agendMesAtual.length>0||agendProxMes.length>0||agendMes2.length>0;
   if(temAgora||temAgend){
     var secTitle='<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><i class="ti ti-plane" style="color:var(--primary);font-size:16px"></i><span style="font-size:13px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px">Situação das Folgas</span></div>';
     var cardsCols='';
@@ -2166,6 +2239,19 @@ function renderFolgasLocal(){
       +itensProxM
       +'</div>';
 
+    // Card mês seguinte ao próximo (mes2)
+    var itensMes2=agendMes2.length>0
+      ?agendMes2.map(function(f){return itemFolgaRow(f);}).join('')
+      :'<div style="font-size:12px;color:var(--text-muted);padding:8px 0">Nenhuma saída agendada</div>';
+    cardsCols+='<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px;flex:1;min-width:220px;transition:box-shadow .15s" onmouseover="this.style.boxShadow=\'0 4px 16px rgba(0,0,0,.07)\'" onmouseout="this.style.boxShadow=\'none\'">'
+      +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
+      +'<i class="ti ti-calendar-month" style="font-size:16px;color:var(--text-muted)"></i>'
+      +'<span style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">'+mesLabel[mes2]+'/'+anoMes2+'</span>'
+      +'</div>'
+      +'<div style="font-size:28px;font-weight:700;color:var(--text);margin-bottom:10px">'+agendMes2.length+'<span style="font-size:13px;font-weight:400;color:var(--text-muted);margin-left:6px">agendada(s)</span></div>'
+      +itensMes2
+      +'</div>';
+
     cardsHtml=secTitle+'<div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">'+cardsCols+'</div>';
   }
   const alertsHtml=[
@@ -2209,13 +2295,20 @@ function renderFolgasLocal(){
 function openModalFolga(folgaId=null){
   const folga=folgaId?folgas.find(f=>f.id===folgaId)||null:null;
   const isEdit=!!folga;
-  const funcOptions=funcionarios.filter(f=>f.situacao==='ativo'||f.situacao==='transferido').map(f=>`<option value="${f.id}" ${folga?.funcionario_id===f.id?'selected':''}>${f.matricula} — ${f.nome_completo}</option>`).join('');
+  const candidatos=funcionarios.filter(f=>f.situacao==='ativo'||f.situacao==='transferido');
+  const funcSelecionado=folga?candidatos.find(f=>f.id===folga.funcionario_id):null;
+  const valorInicial=funcSelecionado?`${funcSelecionado.matricula||'—'} — ${funcSelecionado.nome_completo}`:'';
   document.body.insertAdjacentHTML('beforeend',`
     <div class="modal-overlay" id="modal-folga" onclick="if(event.target===this)closeModal('modal-folga')">
       <div class="modal">
         <div class="modal-header"><span class="modal-title">${isEdit?'Editar':'Nova'} Folga</span><button class="btn btn-sm" onclick="closeModal('modal-folga')"><i class="ti ti-x"></i></button></div>
         <div class="modal-body"><div class="form-grid">
-          <div class="form-group full"><label>Funcionário *</label><select id="fl-func"><option value="">Selecione...</option>${funcOptions}</select></div>
+          <div class="form-group full autocomplete-wrap">
+            <label>Funcionário *</label>
+            <input type="text" id="fl-func-busca" placeholder="Digite o nome ou matrícula..." autocomplete="off" value="${valorInicial}" oninput="funcAutocompleteInput('fl-func-busca','fl-func')" onfocus="funcAutocompleteInput('fl-func-busca','fl-func')">
+            <input type="hidden" id="fl-func" value="${folga?.funcionario_id||''}">
+            <div class="autocomplete-list" id="fl-func-busca-list"></div>
+          </div>
           <div class="form-group"><label>Data Início</label><input type="date" id="fl-inicio" value="${folga?.data_inicio||''}"></div>
           <div class="form-group"><label>Período Trabalhado</label>
             <select id="fl-periodo">
@@ -2235,6 +2328,7 @@ function openModalFolga(folgaId=null){
         </div>
       </div>
     </div>`);
+  initFuncAutocomplete('fl-func-busca','fl-func',candidatos);
 }
 
 async function saveFolga(id){
