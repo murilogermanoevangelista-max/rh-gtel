@@ -672,6 +672,7 @@ async function renderDashboard(){
   const emExp=comExp.filter(f=>['exp1','exp2','vencendo'].includes(f._exp.status)).length;
   const expVencendo=comExp.filter(f=>f._exp.status==='vencendo').length;
   const expVencidas=comExp.filter(f=>f._exp.status==='vencida').length;
+  const expVenceHoje=comExp.filter(f=>f._exp.restantes===0&&f._exp.status!=='efetivado').length;
 
   const folgasDash=globalObraFiltro?folgas.filter(f=>{const obraObj=obras.find(o=>o.id===globalObraFiltro);return f.funcionario?.obra?.codigo===(obraObj?.codigo||'');}):folgas;
   const feriasDash=globalObraFiltro?feriasData.filter(f=>{const obraObj=obras.find(o=>o.id===globalObraFiltro);return f.funcionario?.obra?.codigo===(obraObj?.codigo||'');}):feriasData;
@@ -743,6 +744,7 @@ async function renderDashboard(){
   const alojContratosVencendo=alojDash.filter(a=>{const d=parseDate(a.data_termino);if(!d)return false;const diff=Math.floor((d-hoje)/86400000);return diff>=0&&diff<=60;});
 
   const alertas=[];
+  if(expVenceHoje>0)alertas.push({tipo:'danger',icon:'ti-certificate',modulo:'Experiência',destino:'Ver funcionários',msg:`Experiência vence HOJE — decisão necessária`,qtd:expVenceHoje,link:'experiencia',filtroVar:'expFiltro',filtroVal:'vencehoje'});
   if(alojContratosVencidos.length>0)alertas.push({tipo:'danger',icon:'ti-home-off',modulo:'Alojamentos',destino:'Ver alojamentos',msg:`Contrato de alojamento vencido`,qtd:alojContratosVencidos.length,link:'alojamentos',filtroVar:'alojFiltroAtivo',filtroVal:'contratos_vencidos'});
   if(qtdAlojSemContas>0)alertas.push({tipo:'warning',icon:'ti-home-exclamation',modulo:'Alojamentos',destino:'Ver alojamentos',msg:`Contas não lançadas este mês`,qtd:qtdAlojSemContas,link:'alojamentos',filtroVar:'alojFiltroAtivo',filtroVal:'nao_lancadas'});
   if(alojContratosVencendo.length>0)alertas.push({tipo:'warning',icon:'ti-home-clock',modulo:'Alojamentos',destino:'Ver alojamentos',msg:`Contrato vencendo em 60 dias`,qtd:alojContratosVencendo.length,link:'alojamentos',filtroVar:'alojFiltroAtivo',filtroVal:'contratos_vencendo'});
@@ -1781,10 +1783,12 @@ function renderExperiencia(){
   const comExp=ativosLista.map(f=>({...f,_exp:calcExp(f)})).filter(f=>f._exp);
   const counts={exp1:0,exp2:0,vencendo:0,vencida:0,efetivado:0};
   comExp.forEach(f=>counts[f._exp.status]=(counts[f._exp.status]||0)+1);
+  counts.vencehoje=comExp.filter(f=>f._exp.restantes===0&&f._exp.status!=='efetivado').length;
   const emExpTotal=(counts.exp1||0)+(counts.exp2||0)+(counts.vencendo||0);
   const taxaEfet=comExp.length?Math.round((counts.efetivado||0)/comExp.length*100):0;
   let lista=comExp;
   if(expFiltro==='emexp')lista=comExp.filter(f=>['exp1','exp2','vencendo'].includes(f._exp.status));
+  else if(expFiltro==='vencehoje')lista=comExp.filter(f=>f._exp.restantes===0&&f._exp.status!=='efetivado');
   else if(expFiltro&&expFiltro!=='todos')lista=comExp.filter(f=>f._exp.status===expFiltro);
   if(expBuscaVal)lista=lista.filter(f=>(f.nome_completo||'').toLowerCase().includes(expBuscaVal.toLowerCase())||(f.matricula||'').includes(expBuscaVal));
   lista=[...lista].sort((a,b)=>{
@@ -1794,10 +1798,12 @@ function renderExperiencia(){
     return(a._exp.restantes||0)-(b._exp.restantes||0);
   });
   const alertas=[];
+  if(counts.vencehoje>0)alertas.push(`<div class="exp-alert danger"><i class="ti ti-alarm" style="font-size:24px;flex-shrink:0"></i><div><strong>${counts.vencehoje} experiência(s) vence(m) HOJE</strong><div style="font-size:13px;margin-top:2px">Decisão precisa ser tomada ainda hoje — efetivar ou desligar</div></div></div>`);
   if(counts.vencida>0)alertas.push(`<div class="exp-alert danger"><i class="ti ti-alert-triangle" style="font-size:24px;flex-shrink:0"></i><div><strong>${counts.vencida} experiência(s) vencida(s)</strong><div style="font-size:13px;margin-top:2px">Ação imediata necessária — efetivar ou desligar</div></div></div>`);
   if(counts.vencendo>0)alertas.push(`<div class="exp-alert warning"><i class="ti ti-clock" style="font-size:24px;flex-shrink:0"></i><div><strong>${counts.vencendo} vencendo em 15 dias</strong><div style="font-size:13px;margin-top:2px">Planejar efetivação ou desligamento</div></div></div>`);
   const cardsData=[
     {key:'emexp',label:'Em Exp.',value:emExpTotal,cls:'blue'},
+    {key:'vencehoje',label:'Vence Hoje',value:counts.vencehoje||0,cls:'red'},
     {key:'exp1',label:'Exp.1',value:counts.exp1||0,cls:'blue'},
     {key:'exp2',label:'Exp.2',value:counts.exp2||0,cls:'amber'},
     {key:'efetivado',label:'Efetivados',value:counts.efetivado||0,cls:'green'},
