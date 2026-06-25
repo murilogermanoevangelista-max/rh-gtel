@@ -431,6 +431,24 @@ function irParaAlertaDashboard(link,filtroVar,filtroVal){
   showPage(link);
 }
 
+function irParaPendObra(obraId,link,filtroVar,filtroVal){
+  if(obraId){
+    const sel=document.getElementById('global-obra-select');
+    if(sel)sel.value=obraId;
+    globalObraFiltro=obraId;
+    const obra=obras.find(o=>o.id===obraId);
+    const badge=document.getElementById('global-obra-badge');
+    if(badge){
+      if(obra){badge.textContent='🏗 '+(obra.codigo||obra.nome||'Obra selecionada');badge.style.display='block';}
+      else badge.style.display='none';
+    }
+    filtroObra=obraId;
+    filtroObraTocado=false;
+    feriasObraFiltro=obra?.codigo||'';
+  }
+  irParaAlertaDashboard(link,filtroVar,filtroVal);
+}
+
 function setGlobalObraFiltro(obraId){
   globalObraFiltro=obraId;
   const obra=obraId?obras.find(o=>o.id===obraId):null;
@@ -812,25 +830,25 @@ async function renderDashboard(){
   if(feriasProgFuturas>0)alertas.push({tipo:'info',icon:'ti-calendar-event',modulo:'Férias',destino:'Ver funcionários',msg:`Férias programada(s) — ainda não iniciadas`,qtd:feriasProgFuturas,link:'ferias',filtroVar:'feriasFiltro',filtroVal:'programado'});
 
   // ── Pendências agrupadas por obra ──────────────────────────────────────
-  // Estrutura: { 'CODIGO — NOME': { danger:0, warning:0, itens:{ 'chave do tipo de alerta': {tipo,icon,msg,qtd} } } }
+  // Estrutura: { 'CODIGO — NOME': { obraId, danger:0, warning:0, itens:{ 'chave do tipo de alerta': {tipo,icon,msg,qtd,link,filtroVar,filtroVal} } } }
   const pendObra={};
   const obraKeyDe=o=>o?`${o.codigo||'?'} — ${o.nome||''}`:'Sem obra';
-  function addPend(obraKey,tipo,icon,msg){
+  function addPend(obraKey,tipo,icon,msg,obraId,link,filtroVar,filtroVal){
     if(!obraKey)return;
-    if(!pendObra[obraKey])pendObra[obraKey]={danger:0,warning:0,itens:{}};
+    if(!pendObra[obraKey])pendObra[obraKey]={obraId:obraId||'',danger:0,warning:0,itens:{}};
     const chave=icon+'|'+msg;
-    if(!pendObra[obraKey].itens[chave])pendObra[obraKey].itens[chave]={tipo,icon,msg,qtd:0};
+    if(!pendObra[obraKey].itens[chave])pendObra[obraKey].itens[chave]={tipo,icon,msg,qtd:0,link,filtroVar,filtroVal};
     pendObra[obraKey].itens[chave].qtd++;
     pendObra[obraKey][tipo==='danger'?'danger':'warning']++;
   }
   // Alojamentos — contrato vencido / vencendo / contas não lançadas
-  alojContratosVencidos.forEach(a=>addPend(obraKeyDe(a.obra),'danger','ti-home-off','Contrato de alojamento vencido'));
-  alojContratosVencendo.forEach(a=>addPend(obraKeyDe(a.obra),'warning','ti-home-clock','Contrato vencendo em 60 dias'));
-  alojSemContas.forEach(a=>addPend(obraKeyDe(a.obra),'warning','ti-home-exclamation','Conta(s) não lançada(s) este mês'));
+  alojContratosVencidos.forEach(a=>addPend(obraKeyDe(a.obra),'danger','ti-home-off','Contrato de alojamento vencido',a.obra_id,'alojamentos','alojFiltroAtivo','contratos_vencidos'));
+  alojContratosVencendo.forEach(a=>addPend(obraKeyDe(a.obra),'warning','ti-home-clock','Contrato vencendo em 60 dias',a.obra_id,'alojamentos','alojFiltroAtivo','contratos_vencendo'));
+  alojSemContas.forEach(a=>addPend(obraKeyDe(a.obra),'warning','ti-home-exclamation','Conta(s) não lançada(s) este mês',a.obra_id,'alojamentos','alojFiltroAtivo','nao_lancadas'));
   // Experiência — vencida / vencendo
   comExp.forEach(f=>{
-    if(f._exp.status==='vencida')addPend(obraKeyDe(f.obra),'danger','ti-certificate','Experiência vencida');
-    if(f._exp.status==='vencendo')addPend(obraKeyDe(f.obra),'warning','ti-certificate','Experiência vencendo em 15 dias');
+    if(f._exp.status==='vencida')addPend(obraKeyDe(f.obra),'danger','ti-certificate','Experiência vencida',f.obra_id,'experiencia','expFiltro','vencida');
+    if(f._exp.status==='vencendo')addPend(obraKeyDe(f.obra),'warning','ti-certificate','Experiência vencendo em 15 dias',f.obra_id,'experiencia','expFiltro','vencendo');
   });
   // Folgas — vencida / vencendo
   folgasDash.forEach(f=>{
@@ -838,8 +856,8 @@ async function renderDashboard(){
     vencs.forEach((v,i)=>{
       const st=vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado);
       const obraKey=obraKeyDe(f.funcionario?.obra);
-      if(st==='danger')addPend(obraKey,'danger','ti-beach','Folga vencida');
-      if(st==='warn')addPend(obraKey,'warning','ti-beach','Folga com vencimento próximo');
+      if(st==='danger')addPend(obraKey,'danger','ti-beach','Folga vencida',f.funcionario?.obra_id,'folgas','folgasFiltro','danger');
+      if(st==='warn')addPend(obraKey,'warning','ti-beach','Folga com vencimento próximo',f.funcionario?.obra_id,'folgas','folgasFiltro','warn');
     });
   });
   // Férias — vencida / vencendo 60 dias (não inclui "em férias" pois é informativo, não cobrança)
@@ -848,8 +866,8 @@ async function renderDashboard(){
     if(!f.programado&&limMax){
       const diff=Math.floor((limMax-hoje)/86400000);
       const obraKey=obraKeyDe(f.funcionario?.obra);
-      if(diff<0)addPend(obraKey,'danger','ti-palm-tree','Período de férias vencido');
-      else if(diff<=60)addPend(obraKey,'warning','ti-palm-tree','Férias vencendo em 60 dias');
+      if(diff<0)addPend(obraKey,'danger','ti-palm-tree','Período de férias vencido',f.funcionario?.obra_id,'ferias','feriasFiltro','vencidas');
+      else if(diff<=60)addPend(obraKey,'warning','ti-palm-tree','Férias vencendo em 60 dias',f.funcionario?.obra_id,'ferias','feriasFiltro','vencendo60');
     }
   });
   // Ordenar obras: mais críticas primeiro, depois por total de pendências
@@ -912,7 +930,7 @@ async function renderDashboard(){
         </div>
         <div style="padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px">
           ${o.itensArr.map(it=>{const c=corAlerta(it.tipo);return`
-          <div style="display:flex;align-items:center;gap:6px;font-size:13px;background:${c.bg};color:${c.text};padding:5px 10px;border-radius:var(--radius)">
+          <div onclick="irParaPendObra('${o.obraId||''}','${it.link||''}','${it.filtroVar||''}','${it.filtroVal||''}')" onmouseover="this.style.filter='brightness(0.96)'" onmouseout="this.style.filter=''" style="display:flex;align-items:center;gap:6px;font-size:13px;background:${c.bg};color:${c.text};padding:5px 10px;border-radius:var(--radius);cursor:pointer;transition:filter .15s" title="Clique para ver detalhes nesta obra">
             <i class="ti ${it.icon}" style="font-size:14px"></i>
             <span style="font-weight:600">${it.qtd}</span> ${it.msg}
           </div>`}).join('')}
@@ -4432,9 +4450,9 @@ function renderAlojamentos(){
         <div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Total Caução</div><div style="font-size:18px;font-weight:700">R$ ${totalCaucao.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div></div>
       </div>
       <!-- Breakdown por obra -->
-      <div style="border-top:1px solid var(--border);padding-top:12px">
-        <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Por Obra</div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px">
+      <div style="border-top:1px solid var(--border);padding-top:14px">
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Por Obra</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
           ${(()=>{
             const _todas=globalObraFiltro?alojamentos.filter(a=>a.obra_id===globalObraFiltro):alojamentos;
             const _obrasMap={};
@@ -4448,13 +4466,23 @@ function renderAlojamentos(){
             return Object.entries(_obrasMap).map(([cod,o])=>{
               const pct=o.vagas?Math.round(o.ocup/o.vagas*100):0;
               const cor=pct>=100?'var(--danger)':pct>=80?'var(--warning)':'var(--primary)';
-              return '<div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;min-width:180px;flex:1">'
-                +'<div style="font-size:12px;font-weight:600;color:var(--primary-dark);margin-bottom:6px">'+cod+'</div>'
-                +'<div style="display:flex;gap:16px;font-size:12px">'
-                +'<div><span style="color:var(--text-muted)">Vagas </span><strong>'+o.ocup+'/'+o.vagas+'</strong></div>'
-                +'<div><span style="color:var(--text-muted)">Custo </span><strong>R$ '+o.custo.toLocaleString('pt-BR',{minimumFractionDigits:2})+'</strong></div>'
+              const disp=o.vagas-o.ocup;
+              return '<div onclick="if(\''+(o.id||'')+'\'){document.getElementById(\'global-obra-select\').value=\''+(o.id||'')+'\';setGlobalObraFiltro(\''+(o.id||'')+'\')}" '
+                +'onmouseover="this.style.borderColor=\'var(--primary)\'" onmouseout="this.style.borderColor=\'var(--border)\'" '
+                +'style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;cursor:pointer;transition:border-color .15s">'
+                +'<div style="display:flex;align-items:center;justify-content:between;gap:8px;margin-bottom:10px">'
+                +'<div style="font-size:13px;font-weight:700;color:var(--primary-dark);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(o.nome||'')+'">'+cod+'</div>'
                 +'</div>'
-                +'<div style="margin-top:6px;height:4px;background:var(--border);border-radius:2px"><div style="height:4px;border-radius:2px;background:'+cor+';width:'+pct+'%"></div></div>'
+                +'<div style="display:flex;align-items:baseline;gap:6px;margin-bottom:2px">'
+                +'<span style="font-size:24px;font-weight:700;color:var(--text)">'+o.ocup+'</span>'
+                +'<span style="font-size:13px;color:var(--text-muted)">/ '+o.vagas+' vagas</span>'
+                +'</div>'
+                +'<div style="font-size:11px;color:'+(disp===0?'var(--danger)':disp<=2?'var(--warning)':'var(--text-muted)')+';margin-bottom:10px">'+(disp===0?'Sem vagas disponíveis':disp+' disponível'+(disp!==1?'eis':''))+'</div>'
+                +'<div style="height:6px;background:var(--border);border-radius:3px;margin-bottom:10px"><div style="height:6px;border-radius:3px;background:'+cor+';width:'+pct+'%;transition:width .3s"></div></div>'
+                +'<div style="display:flex;align-items:center;justify-content:space-between;padding-top:8px;border-top:1px solid var(--border)">'
+                +'<span style="font-size:11px;color:var(--text-muted)">Custo mensal</span>'
+                +'<strong style="font-size:13px">R$ '+o.custo.toLocaleString('pt-BR',{minimumFractionDigits:2})+'</strong>'
+                +'</div>'
                 +'</div>';
             }).join('');
           })()}
