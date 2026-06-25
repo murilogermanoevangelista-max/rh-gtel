@@ -2410,7 +2410,69 @@ async function removeSaidaProgramada(folgaId,num){
   showToast('Programação removida.');renderFolgas();
 }
 
-function exportFolgasExcel(){showToast('Exportando Excel de folgas...');}
+function exportFolgasExcel(){
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+
+  // Usa a MESMA lista filtrada exibida na tela (obra, busca, status, nomes do mês)
+  let lista=folgas;
+  if(globalObraFiltro)lista=lista.filter(f=>String(f.funcionario?.obra_id)===String(globalObraFiltro));
+  if(folgasBusca)lista=lista.filter(f=>f.funcionario?.nome_completo?.toLowerCase().includes(folgasBusca.toLowerCase())||f.funcionario?.matricula?.includes(folgasBusca));
+  if(folgasNomesFiltro)lista=lista.filter(f=>folgasNomesFiltro.has(String(f.funcionario_id)));
+  if(folgasFiltro==='warn')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado)==='warn');});
+  if(folgasFiltro==='danger')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado)==='danger');});
+  if(folgasFiltro==='programadas')lista=lista.filter(f=>[1,2,3,4,5].some(n=>f[`saida${n}_programada`]&&!f[`saida${n}_real`]));
+
+  if(!lista.length){showToast('Nenhum registro para exportar.','error');return;}
+
+  lista=[...lista].sort((a,b)=>{
+    const aVencs=calcVencimentos(a);const bVencs=calcVencimentos(b);
+    const aMin=Math.min(...aVencs.filter((_,i)=>!a[`saida${i+1}_real`]).map(v=>v.getTime()),Infinity);
+    const bMin=Math.min(...bVencs.filter((_,i)=>!b[`saida${i+1}_real`]).map(v=>v.getTime()),Infinity);
+    return aMin-bMin;
+  });
+
+  const statusLabel={danger:'VENCIDA',warn:'PRÓXIMA',ok:'OK'};
+  const header=['Funcionário','Matrícula','Obra','Função','Período (dias)','Início','Folga (dias úteis)'];
+  for(let i=1;i<=5;i++)header.push(`Venc.${i}`,`Saída real ${i}`,`Programado ${i}`,`Status ${i}`);
+
+  const rows=[header];
+  lista.forEach(f=>{
+    const vencs=calcVencimentos(f);
+    const nDias=diasFolga(f.periodo_trabalhado);
+    const row=[
+      f.funcionario?.nome_completo||'—',
+      f.funcionario?.matricula||'',
+      f.funcionario?.obra?.codigo?`${f.funcionario.obra.codigo} — ${f.funcionario.obra.nome||''}`.trim():'—',
+      f.funcionario?.funcao?.nome||'',
+      f.periodo_trabalhado||'',
+      formatDate(f.data_inicio)||'',
+      nDias
+    ];
+    for(let i=0;i<5;i++){
+      const v=vencs[i];
+      const realDate=f[`saida${i+1}_real`];
+      const progDate=f[`saida${i+1}_programada`];
+      const st=vencStatus(v,realDate,f.periodo_trabalhado);
+      row.push(
+        v?formatDate(v):'',
+        realDate?formatDate(realDate):'',
+        progDate?formatDate(progDate):'',
+        realDate?'REALIZADA':statusLabel[st]||''
+      );
+    }
+    rows.push(row);
+  });
+
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[{wch:28},{wch:10},{wch:24},{wch:18},{wch:12},{wch:12},{wch:12},
+    ...Array(5).fill([{wch:12},{wch:12},{wch:12},{wch:11}]).flat()];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Folgas');
+  const dataEmissao=new Date().toLocaleDateString('pt-BR').replace(/\//g,'-');
+  const sufixoObra=globalObraFiltro?`_${obras.find(o=>o.id===globalObraFiltro)?.codigo||'obra'}`:'';
+  XLSX.writeFile(wb,`Folgas_GTEL${sufixoObra}_${dataEmissao}.xlsx`);
+  showToast('Excel exportado!');
+}
 
 // ─── FÉRIAS ───────────────────────────────────────────────────────────────────
 let feriasFiltro='todos',feriasBusca='',feriasObraFiltro='';
