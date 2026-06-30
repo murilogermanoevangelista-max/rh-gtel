@@ -2720,23 +2720,24 @@ function renderFeriasLocal(){
 
       // Usar fimPer para saber se o período aquisitivo já passou
       var perAqVenc = fimPer && fimPer < hoje;
+      var dM = limMax ? Math.floor((limMax-hoje)/86400000) : null;
 
-      if (!temProx && jaVenc) {
-        // Único período e limite máx já venceu — risco legal
+      if (jaVenc) {
+        // Limite máximo legal (dt_limite_maxima) já passou — risco legal real, independente de haver 2º período
         cor='var(--danger)'; bg='var(--danger-light)'; border='1px solid #FCA5A5'; icon='⚠️ ';
         corpo = '<span style="font-size:11px;font-weight:700;color:var(--danger)">1º Período Vencido</span>'
               + '<br><span style="font-size:10px;color:var(--danger)">Férias não gozadas — ação necessária</span>';
       } else if (temProx && perAqVenc) {
-        // Período aquisitivo já passou mas há 2º — discreto
+        // Período aquisitivo já encerrou, mas o prazo legal (limite máx.) ainda não venceu — não é risco, apenas informativo
         cor='var(--text-muted)'; bg='transparent'; border='none'; icon='';
-        corpo = '<span style="font-size:11px;color:var(--text-muted)">1º Período Vencido</span>';
+        corpo = '<span style="font-size:11px;color:var(--text-muted)">1º Período Encerrado'
+              + (dM!==null ? ' · '+dM+'d até o limite legal' : '') + '</span>';
       } else if (temProx) {
         // Período aquisitivo ainda vigente com 2º — discreto
         cor='var(--text-muted)'; bg='transparent'; border='none'; icon='';
         corpo = '<span style="font-size:11px;color:var(--text-muted)">1º Período em curso</span>';
       } else {
         // Único período, ainda vigente — mostrar data e contador normal
-        var dM = limMax ? Math.floor((limMax-hoje)/86400000) : null;
         var warnMax = dM!==null && dM<=60;
         cor = warnMax?'var(--warning)':'var(--text)';
         bg = warnMax?'var(--warning-light)':'transparent';
@@ -2747,8 +2748,8 @@ function renderFeriasLocal(){
     }
 
     // Retorno padrão para 1º período
-    // Se há 2º período ou é só status (em curso/vencido), não mostrar data
-    var mostrarData = !temProx && !jaVenc;
+    // Mostrar a data do limite legal sempre que for o caso de risco real (jaVenc) ou quando não há 2º período
+    var mostrarData = jaVenc || !temProx;
     return '<td style="padding:8px 12px">'
       + '<div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;white-space:nowrap">' + perAqui + '</div>'
       + '<div style="background:' + bg + ';border:' + border + ';border-radius:6px;padding:6px 10px;display:inline-block;min-width:140px">'
