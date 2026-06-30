@@ -307,6 +307,7 @@ input:focus,select:focus{border-color:var(--primary)}
     <div class="nav-item" onclick="showPage('alojamentos')"><i class="ti ti-home-2"></i> Alojamentos</div>
     <div class="nav-item" onclick="showPage('prestadores')"><i class="ti ti-id-badge"></i> Prestadores</div>
     <div class="nav-item" onclick="showPage('efetivo')"><i class="ti ti-users-group"></i> Efetivo</div>
+    <div class="nav-item" onclick="showPage('matriz')"><i class="ti ti-map-2"></i> Matriz de Comunicação</div>
     <div class="nav-section">Cadastros</div>
     <div class="nav-item" id="nav-usuarios" onclick="showPage('usuarios')"><i class="ti ti-shield-lock"></i> Usuários</div>
     <div class="nav-item" onclick="showPage('obras')"><i class="ti ti-building-skyscraper"></i> Obras / Contratos</div>
@@ -697,7 +698,8 @@ async function showPage(page){
       (page==='prestadores'&&t.includes('prestador'))||
       (page==='usuarios'&&t.includes('usuário'))||
       (page==='obras'&&t.includes('obra'))||
-      (page==='empresas'&&t.includes('empresa'))
+      (page==='empresas'&&t.includes('empresa'))||
+      (page==='matriz'&&t.includes('matriz'))
     );
   });
   document.getElementById('main-content').innerHTML='<div class="loading"><i class="ti ti-loader ti-spin"></i> Carregando...</div>';
@@ -718,6 +720,7 @@ async function showPage(page){
     else if(page==='usuarios')renderUsuarios();
     else if(page==='obras')renderObras();
     else if(page==='empresas')renderEmpresas();
+    else if(page==='matriz'){await loadMatriz();renderMatriz();}
   }catch(e){
     console.error('showPage erro em '+page+':',e);
     document.getElementById('main-content').innerHTML='<div style="padding:40px;color:var(--danger)"><i class="ti ti-alert-circle" style="font-size:32px;display:block;margin-bottom:12px"></i><strong>Erro ao carregar página "'+page+'"</strong><br><br><code style="font-size:12px">'+e.message+'</code><br><br><button class="btn" onclick="showPage(\''+page+'\')" >Tentar novamente</button></div>';
@@ -2002,7 +2005,7 @@ function renderExperiencia(){
       return`<tr>
         <td><div class="name-cell">
           ${avatarHtml(f.foto_url,f.nome_completo)}
-          <div>${nomeFichaHtml(f.id,f.nome_completo)}<div style="font-size:11px;color:var(--text-muted)">${f.matricula||'—'}</div></div>
+          <div>${nomeFichaHtml(f.id,f.nome_completo)}<div style="font-size:11px;color:var(--text-muted)">${f.matricula||'—'}${f.data_admissao?' · Adm: '+formatDate(f.data_admissao):''}</div></div>
         </div></td>
         <td style="font-size:12px">${funcaoNome}</td>
         <td>${f.periodo_experiencia==='30s'?'30d (único)':`${parseInt(f.periodo_experiencia)||45}+${parseInt(f.periodo_experiencia)||45}d`}</td>
@@ -4307,6 +4310,253 @@ async function deleteEmpresa(id,nome){
   const{error}=await sb.from('empresas').delete().eq('id',id);
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast('Empresa excluída.');showPage('empresas');
+}
+
+// ─── MATRIZ DE COMUNICAÇÃO ──────────────────────────────────────────────────
+let matrizData=[];
+let matrizFiltroObra='',matrizFiltroCargo='',matrizFiltroEstado='',matrizFiltroGestor='',matrizBusca='';
+
+const COORDS_CIDADES={
+  'aliança|pe':[-7.62,-35.19],'amarante|pi':[-6.25,-42.85],'arujá|sp':[-23.40,-46.32],
+  'barueri|sp':[-23.51,-46.88],'boa esperança do sul|sp':[-21.99,-48.39],'borda da mata|mg':[-22.26,-46.18],
+  'botucatu|sp':[-22.89,-48.45],'brumado|ba':[-14.20,-41.66],'campinas|sp':[-22.91,-47.06],
+  'campo mourão|pr':[-24.05,-52.38],'catalão|go':[-18.17,-47.95],'caçapava|sp':[-23.10,-45.71],
+  'cuiabá|mt':[-15.60,-56.10],'curitiba|pr':[-25.43,-49.27],'gavião peixoto|sp':[-21.80,-48.49],
+  'getulina|sp':[-21.76,-50.00],'itatiaia|rj':[-22.49,-44.56],'jaguaruana|ce':[-4.83,-37.78],
+  'narandiba|sp':[-22.62,-51.49],'paulinia|sp':[-22.76,-47.15],'rio de janeiro|rj':[-22.91,-43.17],
+  'salto|sp':[-23.20,-47.29],'santa rita de caldas|mg':[-22.17,-46.40],'sorocaba|sp':[-23.50,-47.46],
+  'são josé dos campos|sp':[-23.18,-45.88],'são paulo|sp':[-23.55,-46.63],'vargeão|sc':[-26.85,-52.13],
+  'venturosa|pe':[-8.57,-37.20],
+};
+const COORDS_CAPITAIS={ // fallback por estado, usado quando a cidade não está no dicionário acima
+  ac:[-9.97,-67.81],al:[-9.65,-35.73],ap:[0.04,-51.07],am:[-3.12,-60.02],ba:[-12.97,-38.51],
+  ce:[-3.73,-38.53],df:[-15.78,-47.93],es:[-20.32,-40.34],go:[-16.68,-49.25],ma:[-2.53,-44.30],
+  mt:[-15.60,-56.10],ms:[-20.47,-54.62],mg:[-19.92,-43.94],pa:[-1.46,-48.50],pb:[-7.12,-34.86],
+  pr:[-25.43,-49.27],pe:[-8.05,-34.88],pi:[-5.09,-42.80],rj:[-22.91,-43.17],rn:[-5.79,-35.21],
+  rs:[-30.03,-51.23],ro:[-8.76,-63.90],rr:[2.82,-60.67],sc:[-27.59,-48.55],sp:[-23.55,-46.63],
+  se:[-10.91,-37.07],to:[-10.18,-48.33],
+};
+function geocodeCidade(cidade,estado){
+  if(!cidade&&!estado)return null;
+  const key=(cidade||'').trim().toLowerCase()+'|'+(estado||'').trim().toLowerCase();
+  if(COORDS_CIDADES[key])return COORDS_CIDADES[key];
+  const uf=(estado||'').trim().toLowerCase();
+  if(COORDS_CAPITAIS[uf])return COORDS_CAPITAIS[uf];
+  return null;
+}
+const BR_BOUNDS={latMin:-33.75,latMax:5.27,lonMin:-73.99,lonMax:-34.79};
+function projetarCoord(lat,lon){
+  const x=(lon-BR_BOUNDS.lonMin)/(BR_BOUNDS.lonMax-BR_BOUNDS.lonMin)*480;
+  const y=(BR_BOUNDS.latMax-lat)/(BR_BOUNDS.latMax-BR_BOUNDS.latMin)*480;
+  return [x,y];
+}
+
+async function loadMatriz(){
+  const{data,error}=await sb.from('matriz_contatos').select('*').order('obra');
+  if(error){console.error('loadMatriz erro:',error);matrizData=[];return;}
+  matrizData=data||[];
+}
+
+function renderMatriz(){
+  let lista=matrizData;
+  if(matrizFiltroObra)lista=lista.filter(x=>x.obra===matrizFiltroObra);
+  if(matrizFiltroCargo)lista=lista.filter(x=>x.cargo===matrizFiltroCargo);
+  if(matrizFiltroEstado)lista=lista.filter(x=>x.estado===matrizFiltroEstado);
+  if(matrizFiltroGestor)lista=lista.filter(x=>x.gestor_obra===matrizFiltroGestor);
+  if(matrizBusca){
+    const b=matrizBusca.toLowerCase();
+    lista=lista.filter(x=>(x.nome||'').toLowerCase().includes(b)||(x.obra||'').toLowerCase().includes(b)||(x.cargo||'').toLowerCase().includes(b));
+  }
+
+  const obrasUnicas=[...new Set(matrizData.map(x=>x.obra).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  const cargosUnicos=[...new Set(matrizData.map(x=>x.cargo).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  const estadosUnicos=[...new Set(matrizData.map(x=>x.estado).filter(Boolean))].sort();
+  const gestoresUnicos=[...new Set(matrizData.map(x=>x.gestor_obra).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+
+  const totalContatos=matrizData.length;
+  const totalObras=obrasUnicas.length;
+  const totalEstados=estadosUnicos.length;
+  const totalGestores=gestoresUnicos.length;
+
+  // Agrupar por obra para os pins do mapa (1 pin por obra)
+  const porObra={};
+  matrizData.forEach(x=>{
+    if(!x.obra)return;
+    if(!porObra[x.obra])porObra[x.obra]={obra:x.obra,cidade:x.cidade,estado:x.estado,contatos:[]};
+    porObra[x.obra].contatos.push(x);
+  });
+  const obraFiltroAtivoSet=new Set(lista.map(x=>x.obra));
+  const pinsHtml=Object.values(porObra).map(o=>{
+    const coord=geocodeCidade(o.cidade,o.estado);
+    if(!coord)return '';
+    const[x,y]=projetarCoord(coord[0],coord[1]);
+    const dim=obraFiltroAtivoSet.has(o.obra)?1:0.25;
+    const ativo=matrizFiltroObra===o.obra;
+    return `<g style="opacity:${dim};cursor:pointer" onclick="matrizFiltroObra='${ativo?'':o.obra.replace(/'/g,"\\'")}';renderMatriz()">
+      <circle cx="${x}" cy="${y}" r="5" fill="${ativo?'#0F6E56':'#1D9E75'}" stroke="#fff" stroke-width="1.5"><title>${o.obra} — ${o.contatos.length} contato(s)</title></circle>
+    </g>`;
+  }).join('');
+
+  const rows=lista.map(x=>`
+    <tr>
+      <td><div style="font-weight:500">${x.nome||'—'}</div></td>
+      <td style="font-size:12px">${x.cargo||'—'}</td>
+      <td style="font-size:12px">${x.obra||'—'}</td>
+      <td style="font-size:12px;font-family:monospace">${x.crd||'—'}</td>
+      <td style="font-size:12px">${[x.cidade,x.estado].filter(Boolean).join(' — ')||'—'}</td>
+      <td style="font-size:12px">
+        ${x.email?`<div><i class="ti ti-mail" style="font-size:13px;margin-right:4px;color:var(--text-muted)"></i>${x.email}</div>`:''}
+        ${x.contato?`<div><i class="ti ti-phone" style="font-size:13px;margin-right:4px;color:var(--text-muted)"></i>${x.contato}</div>`:''}
+        ${!x.email&&!x.contato?'—':''}
+      </td>
+    </tr>`).join('')||'<tr><td colspan="6"><div class="empty-state"><i class="ti ti-map-2"></i><div>Nenhum contato encontrado — importe a planilha</div></div></td></tr>';
+
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title">Matriz de Comunicação</div><div class="page-subtitle">${totalContatos} contatos · ${totalObras} obras</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="openImportMatriz()"><i class="ti ti-upload"></i> Importar planilha</button>
+        <button class="btn btn-sm" onclick="exportMatrizExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+      <div class="metric-card"><div class="metric-value">${totalContatos}</div><div class="metric-label">Contatos</div></div>
+      <div class="metric-card"><div class="metric-value">${totalObras}</div><div class="metric-label">Obras</div></div>
+      <div class="metric-card"><div class="metric-value">${totalEstados}</div><div class="metric-label">Estados</div></div>
+      <div class="metric-card"><div class="metric-value">${totalGestores}</div><div class="metric-label">Gestores</div></div>
+    </div>
+    <div class="filters" style="margin-bottom:16px">
+      <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar por nome, obra ou cargo..." value="${matrizBusca}" oninput="matrizBusca=this.value;if(!_buscaHandlers.matriz)_buscaHandlers.matriz=makeBuscaHandler(v=>matrizBusca=v,renderMatriz,300);_buscaHandlers.matriz(this.value);this.focus()"></div>
+      <select class="filter-select" onchange="matrizFiltroObra=this.value;renderMatriz()">
+        <option value="">Todas as obras</option>${obrasUnicas.map(o=>`<option value="${o}" ${matrizFiltroObra===o?'selected':''}>${o}</option>`).join('')}
+      </select>
+      <select class="filter-select" onchange="matrizFiltroCargo=this.value;renderMatriz()">
+        <option value="">Todos os cargos</option>${cargosUnicos.map(c=>`<option value="${c}" ${matrizFiltroCargo===c?'selected':''}>${c}</option>`).join('')}
+      </select>
+      <select class="filter-select" onchange="matrizFiltroEstado=this.value;renderMatriz()">
+        <option value="">Todos os estados</option>${estadosUnicos.map(e=>`<option value="${e}" ${matrizFiltroEstado===e?'selected':''}>${e}</option>`).join('')}
+      </select>
+      <select class="filter-select" onchange="matrizFiltroGestor=this.value;renderMatriz()">
+        <option value="">Todos os gestores</option>${gestoresUnicos.map(g=>`<option value="${g}" ${matrizFiltroGestor===g?'selected':''}>${g}</option>`).join('')}
+      </select>
+      <button class="btn btn-sm" onclick="matrizFiltroObra='';matrizFiltroCargo='';matrizFiltroEstado='';matrizFiltroGestor='';matrizBusca='';renderMatriz()"><i class="ti ti-x"></i> Limpar</button>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px;margin-bottom:16px">
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">Localização das obras — clique em um pin para filtrar a tabela</div>
+      <svg viewBox="0 0 480 480" style="width:100%;max-height:380px">
+        <path d="M155,25 C220,15 280,35 320,55 C365,70 400,95 410,140 C420,185 415,230 395,270 C405,300 400,335 380,365 C365,395 335,415 300,430 C265,448 220,450 185,435 C155,450 120,440 100,415 C75,390 65,355 75,320 C55,300 45,270 55,235 C40,210 35,175 50,140 C45,110 60,80 90,60 C110,40 130,30 155,25 Z" fill="var(--bg)" stroke="var(--border)" stroke-width="1.5"></path>
+        ${pinsHtml}
+      </svg>
+    </div>
+    <div class="table-container"><table>
+      <thead><tr><th>Nome</th><th>Cargo</th><th>Obra</th><th>CRD</th><th>Cidade/UF</th><th>Contato</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function openImportMatriz(){
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-import-matriz" onclick="if(event.target===this)closeModal('modal-import-matriz')">
+      <div class="modal" style="max-width:600px">
+        <div class="modal-header">
+          <span class="modal-title"><i class="ti ti-upload"></i> Importar Matriz de Comunicação (Excel)</span>
+          <button class="btn btn-sm" onclick="closeModal('modal-import-matriz')"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div class="import-drop-area" id="import-drop-matriz" onclick="document.getElementById('import-file-matriz').click()"
+            ondragover="event.preventDefault();this.classList.add('drag-over')"
+            ondragleave="this.classList.remove('drag-over')"
+            ondrop="handleDropImportMatriz(event)">
+            <i class="ti ti-file-spreadsheet"></i>
+            <div style="font-weight:600;font-size:15px;margin-bottom:4px">Clique ou arraste o arquivo XLSX</div>
+            <div style="font-size:13px;color:var(--text-muted)">Planilha "Organograma ADM" — todas as abas com colunas OBRA/Nome/Cargo serão lidas</div>
+          </div>
+          <input type="file" id="import-file-matriz" accept=".xlsx,.xls" style="display:none" onchange="handleImportFileMatriz(this)">
+          <div id="import-preview-matriz" style="margin-top:16px"></div>
+          <div style="margin-top:12px;padding:10px;background:var(--warning-light);border-radius:var(--radius);font-size:12px;color:var(--warning)">
+            <strong>Atenção:</strong> a importação substitui completamente os dados atuais da Matriz de Comunicação pelos da nova planilha.
+          </div>
+        </div>
+        <div class="modal-footer" id="import-footer-matriz">
+          <button class="btn" onclick="closeModal('modal-import-matriz')">Cancelar</button>
+        </div>
+      </div>
+    </div>`);
+}
+function handleDropImportMatriz(event){
+  event.preventDefault();
+  document.getElementById('import-drop-matriz').classList.remove('drag-over');
+  const file=event.dataTransfer.files[0];
+  if(file)processImportMatrizFile(file);
+}
+function handleImportFileMatriz(input){
+  const file=input.files[0];if(file)processImportMatrizFile(file);
+}
+function processImportMatrizFile(file){
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const wb=XLSX.read(e.target.result,{type:'array'});
+      const colMap={
+        obra:'obra',crd:'crd',nome:'nome',cargo:'cargo',setor:'setor',email:'email',contato:'contato',
+        'lider imediato obra':'lider_imediato','gestor da obra':'gestor_obra','responsável pelo contrato':'responsavel_contrato',
+        cidade:'cidade',estado:'estado','tipo de obra':'tipo_obra',
+      };
+      let registros=[];
+      wb.SheetNames.forEach(sn=>{
+        const ws=wb.Sheets[sn];
+        const data=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+        if(!data.length)return;
+        const header=data[0].map(h=>String(h||'').trim().toLowerCase());
+        const idxObra=header.indexOf('obra');
+        const idxNome=header.indexOf('nome');
+        if(idxObra<0||idxNome<0)return; // aba não segue o padrão esperado, ignora
+        const idx={};
+        header.forEach((h,i)=>{if(colMap[h])idx[colMap[h]]=i;});
+        for(let r=1;r<data.length;r++){
+          const row=data[r];
+          if(!row||!row[idxObra]||!row[idxNome])continue;
+          const rec={};
+          Object.entries(idx).forEach(([campo,i])=>{rec[campo]=(row[i]||'').toString().trim()||null;});
+          // endereço: tentar colunas extras que não têm cabeçalho padronizado (geralmente após Tipo de Obra)
+          registros.push(rec);
+        }
+      });
+      window._matrizImportPreview=registros;
+      document.getElementById('import-preview-matriz').innerHTML=
+        `<div style="padding:10px;background:var(--success-light);border-radius:var(--radius);font-size:13px;color:var(--success)">
+          <strong>${registros.length} contato(s)</strong> encontrados na planilha, prontos para importar.
+        </div>`;
+      document.getElementById('import-footer-matriz').innerHTML=
+        `<button class="btn" onclick="closeModal('modal-import-matriz')">Cancelar</button>
+         <button class="btn btn-primary" onclick="confirmarImportMatriz()"><i class="ti ti-check"></i> Confirmar importação</button>`;
+    }catch(err){
+      document.getElementById('import-preview-matriz').innerHTML=
+        `<div style="padding:10px;background:var(--danger-light);border-radius:var(--radius);font-size:13px;color:var(--danger)">Erro ao ler o arquivo: ${err.message}</div>`;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+async function confirmarImportMatriz(){
+  const registros=window._matrizImportPreview||[];
+  if(!registros.length){showToast('Nenhum registro para importar','error');return;}
+  showToast('Importando...');
+  const{error:delErr}=await sb.from('matriz_contatos').delete().gte('created_at','1900-01-01');
+  if(delErr){showToast('Erro ao limpar dados anteriores: '+delErr.message,'error');return;}
+  const{error:insErr}=await sb.from('matriz_contatos').insert(registros);
+  if(insErr){showToast('Erro ao importar: '+insErr.message,'error');return;}
+  showToast(`${registros.length} contato(s) importado(s) com sucesso!`);
+  closeModal('modal-import-matriz');
+  await loadMatriz();renderMatriz();
+}
+function exportMatrizExcel(){
+  const rows=[['Obra','CRD','Nome','Cargo','Setor','Email','Contato','Líder Imediato','Gestor da Obra','Responsável pelo Contrato','Cidade','Estado','Tipo de Obra']];
+  matrizData.forEach(x=>rows.push([x.obra,x.crd,x.nome,x.cargo,x.setor,x.email,x.contato,x.lider_imediato,x.gestor_obra,x.responsavel_contrato,x.cidade,x.estado,x.tipo_obra]));
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Matriz');
+  XLSX.writeFile(wb,'Matriz_Comunicacao_GTEL.xlsx');
+  showToast('Excel exportado!');
 }
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
