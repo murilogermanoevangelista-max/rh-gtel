@@ -7,6 +7,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -4344,12 +4346,7 @@ function geocodeCidade(cidade,estado){
   if(COORDS_CAPITAIS[uf])return COORDS_CAPITAIS[uf];
   return null;
 }
-const BR_BOUNDS={latMin:-33.75,latMax:5.27,lonMin:-73.99,lonMax:-34.79};
-function projetarCoord(lat,lon){
-  const x=(lon-BR_BOUNDS.lonMin)/(BR_BOUNDS.lonMax-BR_BOUNDS.lonMin)*480;
-  const y=(BR_BOUNDS.latMax-lat)/(BR_BOUNDS.latMax-BR_BOUNDS.latMin)*480;
-  return [x,y];
-}
+let _matrizMapInstance=null;
 
 async function loadMatriz(){
   const{data,error}=await sb.from('matriz_contatos').select('*').order('obra');
@@ -4385,17 +4382,6 @@ function renderMatriz(){
     if(!porObra[x.obra])porObra[x.obra]={obra:x.obra,cidade:x.cidade,estado:x.estado,contatos:[]};
     porObra[x.obra].contatos.push(x);
   });
-  const obraFiltroAtivoSet=new Set(lista.map(x=>x.obra));
-  const pinsHtml=Object.values(porObra).map(o=>{
-    const coord=geocodeCidade(o.cidade,o.estado);
-    if(!coord)return '';
-    const[x,y]=projetarCoord(coord[0],coord[1]);
-    const dim=obraFiltroAtivoSet.has(o.obra)?1:0.25;
-    const ativo=matrizFiltroObra===o.obra;
-    return `<g style="opacity:${dim};cursor:pointer" onclick="matrizFiltroObra='${ativo?'':o.obra.replace(/'/g,"\\'")}';renderMatriz()">
-      <circle cx="${x}" cy="${y}" r="5" fill="${ativo?'#0F6E56':'#1D9E75'}" stroke="#fff" stroke-width="1.5"><title>${o.obra} — ${o.contatos.length} contato(s)</title></circle>
-    </g>`;
-  }).join('');
 
   const rows=lista.map(x=>`
     <tr>
@@ -4442,16 +4428,46 @@ function renderMatriz(){
       <button class="btn btn-sm" onclick="matrizFiltroObra='';matrizFiltroCargo='';matrizFiltroEstado='';matrizFiltroGestor='';matrizBusca='';renderMatriz()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px;margin-bottom:16px">
-      <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">Localização das obras — clique em um pin para filtrar a tabela</div>
-      <svg viewBox="0 0 480 480" style="width:100%;max-height:380px">
-        <path d="M155,25 C220,15 280,35 320,55 C365,70 400,95 410,140 C420,185 415,230 395,270 C405,300 400,335 380,365 C365,395 335,415 300,430 C265,448 220,450 185,435 C155,450 120,440 100,415 C75,390 65,355 75,320 C55,300 45,270 55,235 C40,210 35,175 50,140 C45,110 60,80 90,60 C110,40 130,30 155,25 Z" fill="var(--bg)" stroke="var(--border)" stroke-width="1.5"></path>
-        ${pinsHtml}
-      </svg>
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">Localização das obras — clique em um pin para filtrar a tabela (zoom e arraste para navegar)</div>
+      <div id="matriz-map" style="height:420px;border-radius:var(--radius);overflow:hidden"></div>
     </div>
     <div class="table-container"><table>
       <thead><tr><th>Nome</th><th>Cargo</th><th>Obra</th><th>CRD</th><th>Cidade/UF</th><th>Contato</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
+
+  initMatrizMap(porObra);
+}
+
+function initMatrizMap(porObra){
+  const el=document.getElementById('matriz-map');
+  if(!el||typeof L==='undefined')return;
+  if(_matrizMapInstance){_matrizMapInstance.remove();_matrizMapInstance=null;}
+  const map=L.map('matriz-map',{scrollWheelZoom:true}).setView([-15,-50],4);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom:18,
+  }).addTo(map);
+  const bounds=[];
+  Object.values(porObra).forEach(o=>{
+    const coord=geocodeCidade(o.cidade,o.estado);
+    if(!coord)return;
+    bounds.push(coord);
+    const ativo=matrizFiltroObra===o.obra;
+    const icon=L.divIcon({
+      className:'',
+      html:`<div style="width:16px;height:16px;border-radius:50%;background:${ativo?'#0F6E56':'#1D9E75'};border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></div>`,
+      iconSize:[16,16],iconAnchor:[8,8],
+    });
+    const marker=L.marker(coord,{icon}).addTo(map);
+    marker.bindPopup(`<strong>${o.obra}</strong><br>${[o.cidade,o.estado].filter(Boolean).join(' — ')}<br>${o.contatos.length} contato(s)`);
+    marker.on('click',()=>{
+      matrizFiltroObra=ativo?'':o.obra;
+      renderMatriz();
+    });
+  });
+  if(bounds.length)map.fitBounds(bounds,{padding:[30,30],maxZoom:6});
+  _matrizMapInstance=map;
 }
 
 function openImportMatriz(){
