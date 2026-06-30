@@ -445,6 +445,7 @@ function irParaPendObra(obraId,link,filtroVar,filtroVal){
     filtroObra=obraId;
     filtroObraTocado=false;
     feriasObraFiltro=obra?.codigo||'';
+    feriasObraTocado=false;
   }
   irParaAlertaDashboard(link,filtroVar,filtroVal);
 }
@@ -464,6 +465,7 @@ function setGlobalObraFiltro(obraId){
   filtroObra=obraId; // funcionários (usa id)
   filtroObraTocado=false; // troca no menu lateral sempre prevalece sobre escolha local antiga
   feriasObraFiltro=obra?.codigo||''; // férias (usa código)
+  feriasObraTocado=false; // troca no menu lateral sempre prevalece sobre escolha local antiga
   // re-renderizar a aba atual
   const pageMap={funcionarios:renderFuncionarios,experiencia:renderExperiencia,folgas:renderFolgas,ferias:renderFerias,alojamentos:renderAlojamentos,efetivo:renderEfetivo,dashboard:renderDashboard};
   if(pageMap[currentPage]) pageMap[currentPage]();
@@ -625,8 +627,9 @@ async function loadAll(){
 }
 
 async function loadFolgas(){
-  const {data}=await sb.from('folgas').select('*,funcionario:funcionarios(nome_completo,matricula,obra_id,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo))').order('funcionario_id');
+  const {data}=await sb.from('folgas').select('*,funcionario:funcionarios(nome_completo,matricula,obra_id,situacao,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo))').order('funcionario_id');
   let lista=data||[];
+  lista=lista.filter(x=>x.funcionario?.situacao!=='inativo'); // remove demitidos — histórico fica só na aba Demitidos
   if(obrasPermitidasIds){
     const codigosPermitidos=new Set(obras.map(o=>o.codigo));
     lista=lista.filter(x=>x.funcionario?.obra?.codigo&&codigosPermitidos.has(x.funcionario.obra.codigo));
@@ -635,8 +638,9 @@ async function loadFolgas(){
 }
 
 async function loadFerias(){
-  const {data}=await sb.from('ferias').select('*,funcionario:funcionarios(nome_completo,matricula,foto_url,obra_id,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo,centro_custo))').order('dt_limite_maxima');
+  const {data}=await sb.from('ferias').select('*,funcionario:funcionarios(nome_completo,matricula,foto_url,obra_id,situacao,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo,centro_custo))').order('dt_limite_maxima');
   let lista=data||[];
+  lista=lista.filter(x=>x.funcionario?.situacao!=='inativo'); // remove demitidos — histórico fica só na aba Demitidos
   if(obrasPermitidasIds){
     const codigosPermitidos=new Set(obras.map(o=>o.codigo));
     lista=lista.filter(x=>x.funcionario?.obra?.codigo&&codigosPermitidos.has(x.funcionario.obra.codigo));
@@ -1568,6 +1572,8 @@ function verFicha(id){
               <div class="ficha-field"><div class="ficha-field-label">Data de Admissão</div><div class="ficha-field-value">${formatDate(f.data_admissao)||'—'}</div></div>
               <div class="ficha-field"><div class="ficha-field-label">Data de Integração</div><div class="ficha-field-value">${formatDate(f.data_mobilizacao)||'—'}</div></div>
               <div class="ficha-field"><div class="ficha-field-label">Cidade / UF</div><div class="ficha-field-value">${[f.cidade,f.uf].filter(Boolean).join(' — ')||'—'}</div></div>
+              <div class="ficha-field"><div class="ficha-field-label">Salário</div><div class="ficha-field-value">${f.salario!=null?'R$ '+Number(f.salario).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):'—'}</div></div>
+              <div class="ficha-field"><div class="ficha-field-label">Tipo de Pagamento</div><div class="ficha-field-value">${f.tipo_pagamento?(f.tipo_pagamento==='horista'?'Horista':'Mensalista'):'—'}</div></div>
             </div>
           </div>
           ${demissaoSection}
@@ -1732,6 +1738,18 @@ function openModalFuncionario(func=null){
               <option value="30s" ${func?.periodo_experiencia=='30s'?'selected':''}>30 dias (único)</option>
             </select>
           </div>
+          <div class="form-group">
+            <label>Salário (R$)</label>
+            <input type="number" step="0.01" min="0" id="f-salario" value="${func?.salario??''}" placeholder="Ex: 2500.00">
+          </div>
+          <div class="form-group">
+            <label>Tipo de Pagamento</label>
+            <select id="f-tipo-pagamento">
+              <option value="">Selecione...</option>
+              <option value="horista" ${func?.tipo_pagamento==='horista'?'selected':''}>Horista</option>
+              <option value="mensalista" ${func?.tipo_pagamento==='mensalista'?'selected':''}>Mensalista</option>
+            </select>
+          </div>
           <div class="form-group full">
             <label>Função</label>
             <select id="f-funcao-select" style="display:${funcaoModoManual?'none':'block'}"><option value="">Selecione...</option>${funcaoOptions}</select>
@@ -1873,6 +1891,8 @@ async function saveFuncionario(id){
     situacao:isTransf?'ativo':situacao,
     tipo:document.getElementById('f-tipo').value,
     periodo_experiencia:parseInt(document.getElementById('f-periodo-exp').value),
+    salario:document.getElementById('f-salario').value?parseFloat(document.getElementById('f-salario').value):null,
+    tipo_pagamento:document.getElementById('f-tipo-pagamento').value||null,
     funcao_id:funcaoId,funcao_manual:funcaoManual,
     empresa_id:document.getElementById('f-empresa').value||null,
     obra_id:obraFinal,
@@ -2494,6 +2514,7 @@ function exportFolgasExcel(){
 
 // ─── FÉRIAS ───────────────────────────────────────────────────────────────────
 let feriasFiltro='todos',feriasBusca='',feriasObraFiltro='';
+let feriasObraTocado=false; // true quando o usuário interage manualmente com o select de obra desta página
 
 async function renderFerias(){
   await loadFerias();
@@ -2501,6 +2522,12 @@ async function renderFerias(){
 }
 function renderFeriasLocal(){
   const hoje=new Date();hoje.setHours(0,0,0,0);
+
+  // Sincronizar com o filtro global de obra (sidebar), a menos que o usuário tenha escolhido manualmente um filtro local diferente
+  if(!feriasObraTocado){
+    const obraG=globalObraFiltro?obras.find(o=>o.id===globalObraFiltro):null;
+    feriasObraFiltro=obraG?.codigo||'';
+  }
 
   // Aplicar filtro de obra (global ou local do módulo)
   const obraFiltroAtivo=feriasObraFiltro||'';
@@ -2915,10 +2942,10 @@ function renderFeriasLocal(){
     <!-- Filtros -->
     <div class="filters">
       <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar por nome ou matrícula..." value="${feriasBusca}" oninput="feriasBusca=this.value;if(!_buscaHandlers.ferias)_buscaHandlers.ferias=makeBuscaHandler(v=>feriasBusca=v,renderFeriasLocal,300);_buscaHandlers.ferias(this.value);this.focus()"></div>
-      <select class="filter-select" onchange="feriasObraFiltro=this.value;renderFerias()">
+      <select class="filter-select" onchange="feriasObraFiltro=this.value;feriasObraTocado=true;renderFerias()">
         <option value="">Todas as obras</option>${obraFilterOpts}
       </select>
-      <button class="btn btn-sm" onclick="feriasFiltro='todos';feriasBusca='';feriasObraFiltro='';renderFerias()"><i class="ti ti-x"></i> Limpar</button>
+      <button class="btn btn-sm" onclick="feriasFiltro='todos';feriasBusca='';feriasObraFiltro='';feriasObraTocado=true;renderFerias()"><i class="ti ti-x"></i> Limpar</button>
     </div>
 
     <!-- Tabela -->
