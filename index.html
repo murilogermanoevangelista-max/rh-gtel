@@ -4469,7 +4469,7 @@ function openImportMatriz(){
             ondrop="handleDropImportMatriz(event)">
             <i class="ti ti-file-spreadsheet"></i>
             <div style="font-weight:600;font-size:15px;margin-bottom:4px">Clique ou arraste o arquivo XLSX</div>
-            <div style="font-size:13px;color:var(--text-muted)">Planilha "Organograma ADM" — todas as abas com colunas OBRA/Nome/Cargo serão lidas</div>
+            <div style="font-size:13px;color:var(--text-muted)">Apenas a aba "Planilha1" do arquivo é importada — demais abas são ignoradas</div>
           </div>
           <input type="file" id="import-file-matriz" accept=".xlsx,.xls" style="display:none" onchange="handleImportFileMatriz(this)">
           <div id="import-preview-matriz" style="margin-top:16px"></div>
@@ -4502,30 +4502,39 @@ function processImportMatrizFile(file){
         'lider imediato obra':'lider_imediato','gestor da obra':'gestor_obra','responsável pelo contrato':'responsavel_contrato',
         cidade:'cidade',estado:'estado','tipo de obra':'tipo_obra',
       };
+      // Importar somente a aba "Planilha1" (as demais abas da pasta de trabalho são ignoradas)
+      const sheetName=wb.SheetNames.find(n=>n.trim().toLowerCase()==='planilha1');
+      if(!sheetName){
+        document.getElementById('import-preview-matriz').innerHTML=
+          `<div style="padding:10px;background:var(--danger-light);border-radius:var(--radius);font-size:13px;color:var(--danger)">A planilha não tem uma aba chamada "Planilha1". Verifique o arquivo enviado.</div>`;
+        return;
+      }
       let registros=[];
-      wb.SheetNames.forEach(sn=>{
-        const ws=wb.Sheets[sn];
-        const data=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
-        if(!data.length)return;
+      const ws=wb.Sheets[sheetName];
+      const data=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+      if(data.length){
         const header=data[0].map(h=>String(h||'').trim().toLowerCase());
         const idxObra=header.indexOf('obra');
         const idxNome=header.indexOf('nome');
-        if(idxObra<0||idxNome<0)return; // aba não segue o padrão esperado, ignora
-        const idx={};
-        header.forEach((h,i)=>{if(colMap[h])idx[colMap[h]]=i;});
-        for(let r=1;r<data.length;r++){
-          const row=data[r];
-          if(!row||!row[idxObra]||!row[idxNome])continue;
-          const rec={};
-          Object.entries(idx).forEach(([campo,i])=>{rec[campo]=(row[i]||'').toString().trim()||null;});
-          // endereço: tentar colunas extras que não têm cabeçalho padronizado (geralmente após Tipo de Obra)
-          registros.push(rec);
+        if(idxObra>=0&&idxNome>=0){
+          const idx={};
+          header.forEach((h,i)=>{if(colMap[h])idx[colMap[h]]=i;});
+          // Endereço e Foto não têm cabeçalho de texto na planilha — usam posição fixa de coluna (14 e 15)
+          for(let r=1;r<data.length;r++){
+            const row=data[r];
+            if(!row||!row[idxObra]||!row[idxNome])continue;
+            const rec={};
+            Object.entries(idx).forEach(([campo,i])=>{rec[campo]=(row[i]||'').toString().trim()||null;});
+            rec.endereco=(row[14]||'').toString().trim()||null;
+            rec.foto_url=(row[15]||'').toString().trim()||null;
+            registros.push(rec);
+          }
         }
-      });
+      }
       window._matrizImportPreview=registros;
       document.getElementById('import-preview-matriz').innerHTML=
         `<div style="padding:10px;background:var(--success-light);border-radius:var(--radius);font-size:13px;color:var(--success)">
-          <strong>${registros.length} contato(s)</strong> encontrados na planilha, prontos para importar.
+          <strong>${registros.length} contato(s)</strong> encontrados na aba "Planilha1", prontos para importar.
         </div>`;
       document.getElementById('import-footer-matriz').innerHTML=
         `<button class="btn" onclick="closeModal('modal-import-matriz')">Cancelar</button>
