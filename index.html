@@ -953,13 +953,14 @@ async function renderDashboard(){
       <i class="ti ti-arrow-right" style="font-size:11px;color:var(--text-muted);flex-shrink:0"></i>
     </div>`;}).join('');
 
-  const funcaoRows=Object.entries(byFuncao).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([fn,qtd])=>`
-    <div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)">
+  const funcaoRows=Object.entries(byFuncao).sort((a,b)=>b[1]-a[1]).map(([fn,qtd])=>`
+    <div onclick="irParaFuncaoDash('${fn.replace(/'/g,"\\'")}')" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''" style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;border-radius:4px;transition:background .15s" title="Clique para ver funcionários desta função">
       <div style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${fn}</div>
       <div style="font-weight:700;font-size:14px;color:var(--info);min-width:24px;text-align:right">${qtd}</div>
       <div style="width:100px;background:var(--border);border-radius:4px;height:6px;flex-shrink:0">
         <div style="background:var(--info);border-radius:4px;height:6px;width:${Math.round(qtd/(ativos||1)*100)}%"></div>
       </div>
+      <i class="ti ti-arrow-right" style="font-size:11px;color:var(--text-muted);flex-shrink:0"></i>
     </div>`).join('');
 
   const admBarras=admissoesMeses.map(m=>`
@@ -1185,6 +1186,7 @@ function calcFeriasStats(data,hoje){
 // ─── FUNCIONÁRIOS ─────────────────────────────────────────────────────────────
 let filtroSituacao='',filtroObra='',busca='';
 let filtroObraTocado=false; // true quando o usuário interage manualmente com o select de obra desta página
+let filtroFuncaoDash=''; // filtro de função vindo do clique no card do Dashboard
 
 let funcTab='ativos'; // 'ativos' | 'demitidos' | 'transferidos'
 
@@ -1212,6 +1214,7 @@ function getFuncionariosFiltrados(){
     if(obraEfetiva)lista=lista.filter(f=>f.obra_id===obraEfetiva);
   }
   if(busca){const b=busca.toLowerCase();lista=lista.filter(f=>f.nome_completo?.toLowerCase().includes(b)||f.matricula?.toLowerCase().includes(b));}
+  if(filtroFuncaoDash){lista=lista.filter(f=>(f.funcao?.nome||f.funcao_manual||'Sem função')===filtroFuncaoDash);}
   return lista;
 }
 function getFuncionariosRows(lista){
@@ -1309,10 +1312,22 @@ function atualizarTabelaFuncionarios(){
   if(tabDemitidos){tabDemitidos.className='exp-tab'+(funcTab==='demitidos'?' active':'');tabDemitidos.innerHTML='Demitidos <span style="background:var(--danger);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">'+totalDemitidos+'</span>';}
   if(tabTransf){tabTransf.className='exp-tab'+(funcTab==='transferidos'?' active':'');tabTransf.innerHTML='Transferidos <span style="background:#B45309;color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">'+totalTransf+'</span>';}
   if(banner)banner.style.display=funcTab==='transferidos'?'':'none';
+  const funcaoSelect=document.getElementById('func-funcao-select');
+  if(funcaoSelect&&funcaoSelect.value!==filtroFuncaoDash)funcaoSelect.value=filtroFuncaoDash;
+}
+function irParaFuncaoDash(funcaoNome){
+  filtroFuncaoDash=funcaoNome;
+  showPage('funcionarios');
+}
+function limparFiltroFuncaoDash(){
+  filtroFuncaoDash='';
+  renderFuncionarios();
 }
 function renderFuncionarios(){
   const obraEfetiva=filtroObraTocado?filtroObra:(filtroObra||globalObraFiltro);
   const obraOptions=obras.map(o=>`<option value="${o.id}" ${obraEfetiva===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
+  const funcaoOptionsSet=new Set(funcionarios.map(f=>f.funcao?.nome||f.funcao_manual||'Sem função'));
+  const funcaoOptions=Array.from(funcaoOptionsSet).sort((a,b)=>a.localeCompare(b,'pt-BR')).map(fn=>`<option value="${fn.replace(/"/g,'&quot;')}" ${filtroFuncaoDash===fn?'selected':''}>${fn}</option>`).join('');
   const lista=getFuncionariosFiltrados();
   const baseObra=obraEfetiva?funcionarios.filter(f=>f.obra_id===obraEfetiva):funcionarios;
   const baseTransf=obraEfetiva?funcionarios.filter(f=>f.obra_transferencia_id===obraEfetiva):funcionarios.filter(f=>f.obra_transferencia_id);
@@ -1332,9 +1347,9 @@ function renderFuncionarios(){
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       <div class="exp-tabs">
-        <div class="exp-tab${funcTab==='ativos'?' active':''}" id="tab-func-ativos" onclick="funcTab='ativos';filtroSituacao='';atualizarTabelaFuncionarios()">Ativos <span style="background:var(--primary);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalAtivos}</span></div>
-        <div class="exp-tab${funcTab==='demitidos'?' active':''}" id="tab-func-demitidos" onclick="funcTab='demitidos';filtroSituacao='';atualizarTabelaFuncionarios()">Demitidos <span style="background:var(--danger);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalDemitidos}</span></div>
-        <div class="exp-tab${funcTab==='transferidos'?' active':''}" id="tab-func-transf" onclick="funcTab='transferidos';filtroSituacao='';atualizarTabelaFuncionarios()">Transferidos <span style="background:#B45309;color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalTransf}</span></div>
+        <div class="exp-tab${funcTab==='ativos'?' active':''}" id="tab-func-ativos" onclick="funcTab='ativos';filtroSituacao='';filtroFuncaoDash='';atualizarTabelaFuncionarios()">Ativos <span style="background:var(--primary);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalAtivos}</span></div>
+        <div class="exp-tab${funcTab==='demitidos'?' active':''}" id="tab-func-demitidos" onclick="funcTab='demitidos';filtroSituacao='';filtroFuncaoDash='';atualizarTabelaFuncionarios()">Demitidos <span style="background:var(--danger);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalDemitidos}</span></div>
+        <div class="exp-tab${funcTab==='transferidos'?' active':''}" id="tab-func-transf" onclick="funcTab='transferidos';filtroSituacao='';filtroFuncaoDash='';atualizarTabelaFuncionarios()">Transferidos <span style="background:#B45309;color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalTransf}</span></div>
       </div>
     </div>
     <div class="filters">
@@ -1344,7 +1359,10 @@ function renderFuncionarios(){
       <select class="filter-select" onchange="filtroObra=this.value;filtroObraTocado=true;atualizarTabelaFuncionarios()">
         <option value="">Todas obras</option>${obraOptions}
       </select>
-      <button class="btn btn-sm" onclick="filtroObra='';filtroObraTocado=false;busca='';document.getElementById('func-busca').value='';atualizarTabelaFuncionarios()"><i class="ti ti-x"></i> Limpar</button>
+      <select id="func-funcao-select" class="filter-select" onchange="filtroFuncaoDash=this.value;atualizarTabelaFuncionarios()">
+        <option value="">Todas funções</option>${funcaoOptions}
+      </select>
+      <button class="btn btn-sm" onclick="filtroObra='';filtroObraTocado=false;busca='';filtroFuncaoDash='';document.getElementById('func-busca').value='';atualizarTabelaFuncionarios()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div id="transf-banner" style="display:${funcTab==='transferidos'?'flex':'none'};align-items:center;gap:8px;padding:10px 14px;background:#FEF3C7;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:12px;font-size:13px;color:#92400E"><i class="ti ti-info-circle" style="font-size:16px;flex-shrink:0"></i><span>Funcionários transferidos aparecem aqui como <strong>histórico</strong> e não são contabilizados nos indicadores da obra de origem.</span></div>
     <div class="table-container"><table>
