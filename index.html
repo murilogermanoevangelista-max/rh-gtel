@@ -1479,7 +1479,7 @@ function verFicha(id){
       +'<div class="ficha-field"><div class="ficha-field-label">Status</div><div class="ficha-field-value">'+stLabel+'</div></div>'
       +'<div class="ficha-field"><div class="ficha-field-label">Período</div><div class="ficha-field-value">'+periodoStr+'</div></div>'
       +'<div class="ficha-field"><div class="ficha-field-label">Fim 1º Período</div><div class="ficha-field-value">'+(formatDate(exp.fim1)||'—')+'</div></div>'
-      +'<div class="ficha-field"><div class="ficha-field-label">Fim 2º Período</div><div class="ficha-field-value">'+(formatDate(exp.fim2)||'—')+'</div></div>'
+      +(f.periodo_experiencia!=='30s'?'<div class="ficha-field"><div class="ficha-field-label">Fim 2º Período</div><div class="ficha-field-value">'+(formatDate(exp.fim2)||'—')+'</div></div>':'')
       +'<div class="ficha-field"><div class="ficha-field-label">Dias Restantes</div><div class="ficha-field-value" style="font-weight:700;color:'+diasColor+'">'+diasStr+'</div></div>'
       +'</div></div>';
   }
@@ -1895,7 +1895,7 @@ async function saveFuncionario(id){
     data_mobilizacao:document.getElementById('f-integracao').value||null,
     situacao:isTransf?'ativo':situacao,
     tipo:document.getElementById('f-tipo').value,
-    periodo_experiencia:parseInt(document.getElementById('f-periodo-exp').value),
+    periodo_experiencia:(()=>{const v=document.getElementById('f-periodo-exp').value;return v==='30s'?'30s':parseInt(v);})(),
     salario:document.getElementById('f-salario').value?parseFloat(document.getElementById('f-salario').value):null,
     tipo_pagamento:document.getElementById('f-tipo-pagamento').value||null,
     funcao_id:funcaoId,funcao_manual:funcaoManual,
@@ -2012,7 +2012,7 @@ function renderExperiencia(){
         <td style="font-size:12px">${funcaoNome}</td>
         <td>${f.periodo_experiencia==='30s'?'30d (único)':`${parseInt(f.periodo_experiencia)||45}+${parseInt(f.periodo_experiencia)||45}d`}</td>
         <td>${formatDate(e.fim1)}</td>
-        <td>${formatDate(e.fim2)}</td>
+        <td>${f.periodo_experiencia==='30s'?'—':formatDate(e.fim2)||'—'}</td>
         <td><span class="dias-restantes ${diasCls}">${diasTxt}</span></td>
         <td><span class="status-badge ${stClass}">${stLabel}</span></td>
         <td><div class="obs-cell" onclick="editObs('${f.id}')" title="${f.observacao_interna||'Adicionar observação'}">${f.observacao_interna||'+ obs'}</div></td>
