@@ -1269,6 +1269,7 @@ function getFuncionariosRows(lista){
     return lista.length?lista.map(f=>{
       const funcaoNome=f.funcao?.nome||f.funcao_manual||'—';
       const avatarContent=f.foto_url?`<img src="${f.foto_url}" alt="">`:initials(f.nome_completo);
+      const alojOrig=f.alojamento_origem_id?alojamentos.find(a=>String(a.id)===String(f.alojamento_origem_id)):null;
       return`<tr style="opacity:.85">
         <td><div class="name-cell">
           ${avatarHtml(f.foto_url,f.nome_completo)}
@@ -1279,6 +1280,7 @@ function getFuncionariosRows(lista){
           <div>📤 Origem: ${f.obra_transferencia?.codigo?f.obra_transferencia.codigo+' ':''} ${f.obra_transferencia?.nome||'—'}</div>
           <div style="margin-top:2px">📥 Destino: ${f.obra?.codigo?f.obra.codigo+' ':''} ${f.obra?.nome||'—'}</div>
         </div></td>
+        <td style="font-size:12px">${alojOrig?alojOrig.nome:'<span style="color:var(--text-muted)">—</span>'}</td>
         <td>${f.empresa?.nome||'—'}</td>
         <td>${formatDate(f.data_admissao)}</td>
         <td>${formatDate(f.data_transferencia)||'—'}</td>
@@ -1287,7 +1289,7 @@ function getFuncionariosRows(lista){
           <button class="btn btn-sm" title="Editar" onclick="editFuncionario('${f.id}')"><i class="ti ti-edit"></i></button>
         </div></td>
       </tr>`;}).join('')
-    :`<tr><td colspan="7"><div class="empty-state"><i class="ti ti-transfer"></i><div>Nenhum transferido encontrado nesta obra</div></div></td></tr>`;
+    :`<tr><td colspan="8"><div class="empty-state"><i class="ti ti-transfer"></i><div>Nenhum transferido encontrado nesta obra</div></div></td></tr>`;
   }
   return lista.length?lista.map(f=>{
     const funcaoNome=f.funcao?.nome||f.funcao_manual||'—';
@@ -1321,7 +1323,7 @@ function atualizarTabelaFuncionarios(){
   const totalAtivos=baseAtivos;
   const totalDemitidos=baseDemitidos;
   const totalTransf=baseTransf.length;
-  const theadTransf='<tr><th>Funcionário</th><th>Função</th><th>Obra Origem → Destino</th><th>Empresa</th><th>Admissão</th><th>Transferência</th><th></th></tr>';
+  const theadTransf='<tr><th>Funcionário</th><th>Função</th><th>Obra Origem → Destino</th><th>Alojamento na Origem</th><th>Empresa</th><th>Admissão</th><th>Transferência</th><th></th></tr>';
   const theadAtivos='<tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Empresa</th><th>Admissão</th><th>Situação</th><th></th></tr>';
   const theadDemitidos='<tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Data Demissão</th><th>Tipo</th><th>Motivo</th><th></th></tr>';
   const sub=document.getElementById('func-subtitle');
@@ -1361,7 +1363,7 @@ function renderFuncionarios(){
   const totalAtivos=baseObra.filter(f=>f.situacao==='ativo').length;
   const totalDemitidos=baseObra.filter(f=>f.situacao==='inativo').length;
   const totalTransf=baseTransf.length;
-  const theadTransf=`<tr><th>Funcionário</th><th>Função</th><th>Obra Origem → Destino</th><th>Empresa</th><th>Admissão</th><th>Transferência</th><th></th></tr>`;
+  const theadTransf=`<tr><th>Funcionário</th><th>Função</th><th>Obra Origem → Destino</th><th>Alojamento na Origem</th><th>Empresa</th><th>Admissão</th><th>Transferência</th><th></th></tr>`;
   const theadAtivos=`<tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Empresa</th><th>Admissão</th><th>Situação</th><th></th></tr>`;
   const theadDemitidos=`<tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Data Demissão</th><th>Tipo</th><th>Motivo</th><th></th></tr>`;
   const totalNaObraInicial=funcTab==='transferidos'?totalTransf:funcTab==='demitidos'?totalDemitidos:totalAtivos;
@@ -1520,10 +1522,19 @@ async function verFicha(id){
     for(let i=1;i<=5;i++){
       const proj=fl['saida'+i+'_projecao'];
       const real=fl['saida'+i+'_real'];
-      if(proj||real)vencs.push({num:i,proj:formatDate(proj),real:formatDate(real),status:real?'✅ Realizada':'⏳ Projetada'});
+      const prog=fl['saida'+i+'_programada'];
+      if(proj||real||prog){
+        const dataExibida=real?formatDate(real):prog?formatDate(prog):formatDate(proj);
+        const status=real?'✅ Realizada':prog?'📅 Programada':'⏳ Projetada';
+        vencs.push({num:i,data:dataExibida,status,real:!!real,prog:!!prog});
+      }
     }
     const passagemStr=[fl.tipo_passagem_aerea?'✈️ Aérea':'',fl.tipo_passagem_terrestre?'🚌 Terrestre':''].filter(Boolean).join(' · ')||'—';
-    const vencsHtml=vencs.map(v=>'<div style="background:'+(v.real?'#F0FDF4':'var(--bg)')+';border:1px solid '+(v.real?'#BBF7D0':'var(--border)')+';border-radius:var(--radius);padding:6px 10px;font-size:12px"><div style="font-weight:600;color:var(--text-muted)">Venc.'+v.num+'</div><div>'+(v.real||v.proj)+'</div><div style="font-size:10px;color:var(--text-muted)">'+v.status+'</div></div>').join('');
+    const vencsHtml=vencs.map(v=>{
+      const bg=v.real?'#F0FDF4':v.prog?'#EFF6FF':'var(--bg)';
+      const bd=v.real?'#BBF7D0':v.prog?'#BFDBFE':'var(--border)';
+      return'<div style="background:'+bg+';border:1px solid '+bd+';border-radius:var(--radius);padding:6px 10px;font-size:12px"><div style="font-weight:600;color:var(--text-muted)">Venc.'+v.num+'</div><div>'+v.data+'</div><div style="font-size:10px;color:var(--text-muted)">'+v.status+'</div></div>';
+    }).join('');
     folgasSection='<div class="ficha-section">'
       +'<div class="ficha-section-title"><i class="ti ti-tree" style="margin-right:6px"></i>Folgas de Campo</div>'
       +'<div class="ficha-grid">'
@@ -1998,6 +2009,15 @@ async function saveFuncionario(id){
       if(integracaoSelecionada===existente.data_mobilizacao)integracaoSelecionada=null;
     }
   }
+  // ── Histórico de transferência: só é regravado quando o usuário está ATIVAMENTE transferindo
+  // nesta edição (isTransf=true). Em qualquer outra edição (ex: trocar salário, alojamento, etc.),
+  // preserva o histórico já existente — sem isso, cada edição futura apagava a transferência anterior.
+  const transferidoFinal=isTransf?true:(existente?.transferido||false);
+  const tipoTransferenciaFinal=isTransf?tipoTransferencia:(existente?.tipo_transferencia||null);
+  const obraTransferenciaFinal=isTransf?obraOrigem:(existente?.obra_transferencia_id||null);
+  const dataTransferenciaFinal=isTransf?(document.getElementById('f-data-transf').value||null):(existente?.data_transferencia||null);
+  const centroCustoTransfFinal=isTransf?(document.getElementById('f-centro-custo').value.trim()||null):(existente?.centro_custo_transferencia||null);
+  const dataDesmobFinal=isTransf&&tipoTransferencia==='envio'?(document.getElementById('f-desmobilizacao').value||null):(existente?.data_desmobilizacao||null);
   const payload={
     matricula:mat,nome_completo:nome,
     data_admissao:document.getElementById('f-admissao').value||null,
@@ -2016,12 +2036,12 @@ async function saveFuncionario(id){
     cidade:document.getElementById('f-cidade').value.trim()||null,
     uf:document.getElementById('f-uf').value||null,
     observacao_interna:document.getElementById('f-obs').value.trim()||null,
-    transferido:isTransf,
-    tipo_transferencia:isTransf?tipoTransferencia:null,
-    obra_transferencia_id:obraOrigem,
-    data_transferencia:isTransf?document.getElementById('f-data-transf').value||null:null,
-    centro_custo_transferencia:isTransf?document.getElementById('f-centro-custo').value.trim()||null:null,
-    data_desmobilizacao:isTransf&&tipoTransferencia==='envio'?document.getElementById('f-desmobilizacao').value||null:null,
+    transferido:transferidoFinal,
+    tipo_transferencia:tipoTransferenciaFinal,
+    obra_transferencia_id:obraTransferenciaFinal,
+    data_transferencia:dataTransferenciaFinal,
+    centro_custo_transferencia:centroCustoTransfFinal,
+    data_desmobilizacao:dataDesmobFinal,
     data_demissao:isDemitido?document.getElementById('f-data-demissao').value||null:null,
     tipo_demissao:isDemitido?document.getElementById('f-tipo-demissao').value||null:null,
     motivo_demissao:isDemitido?document.getElementById('f-motivo-demissao').value.trim()||null:null,
