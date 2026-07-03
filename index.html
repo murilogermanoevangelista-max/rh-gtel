@@ -1697,15 +1697,118 @@ async function exportFichaPDF(id){
 function exportFichaExcel(id){
   const f=funcionarios.find(x=>x.id===id);if(!f)return;
   const funcaoNome=f.funcao?.nome||f.funcao_manual||'—';
-  const dados=[['FICHA DE REGISTRO — GTEL RH Manager',''],['Emitido em',new Date().toLocaleDateString('pt-BR')],['',''],
-    ['DADOS PROFISSIONAIS',''],['Nome Completo',f.nome_completo||'—'],['Matrícula',f.matricula||'—'],
-    ['Função',funcaoNome],['Empresa',f.empresa?.nome||'—'],
-    ['Obra / Contrato',`${f.obra?.codigo||''} ${f.obra?.nome||'—'}`.trim()],
-    ['Data de Admissão',formatDate(f.data_admissao)],['Data de Integração',formatDate(f.data_mobilizacao)],
-    ['Situação',f.situacao||'—'],['Cidade',f.cidade||'—'],['UF',f.uf||'—']];
-  const ws=XLSX.utils.aoa_to_sheet(dados);ws['!cols']=[{wch:30},{wch:40}];
-  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Ficha');
-  XLSX.writeFile(wb,`Ficha_${(f.nome_completo||'funcionario').replace(/\s+/g,'_')}.xlsx`);
+  const empresaObj=f.empresa_id?empresas.find(e=>e.id===f.empresa_id):null;
+  const exp=calcExp(f);
+  const contratoExpStr=(exp&&exp.status!=='efetivado')?'SIM':'';
+  const prazoExpStr=exp?(f.periodo_experiencia==='30s'?'30 dias (único)':(f.periodo_experiencia||45)+' + '+(f.periodo_experiencia||45)+' dias'):'';
+  const salarioStr=f.salario!=null?'R$ '+Number(f.salario).toLocaleString('pt-BR',{minimumFractionDigits:2}):'';
+  const catFuncional=f.tipo_pagamento?f.tipo_pagamento.toUpperCase():'';
+  const obraStr=(f.obra?.codigo?f.obra.codigo+' ':'')+(f.obra?.nome||'');
+
+  const NCOLS=6;
+  const dados=[];
+  const merges=[];
+  let r=0;
+  function pushRow(){dados.push(new Array(NCOLS).fill(''));return r++;}
+  function addField(rowIdx,items){
+    const row=dados[rowIdx];
+    let c=0;
+    items.forEach(it=>{
+      row[c]=it.text;
+      if(it.span>1)merges.push({s:{r:rowIdx,c},e:{r:rowIdx,c:c+it.span-1}});
+      c+=it.span;
+    });
+  }
+  function section(labelItems,valueItems){
+    addField(pushRow(),labelItems);
+    addField(pushRow(),valueItems);
+  }
+  function full(text){addField(pushRow(),[{text,span:NCOLS}]);}
+  function blankRow(){pushRow();}
+
+  full('FICHA DE REGISTRO — GTEL RH MANAGER');
+  full('Emitido em: '+new Date().toLocaleDateString('pt-BR')+' às '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}));
+  blankRow();
+
+  section(
+    [{text:'OBRA/CRD',span:1},{text:'NOME DA EMPRESA',span:3},{text:'CNPJ',span:2}],
+    [{text:obraStr,span:1},{text:empresaObj?.nome||'',span:3},{text:empresaObj?.cnpj||'',span:2}]
+  );
+  section(
+    [{text:'MATRÍCULA',span:1},{text:'NOME DO FUNCIONÁRIO',span:5}],
+    [{text:f.matricula||'',span:1},{text:f.nome_completo||'',span:5}]
+  );
+  section(
+    [{text:'ENDEREÇO',span:2},{text:'NÚMERO',span:1},{text:'COMPLEMENTO',span:1},{text:'BAIRRO',span:2}],
+    [{text:'',span:2},{text:'',span:1},{text:'',span:1},{text:'',span:2}]
+  );
+  section(
+    [{text:'CIDADE',span:2},{text:'UF',span:1},{text:'CEP',span:1},{text:'TEL./CELULAR',span:2}],
+    [{text:f.cidade||'',span:2},{text:f.uf||'',span:1},{text:'',span:1},{text:'',span:2}]
+  );
+  section(
+    [{text:'DT.NASCIMENTO',span:1},{text:'SEXO',span:1},{text:'RAÇA/COR',span:1},{text:'ESTADO CIVIL',span:3}],
+    [{text:'',span:1},{text:'',span:1},{text:'',span:1},{text:'',span:3}]
+  );
+  section(
+    [{text:'NATURALIDADE',span:3},{text:'UF',span:1},{text:'NACIONALIDADE',span:2}],
+    [{text:'',span:3},{text:'',span:1},{text:'',span:2}]
+  );
+  section(
+    [{text:'NOME DA MÃE',span:3},{text:'NOME DO PAI',span:3}],
+    [{text:'',span:3},{text:'',span:3}]
+  );
+  section(
+    [{text:'CPF',span:1},{text:'RG',span:1},{text:'UF RG',span:1},{text:'DT EXP RG',span:1},{text:'Nº CARTÃO SUS',span:2}],
+    [{text:'',span:1},{text:'',span:1},{text:'',span:1},{text:'',span:1},{text:'',span:2}]
+  );
+  section(
+    [{text:'CTPS',span:1},{text:'SÉRIE',span:1},{text:'UF CTPS',span:1},{text:'DT EXP CP',span:1},{text:'RESERVISTA',span:2}],
+    [{text:'',span:1},{text:'',span:1},{text:'',span:1},{text:'',span:1},{text:'',span:2}]
+  );
+  section(
+    [{text:'PIS',span:2},{text:'CNH',span:1},{text:'CATEGORIA',span:1},{text:'DT. VALIDADE CNH',span:2}],
+    [{text:'',span:2},{text:'',span:1},{text:'',span:1},{text:'',span:2}]
+  );
+  section(
+    [{text:'TÍTULO DE ELEITOR',span:2},{text:'ZONA',span:1},{text:'SEÇÃO',span:1},{text:'MUNICÍPIO',span:1},{text:'GRAU DE INSTRUÇÃO',span:1}],
+    [{text:'',span:2},{text:'',span:1},{text:'',span:1},{text:'',span:1},{text:'',span:1}]
+  );
+  section(
+    [{text:'DATA DE ADMISSÃO',span:1},{text:'FUNÇÃO',span:2},{text:'SALÁRIO',span:1},{text:'CAT. FUNCIONAL',span:2}],
+    [{text:formatDate(f.data_admissao)||'',span:1},{text:funcaoNome,span:2},{text:salarioStr,span:1},{text:catFuncional,span:2}]
+  );
+  section(
+    [{text:'CONTRATO DE EXPERIÊNCIA',span:2},{text:'PRAZO DO CONTRATO DE EXPERIÊNCIA',span:2},{text:'OPÇÃO PELO VALE TRANSPORTE',span:2}],
+    [{text:contratoExpStr,span:2},{text:prazoExpStr,span:2},{text:'',span:2}]
+  );
+
+  blankRow();
+  full('DADOS BANCÁRIOS');
+  section(
+    [{text:'BANCO',span:1},{text:'AGÊNCIA',span:1},{text:'CONTA',span:2},{text:'TIPO DA CONTA',span:2}],
+    [{text:'',span:1},{text:'',span:1},{text:'',span:2},{text:'',span:2}]
+  );
+
+  blankRow();
+  full('DADOS DOS DEPENDENTES');
+  addField(pushRow(),[{text:'ITEM',span:1},{text:'NOME',span:2},{text:'SEXO',span:1},{text:'DT NASCIMENTO',span:1},{text:'GRAU DE PARENTESCO',span:1}]);
+  addField(pushRow(),[{text:'Nenhum dependente cadastrado no sistema',span:NCOLS}]);
+
+  blankRow();blankRow();
+  section(
+    [{text:'POLEGAR',span:2},{text:'ASSINATURA DO FUNCIONÁRIO',span:2},{text:'RESPONSÁVEL LEGAL',span:2}],
+    [{text:'',span:2},{text:'',span:2},{text:'',span:2}]
+  );
+  blankRow();blankRow();blankRow();
+
+  const ws=XLSX.utils.aoa_to_sheet(dados);
+  ws['!merges']=merges;
+  ws['!cols']=[{wch:18},{wch:18},{wch:18},{wch:18},{wch:18},{wch:18}];
+
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Ficha de Registro');
+  XLSX.writeFile(wb,`FichaRegistro_${(f.nome_completo||'funcionario').replace(/\s+/g,'_')}.xlsx`);
   showToast('Excel exportado com sucesso!');
 }
 
