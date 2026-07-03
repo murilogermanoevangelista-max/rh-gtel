@@ -304,6 +304,7 @@ input:focus,select:focus{border-color:var(--primary)}
     <div class="nav-item active" onclick="showPage('dashboard')"><i class="ti ti-dashboard"></i> Dashboard</div>
     <div class="nav-item" onclick="showPage('funcionarios')"><i class="ti ti-users"></i> Funcionários</div>
     <div class="nav-item" onclick="showPage('experiencia')"><i class="ti ti-certificate"></i> Experiência</div>
+    <div class="nav-item" onclick="showPage('treinamentos')"><i class="ti ti-school"></i> Treinamentos</div>
     <div class="nav-item" onclick="showPage('folgas')"><i class="ti ti-beach"></i> Folgas de Campo</div>
     <div class="nav-item" onclick="showPage('ferias')"><i class="ti ti-sunglasses"></i> Férias</div>
     <div class="nav-item" onclick="showPage('alojamentos')"><i class="ti ti-home-2"></i> Alojamentos</div>
@@ -339,7 +340,7 @@ const SUPABASE_URL='https://lqggoshphakeuufibdno.supabase.co';
 const SUPABASE_KEY='sb_publishable_QlnJaa5xdUXePvXFV6QFwQ_AmMk639T';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[];
+let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[];
 let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'nao_lancadas' | null
 let alojBusca='';
 let bannerNaoLancadasAberto=false;
@@ -678,6 +679,19 @@ async function loadPrestadores(){
   prestadores=lista;
 }
 
+async function loadTreinamentos(){
+  const{data}=await sb.from('treinamentos')
+    .select('*,funcionario:funcionarios(nome_completo,matricula,foto_url,obra_id,situacao,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo))')
+    .order('data_vencimento');
+  let lista=data||[];
+  lista=lista.filter(x=>x.funcionario?.situacao!=='inativo'); // some junto com o funcionário quando demitido
+  if(obrasPermitidasIds){
+    const codigosPermitidos=new Set(obras.map(o=>o.codigo));
+    lista=lista.filter(x=>x.funcionario?.obra?.codigo&&codigosPermitidos.has(x.funcionario.obra.codigo));
+  }
+  treinamentos=lista;
+}
+
 let currentPage='dashboard';
 
 async function showPage(page){
@@ -694,6 +708,7 @@ async function showPage(page){
       (page==='dashboard'&&t.includes('dashboard'))||
       (page==='funcionarios'&&t.includes('funcionário'))||
       (page==='experiencia'&&t.includes('experiência'))||
+      (page==='treinamentos'&&t.includes('treinamentos'))||
       (page==='folgas'&&t.includes('folga'))||
       (page==='ferias'&&t.includes('férias'))||
       (page==='alojamentos'&&t.includes('alojamento'))||
@@ -714,6 +729,7 @@ async function showPage(page){
     if(page==='dashboard')await renderDashboard();
     else if(page==='funcionarios')renderFuncionarios();
     else if(page==='experiencia')renderExperiencia();
+    else if(page==='treinamentos'){await loadTreinamentos();renderTreinamentos();}
     else if(page==='folgas')renderFolgas();
     else if(page==='ferias')renderFerias();
     else if(page==='alojamentos'){if(!_vindoDeAlerta)alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';bannerRelatoriosAberto=false;bannerRelatoriosFiltroObra='';await loadAlojamentos();renderAlojamentos();}
@@ -1423,9 +1439,10 @@ function exportFuncionariosExcel(){
 }
 
 // ─── FICHA DO FUNCIONÁRIO ─────────────────────────────────────────────────────
-function verFicha(id){
+async function verFicha(id){
   const f=funcionarios.find(x=>x.id===id);
   if(!f)return;
+  await loadTreinamentos();
   const funcaoNome=f.funcao?.nome||f.funcao_manual||'—';
 
   // ── Demissão ──
@@ -1534,6 +1551,26 @@ function verFicha(id){
       +'</div>';
   }
 
+  // ── Treinamentos (NR / ASO / CNH) ──
+  const treinFunc=treinamentos.filter(tr=>tr.funcionario_id===id).map(tr=>({...tr,_calc:calcVencTreinamento(tr)}))
+    .sort((a,b)=>(a._calc.dias??9999)-(b._calc.dias??9999));
+  let treinSection='';
+  if(treinFunc.length>0){
+    const itens=treinFunc.map(tr=>{
+      const ui=TREIN_STATUS_UI[tr._calc.status];
+      const diasStr=tr._calc.dias===null?'':tr._calc.dias<0?' ('+Math.abs(tr._calc.dias)+'d atrás)':' ('+tr._calc.dias+'d)';
+      return'<div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;font-size:12px">'
+        +'<div style="font-weight:600">'+tipoLabelTreinamento(tr)+'</div>'
+        +'<div style="color:var(--text-muted);margin-top:2px">Realizado: '+(formatDate(tr.data_realizacao)||'—')+'</div>'
+        +'<div style="margin-top:2px">Vence: <strong>'+(formatDate(tr.data_vencimento)||'—')+'</strong> <span class="badge" style="background:'+ui.bg+';color:'+ui.cor+'">'+ui.label+diasStr+'</span></div>'
+        +'</div>';
+    }).join('');
+    treinSection='<div class="ficha-section">'
+      +'<div class="ficha-section-title"><i class="ti ti-school" style="margin-right:6px"></i>Treinamentos</div>'
+      +'<div style="display:flex;flex-wrap:wrap;gap:8px">'+itens+'</div>'
+      +'</div>';
+  }
+
   // ── Alojamento ──
   const aloj=alojamentos.find(a=>String(a.id)===String(f.alojamento_id));
 
@@ -1586,6 +1623,7 @@ function verFicha(id){
           ${expSection}
           ${folgasSection}
           ${feriasSection}
+          ${treinSection}
           ${alojSectionFinal}
           ${obsHtml}
         </div>
@@ -4020,6 +4058,329 @@ async function deletarPrestador(id,nome){
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast('Prestador removido!');
   await loadPrestadores();renderPrestadores();
+}
+
+// ─── TREINAMENTOS ───────────────────────────────────────────────────────────────
+let treinamentosBusca='',treinamentosFiltroTipo='',treinamentosFiltroStatus='',treinamentosFiltroObra='';
+
+// Periodicidade de referência (em meses) das NRs mais comuns em obras de eletromecânica/construção.
+// São valores de PRÁTICA DE MERCADO — não há, para várias NRs, prazo de reciclagem fixado em lei federal.
+// Por isso o campo vem pré-preenchido mas SEMPRE editável, e cabe ao usuário confirmar a periodicidade
+// aplicável (CCT, norma regulamentadora específica, exigência do cliente/contratante etc).
+const NR_LISTA=[
+  {codigo:'NR-06',nome:'Uso de EPI',meses:null},
+  {codigo:'NR-10',nome:'Segurança em Instalações Elétricas — Básico',meses:24},
+  {codigo:'NR-10-SEP',nome:'NR-10 — Sistema Elétrico de Potência (SEP)',meses:24},
+  {codigo:'NR-11',nome:'Operação de Empilhadeira/Transporte de Materiais',meses:24},
+  {codigo:'NR-12',nome:'Segurança no Trabalho em Máquinas',meses:null},
+  {codigo:'NR-18',nome:'PCMAT — Condições de Trabalho na Construção',meses:12},
+  {codigo:'NR-20',nome:'Inflamáveis e Combustíveis',meses:12},
+  {codigo:'NR-33',nome:'Espaços Confinados',meses:12},
+  {codigo:'NR-35',nome:'Trabalho em Altura',meses:24},
+  {codigo:'BRIGADA',nome:'Brigada de Incêndio',meses:12},
+  {codigo:'OUTRA-NR',nome:'Outra NR (definir manualmente)',meses:null},
+];
+function nrInfo(codigo){return NR_LISTA.find(n=>n.codigo===codigo)||null;}
+
+// Calcula vencimento/status de um registro de treinamento
+function calcVencTreinamento(t){
+  const venc=parseDate(t.data_vencimento);
+  if(!venc)return{venc:null,dias:null,status:'sem_data'};
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  const dias=Math.floor((venc-hoje)/86400000);
+  let status;
+  if(dias<0)status='vencido';
+  else if(dias<=10)status='critico';
+  else if(dias<=20)status='atencao';
+  else if(dias<=30)status='alerta';
+  else status='ok';
+  return{venc,dias,status};
+}
+const TREIN_STATUS_UI={
+  vencido:{label:'Vencido',cor:'var(--danger)',bg:'var(--danger-light)'},
+  critico:{label:'≤ 10 dias',cor:'#C2410C',bg:'#FFEDD5'},
+  atencao:{label:'≤ 20 dias',cor:'var(--warning)',bg:'var(--warning-light)'},
+  alerta:{label:'≤ 30 dias',cor:'var(--info)',bg:'var(--info-light)'},
+  ok:{label:'Em dia',cor:'var(--success)',bg:'var(--success-light)'},
+  sem_data:{label:'Sem vencimento',cor:'var(--text-muted)',bg:'var(--bg)'},
+};
+function tipoLabelTreinamento(t){
+  if(t.tipo==='NR')return(nrInfo(t.nr_codigo)?.codigo||t.nr_codigo||'NR')+(t.nome_treinamento?' — '+t.nome_treinamento:(nrInfo(t.nr_codigo)?' — '+nrInfo(t.nr_codigo).nome:''));
+  if(t.tipo==='CNH')return'CNH'+(t.categoria_cnh?' — Cat. '+t.categoria_cnh:'');
+  if(t.tipo==='ASO')return'ASO'+(t.nome_treinamento?' — '+t.nome_treinamento:'');
+  return t.nome_treinamento||'Outro';
+}
+function tipoIconTreinamento(t){
+  if(t.tipo==='CNH')return'ti-car';
+  if(t.tipo==='ASO')return'ti-stethoscope';
+  return'ti-certificate-2';
+}
+
+async function renderTreinamentos(){
+  await loadTreinamentos();
+  renderTreinamentosLocal();
+}
+function renderTreinamentosLocal(){
+  const obraFiltroAtivo=globalObraFiltro||treinamentosFiltroObra||'';
+  let base=obraFiltroAtivo?treinamentos.filter(t=>String(t.funcionario?.obra_id)===String(obraFiltroAtivo)):treinamentos;
+
+  const comStatus=base.map(t=>({...t,_calc:calcVencTreinamento(t)}));
+  const total=comStatus.length;
+  const nVencidos=comStatus.filter(t=>t._calc.status==='vencido').length;
+  const nCritico=comStatus.filter(t=>t._calc.status==='critico').length;
+  const nAtencao=comStatus.filter(t=>t._calc.status==='atencao').length;
+  const nAlerta=comStatus.filter(t=>t._calc.status==='alerta').length;
+  const nOk=comStatus.filter(t=>t._calc.status==='ok').length;
+
+  let lista=comStatus;
+  if(treinamentosFiltroStatus)lista=lista.filter(t=>t._calc.status===treinamentosFiltroStatus);
+  if(treinamentosFiltroTipo)lista=lista.filter(t=>t.tipo===treinamentosFiltroTipo);
+  if(treinamentosBusca){
+    const b=treinamentosBusca.toLowerCase();
+    lista=lista.filter(t=>(t.funcionario?.nome_completo||'').toLowerCase().includes(b)||(t.funcionario?.matricula||'').toLowerCase().includes(b)||tipoLabelTreinamento(t).toLowerCase().includes(b));
+  }
+  // Ordena: vencido/crítico primeiro, depois por dias restantes
+  const ordemStatus={vencido:0,critico:1,atencao:2,alerta:3,ok:4,sem_data:5};
+  lista.sort((a,b)=>(ordemStatus[a._calc.status]-ordemStatus[b._calc.status])||((a._calc.dias??9999)-(b._calc.dias??9999)));
+
+  const obrasOpts=obras.map(o=>`<option value="${o.id}" ${treinamentosFiltroObra===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
+  const tiposOpts=[['NR','NR'],['CNH','CNH'],['ASO','ASO'],['OUTRO','Outro']].map(([v,l])=>`<option value="${v}" ${treinamentosFiltroTipo===v?'selected':''}>${l}</option>`).join('');
+
+  const rows=lista.map(t=>{
+    const ui=TREIN_STATUS_UI[t._calc.status];
+    const diasStr=t._calc.dias===null?'—':t._calc.dias<0?Math.abs(t._calc.dias)+'d atrás':t._calc.dias+'d';
+    const nomeCell=t.funcionario_id?`<span style="cursor:pointer" onclick="verFicha('${t.funcionario_id}')" title="Ver ficha">${t.funcionario?.nome_completo||'—'}</span>`:(t.funcionario?.nome_completo||'—');
+    return`<tr>
+      <td>
+        <div class="name-cell">
+          ${avatarHtml(t.funcionario?.foto_url,t.funcionario?.nome_completo)}
+          <div>
+            <div style="font-weight:500">${nomeCell}</div>
+            <div style="font-size:11px;color:var(--text-muted)">${t.funcionario?.matricula||'—'} · ${t.funcionario?.obra?.codigo||'—'}</div>
+          </div>
+        </div>
+      </td>
+      <td style="font-size:13px"><i class="ti ${tipoIconTreinamento(t)}" style="margin-right:4px;color:var(--text-muted)"></i>${tipoLabelTreinamento(t)}</td>
+      <td style="font-size:12px">${formatDate(t.data_realizacao)}</td>
+      <td style="font-size:12px;font-weight:600">${formatDate(t.data_vencimento)}${t.vencimento_manual?' <span title="Vencimento definido manualmente" style="color:var(--text-muted);font-weight:400">✎</span>':''}</td>
+      <td><span class="badge" style="background:${ui.bg};color:${ui.cor}">${ui.label}${t._calc.dias!==null?' ('+diasStr+')':''}</span></td>
+      <td>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm" onclick="openModalTreinamento('${t.id}')"><i class="ti ti-edit"></i></button>
+          <button class="btn btn-sm btn-danger" onclick="deletarTreinamento('${t.id}','${(t.funcionario?.nome_completo||'').replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i></button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="6"><div class="empty-state"><i class="ti ti-school"></i><div>Nenhum treinamento encontrado</div></div></td></tr>';
+
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title"><i class="ti ti-school"></i> Treinamentos</div><div class="page-subtitle">NR · ASO · CNH — controle de vencimentos${globalObraFiltro?' · <strong>'+(obras.find(o=>String(o.id)===String(globalObraFiltro))?.nome||'')+'</strong>':''}</div></div>
+      <button class="btn btn-primary" onclick="openModalTreinamento()"><i class="ti ti-plus"></i> Novo treinamento</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px">
+      <div class="metric-card" onclick="treinamentosFiltroStatus='';renderTreinamentosLocal()" style="cursor:pointer;border-color:${!treinamentosFiltroStatus?'var(--primary)':'var(--border)'}">
+        <div class="metric-label">Total</div><div class="metric-value">${total}</div>
+      </div>
+      <div class="metric-card" onclick="treinamentosFiltroStatus=treinamentosFiltroStatus==='vencido'?'':'vencido';renderTreinamentosLocal()" style="cursor:pointer;background:${TREIN_STATUS_UI.vencido.bg};border-color:${treinamentosFiltroStatus==='vencido'?TREIN_STATUS_UI.vencido.cor:'var(--border)'}">
+        <div class="metric-label" style="color:${TREIN_STATUS_UI.vencido.cor}">Vencidos</div><div class="metric-value" style="color:${TREIN_STATUS_UI.vencido.cor}">${nVencidos}</div>
+      </div>
+      <div class="metric-card" onclick="treinamentosFiltroStatus=treinamentosFiltroStatus==='critico'?'':'critico';renderTreinamentosLocal()" style="cursor:pointer;background:${TREIN_STATUS_UI.critico.bg};border-color:${treinamentosFiltroStatus==='critico'?TREIN_STATUS_UI.critico.cor:'var(--border)'}">
+        <div class="metric-label" style="color:${TREIN_STATUS_UI.critico.cor}">≤ 10 dias</div><div class="metric-value" style="color:${TREIN_STATUS_UI.critico.cor}">${nCritico}</div>
+      </div>
+      <div class="metric-card" onclick="treinamentosFiltroStatus=treinamentosFiltroStatus==='atencao'?'':'atencao';renderTreinamentosLocal()" style="cursor:pointer;background:${TREIN_STATUS_UI.atencao.bg};border-color:${treinamentosFiltroStatus==='atencao'?TREIN_STATUS_UI.atencao.cor:'var(--border)'}">
+        <div class="metric-label" style="color:${TREIN_STATUS_UI.atencao.cor}">≤ 20 dias</div><div class="metric-value" style="color:${TREIN_STATUS_UI.atencao.cor}">${nAtencao}</div>
+      </div>
+      <div class="metric-card" onclick="treinamentosFiltroStatus=treinamentosFiltroStatus==='alerta'?'':'alerta';renderTreinamentosLocal()" style="cursor:pointer;background:${TREIN_STATUS_UI.alerta.bg};border-color:${treinamentosFiltroStatus==='alerta'?TREIN_STATUS_UI.alerta.cor:'var(--border)'}">
+        <div class="metric-label" style="color:${TREIN_STATUS_UI.alerta.cor}">≤ 30 dias</div><div class="metric-value" style="color:${TREIN_STATUS_UI.alerta.cor}">${nAlerta}</div>
+      </div>
+      <div class="metric-card green" onclick="treinamentosFiltroStatus=treinamentosFiltroStatus==='ok'?'':'ok';renderTreinamentosLocal()" style="cursor:pointer;border-color:${treinamentosFiltroStatus==='ok'?'var(--success)':'var(--border)'}">
+        <div class="metric-label">Em dia</div><div class="metric-value">${nOk}</div>
+      </div>
+    </div>
+    <div class="filters">
+      <div class="search-box"><i class="ti ti-search"></i>
+        <input placeholder="Buscar por funcionário ou treinamento..." value="${treinamentosBusca}"
+          oninput="treinamentosBusca=this.value;if(!_buscaHandlers.trein)_buscaHandlers.trein=makeBuscaHandler(v=>treinamentosBusca=v,renderTreinamentosLocal,300);_buscaHandlers.trein(this.value);this.focus()">
+      </div>
+      <select class="filter-select" onchange="treinamentosFiltroTipo=this.value;renderTreinamentosLocal()">
+        <option value="">Todos os tipos</option>${tiposOpts}
+      </select>
+      <select class="filter-select" onchange="treinamentosFiltroObra=this.value;renderTreinamentosLocal()">
+        <option value="">Todas as obras</option>${obrasOpts}
+      </select>
+      <button class="btn btn-sm" onclick="treinamentosBusca='';treinamentosFiltroTipo='';treinamentosFiltroObra='';treinamentosFiltroStatus='';renderTreinamentosLocal()"><i class="ti ti-x"></i> Limpar</button>
+    </div>
+    <div class="table-container"><table>
+      <thead><tr>
+        <th>Funcionário</th><th>Treinamento</th><th>Realização</th><th>Vencimento</th><th>Status</th><th>Ações</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function openModalTreinamento(id){
+  const t=id?treinamentos.find(x=>x.id===id):null;
+  const candidatos=funcionarios.filter(f=>f.situacao==='ativo'||f.situacao==='transferido');
+  const funcSelecionado=t?candidatos.find(f=>f.id===t.funcionario_id)||funcionarios.find(f=>f.id===t.funcionario_id):null;
+  const valorInicial=funcSelecionado?`${funcSelecionado.matricula||'—'} — ${funcSelecionado.nome_completo}`:'';
+  const tipo=t?.tipo||'NR';
+  const nrOpts=NR_LISTA.map(n=>`<option value="${n.codigo}" ${t?.nr_codigo===n.codigo?'selected':''}>${n.codigo} — ${n.nome}</option>`).join('');
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-treinamento" onclick="if(event.target===this)closeModal('modal-treinamento')">
+      <div class="modal" style="max-width:560px">
+        <div class="modal-header">
+          <span class="modal-title"><i class="ti ti-school"></i> ${t?'Editar':'Novo'} Treinamento</span>
+          <button class="btn btn-sm" onclick="closeModal('modal-treinamento')"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="form-group full autocomplete-wrap">
+              <label>Funcionário *</label>
+              <input type="text" id="tr-func-busca" placeholder="Digite o nome ou matrícula..." autocomplete="off" value="${valorInicial}" oninput="funcAutocompleteInput('tr-func-busca','tr-func')" onfocus="funcAutocompleteInput('tr-func-busca','tr-func')">
+              <input type="hidden" id="tr-func" value="${t?.funcionario_id||''}">
+              <div class="autocomplete-list" id="tr-func-busca-list"></div>
+            </div>
+            <div class="form-group">
+              <label>Tipo *</label>
+              <select id="tr-tipo" onchange="atualizarCamposTreinamento()">
+                <option value="NR" ${tipo==='NR'?'selected':''}>NR (Norma Regulamentadora)</option>
+                <option value="CNH" ${tipo==='CNH'?'selected':''}>CNH</option>
+                <option value="ASO" ${tipo==='ASO'?'selected':''}>ASO</option>
+                <option value="OUTRO" ${tipo==='OUTRO'?'selected':''}>Outro</option>
+              </select>
+            </div>
+            <div class="form-group" id="tr-wrap-nr" style="${tipo!=='NR'?'display:none':''}">
+              <label>Qual NR</label>
+              <select id="tr-nr" onchange="atualizarCamposTreinamento()">${nrOpts}</select>
+            </div>
+            <div class="form-group" id="tr-wrap-cnh" style="${tipo!=='CNH'?'display:none':''}">
+              <label>Categoria da CNH</label>
+              <input id="tr-cnh-cat" value="${t?.categoria_cnh||''}" placeholder="Ex: B, AB, D">
+            </div>
+            <div class="form-group full" id="tr-wrap-nome" style="${tipo==='NR'||tipo==='CNH'?'display:none':''}">
+              <label>${tipo==='ASO'?'Tipo de ASO (opcional)':'Nome do treinamento *'}</label>
+              <input id="tr-nome" value="${t?.nome_treinamento||''}" placeholder="${tipo==='ASO'?'Ex: Periódico, Admissional, Mudança de Função':'Ex: Reciclagem interna XYZ'}">
+            </div>
+            <div class="form-group">
+              <label>Data de Realização</label>
+              <input type="date" id="tr-data-realizacao" value="${t?.data_realizacao||''}" onchange="atualizarCamposTreinamento()">
+            </div>
+            <div class="form-group" id="tr-wrap-periodicidade" style="${tipo!=='NR'?'display:none':''}">
+              <label>Periodicidade (meses)</label>
+              <input type="number" id="tr-periodicidade" min="1" value="${t?.periodicidade_meses||nrInfo(t?.nr_codigo)?.meses||''}" onchange="atualizarCamposTreinamento()">
+            </div>
+            <div class="form-group full" style="display:flex;align-items:center;gap:8px;margin-top:2px" id="tr-wrap-manual-toggle">
+              <label style="display:flex;align-items:center;gap:8px;margin:0"><input type="checkbox" id="tr-manual" style="width:auto" ${t?.vencimento_manual||tipo==='CNH'||tipo==='ASO'?'checked':''} onchange="atualizarCamposTreinamento()"> Definir data de vencimento manualmente</label>
+            </div>
+            <div class="form-group">
+              <label>Data de Vencimento ${tipo==='NR'?'':'*'}</label>
+              <input type="date" id="tr-vencimento" value="${t?.data_vencimento||''}">
+            </div>
+            <div class="form-group full">
+              <label>Observação</label>
+              <textarea id="tr-obs" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;resize:vertical">${t?.observacao||''}</textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" onclick="closeModal('modal-treinamento')">Cancelar</button>
+          <button class="btn btn-primary" onclick="salvarTreinamento('${id||''}')"><i class="ti ti-check"></i> Salvar</button>
+        </div>
+      </div>
+    </div>`);
+  initFuncAutocomplete('tr-func-busca','tr-func',candidatos);
+  atualizarCamposTreinamento();
+}
+
+// Mostra/esconde campos conforme o tipo escolhido e recalcula o vencimento automático (quando não manual)
+function atualizarCamposTreinamento(){
+  const tipo=document.getElementById('tr-tipo').value;
+  const manualEl=document.getElementById('tr-manual');
+  const wrapNr=document.getElementById('tr-wrap-nr');
+  const wrapCnh=document.getElementById('tr-wrap-cnh');
+  const wrapNome=document.getElementById('tr-wrap-nome');
+  const wrapPeriod=document.getElementById('tr-wrap-periodicidade');
+  const wrapManualToggle=document.getElementById('tr-wrap-manual-toggle');
+  const vencInput=document.getElementById('tr-vencimento');
+  const nomeLabel=wrapNome.querySelector('label');
+  const nomeInput=document.getElementById('tr-nome');
+
+  wrapNr.style.display=tipo==='NR'?'':'none';
+  wrapCnh.style.display=tipo==='CNH'?'':'none';
+  wrapNome.style.display=(tipo==='NR')?'none':'';
+  wrapPeriod.style.display=tipo==='NR'?'':'none';
+
+  if(tipo==='CNH'||tipo==='ASO'){
+    // CNH e ASO: vencimento sempre manual, esconde o toggle e trava marcado
+    manualEl.checked=true;manualEl.disabled=true;
+    wrapManualToggle.style.display='none';
+    nomeLabel.textContent=tipo==='ASO'?'Tipo de ASO (opcional)':'Descrição (opcional)';
+    nomeInput.placeholder=tipo==='ASO'?'Ex: Periódico, Admissional, Mudança de Função':'';
+  } else {
+    manualEl.disabled=false;
+    wrapManualToggle.style.display='';
+  }
+
+  const manual=manualEl.checked;
+  vencInput.disabled=false; // sempre editável, só recalculamos abaixo quando automático
+
+  if(tipo==='NR'&&!manual){
+    const dataReal=document.getElementById('tr-data-realizacao').value;
+    const periodicidade=parseInt(document.getElementById('tr-periodicidade').value)||null;
+    if(dataReal&&periodicidade){
+      const d=new Date(dataReal+'T12:00:00');
+      d.setMonth(d.getMonth()+periodicidade);
+      vencInput.value=toISO(d);
+    }
+  }
+
+  // Ao trocar de NR, sugere a periodicidade de referência (só se o campo ainda estiver vazio)
+  if(tipo==='NR'){
+    const nrSel=document.getElementById('tr-nr').value;
+    const info=nrInfo(nrSel);
+    const periodInput=document.getElementById('tr-periodicidade');
+    if(info&&!periodInput.value&&info.meses)periodInput.value=info.meses;
+  }
+}
+
+async function salvarTreinamento(id){
+  const funcId=document.getElementById('tr-func').value;
+  const tipo=document.getElementById('tr-tipo').value;
+  if(!funcId){showToast('Selecione o funcionário','error');return;}
+  const vencimento=document.getElementById('tr-vencimento').value||null;
+  const manual=document.getElementById('tr-manual').checked;
+  const nome=document.getElementById('tr-nome').value.trim()||null;
+  if((tipo==='OUTRO')&&!nome){showToast('Informe o nome do treinamento','error');return;}
+  if(!vencimento){showToast('Informe a data de vencimento','error');return;}
+
+  const payload={
+    funcionario_id:funcId,
+    tipo,
+    nr_codigo:tipo==='NR'?document.getElementById('tr-nr').value:null,
+    categoria_cnh:tipo==='CNH'?document.getElementById('tr-cnh-cat').value.trim()||null:null,
+    nome_treinamento:tipo==='NR'?null:nome,
+    data_realizacao:document.getElementById('tr-data-realizacao').value||null,
+    periodicidade_meses:tipo==='NR'?(parseInt(document.getElementById('tr-periodicidade').value)||null):null,
+    vencimento_manual:manual,
+    data_vencimento:vencimento,
+    observacao:document.getElementById('tr-obs').value.trim()||null,
+  };
+  let error;
+  if(id){({error}=await sb.from('treinamentos').update(payload).eq('id',id));}
+  else{({error}=await sb.from('treinamentos').insert(payload));}
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast(id?'Treinamento atualizado!':'Treinamento cadastrado!');
+  closeModal('modal-treinamento');
+  await loadTreinamentos();renderTreinamentosLocal();
+}
+
+async function deletarTreinamento(id,nome){
+  if(!confirm(`Remover este treinamento de "${nome}"?`))return;
+  const{error}=await sb.from('treinamentos').delete().eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Treinamento removido!');
+  await loadTreinamentos();renderTreinamentosLocal();
 }
 
 // ─── USUÁRIOS ─────────────────────────────────────────────────────────────────
