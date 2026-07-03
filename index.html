@@ -523,9 +523,9 @@ function avatarHtml(fotoUrl,nome,size){
   return`<div class="avatar" style="${style}">${initials(nome)}</div>`;
 }
 // Nome do funcionário como link clicável que abre a ficha (verFicha). Use sempre que houver um funcionario_id válido disponível.
-function nomeFichaHtml(funcId,nome,extraStyle){
+function nomeFichaHtml(funcId,nome,extraStyle,historico){
   if(!funcId)return `<div style="font-weight:500${extraStyle?';'+extraStyle:''}">${nome||'—'}</div>`;
-  return `<div style="font-weight:500${extraStyle?';'+extraStyle:''};cursor:pointer" onclick="event.stopPropagation();verFicha('${funcId}')" title="Ver ficha">${nome||'—'}</div>`;
+  return `<div style="font-weight:500${extraStyle?';'+extraStyle:''};cursor:pointer" onclick="event.stopPropagation();verFicha('${funcId}'${historico?',true':''})" title="Ver ficha">${nome||'—'}</div>`;
 }
 
 // ── Autocomplete reutilizável de funcionário (digitar nome/matrícula e selecionar da lista) ──
@@ -1273,7 +1273,7 @@ function getFuncionariosRows(lista){
       return`<tr style="opacity:.85">
         <td><div class="name-cell">
           ${avatarHtml(f.foto_url,f.nome_completo)}
-          <div>${nomeFichaHtml(f.id,f.nome_completo)}<div style="font-size:11px;color:var(--text-muted)">${f.matricula||'—'}</div></div>
+          <div>${nomeFichaHtml(f.id,f.nome_completo,null,true)}<div style="font-size:11px;color:var(--text-muted)">${f.matricula||'—'}</div></div>
         </div></td>
         <td>${funcaoNome}</td>
         <td><div style="font-size:12px;color:var(--text-muted)">
@@ -1285,7 +1285,7 @@ function getFuncionariosRows(lista){
         <td>${formatDate(f.data_admissao)}</td>
         <td>${formatDate(f.data_transferencia)||'—'}</td>
         <td><div class="action-btns">
-          <button class="btn btn-sm btn-info" title="Visualizar ficha" onclick="verFicha('${f.id}')"><i class="ti ti-eye"></i></button>
+          <button class="btn btn-sm btn-info" title="Visualizar ficha" onclick="verFicha('${f.id}',true)"><i class="ti ti-eye"></i></button>
           <button class="btn btn-sm" title="Editar" onclick="editFuncionario('${f.id}')"><i class="ti ti-edit"></i></button>
         </div></td>
       </tr>`;}).join('')
@@ -1444,7 +1444,7 @@ function exportFuncionariosExcel(){
 }
 
 // ─── FICHA DO FUNCIONÁRIO ─────────────────────────────────────────────────────
-async function verFicha(id){
+async function verFicha(id,historico=false){
   const f=funcionarios.find(x=>x.id===id);
   if(!f)return;
   await loadTreinamentos();
@@ -1591,7 +1591,12 @@ async function verFicha(id){
   }
 
   // ── Alojamento ──
-  const aloj=alojamentos.find(a=>String(a.id)===String(f.alojamento_id));
+  // Se estamos olhando a ficha no contexto histórico (ex: aba Transferidos filtrada pela obra antiga),
+  // mostra o alojamento que a pessoa tinha NAQUELA obra (alojamento_origem_id), não o atual.
+  const alojAtualLookup=alojamentos.find(a=>String(a.id)===String(f.alojamento_id));
+  const alojOrigemLookup=f.alojamento_origem_id?alojamentos.find(a=>String(a.id)===String(f.alojamento_origem_id)):null;
+  const mostrandoHistorico=historico&&!!alojOrigemLookup;
+  const aloj=mostrandoHistorico?alojOrigemLookup:alojAtualLookup;
 
   // Pré-calcular strings com ternários para evitar template literals aninhados
   const avatarHtml=f.foto_url?('<img src="'+f.foto_url+'" alt="">'):initials(f.nome_completo);
@@ -1600,8 +1605,11 @@ async function verFicha(id){
   const alojEnderecoHtml=aloj&&aloj.endereco?('<div class="ficha-field"><div class="ficha-field-label">Endereço</div><div class="ficha-field-value">'+aloj.endereco+'</div></div>'):'';
   const alojDiariaHtml=aloj&&aloj.tipo_alojamento==='hotel'?('<div class="ficha-field"><div class="ficha-field-label">Diária</div><div class="ficha-field-value">R$ '+Number(aloj.valor_diaria||0).toLocaleString('pt-BR',{minimumFractionDigits:2})+'</div></div>'):'';
   const obsHtml=f.observacao_interna?('<div class="ficha-section"><div class="ficha-section-title"><i class="ti ti-notes" style="margin-right:6px"></i>Observações</div><div style="font-size:13px;color:var(--text);padding:8px 0">'+f.observacao_interna+'</div></div>'):'';
+  const alojTituloTag=mostrandoHistorico
+    ?' <span style="font-size:11px;font-weight:400;color:#B45309">(📜 histórico — nesta obra)</span>'
+    :(aloj?.tipo_alojamento==='hotel'?' <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(🏨 Hotel)</span>':'');
   const alojSectionFinal=aloj
-    ?('<div class="ficha-section"><div class="ficha-section-title"><i class="ti ti-building" style="margin-right:6px"></i>Alojamento'+(aloj.tipo_alojamento==='hotel'?' <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(🏨 Hotel)</span>':'')+'</div><div class="ficha-grid"><div class="ficha-field"><div class="ficha-field-label">Nome</div><div class="ficha-field-value">'+(aloj.nome||'—')+'</div></div><div class="ficha-field"><div class="ficha-field-label">Obra</div><div class="ficha-field-value">'+(aloj.obra?.codigo?aloj.obra.codigo+' ':'')+' '+(aloj.obra?.nome||'—')+'</div></div>'+alojDiariaHtml+alojEnderecoHtml+'</div></div>')
+    ?('<div class="ficha-section"'+(mostrandoHistorico?' style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:var(--radius-lg);padding:14px 16px"':'')+'><div class="ficha-section-title"'+(mostrandoHistorico?' style="color:#92400E"':'')+'><i class="ti ti-building" style="margin-right:6px"></i>Alojamento'+alojTituloTag+'</div><div class="ficha-grid"><div class="ficha-field"><div class="ficha-field-label">Nome</div><div class="ficha-field-value">'+(aloj.nome||'—')+'</div></div><div class="ficha-field"><div class="ficha-field-label">Obra</div><div class="ficha-field-value">'+(aloj.obra?.codigo?aloj.obra.codigo+' ':'')+' '+(aloj.obra?.nome||'—')+'</div></div>'+alojDiariaHtml+alojEnderecoHtml+'</div></div>')
     :(f.alojamento_origem_id?('<div class="ficha-section" style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:var(--radius-lg);padding:14px 16px"><div class="ficha-section-title" style="color:#92400E"><i class="ti ti-building" style="margin-right:6px"></i>Alojamento</div><div style="font-size:13px;color:#92400E">Ainda não há alojamento definido nesta obra. O alojamento anterior consta no histórico da transferência acima — selecione o alojamento atual em "Editar".</div></div>'):'');
 
   const html=`
