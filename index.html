@@ -6378,23 +6378,51 @@ async function importarEfetivo(file){
   if(!file)return;
   showToast('Importando...');
   try{
-    const{read,utils}=await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm');
+    // Kairos às vezes exporta um .xls que na verdade é HTML disfarçado — detecta os dois formatos,
+    // igual já fazemos na importação de Horas Extras.
     const buf=await file.arrayBuffer();
-    const wb=read(buf,{type:'array'});
-    const ws=wb.Sheets[wb.SheetNames[0]];
-    const rows=utils.sheet_to_json(ws,{header:1,defval:''});
+    const rawText=new TextDecoder('utf-8').decode(buf);
+    const isHTML=rawText.trimStart().startsWith('\uFEFF<html')||rawText.trimStart().startsWith('<html')||/<table/i.test(rawText.slice(0,2000));
+
+    let rows=[];
+    if(isHTML){
+      const parser=new DOMParser();
+      const doc=parser.parseFromString(rawText,'text/html');
+      doc.querySelectorAll('tr').forEach(tr=>{
+        rows.push([...tr.querySelectorAll('td,th')].map(td=>td.textContent.trim()));
+      });
+    }else{
+      const{read,utils}=await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm');
+      const wb=read(buf,{type:'array'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      rows=utils.sheet_to_json(ws,{header:1,defval:''});
+    }
+
     let hi=rows.findIndex(r=>String(r[0]||'').toLowerCase().includes('cracha')||String(r[0]||'').toLowerCase().includes('crachá'));
     if(hi<0)hi=rows.findIndex(r=>r.length>=4&&r[0]&&r[1]);
     if(hi<0){showToast('Formato não reconhecido','error');return;}
     const dr=rows.slice(hi+1).filter(r=>r[0]&&r[1]);
     if(!dr.length){showToast('Nenhum registro encontrado','error');return;}
-    function xlDate(v){
-      if(!v||v==='-')return null;
+
+    // Extrai data DD/MM/AAAA via regex (ignora hora junto e não depende de split ingênuo por '/')
+    function extrairDataDDMMAAAA(v){
+      if(v==null||v==='')return null;
       if(typeof v==='number'){const d=new Date(Math.round((v-25569)*86400000));return d.toISOString().slice(0,10);}
-      if(typeof v==='string'&&v.match(/\d{2}\/\d{2}\/\d{4}/)){const[d,m,y]=v.split('/');return y+'-'+m+'-'+d;}
-      return String(v).slice(0,10);
+      const s=String(v);
+      const m=s.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+      if(m)return m[3]+'-'+m[2]+'-'+m[1];
+      return null;
     }
-    const dataISO=xlDate(dr[0][3])||new Date().toISOString().slice(0,10);
+    // Primeiro tenta achar a data no título/cabeçalho (linhas antes do header da tabela) — mais confiável.
+    let dataISO=null;
+    for(let i=0;i<hi&&!dataISO;i++){
+      const row=rows[i]||[];
+      for(let j=0;j<row.length&&!dataISO;j++)dataISO=extrairDataDDMMAAAA(row[j]);
+    }
+    // Se não achou, tenta a coluna Data (índice 3) da primeira linha de dados.
+    if(!dataISO)dataISO=extrairDataDDMMAAAA(dr[0][3]);
+    if(!dataISO)dataISO=new Date().toISOString().slice(0,10);
+
     const regs=[];
     // Ler diretamente da planilha — col 6 = Situações (PRESENTE/AUSENTE)
     dr.forEach(r=>{
@@ -6660,10 +6688,10 @@ function renderEfetivoLocal(){
   const corPct=pct>=90?'var(--success)':pct>=70?'var(--warning)':'var(--danger)';
   const _obraLabel=globalObraFiltro?(obras.find(o=>o.id===globalObraFiltro)?.codigo||''):'Todas as obras';
 
-  // ── Pills de data ───────────────────────────────────────────────────────
-  const dPills=datas.slice(0,30).map(d=>{
-    const[y,m,dia]=d.split('-');const sel=d===ds;
-    return '<button onclick="efetivoDataFiltro=\''+d+'\';efetivoSituacaoFiltro=\'\';renderEfetivo()" style="display:block;width:100%;text-align:left;font-size:12px;padding:6px 12px;border-radius:6px;border:1px solid '+(sel?'var(--primary)':'var(--border)')+';background:'+(sel?'var(--primary)':'var(--surface)')+';color:'+(sel?'#fff':'var(--text-muted)')+';cursor:pointer;font-weight:'+(sel?'600':'400')+'">'+dia+'/'+m+'</button>';
+  // ── Seletor de data (dropdown compacto, em vez de coluna de botões) ───────
+  const dOptions=datas.slice(0,60).map(d=>{
+    const[y,m,dia]=d.split('-');
+    return '<option value="'+d+'" '+(d===ds?'selected':'')+'>'+dia+'/'+m+'/'+y+'</option>';
   }).join('');
 
   // ── Tabs ────────────────────────────────────────────────────────────────
@@ -6956,8 +6984,11 @@ function renderEfetivoLocal(){
       <div onclick="efetivoSituacaoFiltro=efetivoSituacaoFiltro==='AUSENTE'?'':'AUSENTE';efetivoViewMode='dia';renderEfetivo()" style="background:var(--danger-light);border:2px solid ${efetivoSituacaoFiltro==='AUSENTE'?'var(--danger)':'#FCA5A5'};border-radius:var(--radius);padding:16px;cursor:pointer"><div style="font-size:11px;color:var(--danger);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">✗ Ausentes ${efetivoSituacaoFiltro==='AUSENTE'?'· Filtrado':''}</div><div style="font-size:28px;font-weight:700;color:var(--danger)">${ause.length}</div><div style="font-size:11px;color:var(--danger);margin-top:4px">${100-pct}% do efetivo</div></div>
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">% Presença</div><div style="font-size:28px;font-weight:700;color:${corPct}">${pct}%</div><div style="margin-top:8px;height:6px;background:var(--border);border-radius:3px"><div style="height:6px;border-radius:3px;background:${corPct};width:${pct}%"></div></div></div>
     </div>
-    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px;flex-wrap:wrap">
-      <div style="min-width:110px"><div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Data:</div><div style="display:flex;flex-direction:column;gap:4px;max-height:240px;overflow-y:auto">${dPills}</div></div>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:8px">
+        <label style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Data:</label>
+        <select onchange="efetivoDataFiltro=this.value;efetivoSituacaoFiltro='';renderEfetivo()" style="font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);font-weight:600;min-width:130px">${dOptions}</select>
+      </div>
     </div>
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
       <div style="display:flex;gap:8px;flex-wrap:wrap">${tabHtml}</div>
