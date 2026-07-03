@@ -1854,6 +1854,14 @@ function openModalFuncionario(func=null){
             <select id="f-alojamento"></select>
             <div id="f-alojamento-hint" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div>
           </div>
+          ${func?.obra_transferencia_id?`<div class="form-group" style="grid-column:1/-1;background:#FFFBEB;border:1px solid #FDE68A;border-radius:var(--radius);padding:10px 12px">
+            <label style="color:#92400E">📜 Alojamento na Obra de Origem (${func.obra_transferencia?.codigo?func.obra_transferencia.codigo+' — ':''}${func.obra_transferencia?.nome||'obra anterior'}) — histórico</label>
+            <select id="f-alojamento-origem-manual">
+              <option value="">— Nenhum / não sei —</option>
+              ${alojamentos.filter(a=>String(a.obra_id)===String(func.obra_transferencia_id)).map(a=>`<option value="${a.id}" ${String(func?.alojamento_origem_id)===String(a.id)?'selected':''}>${a.nome}</option>`).join('')}
+            </select>
+            <div style="font-size:11px;color:#92400E;margin-top:4px">Use este campo para corrigir/preencher manualmente onde essa pessoa ficava alojada na obra de origem, caso o histórico automático não tenha capturado.</div>
+          </div>`:''}
           <div class="form-group"><label>Cidade</label><input id="f-cidade" value="${func?.cidade||''}" placeholder="Mogi Guaçu"></div>
           <div class="form-group"><label>UF</label><select id="f-uf"><option value="">—</option>${UFS.map(u=>`<option value="${u}" ${func?.uf===u?'selected':''}>${u}</option>`).join('')}</select></div>
           <!-- TRANSFERÊNCIA -->
@@ -1998,7 +2006,12 @@ async function saveFuncionario(id){
   const existente=id?funcionarios.find(x=>x.id===id):null;
   const alojamentoSelecionado=document.getElementById('f-alojamento').value||null;
   let alojamentoOrigemId=existente?.alojamento_origem_id||null;
-  if(existente?.alojamento_id&&!alojamentoOrigemId){
+  const alojOrigemManualEl=document.getElementById('f-alojamento-origem-manual');
+  if(alojOrigemManualEl){
+    // Campo de correção manual visível (funcionário já transferido) — usa o valor escolhido pelo usuário,
+    // sobrepondo a detecção automática.
+    alojamentoOrigemId=alojOrigemManualEl.value||null;
+  } else if(existente?.alojamento_id&&!alojamentoOrigemId){
     const alojAnterior=alojamentos.find(a=>String(a.id)===String(existente.alojamento_id));
     const pertenceAObraFinal=alojAnterior&&String(alojAnterior.obra_id)===String(obraFinal);
     if(!pertenceAObraFinal)alojamentoOrigemId=existente.alojamento_id;
