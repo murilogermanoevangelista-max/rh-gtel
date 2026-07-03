@@ -447,7 +447,7 @@ function irParaPendObra(obraId,link,filtroVar,filtroVal){
     }
     filtroObra=obraId;
     filtroObraTocado=false;
-    feriasObraFiltro=obra?.codigo||'';
+    feriasObraFiltro=obraId||''; // usa id (padronizado)
     feriasObraTocado=false;
   }
   irParaAlertaDashboard(link,filtroVar,filtroVal);
@@ -467,7 +467,7 @@ function setGlobalObraFiltro(obraId){
   // propagar para módulos que têm filtro local próprio
   filtroObra=obraId; // funcionários (usa id)
   filtroObraTocado=false; // troca no menu lateral sempre prevalece sobre escolha local antiga
-  feriasObraFiltro=obra?.codigo||''; // férias (usa código)
+  feriasObraFiltro=obraId||''; // férias — agora também usa id (igual aos demais)
   feriasObraTocado=false; // troca no menu lateral sempre prevalece sobre escolha local antiga
   // re-renderizar a aba atual
   const pageMap={funcionarios:renderFuncionarios,experiencia:renderExperiencia,folgas:renderFolgas,ferias:renderFerias,alojamentos:renderAlojamentos,efetivo:renderEfetivo,dashboard:renderDashboard};
@@ -2530,14 +2530,13 @@ function renderFeriasLocal(){
 
   // Sincronizar com o filtro global de obra (sidebar), a menos que o usuário tenha escolhido manualmente um filtro local diferente
   if(!feriasObraTocado){
-    const obraG=globalObraFiltro?obras.find(o=>o.id===globalObraFiltro):null;
-    feriasObraFiltro=obraG?.codigo||'';
+    feriasObraFiltro=globalObraFiltro||''; // usa obra.id igual ao filtro global
   }
 
-  // Aplicar filtro de obra (global ou local do módulo)
+  // Aplicar filtro de obra (global ou local do módulo) — compara por obra_id do funcionário
   const obraFiltroAtivo=feriasObraFiltro||'';
   const feriasBase=obraFiltroAtivo
-    ?feriasData.filter(f=>f.funcionario?.obra?.codigo===obraFiltroAtivo)
+    ?feriasData.filter(f=>f.funcionario?.obra_id===obraFiltroAtivo||f.funcionario?.obra?.codigo===obraFiltroAtivo)
     :feriasData;
 
   // Agrupar por matrícula, ordenar por periodo_aquisitivo_inicio asc
@@ -2678,8 +2677,13 @@ function renderFeriasLocal(){
   if(alertaVencendo30>0)alertas.push(`<div onclick="feriasFiltro='vencendo60';renderFerias()" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:6px;background:var(--warning-light);border:1px solid #FCD34D;color:#92400E;cursor:pointer"><i class="ti ti-clock" style="font-size:18px;flex-shrink:0"></i><strong>${alertaVencendo30} vencendo em 60 dias — programar urgente</strong><i class="ti ti-chevron-right" style="margin-left:auto;opacity:.5"></i></div>`);
 
   // Obras
-  const obrasUnicas=[...new Set(feriasData.map(f=>f.funcionario?.obra?.codigo).filter(Boolean))];
-  const obraFilterOpts=obrasUnicas.map(c=>`<option value="${c}" ${feriasObraFiltro===c?'selected':''}>${c}</option>`).join('');
+  // Opções do select local de obra — value=obra.id, label=codigo — nome
+  const obrasUnicasMap={};
+  feriasData.forEach(f=>{
+    const oId=f.funcionario?.obra_id;
+    if(oId&&!obrasUnicasMap[oId])obrasUnicasMap[oId]=[f.funcionario?.obra?.codigo,f.funcionario?.obra?.nome].filter(Boolean).join(' — ');
+  });
+  const obraFilterOpts=Object.entries(obrasUnicasMap).sort((a,b)=>a[1].localeCompare(b[1],'pt-BR')).map(([id,label])=>`<option value="${id}" ${feriasObraFiltro===id?'selected':''}>${label}</option>`).join('');
 
   // Helper: bloco de período
   function blocoPeríodo(f, isSegundo, per2Ref){
