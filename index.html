@@ -5849,7 +5849,7 @@ function openModalContas(alojId,filtroMes,filtroAno,tipoPresel){
     const admBadge=enviado
       ?'<span style="font-size:11px;background:var(--success-light);color:var(--success);padding:2px 8px;border-radius:20px;font-weight:500">✓ ADM 35 nº '+c.adm35_numero+' · '+dataEnvioFmt+'</span>'
       :'<span style="font-size:11px;background:var(--danger-light);color:var(--danger);padding:2px 8px;border-radius:20px;font-weight:500">❗ Não enviado p/ pagamento</span>';
-    return '<div class="conta-row"><div style="display:flex;flex-direction:column;gap:1px"><span>'+tl+'</span><span style="font-size:11px;color:var(--text-muted)">'+mesLabel+'/'+c.ano+'</span></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:500">'+vl+'</span>'+admBadge+'<button class="btn btn-sm" onclick="editarAdm35Click(this)" data-id="'+c.id+'" data-alojid="'+alojId+'" data-mes="'+mesAtualN+'" data-ano="'+anoAtualN+'" data-num="'+(c.adm35_numero||'')+'" data-data="'+(c.adm35_envio||'')+'" title="Lançar/editar envio ADM 35"><i class="ti ti-send"></i></button><button class="btn btn-sm btn-danger" onclick="deleteConta(\''+c.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-trash"></i></button></div></div>';
+    return '<div class="conta-row"><div style="display:flex;flex-direction:column;gap:1px"><span>'+tl+'</span><span style="font-size:11px;color:var(--text-muted)">'+mesLabel+'/'+c.ano+'</span></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:500">'+vl+'</span>'+admBadge+(c.anexo_url?'<a href="'+c.anexo_url+'" target="_blank" class="btn btn-sm btn-info" title="Ver anexo"><i class="ti ti-paperclip"></i></a>':'')+'<button class="btn btn-sm" onclick="editarAdm35Click(this)" data-id="'+c.id+'" data-alojid="'+alojId+'" data-mes="'+mesAtualN+'" data-ano="'+anoAtualN+'" data-num="'+(c.adm35_numero||'')+'" data-data="'+(c.adm35_envio||'')+'" title="Lançar/editar envio ADM 35"><i class="ti ti-send"></i></button><button class="btn btn-sm btn-danger" onclick="deleteConta(\''+c.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-trash"></i></button></div></div>';
   }).join(''):'<div style="text-align:center;padding:16px;color:var(--text-muted);font-size:13px">Nenhuma conta lançada neste mês</div>';
 
   const filtroMesOpts=mesesDisp.map(m=>'<option value="'+m.mes+'" '+(m.mes===mesAtualN&&m.ano===anoAtualN?'selected':'')+'>'+meses[m.mes-1]+'/'+m.ano+'</option>').join('');
@@ -5904,6 +5904,9 @@ function openModalContas(alojId,filtroMes,filtroAno,tipoPresel){
               <input id="c-adm35-data" type="date" style="padding:8px;border:1px solid var(--border);border-radius:var(--radius);width:100%">
             </div>
           </div>
+          <div class="form-group" style="margin:8px 0 0"><label>📎 Anexar conta (PDF)</label>
+            <input type="file" id="c-anexo-file" accept=".pdf" style="width:100%;padding:6px 0;font-size:12px">
+          </div>
           <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Pode deixar em branco e lançar depois, clicando em <i class="ti ti-send"></i> na conta já lançada.</div>
           <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="saveConta('${alojId}')"><i class="ti ti-plus"></i> Lançar</button>
         </div>
@@ -5927,7 +5930,16 @@ async function saveConta(alojId){
   if(valorRaw===''||isNaN(valor)){showToast('Informe o valor','error');return;}
   if(!alojId||alojId==='undefined'||alojId==='null'){showToast('Erro: ID do alojamento inválido: '+alojId,'error');return;}
   if(!mes||!ano){showToast('Mês/ano inválido: mes='+mes+' ano='+ano,'error');return;}
-  const payload={alojamento_id:alojId,mes,ano,tipo,valor:Number(valor),adm35_numero:adm35Num||null,adm35_envio:adm35Data};
+  let anexoUrl=null;
+  const anexoFile=document.getElementById('c-anexo-file')?.files?.[0];
+  if(anexoFile){
+    showToast('Enviando anexo...');
+    const path='contas/'+Date.now()+'_'+anexoFile.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+    const{error:upErr}=await sb.storage.from('alojamentos').upload(path,anexoFile,{contentType:'application/pdf',upsert:true});
+    if(upErr){showToast('Erro ao enviar anexo: '+upErr.message,'error');return;}
+    anexoUrl=sb.storage.from('alojamentos').getPublicUrl(path).data.publicUrl;
+  }
+  const payload={alojamento_id:alojId,mes,ano,tipo,valor:Number(valor),adm35_numero:adm35Num||null,adm35_envio:adm35Data,anexo_url:anexoUrl};
   console.log('[saveConta] payload=',JSON.stringify(payload));
   const res=await sb.from('alojamentos_contas').insert(payload);
   console.log('[saveConta] res=',res);
@@ -6001,7 +6013,7 @@ function openModalRelatorios(alojId,filtroMes,filtroAno){
 
   const historicoHtml=relAloj.length?relAloj.map(r=>{
     const mesLabel=meses[r.mes-1]||'';
-    return '<div class="conta-row"><div style="display:flex;flex-direction:column;gap:1px"><span>Relatório ADM 31</span><span style="font-size:11px;color:var(--text-muted)">'+mesLabel+'/'+r.ano+'</span></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:12px;color:var(--text-muted)">Avaliador: '+(r.avaliador||'—')+'</span><span style="font-size:11px;background:var(--success-light);color:var(--success);padding:2px 8px;border-radius:20px;font-weight:500">✓ Recebido '+(r.data_recebimento?formatDate(r.data_recebimento):'—')+'</span><button class="btn btn-sm btn-danger" onclick="deleteRelatorio(\''+r.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-trash"></i></button></div></div>';
+    return '<div class="conta-row"><div style="display:flex;flex-direction:column;gap:1px"><span>Relatório ADM 31</span><span style="font-size:11px;color:var(--text-muted)">'+mesLabel+'/'+r.ano+'</span></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:12px;color:var(--text-muted)">Avaliador: '+(r.avaliador||'—')+'</span><span style="font-size:11px;background:var(--success-light);color:var(--success);padding:2px 8px;border-radius:20px;font-weight:500">✓ Recebido '+(r.data_recebimento?formatDate(r.data_recebimento):'—')+'</span>'+(r.anexo_url?'<a href="'+r.anexo_url+'" target="_blank" class="btn btn-sm btn-info" title="Ver anexo"><i class="ti ti-paperclip"></i></a>':'')+'<button class="btn btn-sm btn-danger" onclick="deleteRelatorio(\''+r.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-trash"></i></button></div></div>';
   }).join(''):'<div style="text-align:center;padding:16px;color:var(--text-muted);font-size:13px">Nenhum relatório recebido ainda</div>';
 
   const filtroMesOpts=mesesDisp.map(m=>'<option value="'+m.mes+'" '+(m.mes===mesAtualN&&m.ano===anoAtualN?'selected':'')+'>'+meses[m.mes-1]+'/'+m.ano+'</option>').join('');
@@ -6048,6 +6060,9 @@ function openModalRelatorios(alojId,filtroMes,filtroAno){
           <div class="form-group" style="margin:8px 0 0"><label>Observações (opcional)</label>
             <textarea id="r-obs" rows="2" placeholder="Pendências encontradas no check list, etc." style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);resize:vertical"></textarea>
           </div>
+          <div class="form-group" style="margin:8px 0 0"><label>📎 Anexar relatório (PDF)</label>
+            <input type="file" id="r-anexo-file" accept=".pdf" style="width:100%;padding:6px 0;font-size:12px">
+          </div>
           <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="saveRelatorio('${alojId}')"><i class="ti ti-plus"></i> Lançar recebimento</button>
         </div>
         <div id="relatorios-historico">
@@ -6067,7 +6082,16 @@ async function saveRelatorio(alojId){
   const obs=(document.getElementById('r-obs').value||'').trim();
   if(!alojId||alojId==='undefined'||alojId==='null'){showToast('Erro: ID do alojamento inválido: '+alojId,'error');return;}
   if(!mes||!ano){showToast('Mês/ano inválido: mes='+mes+' ano='+ano,'error');return;}
-  const payload={alojamento_id:alojId,mes,ano,avaliador:avaliador||null,data_avaliacao:dataAvaliacao,data_recebimento:dataRecebimento,observacoes:obs||null};
+  let anexoUrl=null;
+  const anexoFile=document.getElementById('r-anexo-file')?.files?.[0];
+  if(anexoFile){
+    showToast('Enviando anexo...');
+    const path='relatorios/'+Date.now()+'_'+anexoFile.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+    const{error:upErr}=await sb.storage.from('alojamentos').upload(path,anexoFile,{contentType:'application/pdf',upsert:true});
+    if(upErr){showToast('Erro ao enviar anexo: '+upErr.message,'error');return;}
+    anexoUrl=sb.storage.from('alojamentos').getPublicUrl(path).data.publicUrl;
+  }
+  const payload={alojamento_id:alojId,mes,ano,avaliador:avaliador||null,data_avaliacao:dataAvaliacao,data_recebimento:dataRecebimento,observacoes:obs||null,anexo_url:anexoUrl};
   const res=await sb.from('alojamentos_relatorios').insert(payload);
   if(res.error){
     console.error('Erro saveRelatorio:',res.error);
