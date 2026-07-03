@@ -1312,11 +1312,12 @@ function getFuncionariosRows(lista){
 }
 function atualizarTabelaFuncionarios(){
   const lista=getFuncionariosFiltrados();
-  // Contadores respeitam filtro de obra
-  const baseObra=filtroObra?funcionarios.filter(f=>f.obra_id===filtroObra):funcionarios;
+  // Contadores respeitam filtro de obra — local (se tocado) ou o filtro global do menu lateral
+  const obraEfetiva=filtroObraTocado?filtroObra:(filtroObra||globalObraFiltro);
+  const baseObra=obraEfetiva?funcionarios.filter(f=>f.obra_id===obraEfetiva):funcionarios;
   const baseAtivos=baseObra.filter(f=>f.situacao==='ativo').length;
   const baseDemitidos=baseObra.filter(f=>f.situacao==='inativo').length;
-  const baseTransf=filtroObra?funcionarios.filter(f=>f.obra_transferencia_id===filtroObra):funcionarios.filter(f=>f.obra_transferencia_id);
+  const baseTransf=obraEfetiva?funcionarios.filter(f=>f.obra_transferencia_id===obraEfetiva):funcionarios.filter(f=>f.obra_transferencia_id);
   const totalAtivos=baseAtivos;
   const totalDemitidos=baseDemitidos;
   const totalTransf=baseTransf.length;
@@ -1330,7 +1331,8 @@ function atualizarTabelaFuncionarios(){
   const tabDemitidos=document.getElementById('tab-func-demitidos');
   const tabTransf=document.getElementById('tab-func-transf');
   const banner=document.getElementById('transf-banner');
-  if(sub)sub.textContent=lista.length+' de '+funcionarios.length+' registros';
+  const totalNaObra=funcTab==='transferidos'?totalTransf:funcTab==='demitidos'?totalDemitidos:totalAtivos;
+  if(sub)sub.textContent=lista.length+' de '+totalNaObra+' registros'+(obraEfetiva?' nesta obra':'');
   if(tbody)tbody.innerHTML=getFuncionariosRows(lista);
   if(thead)thead.innerHTML=funcTab==='transferidos'?theadTransf:funcTab==='demitidos'?theadDemitidos:theadAtivos;
   if(tabAtivos){tabAtivos.className='exp-tab'+(funcTab==='ativos'?' active':'');tabAtivos.innerHTML='Ativos <span style="background:var(--primary);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">'+totalAtivos+'</span>';}
@@ -1362,9 +1364,10 @@ function renderFuncionarios(){
   const theadTransf=`<tr><th>Funcionário</th><th>Função</th><th>Obra Origem → Destino</th><th>Empresa</th><th>Admissão</th><th>Transferência</th><th></th></tr>`;
   const theadAtivos=`<tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Empresa</th><th>Admissão</th><th>Situação</th><th></th></tr>`;
   const theadDemitidos=`<tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Data Demissão</th><th>Tipo</th><th>Motivo</th><th></th></tr>`;
+  const totalNaObraInicial=funcTab==='transferidos'?totalTransf:funcTab==='demitidos'?totalDemitidos:totalAtivos;
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
-      <div><div class="page-title">Funcionários</div><div class="page-subtitle" id="func-subtitle">${lista.length} de ${funcionarios.length} registros</div></div>
+      <div><div class="page-title">Funcionários</div><div class="page-subtitle" id="func-subtitle">${lista.length} de ${totalNaObraInicial} registros${obraEfetiva?' nesta obra':''}</div></div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-sm" onclick="exportFuncionariosExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
         <button class="btn btn-primary" onclick="openModalFuncionario()"><i class="ti ti-plus"></i> Novo funcionário</button>
@@ -1472,6 +1475,9 @@ async function verFicha(id){
     const bdColor=isEnvio?'#FED7AA':'#BBF7D0';
     const txtColor=isEnvio?'#C2410C':'#15803D';
     const titulo=isEnvio?'📤 Envio — saiu para outra obra':'📥 Recebimento — veio de outra obra';
+    const alojOrigem=f.alojamento_origem_id?alojamentos.find(a=>String(a.id)===String(f.alojamento_origem_id)):null;
+    const alojOrigemHtml=alojOrigem?'<div class="ficha-field"><div class="ficha-field-label">Alojamento na Obra de Origem (histórico)</div><div class="ficha-field-value">'+alojOrigem.nome+(alojOrigem.obra?.codigo?' ('+alojOrigem.obra.codigo+')':'')+'</div></div>':'';
+    const integOrigemHtml=f.data_integracao_origem?'<div class="ficha-field"><div class="ficha-field-label">Integração na Obra de Origem (histórico)</div><div class="ficha-field-value">'+formatDate(f.data_integracao_origem)+'</div></div>':'';
     transferSection='<div style="background:'+bgColor+';border:1px solid '+bdColor+';border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:16px">'
       +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:'+txtColor+';margin-bottom:10px">'+titulo+'</div>'
       +'<div class="ficha-grid">'
@@ -1479,6 +1485,8 @@ async function verFicha(id){
       +'<div class="ficha-field"><div class="ficha-field-label">Obra de Destino</div><div class="ficha-field-value">'+destinoNome+'</div></div>'
       +'<div class="ficha-field"><div class="ficha-field-label">Data da Transferência</div><div class="ficha-field-value">'+(formatDate(f.data_transferencia)||'—')+'</div></div>'
       +'<div class="ficha-field"><div class="ficha-field-label">Centro de Custo</div><div class="ficha-field-value">'+(f.centro_custo_transferencia||'—')+'</div></div>'
+      +alojOrigemHtml
+      +integOrigemHtml
       +'</div></div>';
   }
 
@@ -1579,8 +1587,11 @@ async function verFicha(id){
   const tipoBadge=f.tipo?('<span class="ficha-badge">'+(f.tipo==='nova_admissao'?'Nova Admissão':f.tipo==='efetivo'?'Efetivo':'Transferência')+'</span>'):'';
   const transfBadge=temTransf?('<span class="ficha-badge" style="background:rgba(255,255,255,.25)">'+(tipoTransf==='envio'?'📤 Transferido':'📥 Recebido')+'</span>'):'';
   const alojEnderecoHtml=aloj&&aloj.endereco?('<div class="ficha-field"><div class="ficha-field-label">Endereço</div><div class="ficha-field-value">'+aloj.endereco+'</div></div>'):'';
+  const alojDiariaHtml=aloj&&aloj.tipo_alojamento==='hotel'?('<div class="ficha-field"><div class="ficha-field-label">Diária</div><div class="ficha-field-value">R$ '+Number(aloj.valor_diaria||0).toLocaleString('pt-BR',{minimumFractionDigits:2})+'</div></div>'):'';
   const obsHtml=f.observacao_interna?('<div class="ficha-section"><div class="ficha-section-title"><i class="ti ti-notes" style="margin-right:6px"></i>Observações</div><div style="font-size:13px;color:var(--text);padding:8px 0">'+f.observacao_interna+'</div></div>'):'';
-  const alojSectionFinal=aloj?('<div class="ficha-section"><div class="ficha-section-title"><i class="ti ti-building" style="margin-right:6px"></i>Alojamento</div><div class="ficha-grid"><div class="ficha-field"><div class="ficha-field-label">Nome</div><div class="ficha-field-value">'+(aloj.nome||'—')+'</div></div><div class="ficha-field"><div class="ficha-field-label">Obra</div><div class="ficha-field-value">'+(aloj.obra?.codigo?aloj.obra.codigo+' ':'')+' '+(aloj.obra?.nome||'—')+'</div></div>'+alojEnderecoHtml+'</div></div>'):'';
+  const alojSectionFinal=aloj
+    ?('<div class="ficha-section"><div class="ficha-section-title"><i class="ti ti-building" style="margin-right:6px"></i>Alojamento'+(aloj.tipo_alojamento==='hotel'?' <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(🏨 Hotel)</span>':'')+'</div><div class="ficha-grid"><div class="ficha-field"><div class="ficha-field-label">Nome</div><div class="ficha-field-value">'+(aloj.nome||'—')+'</div></div><div class="ficha-field"><div class="ficha-field-label">Obra</div><div class="ficha-field-value">'+(aloj.obra?.codigo?aloj.obra.codigo+' ':'')+' '+(aloj.obra?.nome||'—')+'</div></div>'+alojDiariaHtml+alojEnderecoHtml+'</div></div>')
+    :(f.alojamento_origem_id?('<div class="ficha-section" style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:var(--radius-lg);padding:14px 16px"><div class="ficha-section-title" style="color:#92400E"><i class="ti ti-building" style="margin-right:6px"></i>Alojamento</div><div style="font-size:13px;color:#92400E">Ainda não há alojamento definido nesta obra. O alojamento anterior consta no histórico da transferência acima — selecione o alojamento atual em "Editar".</div></div>'):'');
 
   const html=`
     <div class="modal-overlay" id="modal-ficha" onclick="if(event.target===this)closeModal('modal-ficha')">
@@ -1698,6 +1709,7 @@ function onSituacaoChange(){
   const demBlock=document.getElementById('demissao-block');
   if(val==='inativo'){demBlock.classList.add('visible');}
   else{demBlock.classList.remove('visible');}
+  atualizarAlojamentoPorObra();
 }
 function selectTipoTransferencia(tipo){
   tipoTransferencia=tipo;
@@ -1705,17 +1717,34 @@ function selectTipoTransferencia(tipo){
   document.getElementById('btn-tipo-'+tipo).classList.add('selected-'+tipo);
   const fields=document.getElementById('transfer-fields');const header=document.getElementById('transfer-header');
   fields.classList.add('visible');header.className='transfer-header '+tipo;
+  const hint=document.getElementById('f-alojamento-hint');
   if(tipo==='envio'){
     header.innerHTML='<i class="ti ti-arrow-right"></i> Envio — funcionário transferido para outra obra';
     document.getElementById('label-obra-transf').textContent='Obra de Destino';
     document.getElementById('row-mobilizacao').style.display='none';
     document.getElementById('row-desmobilizacao').style.display='flex';
+    // Ao enviar para outra obra, o alojamento atual (da obra de origem) vira histórico —
+    // a lista de alojamentos passa a refletir a obra de destino (assim que selecionada)
+    const func=window._funcEditando;
+    const alojAtual=func?.alojamento_id?alojamentos.find(a=>String(a.id)===String(func.alojamento_id)):null;
+    if(hint)hint.innerHTML=alojAtual?`<i class="ti ti-info-circle"></i> Alojamento anterior (<strong>${alojAtual.nome}</strong>) será mantido no histórico da transferência. Selecione o alojamento na obra de destino, se já souber.`:'';
+    // Data de Integração também é específica da obra de origem — vira histórico e o campo fica em branco
+    const integEl=document.getElementById('f-integracao');
+    const integHint=document.getElementById('f-integracao-hint');
+    if(integEl&&func?.data_mobilizacao&&integEl.value===func.data_mobilizacao){
+      integEl.value='';
+      if(integHint)integHint.innerHTML=`<i class="ti ti-info-circle"></i> Data anterior (${formatDate(func.data_mobilizacao)}) mantida no histórico. Informe a data de integração na obra nova.`;
+    }
   }else{
     header.innerHTML='<i class="ti ti-arrow-left"></i> Recebimento — funcionário recebido de outra obra';
     document.getElementById('label-obra-transf').textContent='Obra de Origem';
     document.getElementById('row-mobilizacao').style.display='flex';
     document.getElementById('row-desmobilizacao').style.display='none';
+    if(hint)hint.innerHTML='';
+    const integHint2=document.getElementById('f-integracao-hint');
+    if(integHint2)integHint2.innerHTML='';
   }
+  atualizarAlojamentoPorObra();
 }
 function previewFoto(input){
   const file=input.files[0];if(!file)return;
@@ -1725,6 +1754,7 @@ function previewFoto(input){
   reader.readAsDataURL(file);
 }
 function openModalFuncionario(func=null){
+  window._funcEditando=func;
   funcaoModoManual=!!(func&&func.funcao_manual&&!func.funcao_id&&!func.funcao);
   tipoTransferencia='';fotoFile=null;
   const isEdit=!!func;
@@ -1757,7 +1787,7 @@ function openModalFuncionario(func=null){
           <div class="form-group"><label>Matrícula *</label><input id="f-matricula" value="${func?.matricula||''}" placeholder="072119"></div>
           <div class="form-group full"><label>Nome Completo *</label><input id="f-nome" value="${func?.nome_completo||''}" placeholder="Nome completo do funcionário"></div>
           <div class="form-group"><label>Data de Admissão</label><input type="date" id="f-admissao" value="${func?.data_admissao||''}"></div>
-          <div class="form-group"><label>Data de Integração</label><input type="date" id="f-integracao" value="${func?.data_mobilizacao||''}"></div>
+          <div class="form-group"><label>Data de Integração</label><input type="date" id="f-integracao" value="${func?.data_mobilizacao||''}"><div id="f-integracao-hint" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div></div>
           <div class="form-group">
             <label>Situação</label>
             <select id="f-situacao" onchange="onSituacaoChange()">
@@ -1800,12 +1830,10 @@ function openModalFuncionario(func=null){
             <span class="funcao-toggle" id="f-funcao-toggle" onclick="toggleFuncaoModo()">${funcaoModoManual?'← Escolher da lista':'✏️ Digitar manualmente'}</span>
           </div>
           <div class="form-group"><label>Empresa</label><select id="f-empresa"><option value="">Selecione...</option>${empresaOptions}</select></div>
-          <div class="form-group"><label>Obra / Contrato</label><select id="f-obra"><option value="">Selecione...</option>${obraOptions}</select></div>
+          <div class="form-group"><label>Obra / Contrato</label><select id="f-obra" onchange="atualizarAlojamentoPorObra()"><option value="">Selecione...</option>${obraOptions}</select></div>
           <div class="form-group"><label>Alojamento</label>
-            <select id="f-alojamento">
-              <option value="">— Nenhum —</option>
-              ${alojamentos.map(a=>`<option value="${a.id}" ${String(func?.alojamento_id)===String(a.id)?'selected':''}>${a.nome}${a.obra?.codigo?' ('+a.obra.codigo+')':''}</option>`).join('')}
-            </select>
+            <select id="f-alojamento"></select>
+            <div id="f-alojamento-hint" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div>
           </div>
           <div class="form-group"><label>Cidade</label><input id="f-cidade" value="${func?.cidade||''}" placeholder="Mogi Guaçu"></div>
           <div class="form-group"><label>UF</label><select id="f-uf"><option value="">—</option>${UFS.map(u=>`<option value="${u}" ${func?.uf===u?'selected':''}>${u}</option>`).join('')}</select></div>
@@ -1826,7 +1854,7 @@ function openModalFuncionario(func=null){
               </div>
               <div class="form-group full">
                 <label id="label-obra-transf">${tipoTransf==='envio'?'Obra de Destino':tipoTransf==='recebimento'?'Obra de Origem':'Obra'}</label>
-                <select id="f-obra-transf"><option value="">Selecione...</option>${obraTransfOptions}</select>
+                <select id="f-obra-transf" onchange="atualizarAlojamentoPorObra()"><option value="">Selecione...</option>${obraTransfOptions}</select>
               </div>
               <div class="form-group"><label>Data da Transferência</label><input type="date" id="f-data-transf" value="${func?.data_transferencia||''}"></div>
               <div class="form-group"><label>Centro de Custo</label><input id="f-centro-custo" value="${func?.centro_custo_transferencia||''}" placeholder="Ex: CC-001"></div>
@@ -1868,6 +1896,23 @@ function openModalFuncionario(func=null){
         </div>
       </div>
     </div>`);
+  atualizarAlojamentoPorObra(true);
+}
+
+// Preenche o select de Alojamento apenas com os alojamentos da obra selecionada.
+// preselecionarAtual=true (só na abertura do modal): mantém o alojamento atual do funcionário selecionado
+// SE ele pertencer à obra escolhida — caso contrário, o campo fica em branco para o administrativo preencher.
+function atualizarAlojamentoPorObra(preselecionarAtual){
+  const sel=document.getElementById('f-alojamento');
+  if(!sel)return;
+  const situacaoEl=document.getElementById('f-situacao');
+  const emEnvio=situacaoEl?.value==='transferido'&&tipoTransferencia==='envio';
+  const obraTransfEl=document.getElementById('f-obra-transf');
+  const obraId=(emEnvio&&obraTransfEl?.value)?obraTransfEl.value:document.getElementById('f-obra').value;
+  const func=window._funcEditando;
+  const candidatos=obraId?alojamentos.filter(a=>String(a.obra_id)===String(obraId)):alojamentos;
+  const manterAtual=preselecionarAtual&&!emEnvio&&func?.alojamento_id&&candidatos.some(a=>String(a.id)===String(func.alojamento_id));
+  sel.innerHTML='<option value="">— Nenhum —</option>'+candidatos.map(a=>`<option value="${a.id}" ${manterAtual&&String(func.alojamento_id)===String(a.id)?'selected':''}>${a.nome}${a.obra?.codigo?' ('+a.obra.codigo+')':''}</option>`).join('');
 }
 
 function editFuncionario(id){
@@ -1927,10 +1972,37 @@ async function saveFuncionario(id){
     const f=funcionarios.find(x=>x.id===id);
     fotoUrl=f?.foto_url||null;
   }
+  // ── Alojamento: o select já vem filtrado pela obra selecionada (atualizarAlojamentoPorObra), então só
+  // contém opções válidas para a obra atual/destino. Se o funcionário tinha um alojamento de uma obra
+  // diferente da obra final (por transferência, atual ou de edições anteriores), esse alojamento vira
+  // histórico em alojamento_origem_id e o campo atual fica em branco até o administrativo preencher.
+  const existente=id?funcionarios.find(x=>x.id===id):null;
+  const alojamentoSelecionado=document.getElementById('f-alojamento').value||null;
+  let alojamentoOrigemId=existente?.alojamento_origem_id||null;
+  if(existente?.alojamento_id&&!alojamentoOrigemId){
+    const alojAnterior=alojamentos.find(a=>String(a.id)===String(existente.alojamento_id));
+    const pertenceAObraFinal=alojAnterior&&String(alojAnterior.obra_id)===String(obraFinal);
+    if(!pertenceAObraFinal)alojamentoOrigemId=existente.alojamento_id;
+  }
+  // ── Data de Integração: mesmo raciocínio do alojamento. Se o funcionário já foi transferido (tem
+  // obra_transferencia_id e data_transferencia) e a integração salva é anterior/igual à data da
+  // transferência, ela pertence à obra de origem — vira histórico e o campo atual fica em branco
+  // (a menos que o próprio usuário já tenha preenchido uma data nova nesta edição).
+  let integracaoSelecionada=document.getElementById('f-integracao').value||null;
+  let integracaoOrigem=existente?.data_integracao_origem||null;
+  if(existente?.data_mobilizacao&&existente?.obra_transferencia_id&&existente?.data_transferencia&&!integracaoOrigem){
+    const dTransf=parseDate(existente.data_transferencia);
+    const dMob=parseDate(existente.data_mobilizacao);
+    if(dTransf&&dMob&&dMob<=dTransf){
+      integracaoOrigem=existente.data_mobilizacao;
+      if(integracaoSelecionada===existente.data_mobilizacao)integracaoSelecionada=null;
+    }
+  }
   const payload={
     matricula:mat,nome_completo:nome,
     data_admissao:document.getElementById('f-admissao').value||null,
-    data_mobilizacao:document.getElementById('f-integracao').value||null,
+    data_mobilizacao:integracaoSelecionada,
+    data_integracao_origem:integracaoOrigem,
     situacao:isTransf?'ativo':situacao,
     tipo:document.getElementById('f-tipo').value,
     periodo_experiencia:(()=>{const v=document.getElementById('f-periodo-exp').value;return v==='30s'?'30s':parseInt(v);})(),
@@ -1939,7 +2011,8 @@ async function saveFuncionario(id){
     funcao_id:funcaoId,funcao_manual:funcaoManual,
     empresa_id:document.getElementById('f-empresa').value||null,
     obra_id:obraFinal,
-    alojamento_id:document.getElementById('f-alojamento').value||null,
+    alojamento_id:alojamentoSelecionado,
+    alojamento_origem_id:alojamentoOrigemId,
     cidade:document.getElementById('f-cidade').value.trim()||null,
     uf:document.getElementById('f-uf').value||null,
     observacao_interna:document.getElementById('f-obs').value.trim()||null,
@@ -4081,6 +4154,8 @@ const NR_LISTA=[
   {codigo:'OUTRA-NR',nome:'Outra NR (definir manualmente)',meses:null},
 ];
 function nrInfo(codigo){return NR_LISTA.find(n=>n.codigo===codigo)||null;}
+const ASO_TIPOS=['Admissional','Periódico','Mudança de Função','Retorno ao Trabalho','Demissional'];
+const CNH_CATEGORIAS=['A','B','AB','AC','AD','AE','C','D','E'];
 
 // Calcula vencimento/status de um registro de treinamento
 function calcVencTreinamento(t){
@@ -4176,7 +4251,10 @@ function renderTreinamentosLocal(){
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div><div class="page-title"><i class="ti ti-school"></i> Treinamentos</div><div class="page-subtitle">NR · ASO · CNH — controle de vencimentos${globalObraFiltro?' · <strong>'+(obras.find(o=>String(o.id)===String(globalObraFiltro))?.nome||'')+'</strong>':''}</div></div>
-      <button class="btn btn-primary" onclick="openModalTreinamento()"><i class="ti ti-plus"></i> Novo treinamento</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="exportarTreinamentosExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
+        <button class="btn btn-primary" onclick="openModalTreinamento()"><i class="ti ti-plus"></i> Novo treinamento</button>
+      </div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px">
       <div class="metric-card" onclick="treinamentosFiltroStatus='';renderTreinamentosLocal()" style="cursor:pointer;border-color:${!treinamentosFiltroStatus?'var(--primary)':'var(--border)'}">
@@ -4226,6 +4304,8 @@ function openModalTreinamento(id){
   const valorInicial=funcSelecionado?`${funcSelecionado.matricula||'—'} — ${funcSelecionado.nome_completo}`:'';
   const tipo=t?.tipo||'NR';
   const nrOpts=NR_LISTA.map(n=>`<option value="${n.codigo}" ${t?.nr_codigo===n.codigo?'selected':''}>${n.codigo} — ${n.nome}</option>`).join('');
+  const cnhOpts='<option value="">Selecione...</option>'+CNH_CATEGORIAS.map(c=>`<option value="${c}" ${t?.categoria_cnh===c?'selected':''}>${c}</option>`).join('');
+  const asoOpts='<option value="">Selecione...</option>'+ASO_TIPOS.map(a=>`<option value="${a}" ${t?.nome_treinamento===a?'selected':''}>${a}</option>`).join('');
   document.body.insertAdjacentHTML('beforeend',`
     <div class="modal-overlay" id="modal-treinamento" onclick="if(event.target===this)closeModal('modal-treinamento')">
       <div class="modal" style="max-width:560px">
@@ -4256,11 +4336,15 @@ function openModalTreinamento(id){
             </div>
             <div class="form-group" id="tr-wrap-cnh" style="${tipo!=='CNH'?'display:none':''}">
               <label>Categoria da CNH</label>
-              <input id="tr-cnh-cat" value="${t?.categoria_cnh||''}" placeholder="Ex: B, AB, D">
+              <select id="tr-cnh-cat">${cnhOpts}</select>
             </div>
-            <div class="form-group full" id="tr-wrap-nome" style="${tipo==='NR'||tipo==='CNH'?'display:none':''}">
-              <label>${tipo==='ASO'?'Tipo de ASO (opcional)':'Nome do treinamento *'}</label>
-              <input id="tr-nome" value="${t?.nome_treinamento||''}" placeholder="${tipo==='ASO'?'Ex: Periódico, Admissional, Mudança de Função':'Ex: Reciclagem interna XYZ'}">
+            <div class="form-group" id="tr-wrap-aso" style="${tipo!=='ASO'?'display:none':''}">
+              <label>Tipo de ASO</label>
+              <select id="tr-aso-tipo">${asoOpts}</select>
+            </div>
+            <div class="form-group full" id="tr-wrap-nome" style="${tipo!=='OUTRO'?'display:none':''}">
+              <label>Nome do treinamento *</label>
+              <input id="tr-nome" value="${tipo==='OUTRO'?(t?.nome_treinamento||''):''}" placeholder="Ex: Reciclagem interna XYZ">
             </div>
             <div class="form-group">
               <label>Data de Realização</label>
@@ -4271,10 +4355,10 @@ function openModalTreinamento(id){
               <input type="number" id="tr-periodicidade" min="1" value="${t?.periodicidade_meses||nrInfo(t?.nr_codigo)?.meses||''}" onchange="atualizarCamposTreinamento()">
             </div>
             <div class="form-group full" style="display:flex;align-items:center;gap:8px;margin-top:2px" id="tr-wrap-manual-toggle">
-              <label style="display:flex;align-items:center;gap:8px;margin:0"><input type="checkbox" id="tr-manual" style="width:auto" ${t?.vencimento_manual||tipo==='CNH'||tipo==='ASO'?'checked':''} onchange="atualizarCamposTreinamento()"> Definir data de vencimento manualmente</label>
+              <label style="display:flex;align-items:center;gap:8px;margin:0"><input type="checkbox" id="tr-manual" style="width:auto" ${t?.vencimento_manual||tipo==='CNH'?'checked':''} onchange="atualizarCamposTreinamento()"> Definir data de vencimento manualmente</label>
             </div>
             <div class="form-group">
-              <label>Data de Vencimento ${tipo==='NR'?'':'*'}</label>
+              <label>Data de Vencimento ${tipo==='NR'||tipo==='ASO'?'':'*'}</label>
               <input type="date" id="tr-vencimento" value="${t?.data_vencimento||''}">
             </div>
             <div class="form-group full">
@@ -4299,24 +4383,22 @@ function atualizarCamposTreinamento(){
   const manualEl=document.getElementById('tr-manual');
   const wrapNr=document.getElementById('tr-wrap-nr');
   const wrapCnh=document.getElementById('tr-wrap-cnh');
+  const wrapAso=document.getElementById('tr-wrap-aso');
   const wrapNome=document.getElementById('tr-wrap-nome');
   const wrapPeriod=document.getElementById('tr-wrap-periodicidade');
   const wrapManualToggle=document.getElementById('tr-wrap-manual-toggle');
   const vencInput=document.getElementById('tr-vencimento');
-  const nomeLabel=wrapNome.querySelector('label');
-  const nomeInput=document.getElementById('tr-nome');
 
   wrapNr.style.display=tipo==='NR'?'':'none';
   wrapCnh.style.display=tipo==='CNH'?'':'none';
-  wrapNome.style.display=(tipo==='NR')?'none':'';
+  wrapAso.style.display=tipo==='ASO'?'':'none';
+  wrapNome.style.display=tipo==='OUTRO'?'':'none';
   wrapPeriod.style.display=tipo==='NR'?'':'none';
 
-  if(tipo==='CNH'||tipo==='ASO'){
-    // CNH e ASO: vencimento sempre manual, esconde o toggle e trava marcado
+  if(tipo==='CNH'){
+    // CNH: sem periodicidade legal fixa — vencimento sempre manual
     manualEl.checked=true;manualEl.disabled=true;
     wrapManualToggle.style.display='none';
-    nomeLabel.textContent=tipo==='ASO'?'Tipo de ASO (opcional)':'Descrição (opcional)';
-    nomeInput.placeholder=tipo==='ASO'?'Ex: Periódico, Admissional, Mudança de Função':'';
   } else {
     manualEl.disabled=false;
     wrapManualToggle.style.display='';
@@ -4325,9 +4407,11 @@ function atualizarCamposTreinamento(){
   const manual=manualEl.checked;
   vencInput.disabled=false; // sempre editável, só recalculamos abaixo quando automático
 
-  if(tipo==='NR'&&!manual){
+  if(!manual){
     const dataReal=document.getElementById('tr-data-realizacao').value;
-    const periodicidade=parseInt(document.getElementById('tr-periodicidade').value)||null;
+    let periodicidade=null;
+    if(tipo==='NR')periodicidade=parseInt(document.getElementById('tr-periodicidade').value)||null;
+    else if(tipo==='ASO')periodicidade=12; // ASO: vencimento sempre 1 ano após a realização
     if(dataReal&&periodicidade){
       const d=new Date(dataReal+'T12:00:00');
       d.setMonth(d.getMonth()+periodicidade);
@@ -4350,18 +4434,18 @@ async function salvarTreinamento(id){
   if(!funcId){showToast('Selecione o funcionário','error');return;}
   const vencimento=document.getElementById('tr-vencimento').value||null;
   const manual=document.getElementById('tr-manual').checked;
-  const nome=document.getElementById('tr-nome').value.trim()||null;
-  if((tipo==='OUTRO')&&!nome){showToast('Informe o nome do treinamento','error');return;}
+  const nomeOutro=document.getElementById('tr-nome').value.trim()||null;
+  if(tipo==='OUTRO'&&!nomeOutro){showToast('Informe o nome do treinamento','error');return;}
   if(!vencimento){showToast('Informe a data de vencimento','error');return;}
 
   const payload={
     funcionario_id:funcId,
     tipo,
     nr_codigo:tipo==='NR'?document.getElementById('tr-nr').value:null,
-    categoria_cnh:tipo==='CNH'?document.getElementById('tr-cnh-cat').value.trim()||null:null,
-    nome_treinamento:tipo==='NR'?null:nome,
+    categoria_cnh:tipo==='CNH'?document.getElementById('tr-cnh-cat').value||null:null,
+    nome_treinamento:tipo==='ASO'?(document.getElementById('tr-aso-tipo').value||null):tipo==='OUTRO'?nomeOutro:null,
     data_realizacao:document.getElementById('tr-data-realizacao').value||null,
-    periodicidade_meses:tipo==='NR'?(parseInt(document.getElementById('tr-periodicidade').value)||null):null,
+    periodicidade_meses:tipo==='NR'?(parseInt(document.getElementById('tr-periodicidade').value)||null):tipo==='ASO'?12:null,
     vencimento_manual:manual,
     data_vencimento:vencimento,
     observacao:document.getElementById('tr-obs').value.trim()||null,
@@ -4381,6 +4465,60 @@ async function deletarTreinamento(id,nome){
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast('Treinamento removido!');
   await loadTreinamentos();renderTreinamentosLocal();
+}
+
+function exportarTreinamentosExcel(){
+  const hoje=new Date();
+  const dataEmissao=hoje.toLocaleDateString('pt-BR');
+  const obraFiltroAtivo=globalObraFiltro||treinamentosFiltroObra||'';
+
+  // Reaplica os mesmos filtros ativos na tela (obra, tipo, status, busca)
+  let lista=obraFiltroAtivo?treinamentos.filter(t=>String(t.funcionario?.obra_id)===String(obraFiltroAtivo)):treinamentos;
+  lista=lista.map(t=>({...t,_calc:calcVencTreinamento(t)}));
+  if(treinamentosFiltroStatus)lista=lista.filter(t=>t._calc.status===treinamentosFiltroStatus);
+  if(treinamentosFiltroTipo)lista=lista.filter(t=>t.tipo===treinamentosFiltroTipo);
+  if(treinamentosBusca){
+    const b=treinamentosBusca.toLowerCase();
+    lista=lista.filter(t=>(t.funcionario?.nome_completo||'').toLowerCase().includes(b)||(t.funcionario?.matricula||'').toLowerCase().includes(b)||tipoLabelTreinamento(t).toLowerCase().includes(b));
+  }
+  if(!lista.length){showToast('Nenhum treinamento para exportar.','error');return;}
+
+  const ordemStatus={vencido:0,critico:1,atencao:2,alerta:3,ok:4,sem_data:5};
+  lista.sort((a,b)=>(ordemStatus[a._calc.status]-ordemStatus[b._calc.status])||((a._calc.dias??9999)-(b._calc.dias??9999)));
+
+  const obraLabel=obraFiltroAtivo?(obras.find(o=>String(o.id)===String(obraFiltroAtivo))?.codigo||''):'Todas as Obras';
+
+  const rows=[];
+  rows.push(['CONTROLE DE TREINAMENTOS — GTEL','','','','','','']);
+  rows.push([`Emitido em: ${dataEmissao}  ·  ${obraLabel}  ·  ${lista.length} treinamento(s)`,'','','','','','']);
+  rows.push([]);
+  rows.push(['FUNCIONÁRIO','MATRÍCULA','OBRA','TREINAMENTO','DATA REALIZAÇÃO','DATA VENCIMENTO','DIAS RESTANTES','STATUS']);
+
+  lista.forEach(t=>{
+    const obra=t.funcionario?.obra?.codigo?`${t.funcionario.obra.codigo} — ${t.funcionario.obra.nome||''}`.trim():t.funcionario?.obra?.nome||'—';
+    const diasStr=t._calc.dias===null?'—':t._calc.dias<0?`${Math.abs(t._calc.dias)}d atrás`:`${t._calc.dias}d`;
+    rows.push([
+      t.funcionario?.nome_completo||'—',
+      t.funcionario?.matricula||'—',
+      obra,
+      tipoLabelTreinamento(t),
+      formatDate(t.data_realizacao)||'—',
+      formatDate(t.data_vencimento)||'—',
+      diasStr,
+      TREIN_STATUS_UI[t._calc.status].label,
+    ]);
+  });
+
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[{wch:32},{wch:12},{wch:30},{wch:34},{wch:16},{wch:16},{wch:14},{wch:14}];
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:7}},{s:{r:1,c:0},e:{r:1,c:7}}];
+
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Treinamentos');
+
+  const sufixo=obraFiltroAtivo?`_${obras.find(o=>String(o.id)===String(obraFiltroAtivo))?.codigo||'filtro'}`:'';
+  XLSX.writeFile(wb,`Treinamentos_GTEL${sufixo}_${dataEmissao.replace(/\//g,'-')}.xlsx`);
+  showToast(`Excel exportado — ${lista.length} treinamento(s)!`);
 }
 
 // ─── USUÁRIOS ─────────────────────────────────────────────────────────────────
@@ -4975,6 +5113,7 @@ function renderAlojamentos(){
     } else if(alojFiltroAtivo==='nao_lancadas'){
       const _obrig=['agua','energia','gas','condominio'];
       lista=lista.filter(a=>{
+        if(a.tipo_alojamento==='hotel')return false; // hotéis não têm contas a lançar
         const tiposLanc=new Set(alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===_mes&&c.ano===_ano).map(c=>c.tipo));
         return _obrig.some(t=>!tiposLanc.has(t)&&!a['isenta_'+t]);
       });
@@ -5017,23 +5156,24 @@ function renderAlojamentos(){
     ?'<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-home-off" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum alojamento cadastrado</div>'
     :Object.entries(_byObra).map(([obraKey,lista])=>{
       const linhas=lista.map(a=>{
+        const isHotel=a.tipo_alojamento==='hotel';
         const moradores=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length;
         const total=a.vagas_total||0;
         const disp=total-moradores;
         const pct=total?Math.round(moradores/total*100):0;
         const termino=parseDate(a.data_termino);
         const diasTerm=termino?Math.floor((termino-hoje)/86400000):null;
-        const contasMes=alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===_mesTabela&&c.ano===_anoTabela);
-        const custoMes=contasMes.reduce((s,c)=>s+Number(c.valor||0),0)+Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0);
+        const contasMes=isHotel?[]:alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===_mesTabela&&c.ano===_anoTabela);
+        const custoMes=isHotel?0:contasMes.reduce((s,c)=>s+Number(c.valor||0),0)+Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0);
         const pendMes=contasMes.filter(c=>c.status==='pendente').length;
         const tiposLanc=new Set(contasMes.map(c=>c.tipo));
         const isentas=new Set(_contasObrigTab.filter(t=>a['isenta_'+t]));
-        const faltando=_contasObrigTab.filter(t=>!tiposLanc.has(t)&&!isentas.has(t));
-        const relMes=alojamentosRelatorios.find(r=>String(r.alojamento_id)===String(a.id)&&r.mes===_mesTabela&&r.ano===_anoTabela);
+        const faltando=isHotel?[]:_contasObrigTab.filter(t=>!tiposLanc.has(t)&&!isentas.has(t));
+        const relMes=isHotel?null:alojamentosRelatorios.find(r=>String(r.alojamento_id)===String(a.id)&&r.mes===_mesTabela&&r.ano===_anoTabela);
         const relTip=relMes?'Relatório ADM 31 — recebido em '+(relMes.data_recebimento?formatDate(relMes.data_recebimento):'—'):'Relatório ADM 31 — não recebido';
-        const relPill='<span onclick="openModalRelatorios(\''+a.id+'\','+_mesTabela+','+_anoTabela+')" title="'+relTip+'" style="font-size:15px;cursor:pointer;padding:3px 5px;border-radius:6px;background:'+(relMes?'var(--success-light)':'#FEE2E2')+';opacity:'+(relMes?'1':'0.4')+'">📋</span>';
+        const relPill=isHotel?'<span style="font-size:12px;color:var(--text-muted)">— Hotel —</span>':'<span onclick="openModalRelatorios(\''+a.id+'\','+_mesTabela+','+_anoTabela+')" title="'+relTip+'" style="font-size:15px;cursor:pointer;padding:3px 5px;border-radius:6px;background:'+(relMes?'var(--success-light)':'#FEE2E2')+';opacity:'+(relMes?'1':'0.4')+'">📋</span>';
 
-        const contasPills=_contasObrigTab.map(t=>{
+        const contasPills=isHotel?'<span style="font-size:12px;color:var(--text-muted)">— Hotel —</span>':_contasObrigTab.map(t=>{
           if(isentas.has(t))return '<span title="'+_nomesTab[t]+' isento" style="font-size:18px;opacity:.25;cursor:default">'+_labTab[t]+'</span>';
           const lanc=tiposLanc.has(t);
           const tip=_nomesTab[t]+(lanc?' — Lançado':' — Não lançado');
@@ -5052,17 +5192,25 @@ function renderAlojamentos(){
           +'<div style="width:44px;height:5px;background:var(--border);border-radius:3px"><div style="height:5px;border-radius:3px;background:'+(pct>=100?'var(--danger)':pct>=80?'var(--warning)':'var(--primary)')+';width:'+pct+'%"></div></div>'
           +'</div>';
 
+        const custoCell=isHotel
+          ?'<div style="font-size:13px;font-weight:500">R$ '+Number(a.valor_diaria||0).toLocaleString('pt-BR',{minimumFractionDigits:2})+'<span style="font-size:10px;color:var(--text-muted);font-weight:400"> /diária</span></div>'
+          :'<div style="font-size:13px;font-weight:500">R$ '+custoMes.toLocaleString('pt-BR',{minimumFractionDigits:2})+'</div>';
+
+        const acoesContasRel=isHotel?'':(
+          '<button class="btn btn-sm" title="Contas" onclick="openModalContas(&apos;'+ a.id +'&apos;)"><i class="ti ti-receipt"></i></button> '
+          +'<button class="btn btn-sm" title="Relatório ADM 31" onclick="openModalRelatorios(&apos;'+ a.id +'&apos;)"><i class="ti ti-clipboard-check"></i></button> '
+        );
+
         return '<tr id="aloj-row-'+a.id+'" style="border-bottom:1px solid var(--border);transition:background .4s">'
-          +'<td style="padding:10px 14px"><div style="font-weight:500;font-size:13px">'+a.nome+'</div>'+(a.imobiliaria?'<div style="font-size:11px;color:var(--text-muted)">'+a.imobiliaria+'</div>':'')+'</td>'
+          +'<td style="padding:10px 14px"><div style="font-weight:500;font-size:13px">'+(isHotel?'🏨 ':'')+a.nome+'</div>'+(a.imobiliaria?'<div style="font-size:11px;color:var(--text-muted)">'+a.imobiliaria+'</div>':'')+'</td>'
           +'<td style="padding:10px 14px">'+vagasCell+'</td>'
-          +'<td style="padding:10px 14px">'+termBadge+'</td>'
-          +'<td style="padding:10px 14px"><div style="font-size:13px;font-weight:500">R$ '+custoMes.toLocaleString('pt-BR',{minimumFractionDigits:2})+'</div></td>'
-          +'<td style="padding:10px 14px" id="section-pendentes"><div style="display:flex;gap:4px;align-items:center">'+contasPills+'</div>'+(faltando.length?'<div style="font-size:10px;color:#DC2626;margin-top:2px">'+faltando.length+' não lançada(s)</div>':'<div style="font-size:10px;color:var(--success)">Completo</div>')+'</td>'
-          +'<td style="padding:10px 14px">'+relPill+(relMes?'':'<div style="font-size:10px;color:#DC2626;margin-top:2px">Pendente</div>')+'</td>'
+          +'<td style="padding:10px 14px">'+(isHotel?'<span style="font-size:12px;color:var(--text-muted)">—</span>':termBadge)+'</td>'
+          +'<td style="padding:10px 14px">'+custoCell+'</td>'
+          +'<td style="padding:10px 14px" id="section-pendentes"><div style="display:flex;gap:4px;align-items:center">'+contasPills+'</div>'+(faltando.length?'<div style="font-size:10px;color:#DC2626;margin-top:2px">'+faltando.length+' não lançada(s)</div>':(isHotel?'':'<div style="font-size:10px;color:var(--success)">Completo</div>'))+'</td>'
+          +'<td style="padding:10px 14px">'+relPill+(!isHotel&&!relMes?'<div style="font-size:10px;color:#DC2626;margin-top:2px">Pendente</div>':'')+'</td>'
           +'<td style="padding:8px 14px;white-space:nowrap">'
           +'<button class="btn btn-sm" title="Moradores" onclick="openModalMoradores(&apos;'+ a.id +'&apos;)"><i class="ti ti-users"></i></button> '
-          +'<button class="btn btn-sm" title="Contas" onclick="openModalContas(&apos;'+ a.id +'&apos;)"><i class="ti ti-receipt"></i></button> '
-          +'<button class="btn btn-sm" title="Relatório ADM 31" onclick="openModalRelatorios(&apos;'+ a.id +'&apos;)"><i class="ti ti-clipboard-check"></i></button> '
+          +acoesContasRel
           +'<button class="btn btn-sm" title="Editar" onclick="openModalAlojamento(&apos;'+ a.id +'&apos;)"><i class="ti ti-edit"></i></button> '
           +'<button class="btn btn-sm btn-danger" title="Excluir" onclick="deleteAlojamento(&apos;'+ a.id +'&apos;,&apos;'+(a.nome||'').replace(/&apos;/g,'\\&apos;')+'&apos;)"><i class="ti ti-trash"></i></button>'
           +'</td></tr>';
@@ -5071,6 +5219,7 @@ function renderAlojamentos(){
       const obraTotal=lista.reduce((s,a)=>s+(a.vagas_total||0),0);
       const obraOcup=lista.reduce((s,a)=>s+funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length,0);
       const obraCusto=lista.reduce((s,a)=>{
+        if(a.tipo_alojamento==='hotel')return s; // diária não entra no custo fixo mensal
         const cm=alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===_mesTabela&&c.ano===_anoTabela).reduce((ss,c)=>ss+Number(c.valor||0),0);
         return s+cm+Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0);
       },0);
@@ -5094,7 +5243,7 @@ function renderAlojamentos(){
   const _contasObrig=['agua','energia','gas','condominio'];
   const _contasObrigLabel={agua:'💧 Água',energia:'⚡ Energia',gas:'🔥 Gás',condominio:'🏢 Condomínio'};
   const _mesAtual=hoje.getMonth()+1;const _anoAtual=hoje.getFullYear();
-  const _alojSemContas=alojsFiltrados.map(a=>{
+  const _alojSemContas=alojsFiltrados.filter(a=>a.tipo_alojamento!=='hotel').map(a=>{
     const contasMesAloj=alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===_mesAtual&&c.ano===_anoAtual);
     const tiposLancados=new Set(contasMesAloj.map(c=>c.tipo));
     const faltando=_contasObrig.filter(t=>!tiposLancados.has(t)&&!a['isenta_'+t]);
@@ -5140,7 +5289,7 @@ function renderAlojamentos(){
   })():'';
 
   // Calcular alojamentos sem Relatório ADM 31 enviado no mês para o banner
-  const _alojSemRelatorio=alojsFiltrados.filter(a=>!alojamentosRelatorios.some(r=>String(r.alojamento_id)===String(a.id)&&r.mes===_mesAtual&&r.ano===_anoAtual));
+  const _alojSemRelatorio=alojsFiltrados.filter(a=>a.tipo_alojamento!=='hotel'&&!alojamentosRelatorios.some(r=>String(r.alojamento_id)===String(a.id)&&r.mes===_mesAtual&&r.ano===_anoAtual));
   const _obrasSemRelatorio=[...new Set(_alojSemRelatorio.map(a=>a.obra?.codigo?(a.obra.codigo+' — '+a.obra.nome):'Sem obra'))];
   const _listaFiltradaRel=bannerRelatoriosFiltroObra?_alojSemRelatorio.filter(a=>(a.obra?.codigo?(a.obra.codigo+' — '+a.obra.nome):'Sem obra')===bannerRelatoriosFiltroObra):_alojSemRelatorio;
 
@@ -5264,6 +5413,7 @@ function renderAlojamentos(){
 function openModalAlojamento(id){
   const a=id?alojamentos.find(x=>x.id===id):null;
   const isEdit=!!a;
+  const tipo=a?.tipo_alojamento||'residencia';
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${a?.obra_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
   insertModal('modal-aloj',`
     <div class="modal" style="max-width:760px">
@@ -5273,12 +5423,23 @@ function openModalAlojamento(id){
       </div>
       <div class="modal-body">
         <div class="form-grid">
+          <div class="form-group"><label>Tipo *</label>
+            <select id="aloj-tipo" onchange="atualizarCamposAlojamento()">
+              <option value="residencia" ${tipo==='residencia'?'selected':''}>🏠 Residência (casa/apto alugado)</option>
+              <option value="hotel" ${tipo==='hotel'?'selected':''}>🏨 Hotel</option>
+            </select>
+          </div>
           <div class="form-group"><label>Nome / Descrição *</label><input id="aloj-nome" value="${a?.nome||''}"></div>
           <div class="form-group"><label>Obra vinculada</label><select id="aloj-obra"><option value="">— Selecione —</option>${obraOpts}</select></div>
           <div class="form-group full"><label>Endereço completo</label><input id="aloj-end" value="${a?.endereco||''}"></div>
           <div class="form-group"><label>Vagas totais</label><input id="aloj-vagas" type="number" min="1" value="${a?.vagas_total||''}"></div>
           <div class="form-group"><label>Imobiliária</label><input id="aloj-imob" value="${a?.imobiliaria||''}"></div>
           <div class="form-group"><label>Contato imobiliária</label><input id="aloj-contato" value="${a?.contato_imobiliaria||''}"></div>
+          <div class="form-group" id="aloj-wrap-diaria" style="${tipo!=='hotel'?'display:none':''}">
+            <label>Valor da diária (R$)</label>
+            <input id="aloj-diaria" type="text" inputmode="decimal" placeholder="0,00" value="${a?.valor_diaria?String(a.valor_diaria).replace('.',','):''}">
+          </div>
+          <div id="aloj-bloco-residencia" style="display:${tipo==='hotel'?'none':'contents'}">
           <div class="form-group"><label>Aluguel mensal (R$)</label><input id="aloj-aluguel" type="text" inputmode="decimal" placeholder="0,00" value="${a?.custo_mensal?String(a.custo_mensal).replace('.',','):''}"></div>
           <div class="form-group"><label>Condomínio (R$)</label><input id="aloj-cond" type="text" inputmode="decimal" placeholder="0,00" value="${a?.condominio?String(a.condominio).replace('.',','):''}"></div>
           <div class="form-group"><label>IPTU mensal (R$)</label><input id="aloj-iptu" type="text" inputmode="decimal" placeholder="0,00" value="${a?.iptu?String(a.iptu).replace('.',','):''}"></div>
@@ -5288,8 +5449,9 @@ function openModalAlojamento(id){
           <div class="form-group"><label>Término do contrato</label><input id="aloj-termino" type="date" value="${a?.data_termino||''}"></div>
           <div class="form-group"><label>Prazo isenção multa (meses)</label><input id="aloj-isencao" type="number" value="${a?.isencao_meses||''}"></div>
           <div class="form-group"><label>Índice de reajuste</label><input id="aloj-indice" value="${a?.indice_reajuste||'IVAR'}"></div>
+          </div>
           <div class="form-group full"><label>Observações</label><textarea id="aloj-obs" rows="2">${a?.observacoes||''}</textarea></div>
-          <div class="form-group full" style="background:var(--bg);border-radius:var(--radius);padding:12px;border:1px solid var(--border)">
+          <div class="form-group full" id="aloj-wrap-contas" style="${tipo==='hotel'?'display:none':''}background:var(--bg);border-radius:var(--radius);padding:12px;border:1px solid var(--border)">
             <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">⚙️ Contas Isentas / Incluídas no Aluguel</div>
             <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Marque as contas que NÃO precisam ser lançadas todo mês (ex: água inclusa, sem gás)</div>
             <div style="display:flex;gap:16px;flex-wrap:wrap">
@@ -5308,7 +5470,7 @@ function openModalAlojamento(id){
             </div>
           </div>
         </div>
-        <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:4px">
+        <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:4px;${tipo==='hotel'?'display:none':''}" id="aloj-wrap-anexos-contrato">
           <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:12px">Anexos</div>
           <div class="form-grid">
             <div class="form-group">
@@ -5336,6 +5498,18 @@ function openModalAlojamento(id){
     </div>`);
 }
 
+// Mostra/esconde os blocos de custo de aluguel, contas e ADM 31 conforme o tipo de alojamento.
+// Hotel não tem contas a pagar nem checklist ADM 31 — só o valor da diária.
+function atualizarCamposAlojamento(){
+  const tipo=document.getElementById('aloj-tipo').value;
+  const isHotel=tipo==='hotel';
+  document.getElementById('aloj-wrap-diaria').style.display=isHotel?'':'none';
+  document.getElementById('aloj-bloco-residencia').style.display=isHotel?'none':'contents';
+  document.getElementById('aloj-wrap-contas').style.display=isHotel?'none':'';
+  const anexos=document.getElementById('aloj-wrap-anexos-contrato');
+  if(anexos)anexos.style.display=isHotel?'none':'';
+}
+
 
 async function saveAlojamento(id){
   const nome=document.getElementById('aloj-nome').value.trim();
@@ -5358,27 +5532,31 @@ async function saveAlojamento(id){
   const fotosUrl=await uploadPDF('aloj-fotos-file','fotos')||existente?.fotos_url||null;
 
   function parseBRL(v){if(!v&&v!==0)return null;const s=String(v).trim();if(s.includes(',')){return parseFloat(s.replace(/\./g,'').replace(',','.'))||null;}return parseFloat(s)||null;}
+  const tipoAloj=document.getElementById('aloj-tipo').value;
+  const isHotel=tipoAloj==='hotel';
   const payload={
     nome,
+    tipo_alojamento:tipoAloj,
+    valor_diaria:isHotel?parseBRL(document.getElementById('aloj-diaria').value):null,
     obra_id:document.getElementById('aloj-obra').value||null,
     endereco:document.getElementById('aloj-end').value.trim()||null,
     vagas_total:parseInt(document.getElementById('aloj-vagas').value)||null,
     imobiliaria:document.getElementById('aloj-imob').value.trim()||null,
     contato_imobiliaria:document.getElementById('aloj-contato').value.trim()||null,
-    custo_mensal:parseBRL(document.getElementById('aloj-aluguel').value),
-    condominio:parseBRL(document.getElementById('aloj-cond').value),
-    iptu:parseBRL(document.getElementById('aloj-iptu').value),
-    seguro:parseBRL(document.getElementById('aloj-seguro').value),
-    caucao:parseBRL(document.getElementById('aloj-caucao').value),
-    data_inicio:document.getElementById('aloj-inicio').value||null,
-    data_termino:document.getElementById('aloj-termino').value||null,
-    isencao_meses:parseInt(document.getElementById('aloj-isencao').value)||null,
-    indice_reajuste:document.getElementById('aloj-indice').value.trim()||null,
+    custo_mensal:isHotel?null:parseBRL(document.getElementById('aloj-aluguel').value),
+    condominio:isHotel?null:parseBRL(document.getElementById('aloj-cond').value),
+    iptu:isHotel?null:parseBRL(document.getElementById('aloj-iptu').value),
+    seguro:isHotel?null:parseBRL(document.getElementById('aloj-seguro').value),
+    caucao:isHotel?null:parseBRL(document.getElementById('aloj-caucao').value),
+    data_inicio:isHotel?null:(document.getElementById('aloj-inicio').value||null),
+    data_termino:isHotel?null:(document.getElementById('aloj-termino').value||null),
+    isencao_meses:isHotel?null:(parseInt(document.getElementById('aloj-isencao').value)||null),
+    indice_reajuste:isHotel?null:(document.getElementById('aloj-indice').value.trim()||null),
     observacoes:document.getElementById('aloj-obs').value.trim()||null,
-    isenta_agua:document.getElementById('isenta-agua')?.checked||false,
-    isenta_energia:document.getElementById('isenta-energia')?.checked||false,
-    isenta_gas:document.getElementById('isenta-gas')?.checked||false,
-    isenta_condominio:document.getElementById('isenta-condominio')?.checked||false,
+    isenta_agua:isHotel?false:(document.getElementById('isenta-agua')?.checked||false),
+    isenta_energia:isHotel?false:(document.getElementById('isenta-energia')?.checked||false),
+    isenta_gas:isHotel?false:(document.getElementById('isenta-gas')?.checked||false),
+    isenta_condominio:isHotel?false:(document.getElementById('isenta-condominio')?.checked||false),
     contrato_url:contratoUrl,
     laudo_url:laudoUrl,
     fotos_url:fotosUrl,
