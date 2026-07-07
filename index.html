@@ -201,7 +201,7 @@ input:focus,select:focus{border-color:var(--primary)}
 .obs-modal{max-width:480px}
 /* FOLGAS */
 .folga-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:12px}
-.folga-row{display:grid;grid-template-columns:260px 100px 120px 100px repeat(5,1fr);gap:0;align-items:stretch;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px;overflow:hidden}
+.folga-row{display:grid;grid-template-columns:260px 100px 120px 100px repeat(6,1fr);gap:0;align-items:stretch;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px;overflow:hidden}
 .folga-cell{padding:10px 12px;border-right:1px solid var(--border);display:flex;flex-direction:column;justify-content:center;font-size:13px}
 .folga-cell:last-child{border-right:none}
 .folga-cell-header{font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
@@ -213,7 +213,7 @@ input:focus,select:focus{border-color:var(--primary)}
 .folga-venc.future{background:var(--bg);color:var(--text-muted)}
 .folga-saida-real{font-size:11px;color:var(--primary);cursor:pointer;text-decoration:underline}
 .folga-saida-proj{font-size:11px;color:var(--text-muted)}
-.folga-header-row{display:grid;grid-template-columns:260px 100px 120px 100px repeat(5,1fr);gap:0;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0;margin-bottom:0;overflow:hidden}
+.folga-header-row{display:grid;grid-template-columns:260px 100px 120px 100px repeat(6,1fr);gap:0;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0;margin-bottom:0;overflow:hidden}
 .folga-header-cell{padding:8px 12px;font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;border-right:1px solid var(--border)}
 .folga-header-cell:last-child{border-right:none}
 .folga-func-name{font-weight:600;font-size:13px}
@@ -315,6 +315,7 @@ input:focus,select:focus{border-color:var(--primary)}
     <div class="nav-item" id="nav-usuarios" onclick="showPage('usuarios')"><i class="ti ti-shield-lock"></i> Usuários</div>
     <div class="nav-item" onclick="showPage('obras')"><i class="ti ti-building-skyscraper"></i> Obras / Contratos</div>
     <div class="nav-item" onclick="showPage('empresas')"><i class="ti ti-briefcase"></i> Empresas</div>
+    <div class="nav-item" onclick="showPage('fornecedores')"><i class="ti ti-truck-delivery"></i> Fornecedores</div>
   </nav>
   <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px">
     <div style="width:30px;height:30px;border-radius:50%;background:var(--primary-light);color:var(--primary-dark);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0" id="sidebar-user-avatar">—</div>
@@ -340,7 +341,7 @@ const SUPABASE_URL='https://lqggoshphakeuufibdno.supabase.co';
 const SUPABASE_KEY='sb_publishable_QlnJaa5xdUXePvXFV6QFwQ_AmMk639T';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[];
+let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[];
 let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'nao_lancadas' | null
 let alojBusca='';
 let bannerNaoLancadasAberto=false;
@@ -692,6 +693,14 @@ async function loadTreinamentos(){
   treinamentos=lista;
 }
 
+async function loadFornecedores(){
+  const[f,o]=await Promise.all([
+    sb.from('fornecedores').select('*').order('razao_social'),
+    sb.from('fornecedor_orcamentos').select('*').order('data',{ascending:false}),
+  ]);
+  fornecedores=f.data||[];fornecedorOrcamentos=o.data||[];
+}
+
 let currentPage='dashboard';
 
 async function showPage(page){
@@ -716,6 +725,7 @@ async function showPage(page){
       (page==='usuarios'&&t.includes('usuário'))||
       (page==='obras'&&t.includes('obra'))||
       (page==='empresas'&&t.includes('empresa'))||
+      (page==='fornecedores'&&t.includes('fornecedores'))||
       (page==='matriz'&&t.includes('matriz'))
     );
   });
@@ -738,6 +748,7 @@ async function showPage(page){
     else if(page==='usuarios')renderUsuarios();
     else if(page==='obras')renderObras();
     else if(page==='empresas')renderEmpresas();
+    else if(page==='fornecedores'){await loadFornecedores();renderFornecedores();}
     else if(page==='matriz'){await loadMatriz();renderMatriz();}
   }catch(e){
     console.error('showPage erro em '+page+':',e);
@@ -2358,6 +2369,15 @@ function calcVencimentos(folga){
   }
   return vencs;
 }
+// Projeta o vencimento do N-ésimo ciclo (1-indexado), inclusive além dos 5 ciclos armazenados no banco —
+// usado para mostrar as próximas projeções mesmo depois que os 5 slots já foram todos utilizados.
+function calcVencimentoN(folga,n){
+  const baseDate=parseDate(folga.data_inicio);
+  if(!baseDate)return null;
+  const periodo=parseInt(folga.periodo_trabalhado)||30;
+  const v=new Date(baseDate);v.setDate(v.getDate()+periodo*n);
+  return v;
+}
 function vencStatus(venc,realDate,periodo){
   if(realDate)return'ok';
   const hoje=new Date();hoje.setHours(0,0,0,0);
@@ -2404,35 +2424,92 @@ function renderFolgasLocal(){
   const rows=lista.map(f=>{
     const vencs=calcVencimentos(f);
     const nDias=diasFolga(f.periodo_trabalhado);
-    const vencCells=vencs.map((v,i)=>{
-      const st=vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado);
-      const realDate=f[`saida${i+1}_real`];
-      const progDate=f[`saida${i+1}_programada`];
-      const projDate=f[`saida${i+1}_projecao`];
+    // Descobre o ciclo "atual" (1-indexado): o primeiro dos 5 slots que ainda não tem saída real confirmada.
+    // Se todos os 5 já foram confirmados, o atual fica "além" do armazenado (6), e as próximas projeções
+    // passam a ser calculadas dinamicamente (calcVencimentoN), sem precisar de mais colunas no banco.
+    let currentN=6;
+    for(let n=1;n<=5;n++){if(!f['saida'+n+'_real']){currentN=n;break;}}
+    const historicoNs=[];
+    for(let n=1;n<currentN&&n<=5;n++)historicoNs.push(n);
+
+    // ── Histórico (colapsado) ──
+    const historicoHtml=historicoNs.length?historicoNs.map(n=>{
+      const real=f['saida'+n+'_real'];
+      return`<div style="display:flex;justify-content:space-between;gap:6px;padding:3px 0;border-bottom:1px solid var(--border)">
+        <span style="color:var(--text-muted)">Venc.${n}: ${formatDate(vencs[n-1])}</span>
+        <span style="color:var(--success);font-weight:600;white-space:nowrap">✓ ${formatDate(real)}</span>
+      </div>`;
+    }).join(''):'';
+    const historicoCell=`<div class="folga-cell">
+      <div class="folga-cell-header">Histórico</div>
+      ${historicoNs.length?`<details style="font-size:11px">
+        <summary style="cursor:pointer;color:var(--text-muted);font-weight:600">📜 ${historicoNs.length} ciclo(s)</summary>
+        <div style="margin-top:6px">${historicoHtml}</div>
+      </details>`:`<div style="font-size:11px;color:var(--text-muted)">—</div>`}
+    </div>`;
+
+    // ── Célula "Próxima Saída" (ciclo atual, com todas as ações) ──
+    let currentCell;
+    if(currentN<=5){
+      const i=currentN-1;
+      const v=vencs[i];
+      const st=vencStatus(v,f['saida'+currentN+'_real'],f.periodo_trabalhado);
+      const realDate=f['saida'+currentN+'_real'];
+      const progDate=f['saida'+currentN+'_programada'];
+      const projDate=f['saida'+currentN+'_projecao'];
       const diff=Math.floor((v-hoje)/86400000);
       const diffTxt=realDate?'✓':(diff<0?`${Math.abs(diff)}d atrás`:`${diff}d`);
       let acoesHtml;
       if(realDate){
-        acoesHtml=`<div style="font-size:11px;color:var(--success)">✓ Saiu: ${formatDate(realDate)} <span style="cursor:pointer;color:var(--danger);margin-left:4px" onclick="removeSaidaReal('${f.id}',${i+1})">✕</span></div>`;
+        acoesHtml=`<div style="font-size:11px;color:var(--success)">✓ Saiu: ${formatDate(realDate)} <span style="cursor:pointer;color:var(--danger);margin-left:4px" onclick="removeSaidaReal('${f.id}',${currentN})">✕</span></div>`;
       } else if(progDate){
         acoesHtml=`<div style="font-size:11px;color:var(--info);font-weight:600">📅 Programado: ${formatDate(progDate)}</div>
         <div style="display:flex;gap:6px;margin-top:2px">
-          <span style="font-size:11px;color:var(--info);cursor:pointer" onclick="programarSaida('${f.id}',${i+1})">✎ Editar</span>
-          <span style="font-size:11px;color:var(--success);cursor:pointer" onclick="lancarSaidaReal('${f.id}',${i+1})">✓ Confirmar</span>
-          <span style="font-size:11px;color:var(--danger);cursor:pointer" onclick="removeSaidaProgramada('${f.id}',${i+1})">✕</span>
+          <span style="font-size:11px;color:var(--info);cursor:pointer" onclick="programarSaida('${f.id}',${currentN})">✎ Editar</span>
+          <span style="font-size:11px;color:var(--success);cursor:pointer" onclick="lancarSaidaReal('${f.id}',${currentN})">✓ Confirmar</span>
+          <span style="font-size:11px;color:var(--danger);cursor:pointer" onclick="removeSaidaProgramada('${f.id}',${currentN})">✕</span>
         </div>`;
       } else {
         acoesHtml=`<div class="folga-saida-proj">Proj: ${formatDate(projDate)||'—'}</div>
         <div style="display:flex;gap:6px">
-          <span class="folga-saida-real" style="color:var(--info)" onclick="programarSaida('${f.id}',${i+1})">+ Programar</span>
-          <span class="folga-saida-real" onclick="lancarSaidaReal('${f.id}',${i+1})">+ Confirmar saída</span>
+          <span class="folga-saida-real" style="color:var(--info)" onclick="programarSaida('${f.id}',${currentN})">+ Programar</span>
+          <span class="folga-saida-real" onclick="lancarSaidaReal('${f.id}',${currentN})">+ Confirmar saída</span>
         </div>`;
       }
-      return`<div class="folga-cell">
-        <div class="folga-cell-header">Venc.${i+1}</div>
+      currentCell=`<div class="folga-cell">
+        <div class="folga-cell-header">Venc.${currentN}</div>
         <div class="folga-venc ${realDate?'ok':(progDate?'prog':st)}">${formatDate(v)}<br><small>${diffTxt}</small></div>
         ${acoesHtml}
-      </div>`;}).join('');
+      </div>`;
+    } else {
+      currentCell=`<div class="folga-cell">
+        <div class="folga-cell-header">Próxima Saída</div>
+        <div style="font-size:11px;color:var(--text-muted);padding:6px 0">Os 5 ciclos cadastrados já foram utilizados. Contate o suporte para estender o registro.</div>
+      </div>`;
+    }
+
+    // ── 4 previews de projeção futura (somente leitura — sem ações) ──
+    const previewCells=[1,2,3,4].map(k=>{
+      const nFut=currentN+k;
+      let vFut,statusLabel='',isProgramado=false,progLabel='';
+      if(nFut<=5){
+        vFut=vencs[nFut-1];
+        const progF=f['saida'+nFut+'_programada'];
+        if(progF){isProgramado=true;progLabel=formatDate(progF);}
+      } else {
+        vFut=calcVencimentoN(f,nFut);
+      }
+      if(!vFut)return`<div class="folga-cell"><div class="folga-cell-header">Proj. +${k}</div><div style="font-size:11px;color:var(--text-muted)">—</div></div>`;
+      const diff=Math.floor((vFut-hoje)/86400000);
+      return`<div class="folga-cell" style="opacity:.75">
+        <div class="folga-cell-header">Proj. +${k}</div>
+        <div style="font-size:12px;font-weight:600">${formatDate(vFut)}</div>
+        <div style="font-size:10px;color:var(--text-muted)">${diff<0?Math.abs(diff)+'d atrás':diff+'d'}</div>
+        ${isProgramado?`<div style="font-size:10px;color:var(--info);font-weight:600;margin-top:2px">📅 ${progLabel}</div>`:''}
+      </div>`;
+    }).join('');
+
+    const vencCells=historicoCell+currentCell+previewCells;
     const passagemBadges=`
       ${f.tipo_passagem_aerea?'<span class="passagem-badge passagem-aerea">✈ Aérea</span>':''}
       ${f.tipo_passagem_terrestre?'<span class="passagem-badge passagem-terrestre">🚌 Terrestre</span>':''}
@@ -2579,11 +2656,12 @@ function renderFolgasLocal(){
       <div class="folga-header-cell">Período</div>
       <div class="folga-header-cell">Início</div>
       <div class="folga-header-cell">Folga</div>
-      <div class="folga-header-cell">Venc. 1</div>
-      <div class="folga-header-cell">Venc. 2</div>
-      <div class="folga-header-cell">Venc. 3</div>
-      <div class="folga-header-cell">Venc. 4</div>
-      <div class="folga-header-cell">Venc. 5</div>
+      <div class="folga-header-cell">Histórico</div>
+      <div class="folga-header-cell">Próxima Saída</div>
+      <div class="folga-header-cell">Proj. +1</div>
+      <div class="folga-header-cell">Proj. +2</div>
+      <div class="folga-header-cell">Proj. +3</div>
+      <div class="folga-header-cell">Proj. +4</div>
     </div>
     ${rows}`;
 }
@@ -4959,6 +5037,289 @@ async function deleteEmpresa(id,nome){
   const{error}=await sb.from('empresas').delete().eq('id',id);
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast('Empresa excluída.');showPage('empresas');
+}
+
+// ─── FORNECEDORES ────────────────────────────────────────────────────────────
+let fornecedoresBusca='',fornecedoresFiltroSit='ativo',fornecedoresFiltroTipo='';
+
+function renderFornecedores(){
+  const lista=fornecedores.filter(f=>{
+    if(fornecedoresFiltroSit&&f.situacao!==fornecedoresFiltroSit)return false;
+    if(fornecedoresFiltroTipo&&!(f.tipo_fornecimento||'').toLowerCase().includes(fornecedoresFiltroTipo.toLowerCase()))return false;
+    if(fornecedoresBusca){
+      const b=fornecedoresBusca.toLowerCase();
+      return(f.razao_social||'').toLowerCase().includes(b)||(f.nome_fantasia||'').toLowerCase().includes(b)||(f.cnpj||'').includes(b)||(f.tipo_fornecimento||'').toLowerCase().includes(b);
+    }
+    return true;
+  });
+
+  const total=fornecedores.length;
+  const ativos=fornecedores.filter(f=>f.situacao==='ativo').length;
+  const inativos=fornecedores.filter(f=>f.situacao==='inativo').length;
+
+  const rows=lista.map(f=>{
+    const sitBadge=f.situacao==='ativo'
+      ?'<span class="badge badge-green">Ativo</span>'
+      :'<span class="badge badge-red">Inativo</span>';
+    const nOrc=fornecedorOrcamentos.filter(o=>String(o.fornecedor_id)===String(f.id)).length;
+    return`<tr>
+      <td>
+        <div style="font-weight:500">${f.razao_social||'—'}</div>
+        ${f.nome_fantasia?`<div style="font-size:11px;color:var(--text-muted)">${f.nome_fantasia}</div>`:''}
+        ${f.cnpj?`<div style="font-size:11px;color:var(--text-muted);font-family:monospace">${f.cnpj}</div>`:''}
+      </td>
+      <td style="font-size:12px">${f.tipo_fornecimento||'—'}</td>
+      <td style="font-size:12px">
+        ${f.contato_nome?`<div>${f.contato_nome}</div>`:''}
+        ${f.telefone?`<div style="color:var(--text-muted)">${f.telefone}</div>`:''}
+        ${f.email?`<div style="color:var(--text-muted)">${f.email}</div>`:''}
+        ${(!f.contato_nome&&!f.telefone&&!f.email)?'—':''}
+      </td>
+      <td style="font-size:12px">${f.forma_pagamento||'—'}</td>
+      <td>${sitBadge}</td>
+      <td>
+        <div class="action-btns">
+          ${f.cartao_cnpj_url?`<a href="${f.cartao_cnpj_url}" target="_blank" class="btn btn-sm btn-info" title="Ver Cartão CNPJ"><i class="ti ti-file-certificate"></i></a>`:''}
+          <button class="btn btn-sm" onclick="abrirModalOrcamentos('${f.id}')" title="Orçamentos"><i class="ti ti-file-invoice"></i> ${nOrc||''}</button>
+          <button class="btn btn-sm" onclick="openModalFornecedor('${f.id}')" title="Editar"><i class="ti ti-edit"></i></button>
+          <button class="btn btn-sm btn-danger" onclick="deleteFornecedor('${f.id}','${(f.razao_social||'').replace(/'/g,"\\'")}')" title="Excluir"><i class="ti ti-trash"></i></button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="6"><div class="empty-state"><i class="ti ti-truck-delivery"></i><div>Nenhum fornecedor encontrado</div></div></td></tr>';
+
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title">Fornecedores</div><div class="page-subtitle">${ativos} ativos · ${inativos} inativos</div></div>
+      <button class="btn btn-primary" onclick="openModalFornecedor()"><i class="ti ti-plus"></i> Novo fornecedor</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+      <div class="metric-card" onclick="fornecedoresFiltroSit='';renderFornecedores()" style="cursor:pointer;border-color:${!fornecedoresFiltroSit?'var(--primary)':'var(--border)'}">
+        <div class="metric-label">Total</div><div class="metric-value">${total}</div>
+      </div>
+      <div class="metric-card green" onclick="fornecedoresFiltroSit='ativo';renderFornecedores()" style="cursor:pointer;border-color:${fornecedoresFiltroSit==='ativo'?'var(--success)':'var(--border)'}">
+        <div class="metric-label">Ativos</div><div class="metric-value">${ativos}</div>
+      </div>
+      <div class="metric-card red" onclick="fornecedoresFiltroSit='inativo';renderFornecedores()" style="cursor:pointer;border-color:${fornecedoresFiltroSit==='inativo'?'var(--danger)':'var(--border)'}">
+        <div class="metric-label">Inativos</div><div class="metric-value">${inativos}</div>
+      </div>
+    </div>
+    <div class="filters">
+      <div class="search-box"><i class="ti ti-search"></i>
+        <input placeholder="Buscar por nome, CNPJ, tipo de fornecimento..." value="${fornecedoresBusca}"
+          oninput="fornecedoresBusca=this.value;if(!_buscaHandlers.forn)_buscaHandlers.forn=makeBuscaHandler(v=>fornecedoresBusca=v,renderFornecedores,300);_buscaHandlers.forn(this.value);this.focus()">
+      </div>
+      <button class="btn btn-sm" onclick="fornecedoresBusca='';fornecedoresFiltroSit='ativo';fornecedoresFiltroTipo='';renderFornecedores()"><i class="ti ti-x"></i> Limpar</button>
+    </div>
+    <div class="table-container"><table>
+      <thead><tr>
+        <th>Fornecedor</th><th>Fornece</th><th>Contato</th><th>Pagamento</th><th>Status</th><th>Ações</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function openModalFornecedor(id){
+  const f=id?fornecedores.find(x=>x.id===id):null;
+  window._fornCartaoFile=null;
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-fornecedor" onclick="if(event.target===this)closeModal('modal-fornecedor')">
+      <div class="modal" style="max-width:640px">
+        <div class="modal-header">
+          <span class="modal-title"><i class="ti ti-truck-delivery"></i> ${f?'Editar':'Novo'} Fornecedor</span>
+          <button class="btn btn-sm" onclick="closeModal('modal-fornecedor')"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Dados Cadastrais</div>
+          <div class="form-grid">
+            <div class="form-group full"><label>Razão Social *</label>
+              <input id="forn-razao" value="${f?.razao_social||''}" placeholder="Ex: Ferragens Silva Ltda"></div>
+            <div class="form-group"><label>Nome Fantasia</label>
+              <input id="forn-fantasia" value="${f?.nome_fantasia||''}"></div>
+            <div class="form-group"><label>CNPJ</label>
+              <input id="forn-cnpj" value="${f?.cnpj||''}" placeholder="00.000.000/0001-00"></div>
+            <div class="form-group"><label>Inscrição Estadual</label>
+              <input id="forn-ie" value="${f?.inscricao_estadual||''}"></div>
+            <div class="form-group"><label>Situação</label>
+              <select id="forn-situacao">
+                <option value="ativo" ${f?.situacao!=='inativo'?'selected':''}>Ativo</option>
+                <option value="inativo" ${f?.situacao==='inativo'?'selected':''}>Inativo</option>
+              </select>
+            </div>
+            <div class="form-group full"><label>Endereço</label>
+              <input id="forn-endereco" value="${f?.endereco||''}" placeholder="Rua, número, bairro"></div>
+            <div class="form-group"><label>Cidade</label>
+              <input id="forn-cidade" value="${f?.cidade||''}"></div>
+            <div class="form-group"><label>Estado</label>
+              <input id="forn-estado" value="${f?.estado||''}" maxlength="2" style="text-transform:uppercase"></div>
+            <div class="form-group"><label>CEP</label>
+              <input id="forn-cep" value="${f?.cep||''}"></div>
+          </div>
+
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 10px">Contato</div>
+          <div class="form-grid">
+            <div class="form-group"><label>Nome do Contato</label>
+              <input id="forn-contato-nome" value="${f?.contato_nome||''}"></div>
+            <div class="form-group"><label>Telefone</label>
+              <input id="forn-telefone" value="${f?.telefone||''}"></div>
+            <div class="form-group full"><label>E-mail</label>
+              <input id="forn-email" value="${f?.email||''}" type="email"></div>
+          </div>
+
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 10px">Fornecimento & Pagamento</div>
+          <div class="form-grid">
+            <div class="form-group full"><label>Tipo de Serviço/Material Fornecido</label>
+              <input id="forn-tipo" value="${f?.tipo_fornecimento||''}" placeholder="Ex: Material elétrico, Locação de equipamentos, Mão de obra especializada..."></div>
+            <div class="form-group full"><label>Forma de Pagamento</label>
+              <input id="forn-forma-pgto" value="${f?.forma_pagamento||''}" placeholder="Ex: Boleto 30/60 dias, À vista, PIX na entrega..."></div>
+            <div class="form-group full"><label>Dados para Pagamento</label>
+              <textarea id="forn-dados-pgto" rows="3" placeholder="Banco, agência, conta, PIX, favorecido...">${f?.dados_pagamento||''}</textarea></div>
+            <div class="form-group full"><label>Observações</label>
+              <textarea id="forn-obs" rows="2">${f?.observacoes||''}</textarea></div>
+          </div>
+
+          <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
+            <div class="form-group"><label>📎 Cartão CNPJ (PDF)</label>
+              <input type="file" id="forn-cartao-file" accept=".pdf" style="width:100%;padding:6px 0;font-size:12px">
+              ${f?.cartao_cnpj_url?`<div style="margin-top:6px"><a href="${f.cartao_cnpj_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-file-certificate"></i> Ver cartão CNPJ atual</a></div>`:''}
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" onclick="closeModal('modal-fornecedor')">Cancelar</button>
+          <button class="btn btn-primary" onclick="saveFornecedor(${f?`'${f.id}'`:'null'})"><i class="ti ti-check"></i> ${f?'Salvar':'Cadastrar'}</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+async function saveFornecedor(id){
+  const razaoSocial=document.getElementById('forn-razao').value.trim();
+  if(!razaoSocial){showToast('Razão Social é obrigatória','error');return;}
+
+  let cartaoUrl=id?fornecedores.find(x=>x.id===id)?.cartao_cnpj_url||null:null;
+  const cartaoFile=document.getElementById('forn-cartao-file')?.files?.[0];
+  if(cartaoFile){
+    showToast('Enviando cartão CNPJ...');
+    const path='cartao_cnpj/'+Date.now()+'_'+cartaoFile.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+    const{error:upErr}=await sb.storage.from('fornecedores').upload(path,cartaoFile,{contentType:'application/pdf',upsert:true});
+    if(upErr){showToast('Erro ao enviar cartão CNPJ: '+upErr.message,'error');return;}
+    cartaoUrl=sb.storage.from('fornecedores').getPublicUrl(path).data.publicUrl;
+  }
+
+  const payload={
+    razao_social:razaoSocial,
+    nome_fantasia:document.getElementById('forn-fantasia').value.trim()||null,
+    cnpj:document.getElementById('forn-cnpj').value.trim()||null,
+    inscricao_estadual:document.getElementById('forn-ie').value.trim()||null,
+    situacao:document.getElementById('forn-situacao').value,
+    endereco:document.getElementById('forn-endereco').value.trim()||null,
+    cidade:document.getElementById('forn-cidade').value.trim()||null,
+    estado:document.getElementById('forn-estado').value.trim().toUpperCase()||null,
+    cep:document.getElementById('forn-cep').value.trim()||null,
+    contato_nome:document.getElementById('forn-contato-nome').value.trim()||null,
+    telefone:document.getElementById('forn-telefone').value.trim()||null,
+    email:document.getElementById('forn-email').value.trim()||null,
+    tipo_fornecimento:document.getElementById('forn-tipo').value.trim()||null,
+    forma_pagamento:document.getElementById('forn-forma-pgto').value.trim()||null,
+    dados_pagamento:document.getElementById('forn-dados-pgto').value.trim()||null,
+    observacoes:document.getElementById('forn-obs').value.trim()||null,
+    cartao_cnpj_url:cartaoUrl,
+  };
+  const{error}=id?await sb.from('fornecedores').update(payload).eq('id',id):await sb.from('fornecedores').insert(payload);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast(id?'Fornecedor atualizado!':'Fornecedor cadastrado!');
+  closeModal('modal-fornecedor');
+  await loadFornecedores();renderFornecedores();
+}
+
+async function deleteFornecedor(id,nome){
+  if(!confirm(`Excluir ${nome}? Os orçamentos vinculados também serão removidos.`))return;
+  const{error}=await sb.from('fornecedores').delete().eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Fornecedor excluído.');
+  await loadFornecedores();renderFornecedores();
+}
+
+function abrirModalOrcamentos(fornecedorId){
+  const forn=fornecedores.find(x=>x.id===fornecedorId);
+  const orcamentos=fornecedorOrcamentos.filter(o=>String(o.fornecedor_id)===String(fornecedorId));
+  const historicoHtml=orcamentos.length?orcamentos.map(o=>{
+    const valorFmt=o.valor!=null?Number(o.valor).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}):'—';
+    return`<div class="conta-row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;flex-direction:column;gap:1px">
+        <span style="font-weight:500">${o.descricao||'Orçamento'}</span>
+        <span style="font-size:11px;color:var(--text-muted)">${formatDate(o.data)||'—'}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-weight:500">${valorFmt}</span>
+        ${o.arquivo_url?`<a href="${o.arquivo_url}" target="_blank" class="btn btn-sm btn-info" title="Ver PDF"><i class="ti ti-paperclip"></i></a>`:''}
+        <button class="btn btn-sm btn-danger" onclick="deleteOrcamento('${o.id}','${fornecedorId}')"><i class="ti ti-trash"></i></button>
+      </div>
+    </div>`;
+  }).join(''):'<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">Nenhum orçamento lançado</div>';
+
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-orcamentos" onclick="if(event.target===this)closeModal('modal-orcamentos')">
+      <div class="modal" style="max-width:480px">
+        <div class="modal-header">
+          <span class="modal-title"><i class="ti ti-file-invoice"></i> Orçamentos — ${forn?.razao_social||''}</span>
+          <button class="btn btn-sm" onclick="closeModal('modal-orcamentos')"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:16px">
+            <div class="form-group" style="margin:0 0 8px"><label>Descrição</label>
+              <input id="orc-descricao" placeholder="Ex: Orçamento cabos elétricos" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius)"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div class="form-group" style="margin:0"><label>Valor R$</label>
+                <input id="orc-valor" type="number" step="0.01" placeholder="0,00" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius)"></div>
+              <div class="form-group" style="margin:0"><label>Data</label>
+                <input id="orc-data" type="date" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius)"></div>
+            </div>
+            <div class="form-group" style="margin:8px 0 0"><label>📎 Anexar orçamento (PDF)</label>
+              <input type="file" id="orc-arquivo-file" accept=".pdf" style="width:100%;padding:6px 0;font-size:12px"></div>
+            <button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="saveOrcamento('${fornecedorId}')"><i class="ti ti-plus"></i> Lançar orçamento</button>
+          </div>
+          <div id="orcamentos-historico">${historicoHtml}</div>
+        </div>
+        <div class="modal-footer"><button class="btn" onclick="closeModal('modal-orcamentos')">Fechar</button></div>
+      </div>
+    </div>`);
+}
+
+async function saveOrcamento(fornecedorId){
+  const descricao=document.getElementById('orc-descricao').value.trim();
+  const valorRaw=document.getElementById('orc-valor').value;
+  const valor=valorRaw!==''?parseFloat(String(valorRaw).replace(',','.')):null;
+  const data=document.getElementById('orc-data').value||null;
+  let arquivoUrl=null;
+  const arquivoFile=document.getElementById('orc-arquivo-file')?.files?.[0];
+  if(arquivoFile){
+    showToast('Enviando orçamento...');
+    const path='orcamentos/'+Date.now()+'_'+arquivoFile.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+    const{error:upErr}=await sb.storage.from('fornecedores').upload(path,arquivoFile,{contentType:'application/pdf',upsert:true});
+    if(upErr){showToast('Erro ao enviar orçamento: '+upErr.message,'error');return;}
+    arquivoUrl=sb.storage.from('fornecedores').getPublicUrl(path).data.publicUrl;
+  }
+  const payload={fornecedor_id:fornecedorId,descricao:descricao||null,valor,data,arquivo_url:arquivoUrl};
+  const{error}=await sb.from('fornecedor_orcamentos').insert(payload);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Orçamento lançado!');
+  await loadFornecedores();
+  closeModal('modal-orcamentos');
+  abrirModalOrcamentos(fornecedorId);
+  renderFornecedores();
+}
+
+async function deleteOrcamento(id,fornecedorId){
+  if(!confirm('Excluir este orçamento?'))return;
+  const{error}=await sb.from('fornecedor_orcamentos').delete().eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Orçamento excluído.');
+  await loadFornecedores();
+  closeModal('modal-orcamentos');
+  abrirModalOrcamentos(fornecedorId);
+  renderFornecedores();
 }
 
 // ─── MATRIZ DE COMUNICAÇÃO ──────────────────────────────────────────────────
