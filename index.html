@@ -695,10 +695,16 @@ async function loadTreinamentos(){
 
 async function loadFornecedores(){
   const[f,o]=await Promise.all([
-    sb.from('fornecedores').select('*').order('razao_social'),
+    sb.from('fornecedores').select('*,obra:obras(nome,codigo)').order('razao_social'),
     sb.from('fornecedor_orcamentos').select('*').order('data',{ascending:false}),
   ]);
-  fornecedores=f.data||[];fornecedorOrcamentos=o.data||[];
+  let lista=f.data||[];
+  if(obrasPermitidasIds){
+    // usuário restrito: só vê fornecedores da(s) sua(s) obra(s) + fornecedores "gerais" (sem obra vinculada)
+    lista=lista.filter(x=>!x.obra_id||obrasPermitidasIds.has(String(x.obra_id)));
+  }
+  fornecedores=lista;
+  fornecedorOrcamentos=o.data||[];
 }
 
 let currentPage='dashboard';
@@ -5040,12 +5046,13 @@ async function deleteEmpresa(id,nome){
 }
 
 // ─── FORNECEDORES ────────────────────────────────────────────────────────────
-let fornecedoresBusca='',fornecedoresFiltroSit='ativo',fornecedoresFiltroTipo='';
+let fornecedoresBusca='',fornecedoresFiltroSit='ativo',fornecedoresFiltroTipo='',fornecedoresFiltroObra='';
 
 function renderFornecedores(){
   const lista=fornecedores.filter(f=>{
     if(fornecedoresFiltroSit&&f.situacao!==fornecedoresFiltroSit)return false;
     if(fornecedoresFiltroTipo&&!(f.tipo_fornecimento||'').toLowerCase().includes(fornecedoresFiltroTipo.toLowerCase()))return false;
+    if(fornecedoresFiltroObra&&String(f.obra_id)!==String(fornecedoresFiltroObra))return false;
     if(fornecedoresBusca){
       const b=fornecedoresBusca.toLowerCase();
       return(f.razao_social||'').toLowerCase().includes(b)||(f.nome_fantasia||'').toLowerCase().includes(b)||(f.cnpj||'').includes(b)||(f.tipo_fornecimento||'').toLowerCase().includes(b);
@@ -5068,6 +5075,7 @@ function renderFornecedores(){
         ${f.nome_fantasia?`<div style="font-size:11px;color:var(--text-muted)">${f.nome_fantasia}</div>`:''}
         ${f.cnpj?`<div style="font-size:11px;color:var(--text-muted);font-family:monospace">${f.cnpj}</div>`:''}
       </td>
+      <td style="font-size:12px">${f.obra?`${f.obra.codigo?f.obra.codigo+' — ':''}${f.obra.nome||''}`:'<span style="color:var(--text-muted)">—</span>'}</td>
       <td style="font-size:12px">${f.tipo_fornecimento||'—'}</td>
       <td style="font-size:12px">
         ${f.contato_nome?`<div>${f.contato_nome}</div>`:''}
@@ -5086,7 +5094,9 @@ function renderFornecedores(){
         </div>
       </td>
     </tr>`;
-  }).join('')||'<tr><td colspan="6"><div class="empty-state"><i class="ti ti-truck-delivery"></i><div>Nenhum fornecedor encontrado</div></div></td></tr>';
+  }).join('')||'<tr><td colspan="7"><div class="empty-state"><i class="ti ti-truck-delivery"></i><div>Nenhum fornecedor encontrado</div></div></td></tr>';
+
+  const obrasOpts=obras.map(o=>`<option value="${o.id}" ${fornecedoresFiltroObra===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
 
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
@@ -5109,11 +5119,14 @@ function renderFornecedores(){
         <input placeholder="Buscar por nome, CNPJ, tipo de fornecimento..." value="${fornecedoresBusca}"
           oninput="fornecedoresBusca=this.value;if(!_buscaHandlers.forn)_buscaHandlers.forn=makeBuscaHandler(v=>fornecedoresBusca=v,renderFornecedores,300);_buscaHandlers.forn(this.value);this.focus()">
       </div>
-      <button class="btn btn-sm" onclick="fornecedoresBusca='';fornecedoresFiltroSit='ativo';fornecedoresFiltroTipo='';renderFornecedores()"><i class="ti ti-x"></i> Limpar</button>
+      <select class="filter-select" onchange="fornecedoresFiltroObra=this.value;renderFornecedores()">
+        <option value="">Todas as obras</option>${obrasOpts}
+      </select>
+      <button class="btn btn-sm" onclick="fornecedoresBusca='';fornecedoresFiltroSit='ativo';fornecedoresFiltroTipo='';fornecedoresFiltroObra='';renderFornecedores()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div class="table-container"><table>
       <thead><tr>
-        <th>Fornecedor</th><th>Fornece</th><th>Contato</th><th>Pagamento</th><th>Status</th><th>Ações</th>
+        <th>Fornecedor</th><th>Obra</th><th>Fornece</th><th>Contato</th><th>Pagamento</th><th>Status</th><th>Ações</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
@@ -5122,6 +5135,7 @@ function renderFornecedores(){
 function openModalFornecedor(id){
   const f=id?fornecedores.find(x=>x.id===id):null;
   window._fornCartaoFile=null;
+  const obrasSel=obras.map(o=>`<option value="${o.id}" ${String(f?.obra_id||'')===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
   document.body.insertAdjacentHTML('beforeend',`
     <div class="modal-overlay" id="modal-fornecedor" onclick="if(event.target===this)closeModal('modal-fornecedor')">
       <div class="modal" style="max-width:640px">
@@ -5140,6 +5154,11 @@ function openModalFornecedor(id){
               <input id="forn-cnpj" value="${f?.cnpj||''}" placeholder="00.000.000/0001-00"></div>
             <div class="form-group"><label>Inscrição Estadual</label>
               <input id="forn-ie" value="${f?.inscricao_estadual||''}"></div>
+            <div class="form-group"><label>Obra Vinculada</label>
+              <select id="forn-obra">
+                <option value="">— Nenhuma / Geral —</option>${obrasSel}
+              </select>
+            </div>
             <div class="form-group"><label>Situação</label>
               <select id="forn-situacao">
                 <option value="ativo" ${f?.situacao!=='inativo'?'selected':''}>Ativo</option>
@@ -5212,6 +5231,7 @@ async function saveFornecedor(id){
     nome_fantasia:document.getElementById('forn-fantasia').value.trim()||null,
     cnpj:document.getElementById('forn-cnpj').value.trim()||null,
     inscricao_estadual:document.getElementById('forn-ie').value.trim()||null,
+    obra_id:document.getElementById('forn-obra').value||null,
     situacao:document.getElementById('forn-situacao').value,
     endereco:document.getElementById('forn-endereco').value.trim()||null,
     cidade:document.getElementById('forn-cidade').value.trim()||null,
