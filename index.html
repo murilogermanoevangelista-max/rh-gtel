@@ -6960,6 +6960,77 @@ function exportarHEDetalhado(){
   }).catch(e=>showToast('Erro ao exportar: '+e.message,'error'));
 }
 
+function exportarHEResumo(){
+  // Buscar dados filtrados (mesma lógica da view HE)
+  const heFiltroPeriodo=window._heFiltroPeriodo||'acumulado';
+  const heFiltroDe=window._heFiltroDe||'';
+  const heFiltroAte=window._heFiltroAte||'';
+
+  let heFiltradas=globalObraFiltro
+    ?efetivoHE.filter(h=>{const f=funcionarios.find(x=>{const fm=String(x.matricula||'').trim().replace(/^0+/,'');return fm===String(h.matricula||'').trim().replace(/^0+/,'');});return f&&f.obra_id===globalObraFiltro;})
+    :efetivoHE;
+
+  if(heFiltroPeriodo==='periodo'&&heFiltroDe&&heFiltroAte){
+    heFiltradas=heFiltradas.filter(h=>h.data>=heFiltroDe&&h.data<=heFiltroAte);
+  }
+
+  heFiltradas=heFiltradas.filter(h=>(h.mins||0)>0);
+  if(!heFiltradas.length){showToast('Nenhum dado para exportar','error');return;}
+
+  // Cabeçalho do período
+  const datas=heFiltradas.map(h=>h.data).sort();
+  const deStr=datas[0]?datas[0].split('-').reverse().join('/'):'';
+  const ateStr=datas[datas.length-1]?datas[datas.length-1].split('-').reverse().join('/'):'';
+  const periodoLabel=heFiltroPeriodo==='periodo'&&heFiltroDe
+    ?`Período: ${deStr} a ${ateStr}`
+    :`Período: ${deStr} a ${ateStr} (Acumulado)`;
+
+  function fmtH(m){if(!m)return'00:00';return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');}
+  function getEstrutura(mat){
+    const f=funcionarios.find(x=>{const fm=String(x.matricula||'').trim().replace(/^0+/,'');return fm===String(mat||'').trim().replace(/^0+/,'');});
+    return f?.obra?.nome||'—';
+  }
+
+  // Agrupar por funcionário e tipo (mesma lógica da tela)
+  const heMap={};
+  heFiltradas.forEach(h=>{
+    if(!heMap[h.matricula])heMap[h.matricula]={matricula:h.matricula,nome:h.nome,tipos:{},total:0};
+    const tipo=h.tipo||'Outros';
+    if(!heMap[h.matricula].tipos[tipo])heMap[h.matricula].tipos[tipo]=0;
+    heMap[h.matricula].tipos[tipo]+=h.mins||0;
+    heMap[h.matricula].total+=h.mins||0;
+  });
+
+  const tiposHE=[...new Set(heFiltradas.map(h=>h.tipo||'Outros'))].sort();
+  const listaHE=Object.values(heMap).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR',{sensitivity:'base'}));
+
+  const headerPeriodo=[periodoLabel,...tiposHE.map(()=>'')];
+  const cabecalho=['Nome','Matrícula','Estrutura Organizacional',...tiposHE,'Total H.E.'];
+  const linhas=listaHE.map(f=>[
+    f.nome||'—',
+    f.matricula||'—',
+    getEstrutura(f.matricula),
+    ...tiposHE.map(t=>fmtH(f.tipos[t]||0)),
+    fmtH(f.total),
+  ]);
+  const totalPorTipo={};
+  tiposHE.forEach(t=>{totalPorTipo[t]=heFiltradas.filter(h=>(h.tipo||'Outros')===t).reduce((s,h)=>s+(h.mins||0),0);});
+  const totalGeral=heFiltradas.reduce((s,h)=>s+(h.mins||0),0);
+  const linhaTotal=['TOTAL','','',...tiposHE.map(t=>fmtH(totalPorTipo[t])),fmtH(totalGeral)];
+
+  const todasLinhas=[headerPeriodo,cabecalho,...linhas,linhaTotal];
+
+  import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm').then(({utils,writeFile})=>{
+    const ws=utils.aoa_to_sheet(todasLinhas);
+    ws['!cols']=[{wch:32},{wch:12},{wch:28},...tiposHE.map(()=>({wch:12})),{wch:12}];
+    const wb=utils.book_new();
+    utils.book_append_sheet(wb,ws,'Resumo H.E.');
+    const hoje=new Date().toLocaleDateString('pt-BR').replace(/\//g,'-');
+    writeFile(wb,`Resumo_HE_${hoje}.xlsx`);
+    showToast('Excel exportado!');
+  }).catch(e=>showToast('Erro ao exportar: '+e.message,'error'));
+}
+
 async function togglePresencaPrestador(prestadorId,data){
   const reg=prestadoresPresenca.find(x=>x.prestador_id===prestadorId&&x.data===data);
   // Lógica: default = PRESENTE (sem registro). Clicar → AUSENTE. Clicar de novo → remove (volta PRESENTE)
@@ -7234,7 +7305,7 @@ function renderEfetivoLocal(){
 
     const heThead='<tr><th>#</th><th>Funcionário</th><th>Matrícula</th>'+tiposHE.map(t=>'<th style="text-align:center">'+t+'</th>').join('')+'<th>Total H.E.</th></tr>';
 
-    view=hePeriodoHtml+'<button onclick="exportarHEDetalhado()" class="btn btn-sm" style="margin-bottom:8px"><i class="ti ti-file-type-xls"></i> Exportar Excel</button>'+(listaHE.length===0
+    view=hePeriodoHtml+'<div style="display:flex;gap:8px;margin-bottom:8px"><button onclick="exportarHEResumo()" class="btn btn-sm btn-primary"><i class="ti ti-file-type-xls"></i> Exportar Resumo (por %)</button><button onclick="exportarHEDetalhado()" class="btn btn-sm"><i class="ti ti-file-type-xls"></i> Exportar Detalhado (dia a dia)</button></div>'+(listaHE.length===0
       ?'<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-bolt" style="font-size:40px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum dado. Use "Importar H.E.".</div>'
       :'<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:16px;display:flex;gap:24px;flex-wrap:wrap">'
         +tiposHE.map(t=>'<div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">'+t+'</div><div style="font-size:20px;font-weight:700;color:var(--warning)">'+fmtMins(totalPorTipo[t])+'</div></div>').join('')
