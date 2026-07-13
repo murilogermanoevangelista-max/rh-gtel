@@ -7531,9 +7531,10 @@ let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='
 
 function ctrDocsPct(c){
   const docs=c.documentos||{};
-  const done=DOCS_CONTRATACAO.filter(([k])=>!!docs[k]).length;
-  const total=DOCS_CONTRATACAO.length;
-  return{done,total,pct:total?Math.round(done/total*100):0};
+  const isentos=DOCS_CONTRATACAO.filter(([k])=>docs[k]==='isento').length;
+  const done=DOCS_CONTRATACAO.filter(([k])=>docs[k]==='ok'||docs[k]===true).length;
+  const total=DOCS_CONTRATACAO.length-isentos;
+  return{done,total,pct:total?Math.round(done/total*100):100};
 }
 
 function ctrStatusInfo(status){
@@ -7722,18 +7723,63 @@ function toggleFuncaoModoCtr(){
   document.getElementById('ctr-funcao-toggle').textContent=ctrFuncaoModoManual?'← Escolher da lista':'✏️ Digitar manualmente';
 }
 
+function ctrNormalizarDocs(docs){
+  const out={};
+  DOCS_CONTRATACAO.forEach(([k])=>{
+    const v=docs?.[k];
+    out[k]=v===true?'ok':(v==='ok'||v==='isento'?v:false);
+  });
+  return out;
+}
+
+function ctrDocsItemsHtml(){
+  const st=window._ctrDocsState||{};
+  return DOCS_CONTRATACAO.map(([k,label])=>{
+    const v=st[k];
+    const isento=v==='isento';
+    const ok=v==='ok';
+    return`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px">
+      <input type="checkbox" id="ctr-doc-${k}" ${ok?'checked':''} ${isento?'disabled':''} onchange="ctrToggleDocOk('${k}')" style="width:16px;height:16px;flex-shrink:0">
+      <span style="${isento?'text-decoration:line-through;color:var(--text-muted)':''};flex:1;cursor:pointer" onclick="${isento?'':`document.getElementById('ctr-doc-${k}').click()`}">${label}${isento?' <em style="font-style:normal;font-size:11px">(isento)</em>':''}</span>
+      <span onclick="ctrToggleIsento('${k}')" style="font-size:11px;color:var(--primary);cursor:pointer;white-space:nowrap">${isento?'Reativar':'Isentar'}</span>
+    </div>`;
+  }).join('');
+}
+
+function ctrRenderDocsChecklist(){
+  const st=window._ctrDocsState||{};
+  const isentos=DOCS_CONTRATACAO.filter(([k])=>st[k]==='isento').length;
+  const done=DOCS_CONTRATACAO.filter(([k])=>st[k]==='ok').length;
+  const total=DOCS_CONTRATACAO.length-isentos;
+  const pct=total?Math.round(done/total*100):100;
+  const cor=pct>=100?'var(--success)':pct>=50?'var(--warning)':'var(--danger)';
+  const cont=document.getElementById('ctr-docs-itens');
+  const barra=document.getElementById('ctr-docs-barra');
+  const label=document.getElementById('ctr-docs-label');
+  if(cont)cont.innerHTML=ctrDocsItemsHtml();
+  if(barra){barra.style.width=pct+'%';barra.style.background=cor;}
+  if(label)label.textContent=`${done}/${total} (${pct}%)${isentos?' · '+isentos+' isento(s)':''}`;
+}
+
+function ctrToggleDocOk(k){
+  const st=window._ctrDocsState;
+  st[k]=st[k]==='ok'?false:'ok';
+  ctrRenderDocsChecklist();
+}
+
+function ctrToggleIsento(k){
+  const st=window._ctrDocsState;
+  st[k]=st[k]==='isento'?false:'isento';
+  ctrRenderDocsChecklist();
+}
+
 function openModalContratacao(id){
   const c=id?contratacoes.find(x=>x.id===id):null;
   ctrFuncaoModoManual=false;
+  window._ctrDocsState=ctrNormalizarDocs(c?.documentos);
   const funcaoOpts=funcoes.map(f=>`<option value="${f.id}" ${String(c?.funcao_id||'')===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${String(c?.obra_id||'')===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
-  const docs=c?.documentos||{};
   const{done,total,pct}=ctrDocsPct(c||{documentos:{}});
-  const docsItemsHtml=DOCS_CONTRATACAO.map(([k,label])=>`
-    <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;cursor:pointer">
-      <input type="checkbox" id="ctr-doc-${k}" ${docs[k]?'checked':''} onchange="ctrAtualizarBarraDocs()" style="width:16px;height:16px">
-      ${label}
-    </label>`).join('');
   document.body.insertAdjacentHTML('beforeend',`
     <div class="modal-overlay" id="modal-contratacao" onclick="if(event.target===this)closeModal('modal-contratacao')">
       <div class="modal" style="max-width:700px">
@@ -7772,12 +7818,13 @@ function openModalContratacao(id){
           </div>
 
           <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:18px">
-            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Checklist de Documentos para Admissão</div>
+            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Checklist de Documentos para Admissão</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">Marque os documentos entregues. Use "Isentar" para documentos que não se aplicam a este candidato (não entram no cálculo do %).</div>
             <div style="margin-bottom:14px;display:flex;align-items:center;gap:10px">
               <div style="flex:1;height:8px;background:var(--border);border-radius:4px"><div id="ctr-docs-barra" style="height:8px;border-radius:4px;background:${pct>=100?'var(--success)':pct>=50?'var(--warning)':'var(--danger)'};width:${pct}%"></div></div>
-              <span id="ctr-docs-label" style="font-size:12px;font-weight:600;min-width:80px">${done}/${total} (${pct}%)</span>
+              <span id="ctr-docs-label" style="font-size:12px;font-weight:600;min-width:110px">${done}/${total} (${pct}%)</span>
             </div>
-            <div style="columns:2;column-gap:20px">${docsItemsHtml}</div>
+            <div id="ctr-docs-itens" style="columns:2;column-gap:24px">${ctrDocsItemsHtml()}</div>
           </div>
         </div>
         <div class="modal-footer">
@@ -7786,17 +7833,6 @@ function openModalContratacao(id){
         </div>
       </div>
     </div>`);
-}
-
-function ctrAtualizarBarraDocs(){
-  const total=DOCS_CONTRATACAO.length;
-  const done=DOCS_CONTRATACAO.filter(([k])=>document.getElementById(`ctr-doc-${k}`)?.checked).length;
-  const pct=total?Math.round(done/total*100):0;
-  const cor=pct>=100?'var(--success)':pct>=50?'var(--warning)':'var(--danger)';
-  const barra=document.getElementById('ctr-docs-barra');
-  const label=document.getElementById('ctr-docs-label');
-  if(barra){barra.style.width=pct+'%';barra.style.background=cor;}
-  if(label)label.textContent=`${done}/${total} (${pct}%)`;
 }
 
 async function saveContratacao(id){
@@ -7818,8 +7854,8 @@ async function saveContratacao(id){
     }
   }
 
-  const documentos={};
-  DOCS_CONTRATACAO.forEach(([k])=>{documentos[k]=!!document.getElementById(`ctr-doc-${k}`)?.checked;});
+  const documentos={...(window._ctrDocsState||{})};
+  DOCS_CONTRATACAO.forEach(([k])=>{if(!documentos[k])delete documentos[k];}); // não grava chaves "pendente" (false)
 
   const payload={
     nome,
