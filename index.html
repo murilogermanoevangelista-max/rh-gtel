@@ -316,6 +316,7 @@ input:focus,select:focus{border-color:var(--primary)}
     <div class="nav-item" onclick="showPage('obras')"><i class="ti ti-building-skyscraper"></i> Obras / Contratos</div>
     <div class="nav-item" onclick="showPage('empresas')"><i class="ti ti-briefcase"></i> Empresas</div>
     <div class="nav-item" onclick="showPage('fornecedores')"><i class="ti ti-truck-delivery"></i> Fornecedores</div>
+    <div class="nav-item" onclick="showPage('contratacoes')"><i class="ti ti-user-plus"></i> Contratações</div>
   </nav>
   <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px">
     <div style="width:30px;height:30px;border-radius:50%;background:var(--primary-light);color:var(--primary-dark);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0" id="sidebar-user-avatar">—</div>
@@ -341,7 +342,7 @@ const SUPABASE_URL='https://lqggoshphakeuufibdno.supabase.co';
 const SUPABASE_KEY='sb_publishable_QlnJaa5xdUXePvXFV6QFwQ_AmMk639T';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[];
+let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[],contratacoes=[],contratacoesVagas=[];
 let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'nao_lancadas' | null
 let alojBusca='';
 let bannerNaoLancadasAberto=false;
@@ -707,6 +708,28 @@ async function loadFornecedores(){
   fornecedorOrcamentos=o.data||[];
 }
 
+async function loadContratacoes(){
+  const{data}=await sb.from('contratacoes')
+    .select('*,funcao:funcoes(nome),obra:obras(nome,codigo)')
+    .order('created_at',{ascending:false});
+  let lista=data||[];
+  if(obrasPermitidasIds){
+    lista=lista.filter(x=>x.obra_id&&obrasPermitidasIds.has(String(x.obra_id)));
+  }
+  contratacoes=lista;
+}
+
+async function loadContratacoesVagas(){
+  const{data}=await sb.from('contratacoes_vagas')
+    .select('*,funcao:funcoes(nome),obra:obras(nome,codigo)')
+    .order('created_at');
+  let lista=data||[];
+  if(obrasPermitidasIds){
+    lista=lista.filter(x=>x.obra_id&&obrasPermitidasIds.has(String(x.obra_id)));
+  }
+  contratacoesVagas=lista;
+}
+
 let currentPage='dashboard';
 
 async function showPage(page){
@@ -732,6 +755,7 @@ async function showPage(page){
       (page==='obras'&&t.includes('obra'))||
       (page==='empresas'&&t.includes('empresa'))||
       (page==='fornecedores'&&t.includes('fornecedores'))||
+      (page==='contratacoes'&&t.includes('contratações'))||
       (page==='matriz'&&t.includes('matriz'))
     );
   });
@@ -755,6 +779,7 @@ async function showPage(page){
     else if(page==='obras')renderObras();
     else if(page==='empresas')renderEmpresas();
     else if(page==='fornecedores'){await loadFornecedores();renderFornecedores();}
+    else if(page==='contratacoes'){await Promise.all([loadContratacoes(),loadContratacoesVagas()]);renderContratacoes();}
     else if(page==='matriz'){await loadMatriz();renderMatriz();}
   }catch(e){
     console.error('showPage erro em '+page+':',e);
@@ -7477,6 +7502,415 @@ function renderEfetivoLocal(){
   `;
 }
 
+
+// ─── CONTRATAÇÕES ────────────────────────────────────────────────────────────
+const DOCS_CONTRATACAO=[
+  ['aso','ASO Admissional'],
+  ['ctps','Carteira Profissional (CTPS)'],
+  ['cpf','Cópia do CPF'],
+  ['rg','Cópia do RG'],
+  ['titulo_eleitor','Título de Eleitor'],
+  ['reservista','Cópia da Reservista'],
+  ['pis','Cópia do PIS'],
+  ['fotos','3 Fotos ¾'],
+  ['sus','Cartão SUS'],
+  ['conta_bancaria','Conta Bancária'],
+  ['cnh','Cópia da CNH'],
+  ['comp_residencia','Comprovante de Residência'],
+  ['antecedentes','Antecedentes Criminais'],
+  ['vacina','Vacina'],
+  ['vacina_covid','Vacina COVID-19'],
+  ['curriculo','Currículo Atualizado'],
+  ['historico_escolar','Histórico Escolar'],
+  ['certidao_nasc','Certidão de Nascimento'],
+  ['nr10','NR10 (40h)'],
+  ['cert_eletrica','Certificado de Elétrica'],
+];
+
+let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesVagasFiltroObra='',ctrFuncaoModoManual=false;
+
+function ctrDocsPct(c){
+  const docs=c.documentos||{};
+  const done=DOCS_CONTRATACAO.filter(([k])=>!!docs[k]).length;
+  const total=DOCS_CONTRATACAO.length;
+  return{done,total,pct:total?Math.round(done/total*100):0};
+}
+
+function ctrStatusInfo(status){
+  const map={
+    em_processo:{label:'Em Processo',bg:'var(--warning-light)',cor:'var(--warning)'},
+    aguardando_integracao:{label:'Aguardando Integração',bg:'var(--info-light)',cor:'var(--info)'},
+    integrado:{label:'Integrado',bg:'var(--success-light)',cor:'var(--success)'},
+    desistiu:{label:'Desistiu/Reprovado',bg:'var(--danger-light)',cor:'var(--danger)'},
+  };
+  return map[status]||{label:status||'—',bg:'var(--bg)',cor:'var(--text-muted)'};
+}
+
+function renderContratacoes(){
+  if(contratacoesTab==='vagas')renderContratacoesVagas();
+  else renderContratacoesCandidatos();
+}
+
+function renderContratacoesCandidatos(){
+  const lista=contratacoes.filter(c=>{
+    if(contratacoesFiltroStatus&&c.status!==contratacoesFiltroStatus)return false;
+    if(contratacoesFiltroFuncao&&String(c.funcao_id)!==String(contratacoesFiltroFuncao))return false;
+    if(contratacoesFiltroObra&&String(c.obra_id)!==String(contratacoesFiltroObra))return false;
+    if(contratacoesBusca){
+      const b=contratacoesBusca.toLowerCase();
+      return(c.nome||'').toLowerCase().includes(b)||(c.origem||'').toLowerCase().includes(b)||(c.contato||'').toLowerCase().includes(b);
+    }
+    return true;
+  });
+
+  const total=contratacoes.length;
+  const emProcesso=contratacoes.filter(c=>c.status==='em_processo').length;
+  const aguardando=contratacoes.filter(c=>c.status==='aguardando_integracao').length;
+  const integrados=contratacoes.filter(c=>c.status==='integrado').length;
+
+  const rows=lista.map(c=>{
+    const si=ctrStatusInfo(c.status);
+    const{done,total:tdocs,pct}=ctrDocsPct(c);
+    const corBarra=pct>=100?'var(--success)':pct>=50?'var(--warning)':'var(--danger)';
+    return`<tr>
+      <td>
+        <div style="font-weight:500">${c.nome||'—'}</div>
+        ${c.origem?`<div style="font-size:11px;color:var(--text-muted)">${c.origem}</div>`:''}
+      </td>
+      <td style="font-size:12px">${c.funcao?.nome||'—'}</td>
+      <td style="font-size:12px">${c.obra?`${c.obra.codigo?c.obra.codigo+' — ':''}${c.obra.nome||''}`:'<span style="color:var(--text-muted)">—</span>'}</td>
+      <td style="font-size:12px">${c.contato||'—'}</td>
+      <td style="min-width:140px">
+        <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="openModalDocumentosContratacao('${c.id}')" title="Ver/editar checklist de documentos">
+          <div style="flex:1;height:6px;background:var(--border);border-radius:3px"><div style="height:6px;border-radius:3px;background:${corBarra};width:${pct}%"></div></div>
+          <span style="font-size:11px;font-weight:600;color:${corBarra};min-width:52px">${done}/${tdocs}</span>
+        </div>
+      </td>
+      <td><span class="badge" style="background:${si.bg};color:${si.cor}">${si.label}</span></td>
+      <td>
+        <div class="action-btns">
+          <button class="btn btn-sm" onclick="openModalDocumentosContratacao('${c.id}')" title="Checklist de documentos"><i class="ti ti-checklist"></i></button>
+          <button class="btn btn-sm" onclick="openModalContratacao('${c.id}')" title="Editar"><i class="ti ti-edit"></i></button>
+          <button class="btn btn-sm btn-danger" onclick="deleteContratacao('${c.id}','${(c.nome||'').replace(/'/g,"\\'")}')" title="Excluir"><i class="ti ti-trash"></i></button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="7"><div class="empty-state"><i class="ti ti-user-plus"></i><div>Nenhum candidato encontrado</div></div></td></tr>';
+
+  const funcaoOpts=funcoes.map(f=>`<option value="${f.id}" ${contratacoesFiltroFuncao===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
+  const obraOpts=obras.map(o=>`<option value="${o.id}" ${contratacoesFiltroObra===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
+
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title"><i class="ti ti-user-plus"></i> Contratações</div><div class="page-subtitle">${total} candidato(s) cadastrado(s)</div></div>
+      <button class="btn btn-primary" onclick="openModalContratacao()"><i class="ti ti-plus"></i> Novo candidato</button>
+    </div>
+    <div class="exp-tabs">
+      <div class="exp-tab${contratacoesTab==='candidatos'?' active':''}" onclick="contratacoesTab='candidatos';renderContratacoes()">Candidatos</div>
+      <div class="exp-tab${contratacoesTab==='vagas'?' active':''}" onclick="contratacoesTab='vagas';renderContratacoes()">Vagas Previstas</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+      <div class="metric-card" onclick="contratacoesFiltroStatus='';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${!contratacoesFiltroStatus?'var(--primary)':'var(--border)'}">
+        <div class="metric-label">Total</div><div class="metric-value">${total}</div>
+      </div>
+      <div class="metric-card amber" onclick="contratacoesFiltroStatus='em_processo';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${contratacoesFiltroStatus==='em_processo'?'var(--warning)':'var(--border)'}">
+        <div class="metric-label">Em Processo</div><div class="metric-value">${emProcesso}</div>
+      </div>
+      <div class="metric-card" onclick="contratacoesFiltroStatus='aguardando_integracao';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${contratacoesFiltroStatus==='aguardando_integracao'?'var(--info)':'var(--border)'}">
+        <div class="metric-label">Aguardando Integração</div><div class="metric-value">${aguardando}</div>
+      </div>
+      <div class="metric-card green" onclick="contratacoesFiltroStatus='integrado';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${contratacoesFiltroStatus==='integrado'?'var(--success)':'var(--border)'}">
+        <div class="metric-label">Integrados</div><div class="metric-value">${integrados}</div>
+      </div>
+    </div>
+    <div class="filters">
+      <div class="search-box"><i class="ti ti-search"></i>
+        <input placeholder="Buscar por nome, origem, contato..." value="${contratacoesBusca}"
+          oninput="contratacoesBusca=this.value;if(!_buscaHandlers.ctr)_buscaHandlers.ctr=makeBuscaHandler(v=>contratacoesBusca=v,renderContratacoesCandidatos,300);_buscaHandlers.ctr(this.value);this.focus()">
+      </div>
+      <select class="filter-select" onchange="contratacoesFiltroFuncao=this.value;renderContratacoesCandidatos()">
+        <option value="">Todas as funções</option>${funcaoOpts}
+      </select>
+      <select class="filter-select" onchange="contratacoesFiltroObra=this.value;renderContratacoesCandidatos()">
+        <option value="">Todas as obras</option>${obraOpts}
+      </select>
+      <select class="filter-select" onchange="contratacoesFiltroStatus=this.value;renderContratacoesCandidatos()">
+        <option value="">Todos os status</option>
+        <option value="em_processo" ${contratacoesFiltroStatus==='em_processo'?'selected':''}>Em Processo</option>
+        <option value="aguardando_integracao" ${contratacoesFiltroStatus==='aguardando_integracao'?'selected':''}>Aguardando Integração</option>
+        <option value="integrado" ${contratacoesFiltroStatus==='integrado'?'selected':''}>Integrado</option>
+        <option value="desistiu" ${contratacoesFiltroStatus==='desistiu'?'selected':''}>Desistiu/Reprovado</option>
+      </select>
+      <button class="btn btn-sm" onclick="contratacoesBusca='';contratacoesFiltroStatus='';contratacoesFiltroFuncao='';contratacoesFiltroObra='';renderContratacoesCandidatos()"><i class="ti ti-x"></i> Limpar</button>
+    </div>
+    <div class="table-container"><table>
+      <thead><tr>
+        <th>Candidato</th><th>Função</th><th>Obra</th><th>Contato</th><th>Documentação</th><th>Status</th><th>Ações</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function renderContratacoesVagas(){
+  const vagas=contratacoesVagas.filter(v=>!contratacoesVagasFiltroObra||String(v.obra_id)===String(contratacoesVagasFiltroObra));
+
+  let tPrevisto=0,tFalta=0,tEmProcesso=0,tAguardando=0,tIntegrado=0;
+
+  const rows=vagas.map(v=>{
+    const candidatosVaga=contratacoes.filter(c=>String(c.funcao_id)===String(v.funcao_id)&&String(c.obra_id)===String(v.obra_id));
+    const emProcesso=candidatosVaga.filter(c=>c.status==='em_processo').length;
+    const aguardando=candidatosVaga.filter(c=>c.status==='aguardando_integracao').length;
+    const integrado=candidatosVaga.filter(c=>c.status==='integrado').length;
+    const previsto=v.quantidade_prevista||0;
+    const falta=Math.max(previsto-(emProcesso+aguardando+integrado),0);
+    tPrevisto+=previsto;tFalta+=falta;tEmProcesso+=emProcesso;tAguardando+=aguardando;tIntegrado+=integrado;
+    return`<tr>
+      <td style="font-weight:500">${v.funcao?.nome||'—'}</td>
+      <td style="font-size:12px">${v.obra?`${v.obra.codigo?v.obra.codigo+' — ':''}${v.obra.nome||''}`:'<span style="color:var(--text-muted)">—</span>'}</td>
+      <td style="text-align:center;font-weight:600">${previsto}</td>
+      <td style="text-align:center;${falta>0?'color:var(--danger);font-weight:600':'color:var(--text-muted)'}">${falta}</td>
+      <td style="text-align:center;color:var(--warning);font-weight:600">${emProcesso}</td>
+      <td style="text-align:center;color:var(--info);font-weight:600">${aguardando}</td>
+      <td style="text-align:center;color:var(--success);font-weight:600">${integrado}</td>
+      <td>
+        <div class="action-btns">
+          <button class="btn btn-sm" onclick="openModalVaga('${v.id}')" title="Editar"><i class="ti ti-edit"></i></button>
+          <button class="btn btn-sm btn-danger" onclick="deleteVaga('${v.id}')" title="Excluir"><i class="ti ti-trash"></i></button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="8"><div class="empty-state"><i class="ti ti-clipboard-list"></i><div>Nenhuma vaga prevista cadastrada</div></div></td></tr>';
+
+  const obraOpts=obras.map(o=>`<option value="${o.id}" ${contratacoesVagasFiltroObra===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
+
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title"><i class="ti ti-user-plus"></i> Contratações</div><div class="page-subtitle">Vagas previstas por função e obra</div></div>
+      <button class="btn btn-primary" onclick="openModalVaga()"><i class="ti ti-plus"></i> Nova vaga</button>
+    </div>
+    <div class="exp-tabs">
+      <div class="exp-tab${contratacoesTab==='candidatos'?' active':''}" onclick="contratacoesTab='candidatos';renderContratacoes()">Candidatos</div>
+      <div class="exp-tab${contratacoesTab==='vagas'?' active':''}" onclick="contratacoesTab='vagas';renderContratacoes()">Vagas Previstas</div>
+    </div>
+    <div class="filters">
+      <select class="filter-select" onchange="contratacoesVagasFiltroObra=this.value;renderContratacoesVagas()">
+        <option value="">Todas as obras</option>${obraOpts}
+      </select>
+      <button class="btn btn-sm" onclick="contratacoesVagasFiltroObra='';renderContratacoesVagas()"><i class="ti ti-x"></i> Limpar</button>
+    </div>
+    <div class="table-container"><table>
+      <thead><tr>
+        <th>Função</th><th>Obra</th><th>Previsto</th><th>Falta Captação</th><th>Em Processo</th><th>Aguardando Integração</th><th>Integrado</th><th>Ações</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+      ${vagas.length?`<tfoot><tr style="font-weight:700;background:var(--bg)">
+        <td colspan="2">Total</td>
+        <td style="text-align:center">${tPrevisto}</td>
+        <td style="text-align:center;color:var(--danger)">${tFalta}</td>
+        <td style="text-align:center;color:var(--warning)">${tEmProcesso}</td>
+        <td style="text-align:center;color:var(--info)">${tAguardando}</td>
+        <td style="text-align:center;color:var(--success)">${tIntegrado}</td>
+        <td></td>
+      </tr></tfoot>`:''}
+    </table></div>`;
+}
+
+function toggleFuncaoModoCtr(){
+  ctrFuncaoModoManual=!ctrFuncaoModoManual;
+  document.getElementById('ctr-funcao-select').style.display=ctrFuncaoModoManual?'none':'block';
+  document.getElementById('ctr-funcao-input').style.display=ctrFuncaoModoManual?'block':'none';
+  document.getElementById('ctr-funcao-toggle').textContent=ctrFuncaoModoManual?'← Escolher da lista':'✏️ Digitar manualmente';
+}
+
+function openModalContratacao(id){
+  const c=id?contratacoes.find(x=>x.id===id):null;
+  ctrFuncaoModoManual=false;
+  const funcaoOpts=funcoes.map(f=>`<option value="${f.id}" ${String(c?.funcao_id||'')===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
+  const obraOpts=obras.map(o=>`<option value="${o.id}" ${String(c?.obra_id||'')===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-contratacao" onclick="if(event.target===this)closeModal('modal-contratacao')">
+      <div class="modal" style="max-width:640px">
+        <div class="modal-header">
+          <span class="modal-title"><i class="ti ti-user-plus"></i> ${c?'Editar':'Novo'} Candidato</span>
+          <button class="btn btn-sm" onclick="closeModal('modal-contratacao')"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="form-group full"><label>Nome *</label>
+              <input id="ctr-nome" value="${c?.nome||''}" placeholder="Nome completo do candidato"></div>
+            <div class="form-group">
+              <label>Função <span class="funcao-toggle" id="ctr-funcao-toggle" onclick="toggleFuncaoModoCtr()" style="font-size:11px;font-weight:400;cursor:pointer;color:var(--primary);margin-left:6px">✏️ Digitar manualmente</span></label>
+              <select id="ctr-funcao-select"><option value="">Selecione...</option>${funcaoOpts}</select>
+              <input id="ctr-funcao-input" placeholder="Digite a função..." style="display:none">
+            </div>
+            <div class="form-group"><label>Obra</label>
+              <select id="ctr-obra"><option value="">— Nenhuma —</option>${obraOpts}</select>
+            </div>
+            <div class="form-group"><label>Origem (cidade/UF)</label>
+              <input id="ctr-origem" value="${c?.origem||''}" placeholder="Ex: Boqueirão do Piauí PI"></div>
+            <div class="form-group"><label>Contato (telefone)</label>
+              <input id="ctr-contato" value="${c?.contato||''}" placeholder="(00) 00000-0000"></div>
+            <div class="form-group"><label>Status</label>
+              <select id="ctr-status">
+                <option value="em_processo" ${(!c||c.status==='em_processo')?'selected':''}>Em Processo</option>
+                <option value="aguardando_integracao" ${c?.status==='aguardando_integracao'?'selected':''}>Aguardando Integração</option>
+                <option value="integrado" ${c?.status==='integrado'?'selected':''}>Integrado</option>
+                <option value="desistiu" ${c?.status==='desistiu'?'selected':''}>Desistiu/Reprovado</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Data Prevista de Admissão</label>
+              <input type="date" id="ctr-data-prevista" value="${c?.data_prevista_admissao||''}"></div>
+            <div class="form-group full"><label>Observação</label>
+              <textarea id="ctr-obs" rows="2" placeholder="Ex: ASO agendado 13/07, nome em análise...">${c?.observacao||''}</textarea></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" onclick="closeModal('modal-contratacao')">Cancelar</button>
+          <button class="btn btn-primary" onclick="saveContratacao(${c?`'${c.id}'`:'null'})"><i class="ti ti-check"></i> ${c?'Salvar':'Cadastrar'}</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+async function saveContratacao(id){
+  const nome=document.getElementById('ctr-nome').value.trim();
+  if(!nome){showToast('Nome é obrigatório','error');return;}
+
+  const isMod=ctrFuncaoModoManual;
+  let funcaoId=isMod?null:document.getElementById('ctr-funcao-select').value||null;
+  const funcaoManualTexto=isMod?document.getElementById('ctr-funcao-input').value.trim():null;
+  if(isMod&&funcaoManualTexto){
+    const existente=funcoes.find(f=>(f.nome||'').trim().toUpperCase()===funcaoManualTexto.toUpperCase());
+    if(existente){
+      funcaoId=existente.id;
+    }else{
+      const{data:novaFuncao,error:errFuncao}=await sb.from('funcoes').insert({nome:funcaoManualTexto}).select().single();
+      if(errFuncao){showToast('Erro ao salvar função: '+errFuncao.message,'error');return;}
+      funcoes.push(novaFuncao);
+      funcaoId=novaFuncao.id;
+    }
+  }
+
+  const payload={
+    nome,
+    funcao_id:funcaoId,
+    obra_id:document.getElementById('ctr-obra').value||null,
+    origem:document.getElementById('ctr-origem').value.trim()||null,
+    contato:document.getElementById('ctr-contato').value.trim()||null,
+    status:document.getElementById('ctr-status').value,
+    data_prevista_admissao:document.getElementById('ctr-data-prevista').value||null,
+    observacao:document.getElementById('ctr-obs').value.trim()||null,
+  };
+  if(payload.status==='integrado'){
+    const atual=id?contratacoes.find(x=>x.id===id):null;
+    payload.data_integracao=atual?.data_integracao||toISO(new Date());
+  }
+  const{error}=id?await sb.from('contratacoes').update(payload).eq('id',id):await sb.from('contratacoes').insert(payload);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast(id?'Candidato atualizado!':'Candidato cadastrado!');
+  closeModal('modal-contratacao');
+  await loadContratacoes();renderContratacoes();
+}
+
+async function deleteContratacao(id,nome){
+  if(!confirm(`Excluir o candidato ${nome}?`))return;
+  const{error}=await sb.from('contratacoes').delete().eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Candidato excluído.');
+  await loadContratacoes();renderContratacoes();
+}
+
+function openModalDocumentosContratacao(id){
+  const c=contratacoes.find(x=>x.id===id);
+  if(!c)return;
+  const docs=c.documentos||{};
+  const{done,total,pct}=ctrDocsPct(c);
+  const itemsHtml=DOCS_CONTRATACAO.map(([k,label])=>`
+    <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;cursor:pointer">
+      <input type="checkbox" id="ctr-doc-${k}" ${docs[k]?'checked':''} style="width:16px;height:16px">
+      ${label}
+    </label>`).join('');
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-ctr-docs" onclick="if(event.target===this)closeModal('modal-ctr-docs')">
+      <div class="modal" style="max-width:560px">
+        <div class="modal-header">
+          <span class="modal-title"><i class="ti ti-checklist"></i> Documentos — ${c.nome}</span>
+          <button class="btn btn-sm" onclick="closeModal('modal-ctr-docs')"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div style="margin-bottom:14px;display:flex;align-items:center;gap:10px">
+            <div style="flex:1;height:8px;background:var(--border);border-radius:4px"><div id="ctr-docs-barra" style="height:8px;border-radius:4px;background:${pct>=100?'var(--success)':pct>=50?'var(--warning)':'var(--danger)'};width:${pct}%"></div></div>
+            <span id="ctr-docs-label" style="font-size:12px;font-weight:600;min-width:80px">${done}/${total} (${pct}%)</span>
+          </div>
+          <div style="columns:2;column-gap:20px">${itemsHtml}</div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" onclick="closeModal('modal-ctr-docs')">Cancelar</button>
+          <button class="btn btn-primary" onclick="saveDocumentosContratacao('${c.id}')"><i class="ti ti-check"></i> Salvar</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+async function saveDocumentosContratacao(id){
+  const documentos={};
+  DOCS_CONTRATACAO.forEach(([k])=>{documentos[k]=!!document.getElementById(`ctr-doc-${k}`)?.checked;});
+  const{error}=await sb.from('contratacoes').update({documentos}).eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Checklist de documentos atualizado!');
+  closeModal('modal-ctr-docs');
+  await loadContratacoes();renderContratacoes();
+}
+
+function openModalVaga(id){
+  const v=id?contratacoesVagas.find(x=>x.id===id):null;
+  const funcaoOpts=funcoes.map(f=>`<option value="${f.id}" ${String(v?.funcao_id||'')===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
+  const obraOpts=obras.map(o=>`<option value="${o.id}" ${String(v?.obra_id||'')===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-vaga" onclick="if(event.target===this)closeModal('modal-vaga')">
+      <div class="modal" style="max-width:480px">
+        <div class="modal-header">
+          <span class="modal-title"><i class="ti ti-clipboard-list"></i> ${v?'Editar':'Nova'} Vaga Prevista</span>
+          <button class="btn btn-sm" onclick="closeModal('modal-vaga')"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="form-group full"><label>Função *</label>
+              <select id="vaga-funcao"><option value="">Selecione...</option>${funcaoOpts}</select></div>
+            <div class="form-group full"><label>Obra *</label>
+              <select id="vaga-obra"><option value="">Selecione...</option>${obraOpts}</select></div>
+            <div class="form-group full"><label>Quantidade Prevista *</label>
+              <input type="number" min="0" id="vaga-qtd" value="${v?.quantidade_prevista??0}"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" onclick="closeModal('modal-vaga')">Cancelar</button>
+          <button class="btn btn-primary" onclick="saveVaga(${v?`'${v.id}'`:'null'})"><i class="ti ti-check"></i> ${v?'Salvar':'Cadastrar'}</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+async function saveVaga(id){
+  const funcaoId=document.getElementById('vaga-funcao').value;
+  const obraId=document.getElementById('vaga-obra').value;
+  const qtd=parseInt(document.getElementById('vaga-qtd').value,10)||0;
+  if(!funcaoId||!obraId){showToast('Função e Obra são obrigatórias','error');return;}
+  const payload={funcao_id:funcaoId,obra_id:obraId,quantidade_prevista:qtd};
+  const{error}=id?await sb.from('contratacoes_vagas').update(payload).eq('id',id):await sb.from('contratacoes_vagas').upsert(payload,{onConflict:'funcao_id,obra_id'});
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast(id?'Vaga atualizada!':'Vaga cadastrada!');
+  closeModal('modal-vaga');
+  await loadContratacoesVagas();renderContratacoes();
+}
+
+async function deleteVaga(id){
+  if(!confirm('Excluir esta vaga prevista?'))return;
+  const{error}=await sb.from('contratacoes_vagas').delete().eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Vaga excluída.');
+  await loadContratacoesVagas();renderContratacoes();
+}
 
 if(checkSessao()){
   entrarNoApp();
