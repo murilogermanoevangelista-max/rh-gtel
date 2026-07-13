@@ -7727,9 +7727,16 @@ function openModalContratacao(id){
   ctrFuncaoModoManual=false;
   const funcaoOpts=funcoes.map(f=>`<option value="${f.id}" ${String(c?.funcao_id||'')===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${String(c?.obra_id||'')===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
+  const docs=c?.documentos||{};
+  const{done,total,pct}=ctrDocsPct(c||{documentos:{}});
+  const docsItemsHtml=DOCS_CONTRATACAO.map(([k,label])=>`
+    <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;cursor:pointer">
+      <input type="checkbox" id="ctr-doc-${k}" ${docs[k]?'checked':''} onchange="ctrAtualizarBarraDocs()" style="width:16px;height:16px">
+      ${label}
+    </label>`).join('');
   document.body.insertAdjacentHTML('beforeend',`
     <div class="modal-overlay" id="modal-contratacao" onclick="if(event.target===this)closeModal('modal-contratacao')">
-      <div class="modal" style="max-width:640px">
+      <div class="modal" style="max-width:700px">
         <div class="modal-header">
           <span class="modal-title"><i class="ti ti-user-plus"></i> ${c?'Editar':'Novo'} Candidato</span>
           <button class="btn btn-sm" onclick="closeModal('modal-contratacao')"><i class="ti ti-x"></i></button>
@@ -7763,6 +7770,15 @@ function openModalContratacao(id){
             <div class="form-group full"><label>Observação</label>
               <textarea id="ctr-obs" rows="2" placeholder="Ex: ASO agendado 13/07, nome em análise...">${c?.observacao||''}</textarea></div>
           </div>
+
+          <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:18px">
+            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Checklist de Documentos para Admissão</div>
+            <div style="margin-bottom:14px;display:flex;align-items:center;gap:10px">
+              <div style="flex:1;height:8px;background:var(--border);border-radius:4px"><div id="ctr-docs-barra" style="height:8px;border-radius:4px;background:${pct>=100?'var(--success)':pct>=50?'var(--warning)':'var(--danger)'};width:${pct}%"></div></div>
+              <span id="ctr-docs-label" style="font-size:12px;font-weight:600;min-width:80px">${done}/${total} (${pct}%)</span>
+            </div>
+            <div style="columns:2;column-gap:20px">${docsItemsHtml}</div>
+          </div>
         </div>
         <div class="modal-footer">
           <button class="btn" onclick="closeModal('modal-contratacao')">Cancelar</button>
@@ -7770,6 +7786,17 @@ function openModalContratacao(id){
         </div>
       </div>
     </div>`);
+}
+
+function ctrAtualizarBarraDocs(){
+  const total=DOCS_CONTRATACAO.length;
+  const done=DOCS_CONTRATACAO.filter(([k])=>document.getElementById(`ctr-doc-${k}`)?.checked).length;
+  const pct=total?Math.round(done/total*100):0;
+  const cor=pct>=100?'var(--success)':pct>=50?'var(--warning)':'var(--danger)';
+  const barra=document.getElementById('ctr-docs-barra');
+  const label=document.getElementById('ctr-docs-label');
+  if(barra){barra.style.width=pct+'%';barra.style.background=cor;}
+  if(label)label.textContent=`${done}/${total} (${pct}%)`;
 }
 
 async function saveContratacao(id){
@@ -7791,6 +7818,9 @@ async function saveContratacao(id){
     }
   }
 
+  const documentos={};
+  DOCS_CONTRATACAO.forEach(([k])=>{documentos[k]=!!document.getElementById(`ctr-doc-${k}`)?.checked;});
+
   const payload={
     nome,
     funcao_id:funcaoId,
@@ -7800,6 +7830,7 @@ async function saveContratacao(id){
     status:document.getElementById('ctr-status').value,
     data_prevista_admissao:document.getElementById('ctr-data-prevista').value||null,
     observacao:document.getElementById('ctr-obs').value.trim()||null,
+    documentos,
   };
   if(payload.status==='integrado'){
     const atual=id?contratacoes.find(x=>x.id===id):null;
@@ -7821,46 +7852,9 @@ async function deleteContratacao(id,nome){
 }
 
 function openModalDocumentosContratacao(id){
-  const c=contratacoes.find(x=>x.id===id);
-  if(!c)return;
-  const docs=c.documentos||{};
-  const{done,total,pct}=ctrDocsPct(c);
-  const itemsHtml=DOCS_CONTRATACAO.map(([k,label])=>`
-    <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;cursor:pointer">
-      <input type="checkbox" id="ctr-doc-${k}" ${docs[k]?'checked':''} style="width:16px;height:16px">
-      ${label}
-    </label>`).join('');
-  document.body.insertAdjacentHTML('beforeend',`
-    <div class="modal-overlay" id="modal-ctr-docs" onclick="if(event.target===this)closeModal('modal-ctr-docs')">
-      <div class="modal" style="max-width:560px">
-        <div class="modal-header">
-          <span class="modal-title"><i class="ti ti-checklist"></i> Documentos — ${c.nome}</span>
-          <button class="btn btn-sm" onclick="closeModal('modal-ctr-docs')"><i class="ti ti-x"></i></button>
-        </div>
-        <div class="modal-body">
-          <div style="margin-bottom:14px;display:flex;align-items:center;gap:10px">
-            <div style="flex:1;height:8px;background:var(--border);border-radius:4px"><div id="ctr-docs-barra" style="height:8px;border-radius:4px;background:${pct>=100?'var(--success)':pct>=50?'var(--warning)':'var(--danger)'};width:${pct}%"></div></div>
-            <span id="ctr-docs-label" style="font-size:12px;font-weight:600;min-width:80px">${done}/${total} (${pct}%)</span>
-          </div>
-          <div style="columns:2;column-gap:20px">${itemsHtml}</div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn" onclick="closeModal('modal-ctr-docs')">Cancelar</button>
-          <button class="btn btn-primary" onclick="saveDocumentosContratacao('${c.id}')"><i class="ti ti-check"></i> Salvar</button>
-        </div>
-      </div>
-    </div>`);
+  openModalContratacao(id);
 }
 
-async function saveDocumentosContratacao(id){
-  const documentos={};
-  DOCS_CONTRATACAO.forEach(([k])=>{documentos[k]=!!document.getElementById(`ctr-doc-${k}`)?.checked;});
-  const{error}=await sb.from('contratacoes').update({documentos}).eq('id',id);
-  if(error){showToast('Erro: '+error.message,'error');return;}
-  showToast('Checklist de documentos atualizado!');
-  closeModal('modal-ctr-docs');
-  await loadContratacoes();renderContratacoes();
-}
 
 function openModalVaga(id){
   const v=id?contratacoesVagas.find(x=>x.id===id):null;
