@@ -7585,6 +7585,7 @@ function renderContratacoesCandidatos(){
   const emProcesso=contratacoes.filter(c=>c.status==='em_processo').length;
   const aguardando=contratacoes.filter(c=>c.status==='aguardando_integracao').length;
   const integrados=contratacoes.filter(c=>c.status==='integrado').length;
+  const totalPrevisto=contratacoesVagas.reduce((s,v)=>s+(v.quantidade_prevista||0),0);
 
   const rows=lista.map(c=>{
     const si=ctrStatusInfo(c.status);
@@ -7629,7 +7630,10 @@ function renderContratacoesCandidatos(){
       <div class="exp-tab${contratacoesTab==='vagas'?' active':''}" onclick="contratacoesTab='vagas';renderContratacoes()">Vagas Previstas</div>
       <div class="exp-tab${contratacoesTab==='projecoes'?' active':''}" onclick="contratacoesTab='projecoes';renderContratacoes()">Projeções</div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px">
+      <div class="metric-card" onclick="contratacoesTab='vagas';renderContratacoes()" style="cursor:pointer;border-color:var(--border)">
+        <div class="metric-label">Vagas Previstas</div><div class="metric-value">${totalPrevisto}</div>
+      </div>
       <div class="metric-card" onclick="contratacoesFiltroStatus='';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${!contratacoesFiltroStatus?'var(--primary)':'var(--border)'}">
         <div class="metric-label">Total</div><div class="metric-value">${total}</div>
       </div>
