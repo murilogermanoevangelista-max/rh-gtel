@@ -7598,7 +7598,7 @@ function renderContratacoesCandidatos(){
       </td>
       <td style="font-size:12px">${c.funcao?.nome||'—'}</td>
       <td style="font-size:12px">${c.obra?`${c.obra.codigo?c.obra.codigo+' — ':''}${c.obra.nome||''}`:'<span style="color:var(--text-muted)">—</span>'}</td>
-      <td style="font-size:12px">${c.contato||'—'}</td>
+      <td style="font-size:12px">${c.contato||'—'}${c.salario?`<div style="color:var(--text-muted)">R$ ${Number(c.salario).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>`:''}</td>
       <td style="min-width:140px">
         <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="openModalDocumentosContratacao('${c.id}')" title="Ver/editar checklist de documentos">
           <div style="flex:1;height:6px;background:var(--border);border-radius:3px"><div style="height:6px;border-radius:3px;background:${corBarra};width:${pct}%"></div></div>
@@ -7978,6 +7978,8 @@ function openModalContratacao(id){
               <input id="ctr-origem" value="${c?.origem||''}" placeholder="Ex: Boqueirão do Piauí PI"></div>
             <div class="form-group"><label>Contato (telefone)</label>
               <input id="ctr-contato" value="${c?.contato||''}" placeholder="(00) 00000-0000"></div>
+            <div class="form-group"><label>Salário</label>
+              <input type="number" step="0.01" min="0" id="ctr-salario" value="${c?.salario??''}" placeholder="Ex: 2200.00"></div>
             <div class="form-group"><label>Status</label>
               <select id="ctr-status">
                 <option value="em_processo" ${(!c||c.status==='em_processo')?'selected':''}>Em Processo</option>
@@ -8038,6 +8040,7 @@ async function saveContratacao(id){
     obra_id:document.getElementById('ctr-obra').value||null,
     origem:document.getElementById('ctr-origem').value.trim()||null,
     contato:document.getElementById('ctr-contato').value.trim()||null,
+    salario:document.getElementById('ctr-salario').value?parseFloat(document.getElementById('ctr-salario').value):null,
     status:document.getElementById('ctr-status').value,
     data_prevista_admissao:document.getElementById('ctr-data-prevista').value||null,
     observacao:document.getElementById('ctr-obs').value.trim()||null,
