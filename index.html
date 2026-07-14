@@ -3693,7 +3693,8 @@ function openImportFerias(){
             <strong>Regras de importação:</strong><br>
             • Apenas funcionários cadastrados no sistema são importados<br>
             • Cruzamento por matrícula (campo matricula)<br>
-            • Dados do DP são atualizados; programações existentes são preservadas<br>
+            • Períodos já existentes são atualizados; programações existentes são preservadas<br>
+            • Períodos que NÃO vierem nesta planilha são mantidos no sistema (nada é apagado automaticamente)<br>
             • Funcionários não encontrados são exibidos como aviso
           </div>
         </div>
@@ -3889,7 +3890,7 @@ async function confirmarImportFerias(){
   if(!dados||!dados.length){showToast('Nenhum dado para importar','error');return;}
   const btn=document.querySelector('#import-footer .btn-primary');
   if(btn){btn.disabled=true;btn.textContent='Importando...';}
-  let ok=0,erros=0;
+  let inseridos=0,atualizados=0,erros=0,preservados=0;
 
   // Agrupar por funcionario_id (UUID — sem ambiguidade de formato)
   const porFuncId={};
@@ -3905,35 +3906,24 @@ async function confirmarImportFerias(){
       .select('id,periodo_aquisitivo_inicio,programado,dias_programados,data_inicio_programada,data_fim_programada')
       .eq('funcionario_id',funcId);
 
-    // 2. Preservar SOMENTE os períodos que já têm férias programadas
-    //    (para não perder o controle de programação já lançada)
-    const progMap={};
+    // Mapear existentes pela chave do período (yyyy-mm-dd) para localizar por UPDATE em vez de DELETE+INSERT.
+    // IMPORTANTE: nunca apagamos períodos que não vierem na planilha nova — isso evita perder
+    // sinalizações de período vencido caso a planilha do mês não traga aquele período por qualquer motivo
+    // (linha faltando, variação de layout, etc). Períodos "sumidos" da planilha ficam preservados no sistema.
+    const existMap={};
     (existentes||[]).forEach(e=>{
-      if(e.programado){
-        const chave=(e.periodo_aquisitivo_inicio||'').substring(0,10);
-        progMap[chave]={
-          programado:e.programado,
-          dias_programados:e.dias_programados,
-          data_inicio_programada:e.data_inicio_programada,
-          data_fim_programada:e.data_fim_programada,
-        };
-      }
+      const chave=(e.periodo_aquisitivo_inicio||'').substring(0,10);
+      existMap[chave]=e;
     });
+    const chavesNaPlanilha=new Set();
 
-    // 3. Deletar TODOS os registros existentes pelo funcionario_id (limpa duplicatas e dados velhos)
-    // Usa funcionario_id direto — não depende de select anterior para garantir limpeza total
-    const{error:delErr}=await sb.from('ferias').delete().eq('funcionario_id',funcId);
-    if(delErr)console.error('Erro delete ferias',funcId,delErr);
-
-    // 4. Reinserir períodos novos da planilha (TOTVS + derivado)
     for(const d of periodos){
       const perIso=toISO(d.periodoInicio);
       if(!perIso){console.warn('periodoInicio nulo para',d.mat,d);continue;}
-      const fimIso=toISO(d.periodoFim);
-      const limIso=toISO(d.dtMaxima);
-      console.log('Inserindo',d.mat,perIso,'->',fimIso,'lim',limIso,d._derivado?'[derivado]':'[TOTVS]');
       const chave=perIso.substring(0,10);
-      const prog=progMap[chave]||{};
+      chavesNaPlanilha.add(chave);
+      const existente=existMap[chave];
+
       const payload={
         funcionario_id:funcId,
         matricula:d.mat,
@@ -3944,19 +3934,32 @@ async function confirmarImportFerias(){
         dias_direito:d.diasDir,
         dias_vencidos:d.diasVenc,
         importado_em:new Date().toISOString(),
-        programado:prog.programado||false,
-        dias_programados:prog.dias_programados||null,
-        data_inicio_programada:prog.data_inicio_programada||null,
-        data_fim_programada:prog.data_fim_programada||null,
       };
-      const{error}=await sb.from('ferias').insert(payload);
-      if(error){erros++;console.error('Erro import',funcId,error);}
-      else ok++;
+
+      if(existente){
+        // Atualiza dados do DP, preservando 100% o que já estava programado
+        const{error}=await sb.from('ferias').update(payload).eq('id',existente.id);
+        if(error){erros++;console.error('Erro update ferias',funcId,error);}
+        else atualizados++;
+      }else{
+        payload.programado=false;
+        payload.dias_programados=null;
+        payload.data_inicio_programada=null;
+        payload.data_fim_programada=null;
+        const{error}=await sb.from('ferias').insert(payload);
+        if(error){erros++;console.error('Erro insert ferias',funcId,error);}
+        else inseridos++;
+      }
     }
+
+    // Períodos que já estavam no sistema mas não vieram nesta planilha: mantidos, apenas contabilizados
+    preservados+=(existentes||[]).filter(e=>!chavesNaPlanilha.has((e.periodo_aquisitivo_inicio||'').substring(0,10))).length;
   }
 
-  if(erros>0)showToast(`${ok} importados, ${erros} com erro`,'error');
-  else showToast(`${ok} períodos importados com sucesso!`);
+  let msg=`${inseridos} novo(s), ${atualizados} atualizado(s)`;
+  if(preservados>0)msg+=`, ${preservados} preservado(s) (não vieram nesta planilha)`;
+  if(erros>0)showToast(msg+` — ${erros} erro(s)`,'error');
+  else showToast(msg+'!');
   closeModal('modal-import-ferias');
   await loadFerias();
   renderFerias();
