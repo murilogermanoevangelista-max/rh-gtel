@@ -8063,8 +8063,18 @@ function openModalDocumentosContratacao(id){
 }
 
 
+let vagaFuncaoModoManual=false;
+
+function toggleFuncaoModoVaga(){
+  vagaFuncaoModoManual=!vagaFuncaoModoManual;
+  document.getElementById('vaga-funcao-select').style.display=vagaFuncaoModoManual?'none':'block';
+  document.getElementById('vaga-funcao-input').style.display=vagaFuncaoModoManual?'block':'none';
+  document.getElementById('vaga-funcao-toggle').textContent=vagaFuncaoModoManual?'← Escolher da lista':'✏️ Digitar manualmente';
+}
+
 function openModalVaga(id){
   const v=id?contratacoesVagas.find(x=>x.id===id):null;
+  vagaFuncaoModoManual=false;
   const funcaoOpts=funcoes.map(f=>`<option value="${f.id}" ${String(v?.funcao_id||'')===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${String(v?.obra_id||'')===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
   document.body.insertAdjacentHTML('beforeend',`
@@ -8076,8 +8086,11 @@ function openModalVaga(id){
         </div>
         <div class="modal-body">
           <div class="form-grid">
-            <div class="form-group full"><label>Função *</label>
-              <select id="vaga-funcao"><option value="">Selecione...</option>${funcaoOpts}</select></div>
+            <div class="form-group full">
+              <label>Função * <span class="funcao-toggle" id="vaga-funcao-toggle" onclick="toggleFuncaoModoVaga()" style="font-size:11px;font-weight:400;cursor:pointer;color:var(--primary);margin-left:6px">✏️ Digitar manualmente</span></label>
+              <select id="vaga-funcao-select"><option value="">Selecione...</option>${funcaoOpts}</select>
+              <input id="vaga-funcao-input" placeholder="Digite a função..." style="display:none">
+            </div>
             <div class="form-group full"><label>Obra *</label>
               <select id="vaga-obra"><option value="">Selecione...</option>${obraOpts}</select></div>
             <div class="form-group full"><label>Quantidade Prevista *</label>
@@ -8093,7 +8106,20 @@ function openModalVaga(id){
 }
 
 async function saveVaga(id){
-  const funcaoId=document.getElementById('vaga-funcao').value;
+  const isMod=vagaFuncaoModoManual;
+  let funcaoId=isMod?null:(document.getElementById('vaga-funcao-select').value||null);
+  const funcaoManualTexto=isMod?document.getElementById('vaga-funcao-input').value.trim():null;
+  if(isMod&&funcaoManualTexto){
+    const existente=funcoes.find(f=>(f.nome||'').trim().toUpperCase()===funcaoManualTexto.toUpperCase());
+    if(existente){
+      funcaoId=existente.id;
+    }else{
+      const{data:novaFuncao,error:errFuncao}=await sb.from('funcoes').insert({nome:funcaoManualTexto}).select().single();
+      if(errFuncao){showToast('Erro ao salvar função: '+errFuncao.message,'error');return;}
+      funcoes.push(novaFuncao);
+      funcaoId=novaFuncao.id;
+    }
+  }
   const obraId=document.getElementById('vaga-obra').value;
   const qtd=parseInt(document.getElementById('vaga-qtd').value,10)||0;
   if(!funcaoId||!obraId){showToast('Função e Obra são obrigatórias','error');return;}
