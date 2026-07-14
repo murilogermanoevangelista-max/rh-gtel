@@ -7529,6 +7529,22 @@ const DOCS_CONTRATACAO=[
 
 let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesVagasFiltroObra='',ctrFuncaoModoManual=false;
 
+function ctrAddDiasUteis(dataISO,dias){
+  if(!dataISO)return null;
+  const d=new Date(dataISO+'T12:00:00');
+  let restantes=dias;
+  while(restantes>0){
+    d.setDate(d.getDate()+1);
+    const dow=d.getDay();
+    if(dow!==0&&dow!==6)restantes--;
+  }
+  return toISO(d);
+}
+function ctrFmtData(iso){
+  return iso?iso.split('-').reverse().join('/'):'—';
+}
+function ctrHojeISO(){return toISO(new Date());}
+
 function ctrDocsPct(c){
   const docs=c.documentos||{};
   const isentos=DOCS_CONTRATACAO.filter(([k])=>docs[k]==='isento').length;
@@ -7549,6 +7565,7 @@ function ctrStatusInfo(status){
 
 function renderContratacoes(){
   if(contratacoesTab==='vagas')renderContratacoesVagas();
+  else if(contratacoesTab==='projecoes')renderContratacoesProjecoes();
   else renderContratacoesCandidatos();
 }
 
@@ -7591,6 +7608,7 @@ function renderContratacoesCandidatos(){
       <td>
         <div class="action-btns">
           <button class="btn btn-sm" onclick="openModalDocumentosContratacao('${c.id}')" title="Checklist de documentos"><i class="ti ti-checklist"></i></button>
+          <button class="btn btn-sm" onclick="openModalProjecaoContratacao('${c.id}')" title="Projeções (exame, portal, DP, mobilização)"><i class="ti ti-calendar-time"></i></button>
           <button class="btn btn-sm" onclick="openModalContratacao('${c.id}')" title="Editar"><i class="ti ti-edit"></i></button>
           <button class="btn btn-sm btn-danger" onclick="deleteContratacao('${c.id}','${(c.nome||'').replace(/'/g,"\\'")}')" title="Excluir"><i class="ti ti-trash"></i></button>
         </div>
@@ -7609,6 +7627,7 @@ function renderContratacoesCandidatos(){
     <div class="exp-tabs">
       <div class="exp-tab${contratacoesTab==='candidatos'?' active':''}" onclick="contratacoesTab='candidatos';renderContratacoes()">Candidatos</div>
       <div class="exp-tab${contratacoesTab==='vagas'?' active':''}" onclick="contratacoesTab='vagas';renderContratacoes()">Vagas Previstas</div>
+      <div class="exp-tab${contratacoesTab==='projecoes'?' active':''}" onclick="contratacoesTab='projecoes';renderContratacoes()">Projeções</div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
       <div class="metric-card" onclick="contratacoesFiltroStatus='';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${!contratacoesFiltroStatus?'var(--primary)':'var(--border)'}">
@@ -7692,6 +7711,7 @@ function renderContratacoesVagas(){
     <div class="exp-tabs">
       <div class="exp-tab${contratacoesTab==='candidatos'?' active':''}" onclick="contratacoesTab='candidatos';renderContratacoes()">Candidatos</div>
       <div class="exp-tab${contratacoesTab==='vagas'?' active':''}" onclick="contratacoesTab='vagas';renderContratacoes()">Vagas Previstas</div>
+      <div class="exp-tab${contratacoesTab==='projecoes'?' active':''}" onclick="contratacoesTab='projecoes';renderContratacoes()">Projeções</div>
     </div>
     <div class="filters">
       <select class="filter-select" onchange="contratacoesVagasFiltroObra=this.value;renderContratacoesVagas()">
@@ -7714,6 +7734,157 @@ function renderContratacoesVagas(){
         <td></td>
       </tr></tfoot>`:''}
     </table></div>`;
+}
+
+let contratacoesProjFiltroObra='';
+
+function renderContratacoesProjecoes(){
+  const hoje=ctrHojeISO();
+  const lista=contratacoes.filter(c=>c.status!=='desistiu'&&(!contratacoesProjFiltroObra||String(c.obra_id)===String(contratacoesProjFiltroObra)));
+
+  const rows=lista.map(c=>{
+    const tipoLabel=c.tipo_exame==='operacional_ac'?'Operacional AC':(c.tipo_exame==='operacional'?'Operacional':null);
+    const diasExame=c.tipo_exame==='operacional_ac'?5:2;
+    const resultadoProj=c.data_exame?ctrAddDiasUteis(c.data_exame,diasExame):null;
+    const exameOk=resultadoProj&&hoje>=resultadoProj;
+
+    const registroProj=c.data_envio_dp?ctrAddDiasUteis(c.data_envio_dp,1):null;
+    const registroOk=registroProj&&hoje>=registroProj;
+
+    return`<tr>
+      <td>
+        <div style="font-weight:500">${c.nome||'—'}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${c.funcao?.nome||''}${c.obra?' · '+(c.obra.codigo||c.obra.nome||''):''}</div>
+      </td>
+      <td style="font-size:12px">
+        ${tipoLabel?`<div>${tipoLabel} · ${ctrFmtData(c.data_exame)}</div>
+        <div style="margin-top:2px"><span class="badge ${exameOk?'badge-green':'badge-amber'}">${exameOk?'Resultado disp.':'Aguardando'} ${ctrFmtData(resultadoProj)}</span></div>`:'<span style="color:var(--text-muted)">—</span>'}
+      </td>
+      <td style="font-size:12px">${ctrFmtData(c.data_documentos_portal)}</td>
+      <td style="font-size:12px">${ctrFmtData(c.data_aprovacao_diretoria)}</td>
+      <td style="font-size:12px">
+        ${c.data_envio_dp?`<div>Envio: ${ctrFmtData(c.data_envio_dp)}</div>
+        <div style="margin-top:2px"><span class="badge ${registroOk?'badge-green':'badge-amber'}">Registro ${ctrFmtData(registroProj)}</span></div>`:'<span style="color:var(--text-muted)">—</span>'}
+      </td>
+      <td style="font-size:12px">${ctrFmtData(c.data_integracao_prevista)}</td>
+      <td style="font-size:12px">
+        ${c.data_viagem_mobilizacao?`<div>Viagem: ${ctrFmtData(c.data_viagem_mobilizacao)}</div><div style="margin-top:2px;color:var(--text-muted)">Chegada: ${ctrFmtData(c.data_prevista_chegada)}</div>`:'<span style="color:var(--text-muted)">—</span>'}
+      </td>
+      <td>
+        <div class="action-btns">
+          <button class="btn btn-sm" onclick="openModalProjecaoContratacao('${c.id}')" title="Editar projeções"><i class="ti ti-calendar-time"></i></button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="8"><div class="empty-state"><i class="ti ti-calendar-time"></i><div>Nenhum candidato para acompanhar</div></div></td></tr>';
+
+  const obraOpts=obras.map(o=>`<option value="${o.id}" ${contratacoesProjFiltroObra===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
+
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title"><i class="ti ti-user-plus"></i> Contratações</div><div class="page-subtitle">Projeção de exames, portal, DP, integração e mobilização</div></div>
+    </div>
+    <div class="exp-tabs">
+      <div class="exp-tab${contratacoesTab==='candidatos'?' active':''}" onclick="contratacoesTab='candidatos';renderContratacoes()">Candidatos</div>
+      <div class="exp-tab${contratacoesTab==='vagas'?' active':''}" onclick="contratacoesTab='vagas';renderContratacoes()">Vagas Previstas</div>
+      <div class="exp-tab${contratacoesTab==='projecoes'?' active':''}" onclick="contratacoesTab='projecoes';renderContratacoes()">Projeções</div>
+    </div>
+    <div class="filters">
+      <select class="filter-select" onchange="contratacoesProjFiltroObra=this.value;renderContratacoesProjecoes()">
+        <option value="">Todas as obras</option>${obraOpts}
+      </select>
+      <button class="btn btn-sm" onclick="contratacoesProjFiltroObra='';renderContratacoesProjecoes()"><i class="ti ti-x"></i> Limpar</button>
+    </div>
+    <div class="table-container"><table>
+      <thead><tr>
+        <th>Candidato</th><th>Exame</th><th>Documentos Portal</th><th>Aprovação Diretoria</th><th>Envio DP → Registro</th><th>Integração Prevista</th><th>Mobilização → Chegada</th><th>Ações</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function openModalProjecaoContratacao(id){
+  const c=contratacoes.find(x=>x.id===id);
+  if(!c)return;
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-ctr-proj" onclick="if(event.target===this)closeModal('modal-ctr-proj')">
+      <div class="modal" style="max-width:600px">
+        <div class="modal-header">
+          <span class="modal-title"><i class="ti ti-calendar-time"></i> Projeções — ${c.nome}</span>
+          <button class="btn btn-sm" onclick="closeModal('modal-ctr-proj')"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="form-group"><label>Tipo de Exame</label>
+              <select id="proj-tipo-exame" onchange="ctrAtualizarProjExame()">
+                <option value="">— Selecione —</option>
+                <option value="operacional" ${c.tipo_exame==='operacional'?'selected':''}>Operacional (2 dias úteis)</option>
+                <option value="operacional_ac" ${c.tipo_exame==='operacional_ac'?'selected':''}>Operacional AC (5 dias úteis)</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Data do Exame</label>
+              <input type="date" id="proj-data-exame" value="${c.data_exame||''}" oninput="ctrAtualizarProjExame()"></div>
+            <div class="form-group full" style="margin-top:-8px">
+              <div style="font-size:12px;color:var(--text-muted)">Resultado previsto: <b id="proj-resultado-exame" style="color:var(--text)">${c.data_exame&&c.tipo_exame?ctrFmtData(ctrAddDiasUteis(c.data_exame,c.tipo_exame==='operacional_ac'?5:2)):'—'}</b></div>
+            </div>
+
+            <div class="form-group"><label>Documentos lançados no Portal</label>
+              <input type="date" id="proj-doc-portal" value="${c.data_documentos_portal||''}"></div>
+            <div class="form-group"><label>Aprovação da Diretoria (Portal)</label>
+              <input type="date" id="proj-aprovacao" value="${c.data_aprovacao_diretoria||''}"></div>
+
+            <div class="form-group"><label>Envio ao DP para Registro</label>
+              <input type="date" id="proj-envio-dp" value="${c.data_envio_dp||''}" oninput="ctrAtualizarProjRegistro()"></div>
+            <div class="form-group">
+              <label>Registro Previsto</label>
+              <div style="padding:9px 0;font-size:13px;font-weight:600" id="proj-registro-previsto">${c.data_envio_dp?ctrFmtData(ctrAddDiasUteis(c.data_envio_dp,1)):'—'}</div>
+            </div>
+
+            <div class="form-group"><label>Integração Prevista</label>
+              <input type="date" id="proj-integracao" value="${c.data_integracao_prevista||''}"></div>
+            <div class="form-group"><label>Viagem de Mobilização</label>
+              <input type="date" id="proj-viagem" value="${c.data_viagem_mobilizacao||''}"></div>
+            <div class="form-group"><label>Previsão de Chegada</label>
+              <input type="date" id="proj-chegada" value="${c.data_prevista_chegada||''}"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" onclick="closeModal('modal-ctr-proj')">Cancelar</button>
+          <button class="btn btn-primary" onclick="saveProjecaoContratacao('${c.id}')"><i class="ti ti-check"></i> Salvar</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+function ctrAtualizarProjExame(){
+  const tipo=document.getElementById('proj-tipo-exame').value;
+  const data=document.getElementById('proj-data-exame').value;
+  const el=document.getElementById('proj-resultado-exame');
+  if(!tipo||!data){el.textContent='—';return;}
+  el.textContent=ctrFmtData(ctrAddDiasUteis(data,tipo==='operacional_ac'?5:2));
+}
+function ctrAtualizarProjRegistro(){
+  const data=document.getElementById('proj-envio-dp').value;
+  const el=document.getElementById('proj-registro-previsto');
+  el.textContent=data?ctrFmtData(ctrAddDiasUteis(data,1)):'—';
+}
+
+async function saveProjecaoContratacao(id){
+  const payload={
+    tipo_exame:document.getElementById('proj-tipo-exame').value||null,
+    data_exame:document.getElementById('proj-data-exame').value||null,
+    data_documentos_portal:document.getElementById('proj-doc-portal').value||null,
+    data_aprovacao_diretoria:document.getElementById('proj-aprovacao').value||null,
+    data_envio_dp:document.getElementById('proj-envio-dp').value||null,
+    data_integracao_prevista:document.getElementById('proj-integracao').value||null,
+    data_viagem_mobilizacao:document.getElementById('proj-viagem').value||null,
+    data_prevista_chegada:document.getElementById('proj-chegada').value||null,
+  };
+  const{error}=await sb.from('contratacoes').update(payload).eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Projeções atualizadas!');
+  closeModal('modal-ctr-proj');
+  await loadContratacoes();renderContratacoes();
 }
 
 function toggleFuncaoModoCtr(){
