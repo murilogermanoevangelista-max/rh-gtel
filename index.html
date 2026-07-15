@@ -8211,7 +8211,7 @@ function openModalContratacao(id){
               </select>
             </div>
             <div class="form-group"><label>Data Prevista de Admissão</label>
-              <input type="date" id="ctr-data-prevista" value="${c?.data_prevista_admissao||p.admissao||''}"></div>
+              <input type="date" id="ctr-data-prevista" value="${c?.data_prevista_admissao||p.admissao||''}" data-auto="${c?.data_prevista_admissao?'false':'true'}" oninput="this.dataset.auto='false'"></div>
             <div class="form-group" id="ctr-grupo-desistencia" style="display:${c?.status==='desistiu'?'block':'none'}"><label>Data da Desistência</label>
               <input type="date" id="ctr-data-desistencia" value="${c?.data_desistencia||ctrHojeISO()}"></div>
             <div class="form-group full"><label>Observação</label>
@@ -8246,12 +8246,12 @@ function openModalContratacao(id){
               </div>
 
               <div class="form-group"><label>Documentos lançados no Portal <span style="font-weight:400;color:var(--text-muted)">(auto: resultado do exame)</span></label>
-                <input type="date" id="proj-doc-portal" value="${c?.data_documentos_portal||p.docPortal||''}" oninput="ctrCascataPortal()"></div>
+                <input type="date" id="proj-doc-portal" value="${c?.data_documentos_portal||p.docPortal||''}" data-auto="${c?.data_documentos_portal?'false':'true'}" oninput="ctrCascataPortal(true)"></div>
               <div class="form-group"><label>Aprovação da Diretoria <span style="font-weight:400;color:var(--text-muted)">(auto: portal +2 dias úteis)</span></label>
-                <input type="date" id="proj-aprovacao" value="${c?.data_aprovacao_diretoria||p.aprovacao||''}" oninput="ctrCascataAprovacao()"></div>
+                <input type="date" id="proj-aprovacao" value="${c?.data_aprovacao_diretoria||p.aprovacao||''}" data-auto="${c?.data_aprovacao_diretoria?'false':'true'}" oninput="ctrCascataAprovacao(true)"></div>
 
               <div class="form-group"><label>Envio ao DP para Registro <span style="font-weight:400;color:var(--text-muted)">(auto: aprovação +1 dia útil)</span></label>
-                <input type="date" id="proj-envio-dp" value="${c?.data_envio_dp||p.envioDp||''}" oninput="ctrCascataEnvioDp()"></div>
+                <input type="date" id="proj-envio-dp" value="${c?.data_envio_dp||p.envioDp||''}" data-auto="${c?.data_envio_dp?'false':'true'}" oninput="ctrCascataEnvioDp(true)"></div>
               <div class="form-group">
                 <label>Admissão Prevista <span style="font-weight:400;color:var(--text-muted)">(auto: envio DP +1 dia útil)</span></label>
                 <div style="padding:9px 0;font-size:13px;font-weight:600" id="proj-registro-previsto">${ctrFmtData(p.admissao)}</div>
@@ -8286,26 +8286,38 @@ function ctrCascataExame(){
     elResultado.textContent='—';
   }
   if(resultado){
-    document.getElementById('proj-doc-portal').value=resultado;
-    ctrCascataPortal();
+    const portalInput=document.getElementById('proj-doc-portal');
+    portalInput.value=resultado;
+    portalInput.dataset.auto='true'; // ainda é só projeção, não confirmado
+    ctrCascataPortal(false);
   }
 }
-function ctrCascataPortal(){
-  const dataPortal=document.getElementById('proj-doc-portal').value;
+function ctrCascataPortal(manual=true){
+  const portalInput=document.getElementById('proj-doc-portal');
+  if(manual)portalInput.dataset.auto='false'; // usuário editou este campo diretamente
+  const dataPortal=portalInput.value;
   if(dataPortal){
-    document.getElementById('proj-aprovacao').value=ctrAddDiasUteis(dataPortal,2);
+    const aprovInput=document.getElementById('proj-aprovacao');
+    aprovInput.value=ctrAddDiasUteis(dataPortal,2);
+    aprovInput.dataset.auto='true';
   }
-  ctrCascataAprovacao();
+  ctrCascataAprovacao(false);
 }
-function ctrCascataAprovacao(){
-  const dataAprovacao=document.getElementById('proj-aprovacao').value;
+function ctrCascataAprovacao(manual=true){
+  const aprovInput=document.getElementById('proj-aprovacao');
+  if(manual)aprovInput.dataset.auto='false';
+  const dataAprovacao=aprovInput.value;
   if(dataAprovacao){
-    document.getElementById('proj-envio-dp').value=ctrAddDiasUteis(dataAprovacao,1);
+    const envioInput=document.getElementById('proj-envio-dp');
+    envioInput.value=ctrAddDiasUteis(dataAprovacao,1);
+    envioInput.dataset.auto='true';
   }
-  ctrCascataEnvioDp();
+  ctrCascataEnvioDp(false);
 }
-function ctrCascataEnvioDp(){
-  const dataEnvioDp=document.getElementById('proj-envio-dp').value;
+function ctrCascataEnvioDp(manual=true){
+  const envioInput=document.getElementById('proj-envio-dp');
+  if(manual)envioInput.dataset.auto='false';
+  const dataEnvioDp=envioInput.value;
   const elAdmissao=document.getElementById('proj-registro-previsto');
   let admissaoPrevista=null;
   if(dataEnvioDp){
@@ -8315,7 +8327,16 @@ function ctrCascataEnvioDp(){
     elAdmissao.textContent='—';
   }
   const inputAdmissao=document.getElementById('ctr-data-prevista');
-  if(inputAdmissao&&admissaoPrevista)inputAdmissao.value=admissaoPrevista;
+  if(inputAdmissao&&admissaoPrevista){
+    inputAdmissao.value=admissaoPrevista;
+    inputAdmissao.dataset.auto='true';
+  }
+}
+
+function ctrValorConfirmado(id){
+  const el=document.getElementById(id);
+  if(!el)return null;
+  return el.dataset.auto==='true'?null:(el.value||null);
 }
 
 async function saveContratacao(id){
@@ -8348,14 +8369,14 @@ async function saveContratacao(id){
     contato:document.getElementById('ctr-contato').value.trim()||null,
     salario:document.getElementById('ctr-salario').value?parseFloat(document.getElementById('ctr-salario').value):null,
     status:document.getElementById('ctr-status').value,
-    data_prevista_admissao:document.getElementById('ctr-data-prevista').value||null,
+    data_prevista_admissao:ctrValorConfirmado('ctr-data-prevista'),
     observacao:document.getElementById('ctr-obs').value.trim()||null,
     documentos,
     tipo_exame:document.getElementById('proj-tipo-exame').value||null,
     data_exame:document.getElementById('proj-data-exame').value||null,
-    data_documentos_portal:document.getElementById('proj-doc-portal').value||null,
-    data_aprovacao_diretoria:document.getElementById('proj-aprovacao').value||null,
-    data_envio_dp:document.getElementById('proj-envio-dp').value||null,
+    data_documentos_portal:ctrValorConfirmado('proj-doc-portal'),
+    data_aprovacao_diretoria:ctrValorConfirmado('proj-aprovacao'),
+    data_envio_dp:ctrValorConfirmado('proj-envio-dp'),
     data_integracao_prevista:document.getElementById('proj-integracao').value||null,
     data_viagem_mobilizacao:document.getElementById('proj-viagem').value||null,
     data_prevista_chegada:document.getElementById('proj-chegada').value||null,
