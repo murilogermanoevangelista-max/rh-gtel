@@ -7637,7 +7637,8 @@ function ctrProjResumoHtml(c){
 }
 
 function renderContratacoesCandidatos(){
-  const lista=contratacoes.filter(c=>{
+  const ativos=contratacoes.filter(c=>c.status!=='desistiu');
+  const lista=ativos.filter(c=>{
     if(contratacoesFiltroStatus&&c.status!==contratacoesFiltroStatus)return false;
     if(contratacoesFiltroFuncao&&String(c.funcao_id)!==String(contratacoesFiltroFuncao))return false;
     if(contratacoesFiltroObra&&String(c.obra_id)!==String(contratacoesFiltroObra))return false;
@@ -7648,10 +7649,10 @@ function renderContratacoesCandidatos(){
     return true;
   });
 
-  const total=contratacoes.length;
-  const emProcesso=contratacoes.filter(c=>c.status==='em_processo').length;
-  const aguardando=contratacoes.filter(c=>c.status==='aguardando_integracao').length;
-  const integrados=contratacoes.filter(c=>c.status==='integrado').length;
+  const total=ativos.length;
+  const emProcesso=ativos.filter(c=>c.status==='em_processo').length;
+  const aguardando=ativos.filter(c=>c.status==='aguardando_integracao').length;
+  const integrados=ativos.filter(c=>c.status==='integrado').length;
   const totalPrevisto=contratacoesVagas.reduce((s,v)=>s+(v.quantidade_prevista||0),0);
 
   const rows=lista.map(c=>{
@@ -7733,7 +7734,6 @@ function renderContratacoesCandidatos(){
         <option value="em_processo" ${contratacoesFiltroStatus==='em_processo'?'selected':''}>Em Processo</option>
         <option value="aguardando_integracao" ${contratacoesFiltroStatus==='aguardando_integracao'?'selected':''}>Aguardando Integração</option>
         <option value="integrado" ${contratacoesFiltroStatus==='integrado'?'selected':''}>Integrado</option>
-        <option value="desistiu" ${contratacoesFiltroStatus==='desistiu'?'selected':''}>Desistiu/Reprovado</option>
       </select>
       <button class="btn btn-sm" onclick="contratacoesBusca='';contratacoesFiltroStatus='';contratacoesFiltroFuncao='';contratacoesFiltroObra='';renderContratacoesCandidatos()"><i class="ti ti-x"></i> Limpar</button>
     </div>
@@ -8345,6 +8345,7 @@ async function saveContratacao(id){
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast(id?'Candidato atualizado!':'Candidato cadastrado!');
   closeModal('modal-contratacao');
+  if(payload.status==='desistiu')contratacoesTab='desistencias';
   await loadContratacoes();renderContratacoes();
 }
 
