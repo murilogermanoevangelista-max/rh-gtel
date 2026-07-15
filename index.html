@@ -7894,36 +7894,37 @@ function openModalContratacao(id){
           </div>
 
           <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:18px">
-            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Projeções (Exame, Portal, DP, Integração, Mobilização)</div>
+            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Projeções (Exame, Portal, DP, Integração, Mobilização)</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">As datas de Portal, Aprovação, Envio DP e Admissão Prevista são projetadas automaticamente a partir da data do Exame. Edite qualquer campo para ajustar à realidade — os campos seguintes serão recalculados.</div>
             <div class="form-grid">
               <div class="form-group"><label>Tipo de Exame</label>
-                <select id="proj-tipo-exame" onchange="ctrAtualizarProjExame()">
+                <select id="proj-tipo-exame" onchange="ctrCascataExame()">
                   <option value="">— Selecione —</option>
                   <option value="operacional" ${c?.tipo_exame==='operacional'?'selected':''}>Operacional (2 dias úteis)</option>
                   <option value="operacional_ac" ${c?.tipo_exame==='operacional_ac'?'selected':''}>Operacional AC (5 dias úteis)</option>
                 </select>
               </div>
               <div class="form-group"><label>Data do Exame</label>
-                <input type="date" id="proj-data-exame" value="${c?.data_exame||''}" oninput="ctrAtualizarProjExame()"></div>
+                <input type="date" id="proj-data-exame" value="${c?.data_exame||''}" oninput="ctrCascataExame()"></div>
               <div class="form-group full" style="margin-top:-8px">
                 <div style="font-size:12px;color:var(--text-muted)">Resultado previsto: <b id="proj-resultado-exame" style="color:var(--text)">${c?.data_exame&&c?.tipo_exame?ctrFmtData(ctrAddDiasUteis(c.data_exame,c.tipo_exame==='operacional_ac'?5:2)):'—'}</b></div>
               </div>
 
-              <div class="form-group"><label>Documentos lançados no Portal</label>
-                <input type="date" id="proj-doc-portal" value="${c?.data_documentos_portal||''}"></div>
-              <div class="form-group"><label>Aprovação da Diretoria (Portal)</label>
-                <input type="date" id="proj-aprovacao" value="${c?.data_aprovacao_diretoria||''}"></div>
+              <div class="form-group"><label>Documentos lançados no Portal <span style="font-weight:400;color:var(--text-muted)">(auto: resultado do exame)</span></label>
+                <input type="date" id="proj-doc-portal" value="${c?.data_documentos_portal||''}" oninput="ctrCascataPortal()"></div>
+              <div class="form-group"><label>Aprovação da Diretoria <span style="font-weight:400;color:var(--text-muted)">(auto: portal +2 dias úteis)</span></label>
+                <input type="date" id="proj-aprovacao" value="${c?.data_aprovacao_diretoria||''}" oninput="ctrCascataAprovacao()"></div>
 
-              <div class="form-group"><label>Envio ao DP para Registro</label>
-                <input type="date" id="proj-envio-dp" value="${c?.data_envio_dp||''}" oninput="ctrAtualizarProjRegistro()"></div>
+              <div class="form-group"><label>Envio ao DP para Registro <span style="font-weight:400;color:var(--text-muted)">(auto: aprovação +1 dia útil)</span></label>
+                <input type="date" id="proj-envio-dp" value="${c?.data_envio_dp||''}" oninput="ctrCascataEnvioDp()"></div>
               <div class="form-group">
-                <label>Registro Previsto</label>
+                <label>Admissão Prevista <span style="font-weight:400;color:var(--text-muted)">(auto: envio DP +1 dia útil)</span></label>
                 <div style="padding:9px 0;font-size:13px;font-weight:600" id="proj-registro-previsto">${c?.data_envio_dp?ctrFmtData(ctrAddDiasUteis(c.data_envio_dp,1)):'—'}</div>
               </div>
 
-              <div class="form-group"><label>Integração Prevista</label>
+              <div class="form-group"><label>Integração Prevista <span style="font-weight:400;color:var(--text-muted)">(manual — depende da obra)</span></label>
                 <input type="date" id="proj-integracao" value="${c?.data_integracao_prevista||''}"></div>
-              <div class="form-group"><label>Viagem de Mobilização</label>
+              <div class="form-group"><label>Viagem de Mobilização <span style="font-weight:400;color:var(--text-muted)">(manual — depende da obra)</span></label>
                 <input type="date" id="proj-viagem" value="${c?.data_viagem_mobilizacao||''}"></div>
               <div class="form-group"><label>Previsão de Chegada</label>
                 <input type="date" id="proj-chegada" value="${c?.data_prevista_chegada||''}"></div>
@@ -7938,17 +7939,48 @@ function openModalContratacao(id){
     </div>`);
 }
 
-function ctrAtualizarProjExame(){
+function ctrCascataExame(){
   const tipo=document.getElementById('proj-tipo-exame').value;
   const data=document.getElementById('proj-data-exame').value;
-  const el=document.getElementById('proj-resultado-exame');
-  if(!tipo||!data){el.textContent='—';return;}
-  el.textContent=ctrFmtData(ctrAddDiasUteis(data,tipo==='operacional_ac'?5:2));
+  const elResultado=document.getElementById('proj-resultado-exame');
+  let resultado=null;
+  if(tipo&&data){
+    resultado=ctrAddDiasUteis(data,tipo==='operacional_ac'?5:2);
+    elResultado.textContent=ctrFmtData(resultado);
+  }else{
+    elResultado.textContent='—';
+  }
+  if(resultado){
+    document.getElementById('proj-doc-portal').value=resultado;
+    ctrCascataPortal();
+  }
 }
-function ctrAtualizarProjRegistro(){
-  const data=document.getElementById('proj-envio-dp').value;
-  const el=document.getElementById('proj-registro-previsto');
-  el.textContent=data?ctrFmtData(ctrAddDiasUteis(data,1)):'—';
+function ctrCascataPortal(){
+  const dataPortal=document.getElementById('proj-doc-portal').value;
+  if(dataPortal){
+    document.getElementById('proj-aprovacao').value=ctrAddDiasUteis(dataPortal,2);
+  }
+  ctrCascataAprovacao();
+}
+function ctrCascataAprovacao(){
+  const dataAprovacao=document.getElementById('proj-aprovacao').value;
+  if(dataAprovacao){
+    document.getElementById('proj-envio-dp').value=ctrAddDiasUteis(dataAprovacao,1);
+  }
+  ctrCascataEnvioDp();
+}
+function ctrCascataEnvioDp(){
+  const dataEnvioDp=document.getElementById('proj-envio-dp').value;
+  const elAdmissao=document.getElementById('proj-registro-previsto');
+  let admissaoPrevista=null;
+  if(dataEnvioDp){
+    admissaoPrevista=ctrAddDiasUteis(dataEnvioDp,1);
+    elAdmissao.textContent=ctrFmtData(admissaoPrevista);
+  }else{
+    elAdmissao.textContent='—';
+  }
+  const inputAdmissao=document.getElementById('ctr-data-prevista');
+  if(inputAdmissao&&admissaoPrevista)inputAdmissao.value=admissaoPrevista;
 }
 
 async function saveContratacao(id){
