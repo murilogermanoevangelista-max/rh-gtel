@@ -342,7 +342,7 @@ const SUPABASE_URL='https://lqggoshphakeuufibdno.supabase.co';
 const SUPABASE_KEY='sb_publishable_QlnJaa5xdUXePvXFV6QFwQ_AmMk639T';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[],contratacoes=[],contratacoesVagas=[];
+let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[],contratacoes=[],contratacoesVagas=[],contratacoesProspeccoes=[];
 let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'nao_lancadas' | null
 let alojBusca='';
 let bannerNaoLancadasAberto=false;
@@ -730,6 +730,13 @@ async function loadContratacoesVagas(){
   contratacoesVagas=lista;
 }
 
+async function loadContratacoesProspeccoes(){
+  const{data}=await sb.from('contratacoes_prospeccoes')
+    .select('*,funcao:funcoes(nome)')
+    .order('data_contato',{ascending:false});
+  contratacoesProspeccoes=data||[];
+}
+
 let currentPage='dashboard';
 
 async function showPage(page){
@@ -779,7 +786,7 @@ async function showPage(page){
     else if(page==='obras')renderObras();
     else if(page==='empresas')renderEmpresas();
     else if(page==='fornecedores'){await loadFornecedores();renderFornecedores();}
-    else if(page==='contratacoes'){await Promise.all([loadContratacoes(),loadContratacoesVagas()]);renderContratacoes();}
+    else if(page==='contratacoes'){await Promise.all([loadContratacoes(),loadContratacoesVagas(),loadContratacoesProspeccoes()]);renderContratacoes();}
     else if(page==='matriz'){await loadMatriz();renderMatriz();}
   }catch(e){
     console.error('showPage erro em '+page+':',e);
@@ -7542,7 +7549,7 @@ const DOCS_CONTRATACAO=[
   ['cert_eletrica','Certificado de Elétrica'],
 ];
 
-let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesVagasFiltroObra='',ctrFuncaoModoManual=false;
+let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesVagasFiltroObra='',ctrFuncaoModoManual=false,prospBusca='',prospFiltroFuncao='',prospFiltroRetorno='',prospFuncaoModoManual=false,desistBusca='',desistFiltroFuncao='';
 
 function ctrAddDiasUteis(dataISO,dias){
   if(!dataISO)return null;
@@ -7580,6 +7587,8 @@ function ctrStatusInfo(status){
 
 function renderContratacoes(){
   if(contratacoesTab==='vagas')renderContratacoesVagas();
+  else if(contratacoesTab==='prospeccao')renderContratacoesProspeccao();
+  else if(contratacoesTab==='desistencias')renderContratacoesDesistencias();
   else renderContratacoesCandidatos();
 }
 
@@ -7687,7 +7696,9 @@ function renderContratacoesCandidatos(){
     </div>
     <div class="exp-tabs">
       <div class="exp-tab${contratacoesTab==='candidatos'?' active':''}" onclick="contratacoesTab='candidatos';renderContratacoes()">Candidatos</div>
+      <div class="exp-tab${contratacoesTab==='prospeccao'?' active':''}" onclick="contratacoesTab='prospeccao';renderContratacoes()">Prospecção</div>
       <div class="exp-tab${contratacoesTab==='vagas'?' active':''}" onclick="contratacoesTab='vagas';renderContratacoes()">Vagas Previstas</div>
+      <div class="exp-tab${contratacoesTab==='desistencias'?' active':''}" onclick="contratacoesTab='desistencias';renderContratacoes()">Desistências</div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px">
       <div class="metric-card" onclick="contratacoesTab='vagas';renderContratacoes()" style="cursor:pointer;border-color:var(--border)">
@@ -7732,6 +7743,16 @@ function renderContratacoesCandidatos(){
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
+}
+
+function ctrToggleDesistencia(){
+  const status=document.getElementById('ctr-status').value;
+  const grupo=document.getElementById('ctr-grupo-desistencia');
+  if(!grupo)return;
+  grupo.style.display=status==='desistiu'?'block':'none';
+  if(status==='desistiu'&&!document.getElementById('ctr-data-desistencia').value){
+    document.getElementById('ctr-data-desistencia').value=ctrHojeISO();
+  }
 }
 
 function ctrNorm(s){return(s||'').trim().toUpperCase().replace(/\s+/g,' ');}
@@ -7780,7 +7801,9 @@ function renderContratacoesVagas(){
     </div>
     <div class="exp-tabs">
       <div class="exp-tab${contratacoesTab==='candidatos'?' active':''}" onclick="contratacoesTab='candidatos';renderContratacoes()">Candidatos</div>
+      <div class="exp-tab${contratacoesTab==='prospeccao'?' active':''}" onclick="contratacoesTab='prospeccao';renderContratacoes()">Prospecção</div>
       <div class="exp-tab${contratacoesTab==='vagas'?' active':''}" onclick="contratacoesTab='vagas';renderContratacoes()">Vagas Previstas</div>
+      <div class="exp-tab${contratacoesTab==='desistencias'?' active':''}" onclick="contratacoesTab='desistencias';renderContratacoes()">Desistências</div>
     </div>
     <div class="filters">
       <select class="filter-select" onchange="contratacoesVagasFiltroObra=this.value;renderContratacoesVagas()">
@@ -7802,6 +7825,266 @@ function renderContratacoesVagas(){
         <td style="text-align:center;color:var(--success)">${tIntegrado}</td>
         <td></td>
       </tr></tfoot>`:''}
+    </table></div>`;
+}
+
+function prospRetornoInfo(retorno){
+  if(retorno==='aceitou')return{label:'Aceitou',bg:'var(--success-light)',cor:'var(--success)'};
+  if(retorno==='recusou')return{label:'Recusou',bg:'var(--danger-light)',cor:'var(--danger)'};
+  return{label:'Pendente',bg:'var(--warning-light)',cor:'var(--warning)'};
+}
+
+function renderContratacoesProspeccao(){
+  const lista=contratacoesProspeccoes.filter(p=>{
+    if(prospFiltroFuncao&&String(p.funcao_id)!==String(prospFiltroFuncao))return false;
+    if(prospFiltroRetorno&&(p.retorno||'pendente')!==prospFiltroRetorno)return false;
+    if(prospBusca){
+      const b=prospBusca.toLowerCase();
+      return(p.nome||'').toLowerCase().includes(b)||(p.telefone||'').toLowerCase().includes(b);
+    }
+    return true;
+  });
+
+  const total=contratacoesProspeccoes.length;
+  const aceitos=contratacoesProspeccoes.filter(p=>p.retorno==='aceitou').length;
+  const recusados=contratacoesProspeccoes.filter(p=>p.retorno==='recusou').length;
+  const pendentes=contratacoesProspeccoes.filter(p=>!p.retorno||p.retorno==='pendente').length;
+
+  const rows=lista.map(p=>{
+    const ri=prospRetornoInfo(p.retorno);
+    return`<tr>
+      <td style="font-weight:500">${p.nome||'—'}</td>
+      <td style="font-size:12px">${p.funcao?.nome||'—'}</td>
+      <td style="font-size:12px">${p.telefone||'—'}</td>
+      <td style="font-size:12px">${ctrFmtData(p.data_contato)}</td>
+      <td><span class="badge" style="background:${ri.bg};color:${ri.cor}">${ri.label}</span></td>
+      <td style="font-size:12px;max-width:220px">${p.observacao||'<span style="color:var(--text-muted)">—</span>'}</td>
+      <td>
+        <div class="action-btns">
+          <button class="btn btn-sm" onclick="openModalProspeccao('${p.id}')" title="Editar"><i class="ti ti-edit"></i></button>
+          <button class="btn btn-sm btn-danger" onclick="deleteProspeccao('${p.id}')" title="Excluir"><i class="ti ti-trash"></i></button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="7"><div class="empty-state"><i class="ti ti-phone"></i><div>Nenhum contato de prospecção cadastrado</div></div></td></tr>';
+
+  const funcaoOpts=funcoes.map(f=>`<option value="${f.id}" ${prospFiltroFuncao===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
+
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title"><i class="ti ti-user-plus"></i> Contratações</div><div class="page-subtitle">Prospecção — contato com candidatos da busca interna</div></div>
+      <button class="btn btn-primary" onclick="openModalProspeccao()"><i class="ti ti-plus"></i> Novo contato</button>
+    </div>
+    <div class="exp-tabs">
+      <div class="exp-tab${contratacoesTab==='candidatos'?' active':''}" onclick="contratacoesTab='candidatos';renderContratacoes()">Candidatos</div>
+      <div class="exp-tab${contratacoesTab==='prospeccao'?' active':''}" onclick="contratacoesTab='prospeccao';renderContratacoes()">Prospecção</div>
+      <div class="exp-tab${contratacoesTab==='vagas'?' active':''}" onclick="contratacoesTab='vagas';renderContratacoes()">Vagas Previstas</div>
+      <div class="exp-tab${contratacoesTab==='desistencias'?' active':''}" onclick="contratacoesTab='desistencias';renderContratacoes()">Desistências</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+      <div class="metric-card" onclick="prospFiltroRetorno='';renderContratacoesProspeccao()" style="cursor:pointer;border-color:${!prospFiltroRetorno?'var(--primary)':'var(--border)'}">
+        <div class="metric-label">Total Contatos</div><div class="metric-value">${total}</div>
+      </div>
+      <div class="metric-card amber" onclick="prospFiltroRetorno='pendente';renderContratacoesProspeccao()" style="cursor:pointer;border-color:${prospFiltroRetorno==='pendente'?'var(--warning)':'var(--border)'}">
+        <div class="metric-label">Pendentes</div><div class="metric-value">${pendentes}</div>
+      </div>
+      <div class="metric-card green" onclick="prospFiltroRetorno='aceitou';renderContratacoesProspeccao()" style="cursor:pointer;border-color:${prospFiltroRetorno==='aceitou'?'var(--success)':'var(--border)'}">
+        <div class="metric-label">Aceitaram</div><div class="metric-value">${aceitos}</div>
+      </div>
+      <div class="metric-card" onclick="prospFiltroRetorno='recusou';renderContratacoesProspeccao()" style="cursor:pointer;border-color:${prospFiltroRetorno==='recusou'?'var(--danger)':'var(--border)'}">
+        <div class="metric-label">Recusaram</div><div class="metric-value">${recusados}</div>
+      </div>
+    </div>
+    <div class="filters">
+      <div class="search-box"><i class="ti ti-search"></i>
+        <input placeholder="Buscar por nome ou telefone..." value="${prospBusca}"
+          oninput="prospBusca=this.value;if(!_buscaHandlers.prosp)_buscaHandlers.prosp=makeBuscaHandler(v=>prospBusca=v,renderContratacoesProspeccao,300);_buscaHandlers.prosp(this.value);this.focus()">
+      </div>
+      <select class="filter-select" onchange="prospFiltroFuncao=this.value;renderContratacoesProspeccao()">
+        <option value="">Todas as funções</option>${funcaoOpts}
+      </select>
+      <select class="filter-select" onchange="prospFiltroRetorno=this.value;renderContratacoesProspeccao()">
+        <option value="">Todos os retornos</option>
+        <option value="pendente" ${prospFiltroRetorno==='pendente'?'selected':''}>Pendente</option>
+        <option value="aceitou" ${prospFiltroRetorno==='aceitou'?'selected':''}>Aceitou</option>
+        <option value="recusou" ${prospFiltroRetorno==='recusou'?'selected':''}>Recusou</option>
+      </select>
+      <button class="btn btn-sm" onclick="prospBusca='';prospFiltroFuncao='';prospFiltroRetorno='';renderContratacoesProspeccao()"><i class="ti ti-x"></i> Limpar</button>
+    </div>
+    <div class="table-container"><table>
+      <thead><tr>
+        <th>Nome</th><th>Função</th><th>Telefone</th><th>Data Contato</th><th>Retorno</th><th>Observação</th><th>Ações</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function toggleFuncaoModoProsp(){
+  prospFuncaoModoManual=!prospFuncaoModoManual;
+  document.getElementById('prosp-funcao-select').style.display=prospFuncaoModoManual?'none':'block';
+  document.getElementById('prosp-funcao-input').style.display=prospFuncaoModoManual?'block':'none';
+  document.getElementById('prosp-funcao-toggle').textContent=prospFuncaoModoManual?'← Escolher da lista':'✏️ Digitar manualmente';
+}
+
+function openModalProspeccao(id){
+  const p=id?contratacoesProspeccoes.find(x=>x.id===id):null;
+  prospFuncaoModoManual=false;
+  const funcaoOpts=funcoes.map(f=>`<option value="${f.id}" ${String(p?.funcao_id||'')===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-prospeccao" onclick="if(event.target===this)closeModal('modal-prospeccao')">
+      <div class="modal" style="max-width:520px">
+        <div class="modal-header">
+          <span class="modal-title"><i class="ti ti-phone"></i> ${p?'Editar':'Novo'} Contato de Prospecção</span>
+          <button class="btn btn-sm" onclick="closeModal('modal-prospeccao')"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="form-group full"><label>Nome *</label>
+              <input id="prosp-nome" value="${p?.nome||''}" placeholder="Nome completo"></div>
+            <div class="form-group full">
+              <label>Função <span class="funcao-toggle" id="prosp-funcao-toggle" onclick="toggleFuncaoModoProsp()" style="font-size:11px;font-weight:400;cursor:pointer;color:var(--primary);margin-left:6px">✏️ Digitar manualmente</span></label>
+              <select id="prosp-funcao-select"><option value="">Selecione...</option>${funcaoOpts}</select>
+              <input id="prosp-funcao-input" placeholder="Digite a função..." style="display:none">
+            </div>
+            <div class="form-group"><label>Telefone</label>
+              <input id="prosp-telefone" value="${p?.telefone||''}" placeholder="(00) 00000-0000"></div>
+            <div class="form-group"><label>Data do Contato</label>
+              <input type="date" id="prosp-data-contato" value="${p?.data_contato||ctrHojeISO()}"></div>
+            <div class="form-group full"><label>Retorno do Contato</label>
+              <select id="prosp-retorno">
+                <option value="pendente" ${(!p||p.retorno==='pendente'||!p.retorno)?'selected':''}>Pendente</option>
+                <option value="aceitou" ${p?.retorno==='aceitou'?'selected':''}>Aceitou a vaga</option>
+                <option value="recusou" ${p?.retorno==='recusou'?'selected':''}>Recusou a vaga</option>
+              </select>
+            </div>
+            <div class="form-group full"><label>Observação <span style="font-weight:400;color:var(--text-muted)">(motivo da recusa, detalhes do contato, etc.)</span></label>
+              <textarea id="prosp-obs" rows="3" placeholder="Ex: recusou por causa do salário, vai retornar a ligação amanhã...">${p?.observacao||''}</textarea></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" onclick="closeModal('modal-prospeccao')">Cancelar</button>
+          <button class="btn btn-primary" onclick="saveProspeccao(${p?`'${p.id}'`:'null'})"><i class="ti ti-check"></i> ${p?'Salvar':'Cadastrar'}</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+async function saveProspeccao(id){
+  const nome=document.getElementById('prosp-nome').value.trim();
+  if(!nome){showToast('Nome é obrigatório','error');return;}
+  const isMod=prospFuncaoModoManual;
+  let funcaoId=isMod?null:(document.getElementById('prosp-funcao-select').value||null);
+  const funcaoManualTexto=isMod?document.getElementById('prosp-funcao-input').value.trim():null;
+  if(isMod&&funcaoManualTexto){
+    const existente=funcoes.find(f=>ctrNorm(f.nome)===ctrNorm(funcaoManualTexto));
+    if(existente){
+      funcaoId=existente.id;
+    }else{
+      const{data:novaFuncao,error:errFuncao}=await sb.from('funcoes').insert({nome:funcaoManualTexto}).select().single();
+      if(errFuncao){showToast('Erro ao salvar função: '+errFuncao.message,'error');return;}
+      funcoes.push(novaFuncao);
+      funcaoId=novaFuncao.id;
+    }
+  }
+  const payload={
+    nome,
+    funcao_id:funcaoId,
+    telefone:document.getElementById('prosp-telefone').value.trim()||null,
+    data_contato:document.getElementById('prosp-data-contato').value||null,
+    retorno:document.getElementById('prosp-retorno').value,
+    observacao:document.getElementById('prosp-obs').value.trim()||null,
+  };
+  const{error}=id?await sb.from('contratacoes_prospeccoes').update(payload).eq('id',id):await sb.from('contratacoes_prospeccoes').insert(payload);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast(id?'Contato atualizado!':'Contato cadastrado!');
+  closeModal('modal-prospeccao');
+  await loadContratacoesProspeccoes();renderContratacoes();
+}
+
+async function deleteProspeccao(id){
+  if(!confirm('Excluir este contato de prospecção?'))return;
+  const{error}=await sb.from('contratacoes_prospeccoes').delete().eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Contato excluído.');
+  await loadContratacoesProspeccoes();renderContratacoes();
+}
+
+function ctrEstagioDesistencia(c){
+  if(c.data_envio_dp)return'Enviado ao DP p/ Registro';
+  if(c.data_aprovacao_diretoria)return'Aprovação da Diretoria';
+  if(c.data_documentos_portal)return'Documentos no Portal';
+  if(c.data_exame)return'Exame realizado';
+  return'Cadastro inicial';
+}
+
+function renderContratacoesDesistencias(){
+  const lista=contratacoes.filter(c=>{
+    if(c.status!=='desistiu')return false;
+    if(desistFiltroFuncao&&String(c.funcao_id)!==String(desistFiltroFuncao))return false;
+    if(desistBusca){
+      const b=desistBusca.toLowerCase();
+      return(c.nome||'').toLowerCase().includes(b)||(c.origem||'').toLowerCase().includes(b);
+    }
+    return true;
+  }).sort((a,b)=>(b.data_desistencia||'').localeCompare(a.data_desistencia||''));
+
+  const total=lista.length;
+  const hoje=ctrHojeISO();
+  const mesAtual=hoje.slice(0,7);
+  const esteMes=contratacoes.filter(c=>c.status==='desistiu'&&(c.data_desistencia||'').slice(0,7)===mesAtual).length;
+
+  const rows=lista.map(c=>{
+    const{done,total:tdocs,pct}=ctrDocsPct(c);
+    return`<tr>
+      <td>
+        <div style="font-weight:500">${c.nome||'—'}</div>
+        ${c.origem?`<div style="font-size:11px;color:var(--text-muted)">${c.origem}</div>`:''}
+      </td>
+      <td style="font-size:12px">${c.funcao?.nome||'—'}</td>
+      <td style="font-size:12px">${c.obra?`${c.obra.codigo?c.obra.codigo+' — ':''}${c.obra.nome||''}`:'<span style="color:var(--text-muted)">—</span>'}</td>
+      <td style="font-size:12px">${ctrFmtData(c.data_desistencia)}</td>
+      <td style="font-size:12px">${ctrEstagioDesistencia(c)}<div style="color:var(--text-muted)">Docs: ${done}/${tdocs} (${pct}%)</div></td>
+      <td style="font-size:12px;max-width:220px">${c.observacao||'<span style="color:var(--text-muted)">—</span>'}</td>
+      <td>
+        <div class="action-btns">
+          <button class="btn btn-sm" onclick="openModalContratacao('${c.id}')" title="Editar"><i class="ti ti-edit"></i></button>
+          <button class="btn btn-sm btn-danger" onclick="deleteContratacao('${c.id}','${(c.nome||'').replace(/'/g,"\\'")}')" title="Excluir"><i class="ti ti-trash"></i></button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="7"><div class="empty-state"><i class="ti ti-user-x"></i><div>Nenhuma desistência registrada</div></div></td></tr>';
+
+  const funcaoOpts=funcoes.map(f=>`<option value="${f.id}" ${desistFiltroFuncao===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
+
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title"><i class="ti ti-user-plus"></i> Contratações</div><div class="page-subtitle">Histórico de desistências e reprovações</div></div>
+    </div>
+    <div class="exp-tabs">
+      <div class="exp-tab${contratacoesTab==='candidatos'?' active':''}" onclick="contratacoesTab='candidatos';renderContratacoes()">Candidatos</div>
+      <div class="exp-tab${contratacoesTab==='prospeccao'?' active':''}" onclick="contratacoesTab='prospeccao';renderContratacoes()">Prospecção</div>
+      <div class="exp-tab${contratacoesTab==='vagas'?' active':''}" onclick="contratacoesTab='vagas';renderContratacoes()">Vagas Previstas</div>
+      <div class="exp-tab${contratacoesTab==='desistencias'?' active':''}" onclick="contratacoesTab='desistencias';renderContratacoes()">Desistências</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px;max-width:420px">
+      <div class="metric-card"><div class="metric-label">Total Desistências</div><div class="metric-value">${total}</div></div>
+      <div class="metric-card amber"><div class="metric-label">Este Mês</div><div class="metric-value">${esteMes}</div></div>
+    </div>
+    <div class="filters">
+      <div class="search-box"><i class="ti ti-search"></i>
+        <input placeholder="Buscar por nome ou origem..." value="${desistBusca}"
+          oninput="desistBusca=this.value;if(!_buscaHandlers.desist)_buscaHandlers.desist=makeBuscaHandler(v=>desistBusca=v,renderContratacoesDesistencias,300);_buscaHandlers.desist(this.value);this.focus()">
+      </div>
+      <select class="filter-select" onchange="desistFiltroFuncao=this.value;renderContratacoesDesistencias()">
+        <option value="">Todas as funções</option>${funcaoOpts}
+      </select>
+      <button class="btn btn-sm" onclick="desistBusca='';desistFiltroFuncao='';renderContratacoesDesistencias()"><i class="ti ti-x"></i> Limpar</button>
+    </div>
+    <div class="table-container"><table>
+      <thead><tr>
+        <th>Candidato</th><th>Função</th><th>Obra</th><th>Data Desistência</th><th>Estágio no Processo</th><th>Motivo/Observação</th><th>Ações</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
     </table></div>`;
 }
 
@@ -7896,7 +8179,7 @@ function openModalContratacao(id){
             <div class="form-group"><label>Salário</label>
               <input type="number" step="0.01" min="0" id="ctr-salario" value="${c?.salario??''}" placeholder="Ex: 2200.00"></div>
             <div class="form-group"><label>Status</label>
-              <select id="ctr-status">
+              <select id="ctr-status" onchange="ctrToggleDesistencia()">
                 <option value="em_processo" ${(!c||c.status==='em_processo')?'selected':''}>Em Processo</option>
                 <option value="aguardando_integracao" ${c?.status==='aguardando_integracao'?'selected':''}>Aguardando Integração</option>
                 <option value="integrado" ${c?.status==='integrado'?'selected':''}>Integrado</option>
@@ -7905,6 +8188,8 @@ function openModalContratacao(id){
             </div>
             <div class="form-group"><label>Data Prevista de Admissão</label>
               <input type="date" id="ctr-data-prevista" value="${c?.data_prevista_admissao||p.admissao||''}"></div>
+            <div class="form-group" id="ctr-grupo-desistencia" style="display:${c?.status==='desistiu'?'block':'none'}"><label>Data da Desistência</label>
+              <input type="date" id="ctr-data-desistencia" value="${c?.data_desistencia||ctrHojeISO()}"></div>
             <div class="form-group full"><label>Observação</label>
               <textarea id="ctr-obs" rows="2" placeholder="Ex: ASO agendado 13/07, nome em análise...">${c?.observacao||''}</textarea></div>
           </div>
@@ -8055,6 +8340,7 @@ async function saveContratacao(id){
     const atual=id?contratacoes.find(x=>x.id===id):null;
     payload.data_integracao=atual?.data_integracao||toISO(new Date());
   }
+  payload.data_desistencia=payload.status==='desistiu'?(document.getElementById('ctr-data-desistencia').value||ctrHojeISO()):null;
   const{error}=id?await sb.from('contratacoes').update(payload).eq('id',id):await sb.from('contratacoes').insert(payload);
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast(id?'Candidato atualizado!':'Candidato cadastrado!');
