@@ -7583,6 +7583,25 @@ function renderContratacoes(){
   else renderContratacoesCandidatos();
 }
 
+function ctrProjResumoHtml(c){
+  const hoje=ctrHojeISO();
+  const tipoLabel=c.tipo_exame==='operacional_ac'?'Operacional AC':(c.tipo_exame==='operacional'?'Operacional':null);
+  const diasExame=c.tipo_exame==='operacional_ac'?5:2;
+  const resultadoProj=c.data_exame?ctrAddDiasUteis(c.data_exame,diasExame):null;
+  const exameOk=resultadoProj&&hoje>=resultadoProj;
+  const registroProj=c.data_envio_dp?ctrAddDiasUteis(c.data_envio_dp,1):null;
+  const registroOk=registroProj&&hoje>=registroProj;
+  const item=(label,content)=>`<div style="flex:1;min-width:150px"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:3px">${label}</div><div style="font-size:12px">${content}</div></div>`;
+  return`<div style="display:flex;flex-wrap:wrap;gap:18px;padding:10px 6px">
+    ${item('Exame',tipoLabel?`${tipoLabel} · ${ctrFmtData(c.data_exame)}<br><span class="badge ${exameOk?'badge-green':'badge-amber'}" style="margin-top:3px">${exameOk?'Resultado disp.':'Aguardando'} ${ctrFmtData(resultadoProj)}</span>`:'<span style="color:var(--text-muted)">—</span>')}
+    ${item('Documentos Portal',ctrFmtData(c.data_documentos_portal))}
+    ${item('Aprovação Diretoria',ctrFmtData(c.data_aprovacao_diretoria))}
+    ${item('Envio DP → Registro',c.data_envio_dp?`${ctrFmtData(c.data_envio_dp)} → <span class="badge ${registroOk?'badge-green':'badge-amber'}">${ctrFmtData(registroProj)}</span>`:'<span style="color:var(--text-muted)">—</span>')}
+    ${item('Integração Prevista',ctrFmtData(c.data_integracao_prevista))}
+    ${item('Mobilização → Chegada',c.data_viagem_mobilizacao?`${ctrFmtData(c.data_viagem_mobilizacao)} → ${ctrFmtData(c.data_prevista_chegada)}`:'<span style="color:var(--text-muted)">—</span>')}
+  </div>`;
+}
+
 function renderContratacoesCandidatos(){
   const lista=contratacoes.filter(c=>{
     if(contratacoesFiltroStatus&&c.status!==contratacoesFiltroStatus)return false;
@@ -7627,6 +7646,9 @@ function renderContratacoesCandidatos(){
           <button class="btn btn-sm btn-danger" onclick="deleteContratacao('${c.id}','${(c.nome||'').replace(/'/g,"\\'")}')" title="Excluir"><i class="ti ti-trash"></i></button>
         </div>
       </td>
+    </tr>
+    <tr>
+      <td colspan="7" style="background:var(--bg);border-top:none;padding:0">${ctrProjResumoHtml(c)}</td>
     </tr>`;
   }).join('')||'<tr><td colspan="7"><div class="empty-state"><i class="ti ti-user-plus"></i><div>Nenhum candidato encontrado</div></div></td></tr>';
 
