@@ -7583,20 +7583,45 @@ function renderContratacoes(){
   else renderContratacoesCandidatos();
 }
 
+function ctrCalcularProjecoes(c){
+  const diasExame=c.tipo_exame==='operacional_ac'?5:2;
+  const resultadoExame=c.data_exame?ctrAddDiasUteis(c.data_exame,diasExame):null;
+
+  const docPortalReal=c.data_documentos_portal||null;
+  const docPortal=docPortalReal||resultadoExame;
+
+  const aprovacaoReal=c.data_aprovacao_diretoria||null;
+  const aprovacao=aprovacaoReal||(docPortal?ctrAddDiasUteis(docPortal,2):null);
+
+  const envioDpReal=c.data_envio_dp||null;
+  const envioDp=envioDpReal||(aprovacao?ctrAddDiasUteis(aprovacao,1):null);
+
+  const admissaoReal=c.data_prevista_admissao||null;
+  const admissaoCalc=envioDp?ctrAddDiasUteis(envioDp,1):null;
+  const admissao=admissaoReal||admissaoCalc;
+
+  return{
+    resultadoExame,
+    docPortal,docPortalReal:!!docPortalReal,
+    aprovacao,aprovacaoReal:!!aprovacaoReal,
+    envioDp,envioDpReal:!!envioDpReal,
+    admissao,admissaoReal:!!admissaoReal,
+  };
+}
+
 function ctrProjResumoHtml(c){
   const hoje=ctrHojeISO();
   const tipoLabel=c.tipo_exame==='operacional_ac'?'Operacional AC':(c.tipo_exame==='operacional'?'Operacional':null);
-  const diasExame=c.tipo_exame==='operacional_ac'?5:2;
-  const resultadoProj=c.data_exame?ctrAddDiasUteis(c.data_exame,diasExame):null;
-  const exameOk=resultadoProj&&hoje>=resultadoProj;
-  const registroProj=c.data_envio_dp?ctrAddDiasUteis(c.data_envio_dp,1):null;
-  const registroOk=registroProj&&hoje>=registroProj;
+  const p=ctrCalcularProjecoes(c);
+  const exameOk=p.resultadoExame&&hoje>=p.resultadoExame;
+  const registroOk=p.envioDp&&hoje>=p.envioDp;
+  const tag=(isReal)=>isReal?'':' <em style="font-style:normal;color:var(--text-muted)">(projetado)</em>';
   const item=(label,content)=>`<div style="flex:1;min-width:150px"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:3px">${label}</div><div style="font-size:12px">${content}</div></div>`;
   return`<div style="display:flex;flex-wrap:wrap;gap:18px;padding:10px 6px">
-    ${item('Exame',tipoLabel?`${tipoLabel} · ${ctrFmtData(c.data_exame)}<br><span class="badge ${exameOk?'badge-green':'badge-amber'}" style="margin-top:3px">${exameOk?'Resultado disp.':'Aguardando'} ${ctrFmtData(resultadoProj)}</span>`:'<span style="color:var(--text-muted)">—</span>')}
-    ${item('Documentos Portal',ctrFmtData(c.data_documentos_portal))}
-    ${item('Aprovação Diretoria',ctrFmtData(c.data_aprovacao_diretoria))}
-    ${item('Envio DP → Registro',c.data_envio_dp?`${ctrFmtData(c.data_envio_dp)} → <span class="badge ${registroOk?'badge-green':'badge-amber'}">${ctrFmtData(registroProj)}</span>`:'<span style="color:var(--text-muted)">—</span>')}
+    ${item('Exame',tipoLabel?`${tipoLabel} · ${ctrFmtData(c.data_exame)}<br><span class="badge ${exameOk?'badge-green':'badge-amber'}" style="margin-top:3px">${exameOk?'Resultado disp.':'Aguardando'} ${ctrFmtData(p.resultadoExame)}</span>`:'<span style="color:var(--text-muted)">—</span>')}
+    ${item('Documentos Portal',p.docPortal?`${ctrFmtData(p.docPortal)}${tag(p.docPortalReal)}`:'<span style="color:var(--text-muted)">—</span>')}
+    ${item('Aprovação Diretoria',p.aprovacao?`${ctrFmtData(p.aprovacao)}${tag(p.aprovacaoReal)}`:'<span style="color:var(--text-muted)">—</span>')}
+    ${item('Envio DP → Registro',p.envioDp?`${ctrFmtData(p.envioDp)}${tag(p.envioDpReal)} → <span class="badge ${registroOk?'badge-green':'badge-amber'}">${ctrFmtData(p.admissao)}</span>`:'<span style="color:var(--text-muted)">—</span>')}
     ${item('Integração Prevista',ctrFmtData(c.data_integracao_prevista))}
     ${item('Mobilização → Chegada',c.data_viagem_mobilizacao?`${ctrFmtData(c.data_viagem_mobilizacao)} → ${ctrFmtData(c.data_prevista_chegada)}`:'<span style="color:var(--text-muted)">—</span>')}
   </div>`;
@@ -7844,6 +7869,7 @@ function openModalContratacao(id){
   const funcaoOpts=funcoes.map(f=>`<option value="${f.id}" ${String(c?.funcao_id||'')===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${String(c?.obra_id||'')===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
   const{done,total,pct}=ctrDocsPct(c||{documentos:{}});
+  const p=ctrCalcularProjecoes(c||{});
   document.body.insertAdjacentHTML('beforeend',`
     <div class="modal-overlay" id="modal-contratacao" onclick="if(event.target===this)closeModal('modal-contratacao')">
       <div class="modal" style="max-width:700px">
@@ -7878,7 +7904,7 @@ function openModalContratacao(id){
               </select>
             </div>
             <div class="form-group"><label>Data Prevista de Admissão</label>
-              <input type="date" id="ctr-data-prevista" value="${c?.data_prevista_admissao||''}"></div>
+              <input type="date" id="ctr-data-prevista" value="${c?.data_prevista_admissao||p.admissao||''}"></div>
             <div class="form-group full"><label>Observação</label>
               <textarea id="ctr-obs" rows="2" placeholder="Ex: ASO agendado 13/07, nome em análise...">${c?.observacao||''}</textarea></div>
           </div>
@@ -7907,19 +7933,19 @@ function openModalContratacao(id){
               <div class="form-group"><label>Data do Exame</label>
                 <input type="date" id="proj-data-exame" value="${c?.data_exame||''}" oninput="ctrCascataExame()"></div>
               <div class="form-group full" style="margin-top:-8px">
-                <div style="font-size:12px;color:var(--text-muted)">Resultado previsto: <b id="proj-resultado-exame" style="color:var(--text)">${c?.data_exame&&c?.tipo_exame?ctrFmtData(ctrAddDiasUteis(c.data_exame,c.tipo_exame==='operacional_ac'?5:2)):'—'}</b></div>
+                <div style="font-size:12px;color:var(--text-muted)">Resultado previsto: <b id="proj-resultado-exame" style="color:var(--text)">${ctrFmtData(p.resultadoExame)}</b></div>
               </div>
 
               <div class="form-group"><label>Documentos lançados no Portal <span style="font-weight:400;color:var(--text-muted)">(auto: resultado do exame)</span></label>
-                <input type="date" id="proj-doc-portal" value="${c?.data_documentos_portal||''}" oninput="ctrCascataPortal()"></div>
+                <input type="date" id="proj-doc-portal" value="${c?.data_documentos_portal||p.docPortal||''}" oninput="ctrCascataPortal()"></div>
               <div class="form-group"><label>Aprovação da Diretoria <span style="font-weight:400;color:var(--text-muted)">(auto: portal +2 dias úteis)</span></label>
-                <input type="date" id="proj-aprovacao" value="${c?.data_aprovacao_diretoria||''}" oninput="ctrCascataAprovacao()"></div>
+                <input type="date" id="proj-aprovacao" value="${c?.data_aprovacao_diretoria||p.aprovacao||''}" oninput="ctrCascataAprovacao()"></div>
 
               <div class="form-group"><label>Envio ao DP para Registro <span style="font-weight:400;color:var(--text-muted)">(auto: aprovação +1 dia útil)</span></label>
-                <input type="date" id="proj-envio-dp" value="${c?.data_envio_dp||''}" oninput="ctrCascataEnvioDp()"></div>
+                <input type="date" id="proj-envio-dp" value="${c?.data_envio_dp||p.envioDp||''}" oninput="ctrCascataEnvioDp()"></div>
               <div class="form-group">
                 <label>Admissão Prevista <span style="font-weight:400;color:var(--text-muted)">(auto: envio DP +1 dia útil)</span></label>
-                <div style="padding:9px 0;font-size:13px;font-weight:600" id="proj-registro-previsto">${c?.data_envio_dp?ctrFmtData(ctrAddDiasUteis(c.data_envio_dp,1)):'—'}</div>
+                <div style="padding:9px 0;font-size:13px;font-weight:600" id="proj-registro-previsto">${ctrFmtData(p.admissao)}</div>
               </div>
 
               <div class="form-group"><label>Integração Prevista <span style="font-weight:400;color:var(--text-muted)">(manual — depende da obra)</span></label>
