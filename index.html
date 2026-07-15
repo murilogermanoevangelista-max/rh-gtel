@@ -7757,7 +7757,7 @@ function ctrToggleDesistencia(){
 
 function ctrNorm(s){return(s||'').trim().toUpperCase().replace(/\s+/g,' ');}
 function ctrFuncoesUnicas(){
-  return[...new Map(ctrFuncoesUnicas().map(f=>[ctrNorm(f.nome),f])).values()].sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR'));
+  return[...new Map(funcoes.map(f=>[ctrNorm(f.nome),f])).values()].sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR'));
 }
 
 function renderContratacoesVagas(){
