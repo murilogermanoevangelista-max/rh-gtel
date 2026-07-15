@@ -7687,7 +7687,7 @@ function renderContratacoesCandidatos(){
     </tr>`;
   }).join('')||'<tr><td colspan="7"><div class="empty-state"><i class="ti ti-user-plus"></i><div>Nenhum candidato encontrado</div></div></td></tr>';
 
-  const funcaoOpts=funcoes.map(f=>`<option value="${f.id}" ${contratacoesFiltroFuncao===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
+  const funcaoOpts=ctrFuncoesUnicas().map(f=>`<option value="${f.id}" ${contratacoesFiltroFuncao===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${contratacoesFiltroObra===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
 
   document.getElementById('main-content').innerHTML=`
@@ -7756,6 +7756,9 @@ function ctrToggleDesistencia(){
 }
 
 function ctrNorm(s){return(s||'').trim().toUpperCase().replace(/\s+/g,' ');}
+function ctrFuncoesUnicas(){
+  return[...new Map(ctrFuncoesUnicas().map(f=>[ctrNorm(f.nome),f])).values()].sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR'));
+}
 
 function renderContratacoesVagas(){
   const vagas=contratacoesVagas.filter(v=>!contratacoesVagasFiltroObra||String(v.obra_id)===String(contratacoesVagasFiltroObra));
@@ -7840,7 +7843,7 @@ function renderContratacoesProspeccao(){
     if(prospFiltroRetorno&&(p.retorno||'pendente')!==prospFiltroRetorno)return false;
     if(prospBusca){
       const b=prospBusca.toLowerCase();
-      return(p.nome||'').toLowerCase().includes(b)||(p.telefone||'').toLowerCase().includes(b);
+      return(p.nome||'').toLowerCase().includes(b)||(p.telefone||'').toLowerCase().includes(b)||(p.funcao?.nome||'').toLowerCase().includes(b);
     }
     return true;
   });
@@ -7857,7 +7860,7 @@ function renderContratacoesProspeccao(){
       <td style="font-size:12px">${p.funcao?.nome||'—'}</td>
       <td style="font-size:12px">${p.telefone||'—'}</td>
       <td style="font-size:12px">${ctrFmtData(p.data_contato)}</td>
-      <td><span class="badge" style="background:${ri.bg};color:${ri.cor}">${ri.label}</span></td>
+      <td><span class="badge" style="background:${ri.bg};color:${ri.cor}">${ri.label}</span>${p.retorno==='aceitou'&&p.data_aceite?`<div style="font-size:11px;color:var(--text-muted);margin-top:3px">${ctrFmtData(p.data_aceite)}</div>`:''}</td>
       <td style="font-size:12px;max-width:220px">${p.observacao||'<span style="color:var(--text-muted)">—</span>'}</td>
       <td>
         <div class="action-btns">
@@ -7868,7 +7871,7 @@ function renderContratacoesProspeccao(){
     </tr>`;
   }).join('')||'<tr><td colspan="7"><div class="empty-state"><i class="ti ti-phone"></i><div>Nenhum contato de prospecção cadastrado</div></div></td></tr>';
 
-  const funcaoOpts=funcoes.map(f=>`<option value="${f.id}" ${prospFiltroFuncao===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
+  const funcaoOpts=ctrFuncoesUnicas().map(f=>`<option value="${f.id}" ${prospFiltroFuncao===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
 
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
@@ -7897,7 +7900,7 @@ function renderContratacoesProspeccao(){
     </div>
     <div class="filters">
       <div class="search-box"><i class="ti ti-search"></i>
-        <input placeholder="Buscar por nome ou telefone..." value="${prospBusca}"
+        <input placeholder="Buscar por nome, função ou telefone..." value="${prospBusca}"
           oninput="prospBusca=this.value;if(!_buscaHandlers.prosp)_buscaHandlers.prosp=makeBuscaHandler(v=>prospBusca=v,renderContratacoesProspeccao,300);_buscaHandlers.prosp(this.value);this.focus()">
       </div>
       <select class="filter-select" onchange="prospFiltroFuncao=this.value;renderContratacoesProspeccao()">
@@ -7926,10 +7929,20 @@ function toggleFuncaoModoProsp(){
   document.getElementById('prosp-funcao-toggle').textContent=prospFuncaoModoManual?'← Escolher da lista':'✏️ Digitar manualmente';
 }
 
+function prospToggleDataAceite(){
+  const retorno=document.getElementById('prosp-retorno').value;
+  const grupo=document.getElementById('prosp-grupo-aceite');
+  if(!grupo)return;
+  grupo.style.display=retorno==='aceitou'?'block':'none';
+  if(retorno==='aceitou'&&!document.getElementById('prosp-data-aceite').value){
+    document.getElementById('prosp-data-aceite').value=ctrHojeISO();
+  }
+}
+
 function openModalProspeccao(id){
   const p=id?contratacoesProspeccoes.find(x=>x.id===id):null;
   prospFuncaoModoManual=false;
-  const funcaoOpts=funcoes.map(f=>`<option value="${f.id}" ${String(p?.funcao_id||'')===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
+  const funcaoOpts=ctrFuncoesUnicas().map(f=>`<option value="${f.id}" ${String(p?.funcao_id||'')===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
   document.body.insertAdjacentHTML('beforeend',`
     <div class="modal-overlay" id="modal-prospeccao" onclick="if(event.target===this)closeModal('modal-prospeccao')">
       <div class="modal" style="max-width:520px">
@@ -7951,12 +7964,14 @@ function openModalProspeccao(id){
             <div class="form-group"><label>Data do Contato</label>
               <input type="date" id="prosp-data-contato" value="${p?.data_contato||ctrHojeISO()}"></div>
             <div class="form-group full"><label>Retorno do Contato</label>
-              <select id="prosp-retorno">
+              <select id="prosp-retorno" onchange="prospToggleDataAceite()">
                 <option value="pendente" ${(!p||p.retorno==='pendente'||!p.retorno)?'selected':''}>Pendente</option>
                 <option value="aceitou" ${p?.retorno==='aceitou'?'selected':''}>Aceitou a vaga</option>
                 <option value="recusou" ${p?.retorno==='recusou'?'selected':''}>Recusou a vaga</option>
               </select>
             </div>
+            <div class="form-group full" id="prosp-grupo-aceite" style="display:${p?.retorno==='aceitou'?'block':'none'}"><label>Data do Aceite</label>
+              <input type="date" id="prosp-data-aceite" value="${p?.data_aceite||ctrHojeISO()}"></div>
             <div class="form-group full"><label>Observação <span style="font-weight:400;color:var(--text-muted)">(motivo da recusa, detalhes do contato, etc.)</span></label>
               <textarea id="prosp-obs" rows="3" placeholder="Ex: recusou por causa do salário, vai retornar a ligação amanhã...">${p?.observacao||''}</textarea></div>
           </div>
@@ -7992,6 +8007,7 @@ async function saveProspeccao(id){
     telefone:document.getElementById('prosp-telefone').value.trim()||null,
     data_contato:document.getElementById('prosp-data-contato').value||null,
     retorno:document.getElementById('prosp-retorno').value,
+    data_aceite:document.getElementById('prosp-retorno').value==='aceitou'?(document.getElementById('prosp-data-aceite').value||ctrHojeISO()):null,
     observacao:document.getElementById('prosp-obs').value.trim()||null,
   };
   const{error}=id?await sb.from('contratacoes_prospeccoes').update(payload).eq('id',id):await sb.from('contratacoes_prospeccoes').insert(payload);
@@ -8054,7 +8070,7 @@ function renderContratacoesDesistencias(){
     </tr>`;
   }).join('')||'<tr><td colspan="7"><div class="empty-state"><i class="ti ti-user-x"></i><div>Nenhuma desistência registrada</div></div></td></tr>';
 
-  const funcaoOpts=funcoes.map(f=>`<option value="${f.id}" ${desistFiltroFuncao===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
+  const funcaoOpts=ctrFuncoesUnicas().map(f=>`<option value="${f.id}" ${desistFiltroFuncao===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
 
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
@@ -8149,7 +8165,7 @@ function openModalContratacao(id){
   const c=id?contratacoes.find(x=>x.id===id):null;
   ctrFuncaoModoManual=false;
   window._ctrDocsState=ctrNormalizarDocs(c?.documentos);
-  const funcaoOpts=funcoes.map(f=>`<option value="${f.id}" ${String(c?.funcao_id||'')===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
+  const funcaoOpts=ctrFuncoesUnicas().map(f=>`<option value="${f.id}" ${String(c?.funcao_id||'')===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${String(c?.obra_id||'')===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
   const{done,total,pct}=ctrDocsPct(c||{documentos:{}});
   const p=ctrCalcularProjecoes(c||{});
@@ -8374,7 +8390,7 @@ function toggleFuncaoModoVaga(){
 function openModalVaga(id){
   const v=id?contratacoesVagas.find(x=>x.id===id):null;
   vagaFuncaoModoManual=false;
-  const funcaoOpts=funcoes.map(f=>`<option value="${f.id}" ${String(v?.funcao_id||'')===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
+  const funcaoOpts=ctrFuncoesUnicas().map(f=>`<option value="${f.id}" ${String(v?.funcao_id||'')===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${String(v?.obra_id||'')===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
   document.body.insertAdjacentHTML('beforeend',`
     <div class="modal-overlay" id="modal-vaga" onclick="if(event.target===this)closeModal('modal-vaga')">
