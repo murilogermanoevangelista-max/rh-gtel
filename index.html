@@ -5701,7 +5701,8 @@ function renderAlojamentos(){
   })();
   const totalVagas=alojsFiltrados.reduce((s,a)=>s+(a.vagas_total||0),0);
   const _idsAlojFiltrados=new Set(alojsFiltrados.map(a=>String(a.id)));
-  const totalOcup=funcionarios.filter(f=>f.alojamento_id&&f.situacao!=='inativo'&&_idsAlojFiltrados.has(String(f.alojamento_id))).length;
+  const totalOcup=funcionarios.filter(f=>f.alojamento_id&&f.situacao!=='inativo'&&_idsAlojFiltrados.has(String(f.alojamento_id))).length
+    +prestadores.filter(p=>p.alojamento_id&&p.situacao==='ativo'&&_idsAlojFiltrados.has(String(p.alojamento_id))).length;
   const totalDisp=totalVagas-totalOcup;
   const totalAluguel=alojsFiltrados.reduce((s,a)=>s+Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0),0);
   const totalCaucao=alojsFiltrados.reduce((s,a)=>s+Number(a.caucao||0),0);
@@ -5732,7 +5733,8 @@ function renderAlojamentos(){
     :Object.entries(_byObra).map(([obraKey,lista])=>{
       const linhas=lista.map(a=>{
         const isHotel=a.tipo_alojamento==='hotel';
-        const moradores=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length;
+        const moradores=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length
+          +prestadores.filter(p=>String(p.alojamento_id)===String(a.id)&&p.situacao==='ativo').length;
         const total=a.vagas_total||0;
         const disp=total-moradores;
         const pct=total?Math.round(moradores/total*100):0;
@@ -5792,7 +5794,8 @@ function renderAlojamentos(){
       }).join('');
 
       const obraTotal=lista.reduce((s,a)=>s+(a.vagas_total||0),0);
-      const obraOcup=lista.reduce((s,a)=>s+funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length,0);
+      const obraOcup=lista.reduce((s,a)=>s+funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length
+        +prestadores.filter(p=>String(p.alojamento_id)===String(a.id)&&p.situacao==='ativo').length,0);
       const obraCusto=lista.reduce((s,a)=>{
         if(a.tipo_alojamento==='hotel')return s; // diária não entra no custo fixo mensal
         const cm=alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===_mesTabela&&c.ano===_anoTabela).reduce((ss,c)=>ss+Number(c.valor||0),0);
@@ -5932,7 +5935,8 @@ function renderAlojamentos(){
               const k=a.obra?.codigo||(a.obra?.nome||'Sem obra');
               if(!_obrasMap[k])_obrasMap[k]={vagas:0,ocup:0,custo:0,nome:a.obra?.nome||'Sem obra',id:a.obra_id};
               _obrasMap[k].vagas+=a.vagas_total||0;
-              _obrasMap[k].ocup+=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length;
+              _obrasMap[k].ocup+=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length
+                +prestadores.filter(p=>String(p.alojamento_id)===String(a.id)&&p.situacao==='ativo').length;
               _obrasMap[k].custo+=Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0);
             });
             return Object.entries(_obrasMap).map(([cod,o])=>{
@@ -6563,7 +6567,8 @@ function exportAlojamentosExcel(){
   rows.push([]);
   rows.push(['NOME','ENDEREÇO','OBRA','VAGAS','OCUPADAS','DISPONÍVEIS','ALUGUEL','INÍCIO','TÉRMINO','IMOBILIÁRIA','ADM 31 ('+(hoje.getMonth()+1)+'/'+hoje.getFullYear()+')']);
   alojamentos.forEach(a=>{
-    const ocup=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length;
+    const ocup=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length
+      +prestadores.filter(p=>String(p.alojamento_id)===String(a.id)&&p.situacao==='ativo').length;
     const relMesAtual=alojamentosRelatorios.find(r=>String(r.alojamento_id)===String(a.id)&&r.mes===hoje.getMonth()+1&&r.ano===hoje.getFullYear());
     const admStatus=relMesAtual?('Recebido '+formatDate(relMesAtual.data_recebimento)):'Pendente';
     rows.push([a.nome||'—',a.endereco||'—',a.obra?.codigo||'—',a.vagas_total||0,ocup,(a.vagas_total||0)-ocup,a.custo_mensal||0,formatDate(a.data_inicio),formatDate(a.data_termino),a.imobiliaria||'—',admStatus]);
@@ -6571,10 +6576,12 @@ function exportAlojamentosExcel(){
   rows.push([]);
   rows.push(['MORADORES POR ALOJAMENTO','','','','','','','','','']);
   alojamentos.forEach(a=>{
-    const moradores=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo');
+    const moradoresF=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').map(f=>({nome:f.nome_completo,doc:f.matricula,funcao:f.funcao?.nome||'—',tipo:'Funcionário'}));
+    const moradoresP=prestadores.filter(p=>String(p.alojamento_id)===String(a.id)&&p.situacao==='ativo').map(p=>({nome:p.nome_completo,doc:p.cnpj||'—',funcao:p.funcao||'—',tipo:'Prestador'}));
+    const moradores=[...moradoresF,...moradoresP];
     if(moradores.length){
-      rows.push([a.nome,'NOME','MATRÍCULA','FUNÇÃO','','','','','','']);
-      moradores.forEach((f,i)=>rows.push(['',f.nome_completo,f.matricula,f.funcao?.nome||'—','','','','','','']));
+      rows.push([a.nome,'NOME','MATRÍCULA/CNPJ','FUNÇÃO','TIPO','','','','','']);
+      moradores.forEach((f)=>rows.push(['',f.nome,f.doc,f.funcao,f.tipo,'','','','','']));
     }
   });
   const ws=XLSX.utils.aoa_to_sheet(rows);
@@ -7679,14 +7686,29 @@ function renderContratacoesCandidatos(){
   const integrados=ativos.filter(c=>c.status==='integrado').length;
   const totalPrevisto=contratacoesVagas.reduce((s,v)=>s+(v.quantidade_prevista||0),0);
 
-  const rows=lista.map(c=>{
+  const listaOrdenada=lista.slice().sort((a,b)=>{
+    const fa=(a.funcao?.nome||'Sem função').toUpperCase();
+    const fb=(b.funcao?.nome||'Sem função').toUpperCase();
+    if(fa!==fb)return fa.localeCompare(fb,'pt-BR');
+    return(a.nome||'').localeCompare(b.nome||'','pt-BR');
+  });
+  let ctrGrupoAnterior=null;
+  const rows=listaOrdenada.map(c=>{
     const si=ctrStatusInfo(c.status);
     const{done,total:tdocs,pct}=ctrDocsPct(c);
     const corBarra=pct>=100?'var(--success)':pct>=50?'var(--warning)':'var(--danger)';
-    return`<tr>
+    const funcaoNome=c.funcao?.nome||'Sem função';
+    let headerHtml='';
+    if(funcaoNome!==ctrGrupoAnterior){
+      ctrGrupoAnterior=funcaoNome;
+      const countGrupo=listaOrdenada.filter(x=>(x.funcao?.nome||'Sem função')===funcaoNome).length;
+      headerHtml=`<tr><td colspan="7" style="background:var(--bg);padding:8px 14px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;border-top:2px solid var(--border)">${funcaoNome} <span style="font-weight:400;text-transform:none">(${countGrupo})</span></td></tr>`;
+    }
+    return headerHtml+`<tr>
       <td>
         <div style="font-weight:500">${c.nome||'—'}</div>
         ${c.origem?`<div style="font-size:11px;color:var(--text-muted)">${c.origem}</div>`:''}
+        ${c.observacao?`<div style="font-size:11px;color:var(--warning);display:flex;align-items:center;gap:3px;margin-top:2px" title="${c.observacao.replace(/"/g,'&quot;')}"><i class="ti ti-note" style="font-size:12px"></i><span style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.observacao}</span></div>`:''}
       </td>
       <td style="font-size:12px">${c.funcao?.nome||'—'}</td>
       <td style="font-size:12px">${c.obra?`${c.obra.codigo?c.obra.codigo+' — ':''}${c.obra.nome||''}`:'<span style="color:var(--text-muted)">—</span>'}</td>
