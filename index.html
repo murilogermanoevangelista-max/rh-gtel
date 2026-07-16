@@ -472,8 +472,10 @@ function setGlobalObraFiltro(obraId){
   filtroObraTocado=false; // troca no menu lateral sempre prevalece sobre escolha local antiga
   feriasObraFiltro=obraId||''; // férias — agora também usa id (igual aos demais)
   feriasObraTocado=false; // troca no menu lateral sempre prevalece sobre escolha local antiga
+  prestadoresFiltroObra=obraId||''; // prestadores
+  prestadoresFiltroObraTocado=false; // troca no menu lateral sempre prevalece sobre escolha local antiga
   // re-renderizar a aba atual
-  const pageMap={funcionarios:renderFuncionarios,experiencia:renderExperiencia,folgas:renderFolgas,ferias:renderFerias,alojamentos:renderAlojamentos,efetivo:renderEfetivo,dashboard:renderDashboard};
+  const pageMap={funcionarios:renderFuncionarios,experiencia:renderExperiencia,folgas:renderFolgas,ferias:renderFerias,alojamentos:renderAlojamentos,efetivo:renderEfetivo,dashboard:renderDashboard,prestadores:renderPrestadores};
   if(pageMap[currentPage]) pageMap[currentPage]();
 }
 
@@ -779,7 +781,7 @@ async function showPage(page){
     else if(page==='treinamentos'){await loadTreinamentos();renderTreinamentos();}
     else if(page==='folgas')renderFolgas();
     else if(page==='ferias')renderFerias();
-    else if(page==='alojamentos'){if(!_vindoDeAlerta)alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';bannerRelatoriosAberto=false;bannerRelatoriosFiltroObra='';await loadAlojamentos();renderAlojamentos();}
+    else if(page==='alojamentos'){if(!_vindoDeAlerta)alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';bannerRelatoriosAberto=false;bannerRelatoriosFiltroObra='';await loadAlojamentos();await loadPrestadores();renderAlojamentos();}
     else if(page==='prestadores'){await loadPrestadores();renderPrestadores();}
     else if(page==='efetivo'){efetivoSituacaoFiltro='';await loadEfetivo();renderEfetivo();}
     else if(page==='usuarios')renderUsuarios();
@@ -4152,7 +4154,7 @@ function exportFeriasPDF(){
 }
 
 // ─── PRESTADORES ──────────────────────────────────────────────────────────────
-let prestadoresBusca='',prestadoresFiltroSit='ativo',prestadoresFiltroObra='',prestadoresFiltroEmpresa='',prestadoresFiltroPessoa='';
+let prestadoresBusca='',prestadoresFiltroSit='ativo',prestadoresFiltroObra='',prestadoresFiltroEmpresa='',prestadoresFiltroPessoa='',prestadoresFiltroObraTocado=false;
 
 async function renderPrestadores(){
   await loadPrestadores();
@@ -4160,9 +4162,10 @@ async function renderPrestadores(){
   renderPrestadoresLocal();
 }
 function renderPrestadoresLocal(){
+  const obraEfetiva=prestadoresFiltroObraTocado?prestadoresFiltroObra:(prestadoresFiltroObra||globalObraFiltro);
   const lista=prestadores.filter(p=>{
     if(prestadoresFiltroSit&&p.situacao!==prestadoresFiltroSit)return false;
-    if(prestadoresFiltroObra&&String(p.obra_id)!==String(prestadoresFiltroObra))return false;
+    if(obraEfetiva&&String(p.obra_id)!==String(obraEfetiva))return false;
     if(prestadoresFiltroEmpresa&&(p.razao_social||'')!==prestadoresFiltroEmpresa)return false;
     if(prestadoresFiltroPessoa&&(p.nome_completo||'')!==prestadoresFiltroPessoa)return false;
     if(prestadoresBusca){
@@ -4176,7 +4179,7 @@ function renderPrestadoresLocal(){
   const ativos=prestadores.filter(p=>p.situacao==='ativo').length;
   const inativos=prestadores.filter(p=>p.situacao==='inativo').length;
 
-  const obrasOpts=obras.map(o=>`<option value="${o.id}" ${prestadoresFiltroObra===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''} ${o.nome||''}</option>`).join('');
+  const obrasOpts=obras.map(o=>`<option value="${o.id}" ${obraEfetiva===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''} ${o.nome||''}</option>`).join('');
   const empresasUnicas=[...new Set(prestadores.map(p=>p.razao_social).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   const empresaOpts=empresasUnicas.map(e=>`<option value="${e.replace(/"/g,'&quot;')}" ${prestadoresFiltroEmpresa===e?'selected':''}>${e}</option>`).join('');
   const pessoasUnicas=[...new Set(prestadores.map(p=>p.nome_completo).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
@@ -4240,13 +4243,13 @@ function renderPrestadoresLocal(){
       <select class="filter-select" onchange="prestadoresFiltroEmpresa=this.value;renderPrestadoresLocal()">
         <option value="">Todas as empresas</option>${empresaOpts}
       </select>
-      <select class="filter-select" onchange="prestadoresFiltroObra=this.value;renderPrestadores()">
+      <select class="filter-select" onchange="prestadoresFiltroObra=this.value;prestadoresFiltroObraTocado=true;renderPrestadores()">
         <option value="">Todas as obras</option>${obrasOpts}
       </select>
       <select class="filter-select" onchange="prestadoresFiltroPessoa=this.value;renderPrestadoresLocal()">
         <option value="">Todas as pessoas</option>${pessoaOpts}
       </select>
-      <button class="btn btn-sm" onclick="prestadoresBusca='';prestadoresFiltroSit='ativo';prestadoresFiltroObra='';prestadoresFiltroEmpresa='';prestadoresFiltroPessoa='';renderPrestadores()"><i class="ti ti-x"></i> Limpar</button>
+      <button class="btn btn-sm" onclick="prestadoresBusca='';prestadoresFiltroSit='ativo';prestadoresFiltroObra='';prestadoresFiltroObraTocado=false;prestadoresFiltroEmpresa='';prestadoresFiltroPessoa='';renderPrestadores()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div class="table-container"><table>
       <thead><tr>
@@ -6148,9 +6151,15 @@ async function deleteAlojamento(id,nome){
 
 function openModalMoradores(alojId){
   const a=alojamentos.find(x=>String(x.id)===String(alojId));
-  const moradores=funcionarios.filter(f=>String(f.alojamento_id)===String(alojId)&&f.situacao!=='inativo');
-  window._alojDisponiveis=funcionarios.filter(f=>(!f.alojamento_id||String(f.alojamento_id)!==String(alojId))&&f.situacao!=='inativo');
+  const moradoresFunc=funcionarios.filter(f=>String(f.alojamento_id)===String(alojId)&&f.situacao!=='inativo').map(f=>({...f,_tipo:'funcionario'}));
+  const moradoresPrest=prestadores.filter(p=>String(p.alojamento_id)===String(alojId)&&p.situacao==='ativo').map(p=>({...p,_tipo:'prestador'}));
+  const moradores=[...moradoresFunc,...moradoresPrest];
+  window._alojDisponiveis=[
+    ...funcionarios.filter(f=>(!f.alojamento_id||String(f.alojamento_id)!==String(alojId))&&f.situacao!=='inativo').map(f=>({...f,_tipo:'funcionario'})),
+    ...prestadores.filter(p=>(!p.alojamento_id||String(p.alojamento_id)!==String(alojId))&&p.situacao==='ativo').map(p=>({...p,_tipo:'prestador'}))
+  ];
   window._alojMoradorSelId='';
+  window._alojMoradorSelTipo='';
   insertModal('modal-moradores',`
     <div class="modal" style="max-width:600px">
       <div class="modal-header">
@@ -6159,7 +6168,7 @@ function openModalMoradores(alojId){
       </div>
       <div class="modal-body">
         <div style="margin-bottom:16px;padding:12px;background:var(--bg);border-radius:var(--radius)">
-          <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px">Adicionar funcionário ao alojamento</label>
+          <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px">Adicionar funcionário ou prestador ao alojamento</label>
           <div style="position:relative">
             <div class="search-box" style="margin:0">
               <i class="ti ti-search"></i>
@@ -6181,10 +6190,12 @@ function openModalMoradores(alojId){
             <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px">
               <div class="name-cell">
                 <div class="avatar">${initials(f.nome_completo)}</div>
-                <div>${nomeFichaHtml(f.id,f.nome_completo,'font-size:13px')}
-                  <div style="font-size:11px;color:var(--text-muted)">${f.matricula} · ${f.funcao?.nome||'—'}</div></div>
+                <div>${f._tipo==='funcionario'?nomeFichaHtml(f.id,f.nome_completo,'font-size:13px'):`<span style="font-size:13px;font-weight:500">${f.nome_completo}</span>`}
+                  <div style="font-size:11px;color:var(--text-muted)">${f._tipo==='funcionario'?`${f.matricula} · ${f.funcao?.nome||'—'}`:`${f.funcao||'—'} · ${f.razao_social||'—'}`}
+                    <span class="badge" style="background:${f._tipo==='funcionario'?'var(--info-light)':'var(--warning-light)'};color:${f._tipo==='funcionario'?'var(--info)':'var(--warning)'};font-size:9px;margin-left:4px;padding:1px 6px">${f._tipo==='funcionario'?'FUNCIONÁRIO':'PRESTADOR'}</span>
+                  </div></div>
               </div>
-              <button class="btn btn-sm btn-danger" onclick="removeMorador('${f.id}','${alojId}','${(f.nome_completo||'').replace(/'/g,"\\'")}')"><i class="ti ti-x"></i> Remover</button>
+              <button class="btn btn-sm btn-danger" onclick="removeMorador('${f.id}','${alojId}','${(f.nome_completo||'').replace(/'/g,"\\'")}','${f._tipo}')"><i class="ti ti-x"></i> Remover</button>
             </div>`).join('')
           :`<div style="text-align:center;padding:20px;color:var(--text-muted)">Nenhum morador cadastrado</div>`}
         </div>
@@ -6198,44 +6209,49 @@ function filtrarMoradorCandidatos(q){
   const lista=window._alojDisponiveis||[];
   const termo=(q||'').trim().toLowerCase();
   const filtrados=termo
-    ?lista.filter(f=>(f.nome_completo||'').toLowerCase().includes(termo)||(f.matricula||'').toLowerCase().includes(termo)).slice(0,8)
+    ?lista.filter(f=>(f.nome_completo||'').toLowerCase().includes(termo)||(f.matricula||'').toLowerCase().includes(termo)||(f.cnpj||'').toLowerCase().includes(termo)).slice(0,8)
     :lista.slice(0,8);
   if(!filtrados.length){
-    cont.innerHTML='<div style="padding:12px;font-size:12px;color:var(--text-muted)">Nenhum funcionário encontrado</div>';
+    cont.innerHTML='<div style="padding:12px;font-size:12px;color:var(--text-muted)">Nenhum funcionário ou prestador encontrado</div>';
   } else {
     cont.innerHTML=filtrados.map(f=>`
-      <div onclick="selecionarMoradorCandidato('${f.id}','${(f.nome_completo||'').replace(/'/g,"\\'")}','${f.matricula||''}')"
+      <div onclick="selecionarMoradorCandidato('${f.id}','${(f.nome_completo||'').replace(/'/g,"\\'")}','${f.matricula||''}','${f._tipo}')"
         style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center"
         onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">
-        <div><div style="font-size:13px;font-weight:500">${f.nome_completo}</div><div style="font-size:11px;color:var(--text-muted)">${f.matricula||'—'} · ${f.funcao?.nome||'—'}</div></div>
+        <div><div style="font-size:13px;font-weight:500">${f.nome_completo}</div><div style="font-size:11px;color:var(--text-muted)">${f._tipo==='funcionario'?`${f.matricula||'—'} · ${f.funcao?.nome||'—'}`:`${f.funcao||'—'} · ${f.razao_social||'—'}`}</div></div>
+        <span class="badge" style="background:${f._tipo==='funcionario'?'var(--info-light)':'var(--warning-light)'};color:${f._tipo==='funcionario'?'var(--info)':'var(--warning)'};font-size:9px">${f._tipo==='funcionario'?'FUNCIONÁRIO':'PRESTADOR'}</span>
       </div>`).join('');
   }
   cont.style.display='block';
 }
 
-function selecionarMoradorCandidato(id,nome,matricula){
+function selecionarMoradorCandidato(id,nome,matricula,tipo){
   window._alojMoradorSelId=id;
+  window._alojMoradorSelTipo=tipo;
   document.getElementById('add-morador-busca').value=nome;
   document.getElementById('add-morador-resultados').style.display='none';
-  document.getElementById('add-morador-selecionado').innerHTML=`<span style="color:var(--success);font-weight:600">✓ Selecionado: ${nome} (${matricula||'—'})</span>`;
+  document.getElementById('add-morador-selecionado').innerHTML=`<span style="color:var(--success);font-weight:600">✓ Selecionado: ${nome} ${matricula?`(${matricula})`:''} — ${tipo==='funcionario'?'Funcionário':'Prestador'}</span>`;
 }
 
 async function addMorador(alojId){
-  const funcId=window._alojMoradorSelId;
-  if(!funcId){showToast('Busque e selecione um funcionário primeiro','error');return;}
-  const{error}=await sb.from('funcionarios').update({alojamento_id:alojId}).eq('id',funcId);
+  const id=window._alojMoradorSelId;
+  const tipo=window._alojMoradorSelTipo;
+  if(!id){showToast('Busque e selecione um funcionário ou prestador primeiro','error');return;}
+  const tabela=tipo==='prestador'?'prestadores':'funcionarios';
+  const{error}=await sb.from(tabela).update({alojamento_id:alojId}).eq('id',id);
   if(error){showToast('Erro: '+error.message,'error');return;}
-  showToast('Funcionário adicionado ao alojamento!');
-  await loadAll();await loadAlojamentos();
+  showToast((tipo==='prestador'?'Prestador':'Funcionário')+' adicionado ao alojamento!');
+  await loadAll();await loadPrestadores();await loadAlojamentos();
   closeModal('modal-moradores');openModalMoradores(alojId);renderAlojamentos();
 }
 
-async function removeMorador(funcId,alojId,nome){
+async function removeMorador(id,alojId,nome,tipo){
   if(!confirm(`Remover ${nome} do alojamento?`))return;
-  const{error}=await sb.from('funcionarios').update({alojamento_id:null}).eq('id',funcId);
+  const tabela=tipo==='prestador'?'prestadores':'funcionarios';
+  const{error}=await sb.from(tabela).update({alojamento_id:null}).eq('id',id);
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast('Removido do alojamento.');
-  await loadAll();await loadAlojamentos();
+  await loadAll();await loadPrestadores();await loadAlojamentos();
   closeModal('modal-moradores');openModalMoradores(alojId);renderAlojamentos();
 }
 
