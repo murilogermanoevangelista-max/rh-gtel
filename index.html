@@ -7698,6 +7698,26 @@ function renderContratacoesCandidatos(){
   const funcaoOpts=ctrFuncoesUnicas().map(f=>`<option value="${f.id}" ${contratacoesFiltroFuncao===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${contratacoesFiltroObra===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
 
+  const funcoesEmProcessoMap={};
+  ativos.filter(c=>c.status==='em_processo').forEach(c=>{
+    const key=c.funcao_id||'sem_funcao';
+    if(!funcoesEmProcessoMap[key])funcoesEmProcessoMap[key]={nome:c.funcao?.nome||'Sem função',count:0};
+    funcoesEmProcessoMap[key].count++;
+  });
+  const funcoesEmProcessoArr=Object.entries(funcoesEmProcessoMap).sort((a,b)=>b[1].count-a[1].count);
+  const funcoesEmProcessoHtml=funcoesEmProcessoArr.length?`
+    <div style="margin-bottom:16px">
+      <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Funções em processo</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${funcoesEmProcessoArr.map(([fid,v])=>`
+          <div onclick="contratacoesFiltroFuncao='${fid==='sem_funcao'?'':fid}';contratacoesFiltroStatus='em_processo';renderContratacoesCandidatos()"
+            style="cursor:pointer;display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;border:1px solid ${contratacoesFiltroFuncao===String(fid)&&contratacoesFiltroStatus==='em_processo'?'var(--warning)':'var(--border)'};background:${contratacoesFiltroFuncao===String(fid)&&contratacoesFiltroStatus==='em_processo'?'var(--warning-light)':'var(--surface)'};font-size:12px;font-weight:500;transition:.15s">
+            <span>${v.nome}</span>
+            <span style="background:var(--warning);color:#fff;border-radius:20px;font-size:10px;font-weight:700;padding:1px 7px;min-width:18px;text-align:center">${v.count}</span>
+          </div>`).join('')}
+      </div>
+    </div>` : '';
+
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div><div class="page-title"><i class="ti ti-user-plus"></i> Contratações</div><div class="page-subtitle">${total} candidato(s) cadastrado(s)</div></div>
@@ -7726,6 +7746,7 @@ function renderContratacoesCandidatos(){
         <div class="metric-label">Integrados</div><div class="metric-value">${integrados}</div>
       </div>
     </div>
+    ${funcoesEmProcessoHtml}
     <div class="filters">
       <div class="search-box"><i class="ti ti-search"></i>
         <input placeholder="Buscar por nome, origem, contato..." value="${contratacoesBusca}"
