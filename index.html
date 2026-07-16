@@ -8209,8 +8209,13 @@ function openModalContratacao(id){
         </div>
         <div class="modal-body">
           <div class="form-grid">
-            <div class="form-group full"><label>Nome *</label>
-              <input id="ctr-nome" value="${c?.nome||''}" placeholder="Nome completo do candidato"></div>
+            <div class="form-group full">
+              <label>Nome * ${!c?`<span class="funcao-toggle" id="ctr-prosp-toggle" onclick="toggleProspeccaoBusca()">🔍 Buscar da Prospecção</span>`:''}</label>
+              <input id="ctr-nome" value="${c?.nome||''}" placeholder="Nome completo do candidato">
+              ${!c?`<select id="ctr-prosp-select" style="display:none;margin-top:8px" onchange="ctrPreencherDeProspeccao(this.value)">
+                <option value="">Selecione um contato da prospecção...</option>${ctrProspOptions()}
+              </select>`:''}
+            </div>
             <div class="form-group">
               <label>Função <span class="funcao-toggle" id="ctr-funcao-toggle" onclick="toggleFuncaoModoCtr()" style="font-size:11px;font-weight:400;cursor:pointer;color:var(--primary);margin-left:6px">✏️ Digitar manualmente</span></label>
               <select id="ctr-funcao-select"><option value="">Selecione...</option>${funcaoOpts}</select>
@@ -8295,6 +8300,50 @@ function openModalContratacao(id){
         </div>
       </div>
     </div>`);
+}
+
+function ctrProspOptions(){
+  const nomesJaCandidatos=new Set(contratacoes.map(c=>ctrNorm(c.nome)));
+  const lista=contratacoesProspeccoes
+    .filter(p=>!nomesJaCandidatos.has(ctrNorm(p.nome)))
+    .slice()
+    .sort((a,b)=>{
+      const ra=a.retorno==='aceitou'?0:1,rb=b.retorno==='aceitou'?0:1;
+      if(ra!==rb)return ra-rb;
+      return(a.nome||'').localeCompare(b.nome||'','pt-BR');
+    });
+  return lista.map(p=>{
+    const info=prospRetornoInfo(p.retorno);
+    return`<option value="${p.id}">${p.nome} — ${p.funcao?.nome||'sem função'} (${info.label})</option>`;
+  }).join('');
+}
+function toggleProspeccaoBusca(){
+  const sel=document.getElementById('ctr-prosp-select');
+  if(!sel)return;
+  sel.style.display=sel.style.display==='none'?'block':'none';
+}
+function ctrPreencherDeProspeccao(prospId){
+  if(!prospId)return;
+  const p=contratacoesProspeccoes.find(x=>String(x.id)===String(prospId));
+  if(!p)return;
+  document.getElementById('ctr-nome').value=p.nome||'';
+  if(p.funcao_id){
+    const funcSelect=document.getElementById('ctr-funcao-select');
+    const opt=funcSelect?.querySelector(`option[value="${p.funcao_id}"]`);
+    if(opt){
+      funcSelect.value=p.funcao_id;
+    }else if(p.funcao?.nome){
+      // função da prospecção não está na lista (duplicada/renomeada) — usa modo manual
+      if(!ctrFuncaoModoManual)toggleFuncaoModoCtr();
+      document.getElementById('ctr-funcao-input').value=p.funcao.nome;
+    }
+  }
+  if(p.telefone)document.getElementById('ctr-contato').value=p.telefone;
+  const obsEl=document.getElementById('ctr-obs');
+  if(obsEl&&p.observacao&&!obsEl.value){
+    obsEl.value=`Da prospecção: ${p.observacao}`;
+  }
+  showToast('Dados preenchidos a partir da prospecção!');
 }
 
 function ctrCascataExame(){
