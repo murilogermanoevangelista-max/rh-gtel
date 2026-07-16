@@ -1471,20 +1471,21 @@ function exportFuncionariosExcel(){
   rows.push([`LISTA DE EFETIVO — GTEL`,'','','','','']);
   rows.push([`Emitido em: ${dataEmissao}  ·  ${obraLabel}  ·  ${situLabel}  ·  ${lista.length} funcionário(s)`,'','','','','']);
   rows.push([]);
-  rows.push(['NOME','MATRÍCULA','FUNÇÃO','OBRA / CONTRATO','EMPRESA','ADMISSÃO','SITUAÇÃO']);
+  rows.push(['NOME','MATRÍCULA','FUNÇÃO','OBRA / CONTRATO','EMPRESA','ADMISSÃO','INTEGRAÇÃO','SITUAÇÃO']);
 
   lista.forEach(f=>{
     const funcao=f.funcao?.nome||f.funcao_manual||'—';
     const obra=f.obra?.codigo?`${f.obra.codigo} — ${f.obra.nome||''}`.trim():f.obra?.nome||'—';
     const empresa=f.empresa?.nome||'—';
     const admissao=f.data_admissao?new Date(f.data_admissao+'T12:00:00').toLocaleDateString('pt-BR'):'—';
+    const integracao=f.data_mobilizacao?new Date(f.data_mobilizacao+'T12:00:00').toLocaleDateString('pt-BR'):'—';
     const situacao=f.situacao?f.situacao.charAt(0).toUpperCase()+f.situacao.slice(1):'—';
-    rows.push([f.nome_completo||'—',f.matricula||'—',funcao,obra,empresa,admissao,situacao]);
+    rows.push([f.nome_completo||'—',f.matricula||'—',funcao,obra,empresa,admissao,integracao,situacao]);
   });
 
   const ws=XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=[{wch:36},{wch:12},{wch:30},{wch:30},{wch:36},{wch:14},{wch:14}];
-  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:6}},{s:{r:1,c:0},e:{r:1,c:6}}];
+  ws['!cols']=[{wch:36},{wch:12},{wch:30},{wch:30},{wch:36},{wch:14},{wch:14},{wch:14}];
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:7}},{s:{r:1,c:0},e:{r:1,c:7}}];
 
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Efetivo');
@@ -7572,7 +7573,7 @@ const DOCS_CONTRATACAO=[
   ['cert_eletrica','Certificado de Elétrica'],
 ];
 
-let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesVagasFiltroObra='',ctrFuncaoModoManual=false,prospBusca='',prospFiltroFuncao='',prospFiltroRetorno='',prospFuncaoModoManual=false,desistBusca='',desistFiltroFuncao='';
+let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesFiltroNome='',contratacoesVagasFiltroObra='',ctrFuncaoModoManual=false,prospBusca='',prospFiltroFuncao='',prospFiltroRetorno='',prospFuncaoModoManual=false,desistBusca='',desistFiltroFuncao='',desistFiltroTipo='';
 
 function ctrAddDiasUteis(dataISO,dias){
   if(!dataISO)return null;
@@ -7673,6 +7674,7 @@ function renderContratacoesCandidatos(){
     if(contratacoesFiltroStatus&&c.status!==contratacoesFiltroStatus)return false;
     if(contratacoesFiltroFuncao&&String(c.funcao_id)!==String(contratacoesFiltroFuncao))return false;
     if(contratacoesFiltroObra&&String(c.obra_id)!==String(contratacoesFiltroObra))return false;
+    if(contratacoesFiltroNome&&String(c.id)!==String(contratacoesFiltroNome))return false;
     if(contratacoesBusca){
       const b=contratacoesBusca.toLowerCase();
       return(c.nome||'').toLowerCase().includes(b)||(c.origem||'').toLowerCase().includes(b)||(c.contato||'').toLowerCase().includes(b);
@@ -7706,7 +7708,7 @@ function renderContratacoesCandidatos(){
     }
     return headerHtml+`<tr>
       <td>
-        <div style="font-weight:500">${c.nome||'—'}</div>
+        <div style="font-weight:600;color:var(--primary-dark)">${c.nome||'—'}</div>
         ${c.origem?`<div style="font-size:11px;color:var(--text-muted)">${c.origem}</div>`:''}
         ${c.observacao?`<div style="font-size:11px;color:var(--warning);display:flex;align-items:center;gap:3px;margin-top:2px" title="${c.observacao.replace(/"/g,'&quot;')}"><i class="ti ti-note" style="font-size:12px"></i><span style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.observacao}</span></div>`:''}
       </td>
@@ -7735,6 +7737,7 @@ function renderContratacoesCandidatos(){
 
   const funcaoOpts=ctrFuncoesUnicas().map(f=>`<option value="${f.id}" ${contratacoesFiltroFuncao===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${contratacoesFiltroObra===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
+  const nomeOpts=ativos.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR')).map(c=>`<option value="${c.id}" ${contratacoesFiltroNome===String(c.id)?'selected':''}>${c.nome}</option>`).join('');
 
   const funcoesEmProcessoMap={};
   ativos.filter(c=>c.status==='em_processo').forEach(c=>{
@@ -7796,13 +7799,16 @@ function renderContratacoesCandidatos(){
       <select class="filter-select" onchange="contratacoesFiltroObra=this.value;renderContratacoesCandidatos()">
         <option value="">Todas as obras</option>${obraOpts}
       </select>
+      <select class="filter-select" onchange="contratacoesFiltroNome=this.value;renderContratacoesCandidatos()">
+        <option value="">Todos os candidatos</option>${nomeOpts}
+      </select>
       <select class="filter-select" onchange="contratacoesFiltroStatus=this.value;renderContratacoesCandidatos()">
         <option value="">Todos os status</option>
         <option value="em_processo" ${contratacoesFiltroStatus==='em_processo'?'selected':''}>Em Processo</option>
         <option value="aguardando_integracao" ${contratacoesFiltroStatus==='aguardando_integracao'?'selected':''}>Aguardando Integração</option>
         <option value="integrado" ${contratacoesFiltroStatus==='integrado'?'selected':''}>Integrado</option>
       </select>
-      <button class="btn btn-sm" onclick="contratacoesBusca='';contratacoesFiltroStatus='';contratacoesFiltroFuncao='';contratacoesFiltroObra='';renderContratacoesCandidatos()"><i class="ti ti-x"></i> Limpar</button>
+      <button class="btn btn-sm" onclick="contratacoesBusca='';contratacoesFiltroStatus='';contratacoesFiltroFuncao='';contratacoesFiltroObra='';contratacoesFiltroNome='';renderContratacoesCandidatos()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div class="table-container"><table>
       <thead><tr>
@@ -8103,47 +8109,69 @@ function ctrEstagioDesistencia(c){
 }
 
 function renderContratacoesDesistencias(){
-  const lista=contratacoes.filter(c=>{
-    if(c.status!=='desistiu')return false;
-    if(desistFiltroFuncao&&String(c.funcao_id)!==String(desistFiltroFuncao))return false;
+  const desistentes=contratacoes.filter(c=>c.status==='desistiu').map(c=>({
+    id:c.id,tipo:'desistiu',nome:c.nome,origem:c.origem,funcaoNome:c.funcao?.nome,
+    obraLabel:c.obra?`${c.obra.codigo?c.obra.codigo+' — ':''}${c.obra.nome||''}`:null,
+    funcaoId:c.funcao_id,data:c.data_desistencia,
+    estagio:`${ctrEstagioDesistencia(c)}`,docsInfo:ctrDocsPct(c),
+    observacao:c.observacao,raw:c
+  }));
+  const recusados=contratacoesProspeccoes.filter(p=>p.retorno==='recusou').map(p=>({
+    id:p.id,tipo:'recusou',nome:p.nome,origem:null,funcaoNome:p.funcao?.nome,
+    obraLabel:null,funcaoId:p.funcao_id,data:p.data_contato,
+    estagio:'Recusou na prospecção (ainda não era candidato)',docsInfo:null,
+    observacao:p.observacao,raw:p
+  }));
+  const combinados=[...desistentes,...recusados];
+
+  const lista=combinados.filter(item=>{
+    if(desistFiltroTipo&&item.tipo!==desistFiltroTipo)return false;
+    if(desistFiltroFuncao&&String(item.funcaoId)!==String(desistFiltroFuncao))return false;
     if(desistBusca){
       const b=desistBusca.toLowerCase();
-      return(c.nome||'').toLowerCase().includes(b)||(c.origem||'').toLowerCase().includes(b);
+      return(item.nome||'').toLowerCase().includes(b)||(item.origem||'').toLowerCase().includes(b);
     }
     return true;
-  }).sort((a,b)=>(b.data_desistencia||'').localeCompare(a.data_desistencia||''));
+  }).sort((a,b)=>(b.data||'').localeCompare(a.data||''));
 
-  const total=lista.length;
+  const totalDesistiram=desistentes.length;
+  const totalRecusaram=recusados.length;
+  const totalGeral=totalDesistiram+totalRecusaram;
   const hoje=ctrHojeISO();
   const mesAtual=hoje.slice(0,7);
-  const esteMes=contratacoes.filter(c=>c.status==='desistiu'&&(c.data_desistencia||'').slice(0,7)===mesAtual).length;
+  const esteMes=combinados.filter(item=>(item.data||'').slice(0,7)===mesAtual).length;
 
-  const rows=lista.map(c=>{
-    const{done,total:tdocs,pct}=ctrDocsPct(c);
+  const rows=lista.map(item=>{
+    const tipoBadge=item.tipo==='desistiu'
+      ?`<span class="badge" style="background:var(--danger-light);color:var(--danger)">Desistiu/Reprovado</span>`
+      :`<span class="badge" style="background:#F3E8FF;color:#7C3AED">Recusou Prospecção</span>`;
+    const docsCell=item.docsInfo?`<div style="color:var(--text-muted)">Docs: ${item.docsInfo.done}/${item.docsInfo.total} (${item.docsInfo.pct}%)</div>`:'';
+    const editFn=item.tipo==='desistiu'?`openModalContratacao('${item.id}')`:`openModalProspeccao('${item.id}')`;
+    const delFn=item.tipo==='desistiu'?`deleteContratacao('${item.id}','${(item.nome||'').replace(/'/g,"\\'")}')`:`deleteProspeccao('${item.id}')`;
     return`<tr>
       <td>
-        <div style="font-weight:500">${c.nome||'—'}</div>
-        ${c.origem?`<div style="font-size:11px;color:var(--text-muted)">${c.origem}</div>`:''}
+        <div style="font-weight:500">${item.nome||'—'}</div>
+        ${item.origem?`<div style="font-size:11px;color:var(--text-muted)">${item.origem}</div>`:''}
       </td>
-      <td style="font-size:12px">${c.funcao?.nome||'—'}</td>
-      <td style="font-size:12px">${c.obra?`${c.obra.codigo?c.obra.codigo+' — ':''}${c.obra.nome||''}`:'<span style="color:var(--text-muted)">—</span>'}</td>
-      <td style="font-size:12px">${ctrFmtData(c.data_desistencia)}</td>
-      <td style="font-size:12px">${ctrEstagioDesistencia(c)}<div style="color:var(--text-muted)">Docs: ${done}/${tdocs} (${pct}%)</div></td>
-      <td style="font-size:12px;max-width:220px">${c.observacao||'<span style="color:var(--text-muted)">—</span>'}</td>
+      <td style="font-size:12px">${item.funcaoNome||'—'}</td>
+      <td>${tipoBadge}</td>
+      <td style="font-size:12px">${ctrFmtData(item.data)}</td>
+      <td style="font-size:12px">${item.estagio}${docsCell}</td>
+      <td style="font-size:12px;max-width:220px">${item.observacao||'<span style="color:var(--text-muted)">—</span>'}</td>
       <td>
         <div class="action-btns">
-          <button class="btn btn-sm" onclick="openModalContratacao('${c.id}')" title="Editar"><i class="ti ti-edit"></i></button>
-          <button class="btn btn-sm btn-danger" onclick="deleteContratacao('${c.id}','${(c.nome||'').replace(/'/g,"\\'")}')" title="Excluir"><i class="ti ti-trash"></i></button>
+          <button class="btn btn-sm" onclick="${editFn}" title="Editar"><i class="ti ti-edit"></i></button>
+          <button class="btn btn-sm btn-danger" onclick="${delFn}" title="Excluir"><i class="ti ti-trash"></i></button>
         </div>
       </td>
     </tr>`;
-  }).join('')||'<tr><td colspan="7"><div class="empty-state"><i class="ti ti-user-x"></i><div>Nenhuma desistência registrada</div></div></td></tr>';
+  }).join('')||'<tr><td colspan="7"><div class="empty-state"><i class="ti ti-user-x"></i><div>Nenhuma desistência ou recusa registrada</div></div></td></tr>';
 
   const funcaoOpts=ctrFuncoesUnicas().map(f=>`<option value="${f.id}" ${desistFiltroFuncao===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
 
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
-      <div><div class="page-title"><i class="ti ti-user-plus"></i> Contratações</div><div class="page-subtitle">Histórico de desistências e reprovações</div></div>
+      <div><div class="page-title"><i class="ti ti-user-plus"></i> Contratações</div><div class="page-subtitle">Candidatos que desistiram/reprovaram no processo + contatos que recusaram na prospecção</div></div>
     </div>
     <div class="exp-tabs">
       <div class="exp-tab${contratacoesTab==='candidatos'?' active':''}" onclick="contratacoesTab='candidatos';renderContratacoes()">Candidatos</div>
@@ -8151,8 +8179,16 @@ function renderContratacoesDesistencias(){
       <div class="exp-tab${contratacoesTab==='vagas'?' active':''}" onclick="contratacoesTab='vagas';renderContratacoes()">Vagas Previstas</div>
       <div class="exp-tab${contratacoesTab==='desistencias'?' active':''}" onclick="contratacoesTab='desistencias';renderContratacoes()">Desistências</div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px;max-width:420px">
-      <div class="metric-card"><div class="metric-label">Total Desistências</div><div class="metric-value">${total}</div></div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+      <div class="metric-card" onclick="desistFiltroTipo='';renderContratacoesDesistencias()" style="cursor:pointer;border-color:${!desistFiltroTipo?'var(--primary)':'var(--border)'}">
+        <div class="metric-label">Total Geral</div><div class="metric-value">${totalGeral}</div>
+      </div>
+      <div class="metric-card" style="border-color:var(--danger)" onclick="desistFiltroTipo='desistiu';renderContratacoesDesistencias()">
+        <div class="metric-label">Desistiram/Reprovados</div><div class="metric-value" style="color:${desistFiltroTipo==='desistiu'?'var(--danger)':'var(--text)'}">${totalDesistiram}</div>
+      </div>
+      <div class="metric-card" style="border-color:#7C3AED" onclick="desistFiltroTipo='recusou';renderContratacoesDesistencias()">
+        <div class="metric-label">Recusaram Prospecção</div><div class="metric-value" style="color:${desistFiltroTipo==='recusou'?'#7C3AED':'var(--text)'}">${totalRecusaram}</div>
+      </div>
       <div class="metric-card amber"><div class="metric-label">Este Mês</div><div class="metric-value">${esteMes}</div></div>
     </div>
     <div class="filters">
@@ -8163,11 +8199,16 @@ function renderContratacoesDesistencias(){
       <select class="filter-select" onchange="desistFiltroFuncao=this.value;renderContratacoesDesistencias()">
         <option value="">Todas as funções</option>${funcaoOpts}
       </select>
-      <button class="btn btn-sm" onclick="desistBusca='';desistFiltroFuncao='';renderContratacoesDesistencias()"><i class="ti ti-x"></i> Limpar</button>
+      <select class="filter-select" onchange="desistFiltroTipo=this.value;renderContratacoesDesistencias()">
+        <option value="">Todos os tipos</option>
+        <option value="desistiu" ${desistFiltroTipo==='desistiu'?'selected':''}>Desistiu/Reprovado</option>
+        <option value="recusou" ${desistFiltroTipo==='recusou'?'selected':''}>Recusou Prospecção</option>
+      </select>
+      <button class="btn btn-sm" onclick="desistBusca='';desistFiltroFuncao='';desistFiltroTipo='';renderContratacoesDesistencias()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div class="table-container"><table>
       <thead><tr>
-        <th>Candidato</th><th>Função</th><th>Obra</th><th>Data Desistência</th><th>Estágio no Processo</th><th>Motivo/Observação</th><th>Ações</th>
+        <th>Candidato/Contato</th><th>Função</th><th>Tipo</th><th>Data</th><th>Estágio</th><th>Motivo/Observação</th><th>Ações</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
