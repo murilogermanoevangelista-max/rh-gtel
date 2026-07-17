@@ -1589,11 +1589,17 @@ async function verFicha(id,historico=false){
       }
     }
     const passagemStr=[fl.tipo_passagem_aerea?'✈️ Aérea':'',fl.tipo_passagem_terrestre?'🚌 Terrestre':''].filter(Boolean).join(' · ')||'—';
-    const passagemCompradaStr='<strong style="color:'+(fl.passagem_comprada?'var(--success)':'var(--warning)')+'">'+(fl.passagem_comprada?'Comprada':'Não comprada')+'</strong>'+(fl.passagem_observacao?' — <span style="color:var(--text-muted);font-style:italic">"'+fl.passagem_observacao+'"</span>':'');
     const vencsHtml=vencs.map(v=>{
       const bg=v.real?'#F0FDF4':v.prog?'#EFF6FF':'var(--bg)';
       const bd=v.real?'#BBF7D0':v.prog?'#BFDBFE':'var(--border)';
-      return'<div style="background:'+bg+';border:1px solid '+bd+';border-radius:var(--radius);padding:6px 10px;font-size:12px"><div style="font-weight:600;color:var(--text-muted)">Venc.'+v.num+'</div><div>'+v.data+'</div><div style="font-size:10px;color:var(--text-muted)">'+v.status+'</div></div>';
+      const tr=folgasTranslados.find(x=>String(x.folga_id)===String(fl.id)&&x.numero_ciclo===v.num);
+      const passagemLinha=tr?('<div style="margin-top:3px;font-size:10px">🎫 <strong style="color:'+(tr.passagem_comprada?'var(--success)':'var(--warning)')+'">'+(tr.passagem_comprada?'Comprada':'Não comprada')+'</strong></div>'
+        +(tr.passagem_observacao?'<div style="font-size:10px;color:var(--text-muted);font-style:italic">"'+tr.passagem_observacao+'"</div>':'')
+        +((tr.data_ida||tr.data_retorno)?'<div style="font-size:10px;color:var(--text-muted);margin-top:2px">'+(tr.data_ida?'Ida: '+formatDate(tr.data_ida)+(tr.hora_ida?' '+tr.hora_ida:''):'')+(tr.data_retorno?(tr.data_ida?' · ':'')+'Volta: '+formatDate(tr.data_retorno)+(tr.hora_retorno?' '+tr.hora_retorno:''):'')+'</div>':'')):'';
+      return'<div style="background:'+bg+';border:1px solid '+bd+';border-radius:var(--radius);padding:6px 10px;font-size:12px">'
+        +'<div style="font-weight:600;color:var(--text-muted)">Venc.'+v.num+'</div><div>'+v.data+'</div><div style="font-size:10px;color:var(--text-muted)">'+v.status+'</div>'
+        +passagemLinha
+        +'</div>';
     }).join('');
     folgasSection='<div class="ficha-section">'
       +'<div class="ficha-section-title"><i class="ti ti-tree" style="margin-right:6px"></i>Folgas de Campo</div>'
@@ -1602,7 +1608,6 @@ async function verFicha(id,historico=false){
       +'<div class="ficha-field"><div class="ficha-field-label">Período Trabalhado</div><div class="ficha-field-value">'+(fl.periodo_trabalhado||'—')+' dias → '+nD+' dia(s) útil</div></div>'
       +'<div class="ficha-field"><div class="ficha-field-label">Passagem</div><div class="ficha-field-value">'+passagemStr+'</div></div>'
       +'<div class="ficha-field"><div class="ficha-field-label">Cidade de Origem</div><div class="ficha-field-value">'+(fl.cidade_origem||'—')+'</div></div>'
-      +'<div class="ficha-field"><div class="ficha-field-label">Passagem Comprada</div><div class="ficha-field-value">'+passagemCompradaStr+'</div></div>'
       +'</div>'
       +'<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px">'+vencsHtml+'</div>'
       +'</div>';
@@ -2454,7 +2459,7 @@ function irParaListaMesFolga(funcIds){
   renderFolgasLocal();
   setTimeout(()=>document.querySelector('.folga-row')?.scrollIntoView({behavior:'smooth',block:'center'}),50);
 }
-let folgasAba='programacao',transladoObraFiltro='';
+let folgasAba='programacao',transladoObraFiltro='',transladoBusca='';
 function renderFolgasLocal(){
   if(folgasAba==='translados'){renderFolgasTranslados();return;}
   const hoje=new Date();hoje.setHours(0,0,0,0);
@@ -2565,11 +2570,13 @@ function renderFolgasLocal(){
     }).join('');
 
     const vencCells=historicoCell+currentCell+previewCells;
+    const trAtual=folgasTranslados.find(x=>String(x.folga_id)===String(f.id)&&x.numero_ciclo===currentN);
+    const compradaAtual=trAtual?.passagem_comprada===true;
     const passagemBadges=`
       ${f.tipo_passagem_aerea?'<span class="passagem-badge passagem-aerea">✈ Aérea</span>':''}
       ${f.tipo_passagem_terrestre?'<span class="passagem-badge passagem-terrestre">🚌 Terrestre</span>':''}
       ${!f.tipo_passagem_aerea&&!f.tipo_passagem_terrestre?'<span class="passagem-badge passagem-nao">—</span>':''}
-      <span class="passagem-badge" style="background:${f.passagem_comprada?'#F0FDF4':'#FFFBEB'};color:${f.passagem_comprada?'var(--success)':'#92400E'};border:1px solid ${f.passagem_comprada?'#BBF7D0':'#FCD34D'}">🎫 ${f.passagem_comprada?'Comprada':'Não comprada'}</span>`;
+      <span class="passagem-badge" style="background:${compradaAtual?'#F0FDF4':'#FFFBEB'};color:${compradaAtual?'var(--success)':'#92400E'};border:1px solid ${compradaAtual?'#BBF7D0':'#FCD34D'}" title="Referente à saída Venc.${currentN<=5?currentN:5}">🎫 ${compradaAtual?'Comprada':'Não comprada'} (Venc.${currentN<=5?currentN:5})</span>`;
     return`<div class="folga-row">
       <div class="folga-cell">
         <div class="folga-func-name">${f.funcionario?.nome_completo||'—'}</div>
@@ -2581,7 +2588,7 @@ function renderFolgasLocal(){
         </div>
         <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">${passagemBadges}</div>
         ${f.cidade_origem?`<div style="font-size:11px;color:var(--text-muted);margin-top:2px">📍 ${f.cidade_origem}</div>`:''}
-        ${f.passagem_observacao?`<div style="font-size:11px;color:var(--text-muted);margin-top:2px;font-style:italic">💬 ${f.passagem_observacao}</div>`:''}
+        ${trAtual?.passagem_observacao?`<div style="font-size:11px;color:var(--text-muted);margin-top:2px;font-style:italic">💬 ${trAtual.passagem_observacao}</div>`:''}
       </div>
       <div class="folga-cell"><div class="folga-cell-header">Período</div><div style="font-weight:600">${f.periodo_trabalhado||'—'} dias</div></div>
       <div class="folga-cell"><div class="folga-cell-header">Início</div>${formatDate(f.data_inicio)}</div>
@@ -2728,43 +2735,58 @@ function renderFolgasLocal(){
 }
 
 // ─── TRANSLADOS ────────────────────────────────────────────────────────────
-// Aba manual: puxa quem está com folga confirmada (saída programada ou realizada)
-// e passagem comprada, e permite lançar data/local/hora de ida e de retorno
-// para organizar o transporte (translado) até o ponto de embarque.
+// Aba dedicada: para a saída pendente (venc.) de cada funcionário, controla se a
+// passagem já foi comprada, observações, e data/local/hora de ida e de retorno,
+// para organizar o transporte (translado) até o ponto de embarque. Essas
+// informações também aparecem na ficha do funcionário.
 function ctrCicloAtualFolga(f){
   for(let n=1;n<=5;n++){if(!f['saida'+n+'_real'])return n;}
   return 5;
 }
 function renderFolgasTranslados(){
-  const elegiveis=folgas.filter(f=>{
-    if(!f.passagem_comprada)return false;
+  let lista=folgas.filter(f=>{
     const n=ctrCicloAtualFolga(f);
-    return !!(f['saida'+n+'_programada']||f['saida'+n+'_real']);
+    return !!(f['saida'+n+'_programada']||f['saida'+n+'_real']||f['saida'+n+'_projecao']);
   });
-  const lista=elegiveis.filter(f=>!transladoObraFiltro||String(f.funcionario?.obra_id)===String(transladoObraFiltro))
-    .sort((a,b)=>{
-      const na=ctrCicloAtualFolga(a),nb=ctrCicloAtualFolga(b);
-      const da=a['saida'+na+'_programada']||a['saida'+na+'_real'];
-      const db=b['saida'+nb+'_programada']||b['saida'+nb+'_real'];
-      return (parseDate(da)||new Date(9999,0))-(parseDate(db)||new Date(9999,0));
-    });
+  if(transladoObraFiltro)lista=lista.filter(f=>String(f.funcionario?.obra_id)===String(transladoObraFiltro));
+  if(transladoBusca){
+    const b=transladoBusca.toLowerCase();
+    lista=lista.filter(f=>f.funcionario?.nome_completo?.toLowerCase().includes(b)||f.funcionario?.matricula?.includes(b));
+  }
+  lista=lista.sort((a,b)=>{
+    const na=ctrCicloAtualFolga(a),nb=ctrCicloAtualFolga(b);
+    const da=a['saida'+na+'_real']||a['saida'+na+'_programada']||a['saida'+na+'_projecao'];
+    const db=b['saida'+nb+'_real']||b['saida'+nb+'_programada']||b['saida'+nb+'_projecao'];
+    return (parseDate(da)||new Date(9999,0))-(parseDate(db)||new Date(9999,0));
+  });
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${transladoObraFiltro===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
   const rows=lista.map(f=>{
     const n=ctrCicloAtualFolga(f);
-    const dataSaida=f['saida'+n+'_real']||f['saida'+n+'_programada'];
+    const dataSaida=f['saida'+n+'_real']||f['saida'+n+'_programada']||f['saida'+n+'_projecao'];
+    const statusSaida=f['saida'+n+'_real']?'✅ Realizada':f['saida'+n+'_programada']?'📅 Programada':'⏳ Projetada';
     const t=folgasTranslados.find(x=>String(x.folga_id)===String(f.id)&&x.numero_ciclo===n)||{};
     const nome=f.funcionario?.nome_completo||'—';
     const obraNome=f.funcionario?.obra?.codigo||f.funcionario?.obra?.nome||'—';
-    const passagemStr=[f.tipo_passagem_aerea?'✈️ Aérea':'',f.tipo_passagem_terrestre?'🚌 Terrestre':''].filter(Boolean).join(' · ')||'—';
+    const tipoPassagemStr=[f.tipo_passagem_aerea?'✈️ Aérea':'',f.tipo_passagem_terrestre?'🚌 Terrestre':''].filter(Boolean).join(' · ')||'—';
+    const comprada=t.passagem_comprada===true;
     return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:10px">
         <div>
           <div style="font-weight:600">${nome}</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${f.funcionario?.matricula||'—'} · ${obraNome} · Venc.${n}: <strong>${formatDate(dataSaida)}</strong> · ${passagemStr}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${f.funcionario?.matricula||'—'} · ${obraNome} · Venc.${n}: <strong>${formatDate(dataSaida)}</strong> (${statusSaida}) · ${tipoPassagemStr}</div>
         </div>
-        <span class="badge" style="background:var(--success-light,#F0FDF4);color:var(--success)">🎫 Passagem comprada</span>
+        <span class="badge" style="background:${comprada?'#F0FDF4':'#FFFBEB'};color:${comprada?'var(--success)':'#92400E'}">🎫 ${comprada?'Comprada':'Não comprada'}</span>
       </div>
       <div class="form-grid" style="gap:8px">
+        <div class="form-group"><label>Passagem Comprada</label>
+          <select id="tr-comprada-${f.id}">
+            <option value="nao" ${!comprada?'selected':''}>Não</option>
+            <option value="sim" ${comprada?'selected':''}>Sim</option>
+          </select>
+        </div>
+        <div class="form-group full"><label>Observação</label>
+          <textarea id="tr-obs-${f.id}" rows="1" placeholder="Alguma particularidade sobre a passagem (trecho, data de compra, pendência...)">${t.passagem_observacao||''}</textarea>
+        </div>
         <div class="form-section" style="margin:0">Ida (saída até o ponto de embarque)</div>
         <div></div>
         <div class="form-group"><label>Data</label><input type="date" id="tr-ida-data-${f.id}" value="${t.data_ida||''}"></div>
@@ -2777,10 +2799,10 @@ function renderFolgasTranslados(){
         <div class="form-group full"><label>Local</label><input type="text" id="tr-volta-local-${f.id}" placeholder="Ex: Rodoviária de..., Aeroporto de..." value="${t.local_retorno||''}"></div>
       </div>
       <div style="margin-top:10px;display:flex;justify-content:flex-end">
-        <button class="btn btn-primary btn-sm" onclick="salvarTranslado('${f.id}',${n})"><i class="ti ti-check"></i> Salvar translado</button>
+        <button class="btn btn-primary btn-sm" onclick="salvarTranslado('${f.id}',${n})"><i class="ti ti-check"></i> Salvar</button>
       </div>
     </div>`;
-  }).join('')||'<div style="color:var(--text-muted);font-size:13px;padding:24px 0;text-align:center">Nenhum funcionário com folga confirmada e passagem comprada no momento.</div>';
+  }).join('')||'<div style="color:var(--text-muted);font-size:13px;padding:24px 0;text-align:center">Nenhum funcionário com saída pendente no momento.</div>';
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div><div class="page-title">Folgas de Campo</div><div class="page-subtitle">${lista.length} translado(s) a organizar</div></div>
@@ -2794,13 +2816,14 @@ function renderFolgasTranslados(){
       <div class="exp-tab active" onclick="folgasAba='translados';renderFolgasLocal()">Translados</div>
     </div>
     <div style="background:var(--info-light);border-radius:var(--radius);padding:10px 14px;font-size:12px;color:var(--info);margin-bottom:16px">
-      <i class="ti ti-info-circle"></i> Mostra quem está com a próxima saída programada ou confirmada e a passagem já comprada. Lance aqui manualmente a data, local e horário de ida e de retorno para organizar o translado.
+      <i class="ti ti-info-circle"></i> Para a saída pendente de cada funcionário, controle se a passagem foi comprada e organize data, local e horário de ida e de retorno. Essas informações aparecem também na ficha do funcionário.
     </div>
     <div class="filters">
+      <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar funcionário..." value="${transladoBusca}" oninput="transladoBusca=this.value;if(!_buscaHandlers.translados)_buscaHandlers.translados=makeBuscaHandler(v=>transladoBusca=v,renderFolgasTranslados,300);_buscaHandlers.translados(this.value);this.focus()"></div>
       <select class="filter-select" onchange="transladoObraFiltro=this.value;renderFolgasTranslados()">
         <option value="">Todas as obras</option>${obraOpts}
       </select>
-      <button class="btn btn-sm" onclick="transladoObraFiltro='';renderFolgasTranslados()"><i class="ti ti-x"></i> Limpar</button>
+      <button class="btn btn-sm" onclick="transladoObraFiltro='';transladoBusca='';renderFolgasTranslados()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     ${rows}`;
 }
@@ -2809,6 +2832,8 @@ async function salvarTranslado(folgaId,numeroCiclo){
   const payload={
     folga_id:folgaId,
     numero_ciclo:numeroCiclo,
+    passagem_comprada:document.getElementById(`tr-comprada-${folgaId}`).value==='sim',
+    passagem_observacao:document.getElementById(`tr-obs-${folgaId}`).value.trim()||null,
     data_ida:document.getElementById(`tr-ida-data-${folgaId}`).value||null,
     hora_ida:document.getElementById(`tr-ida-hora-${folgaId}`).value||null,
     local_ida:document.getElementById(`tr-ida-local-${folgaId}`).value.trim()||null,
@@ -2850,17 +2875,7 @@ function openModalFolga(folgaId=null){
           <div class="form-section">Tipo de Passagem</div>
           <div class="form-group"><label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="fl-aerea" ${folga?.tipo_passagem_aerea?'checked':''} style="width:auto"> ✈️ Aérea</label></div>
           <div class="form-group"><label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="fl-terrestre" ${folga?.tipo_passagem_terrestre?'checked':''} style="width:auto"> 🚌 Terrestre</label></div>
-          <div class="form-group">
-            <label>Passagem Comprada</label>
-            <select id="fl-passagem-comprada">
-              <option value="nao" ${folga?.passagem_comprada!==true?'selected':''}>Não</option>
-              <option value="sim" ${folga?.passagem_comprada===true?'selected':''}>Sim</option>
-            </select>
-          </div>
-          <div class="form-group full">
-            <label>Observação</label>
-            <textarea id="fl-passagem-obs" rows="2" placeholder="Alguma particularidade sobre a passagem (trecho, data de compra, pendência...)">${folga?.passagem_observacao||''}</textarea>
-          </div>
+          ${isEdit?'<div class="form-group full" style="font-size:11px;color:var(--text-muted)"><i class="ti ti-info-circle"></i> Passagem comprada e observações agora são controladas por saída, na aba <strong>Translados</strong>.</div>':''}
         </div></div>
         <div class="modal-footer">
           <button class="btn" onclick="closeModal('modal-folga')">Cancelar</button>
@@ -2887,8 +2902,6 @@ async function saveFolga(id){
     cidade_origem:document.getElementById('fl-cidade').value.trim()||null,
     tipo_passagem_aerea:document.getElementById('fl-aerea').checked,
     tipo_passagem_terrestre:document.getElementById('fl-terrestre').checked,
-    passagem_comprada:document.getElementById('fl-passagem-comprada').value==='sim',
-    passagem_observacao:document.getElementById('fl-passagem-obs').value.trim()||null,
     ...projecoes
   };
   const{error}=id?await sb.from('folgas').update(payload).eq('id',id):await sb.from('folgas').insert(payload);
