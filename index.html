@@ -1285,8 +1285,10 @@ function getFuncionariosFiltrados(){
     lista=lista.filter(f=>f.situacao==='inativo');
     if(obraEfetiva)lista=lista.filter(f=>f.obra_id===obraEfetiva);
   } else {
-    // Ativos: filtra por obra_id atual — onde o funcionário ESTÁ agora
-    lista=lista.filter(f=>f.situacao==='ativo');
+    // Ativos: filtra por obra_id atual — onde o funcionário ESTÁ agora.
+    // Inclui também registros antigos com situacao='transferido' que nunca foram corrigidos
+    // para 'ativo' — se o obra_id aponta pra cá, o funcionário está ativo NESTA obra hoje.
+    lista=lista.filter(f=>f.situacao==='ativo'||f.situacao==='transferido');
     if(obraEfetiva)lista=lista.filter(f=>f.obra_id===obraEfetiva);
   }
   if(busca){const b=busca.toLowerCase();lista=lista.filter(f=>f.nome_completo?.toLowerCase().includes(b)||f.matricula?.toLowerCase().includes(b));}
@@ -1368,7 +1370,7 @@ function atualizarTabelaFuncionarios(){
   // Contadores respeitam filtro de obra — local (se tocado) ou o filtro global do menu lateral
   const obraEfetiva=filtroObraTocado?filtroObra:(filtroObra||globalObraFiltro);
   const baseObra=obraEfetiva?funcionarios.filter(f=>f.obra_id===obraEfetiva):funcionarios;
-  const baseAtivos=baseObra.filter(f=>f.situacao==='ativo').length;
+  const baseAtivos=baseObra.filter(f=>f.situacao==='ativo'||f.situacao==='transferido').length;
   const baseDemitidos=baseObra.filter(f=>f.situacao==='inativo').length;
   const baseTransf=obraEfetiva?funcionarios.filter(f=>f.obra_transferencia_id===obraEfetiva):funcionarios.filter(f=>f.obra_transferencia_id);
   const totalAtivos=baseAtivos;
@@ -1411,7 +1413,7 @@ function renderFuncionarios(){
   const lista=getFuncionariosFiltrados();
   const baseObra=obraEfetiva?funcionarios.filter(f=>f.obra_id===obraEfetiva):funcionarios;
   const baseTransf=obraEfetiva?funcionarios.filter(f=>f.obra_transferencia_id===obraEfetiva):funcionarios.filter(f=>f.obra_transferencia_id);
-  const totalAtivos=baseObra.filter(f=>f.situacao==='ativo').length;
+  const totalAtivos=baseObra.filter(f=>f.situacao==='ativo'||f.situacao==='transferido').length;
   const totalDemitidos=baseObra.filter(f=>f.situacao==='inativo').length;
   const totalTransf=baseTransf.length;
   const theadTransf=`<tr><th>Funcionário</th><th>Função</th><th>Obra Origem → Destino</th><th>Alojamento na Origem</th><th>Empresa</th><th>Admissão</th><th>Transferência</th><th></th></tr>`;
@@ -1582,6 +1584,7 @@ async function verFicha(id,historico=false){
       }
     }
     const passagemStr=[fl.tipo_passagem_aerea?'✈️ Aérea':'',fl.tipo_passagem_terrestre?'🚌 Terrestre':''].filter(Boolean).join(' · ')||'—';
+    const passagemCompradaStr='<strong style="color:'+(fl.passagem_comprada?'var(--success)':'var(--warning)')+'">'+(fl.passagem_comprada?'Comprada':'Não comprada')+'</strong>'+(fl.passagem_observacao?' — <span style="color:var(--text-muted);font-style:italic">"'+fl.passagem_observacao+'"</span>':'');
     const vencsHtml=vencs.map(v=>{
       const bg=v.real?'#F0FDF4':v.prog?'#EFF6FF':'var(--bg)';
       const bd=v.real?'#BBF7D0':v.prog?'#BFDBFE':'var(--border)';
@@ -1594,6 +1597,7 @@ async function verFicha(id,historico=false){
       +'<div class="ficha-field"><div class="ficha-field-label">Período Trabalhado</div><div class="ficha-field-value">'+(fl.periodo_trabalhado||'—')+' dias → '+nD+' dia(s) útil</div></div>'
       +'<div class="ficha-field"><div class="ficha-field-label">Passagem</div><div class="ficha-field-value">'+passagemStr+'</div></div>'
       +'<div class="ficha-field"><div class="ficha-field-label">Cidade de Origem</div><div class="ficha-field-value">'+(fl.cidade_origem||'—')+'</div></div>'
+      +'<div class="ficha-field"><div class="ficha-field-label">Passagem Comprada</div><div class="ficha-field-value">'+passagemCompradaStr+'</div></div>'
       +'</div>'
       +'<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px">'+vencsHtml+'</div>'
       +'</div>';
@@ -1610,10 +1614,12 @@ async function verFicha(id,historico=false){
       const statusColor=diff===null?'var(--text-muted)':diff<0?'var(--danger)':diff<=60?'#B45309':'var(--success)';
       const diffStr=diff===null?'':' <span style="color:'+statusColor+';font-weight:700">('+( diff<0?Math.abs(diff)+'d atrás':diff+'d')+')</span>';
       const progStr=p.programado?('✅ Programada: '+formatDate(p.data_inicio_programada)+' → '+formatDate(p.data_fim_programada)):'⏳ Não programada';
+      const passagemStr=p.programado?('<div style="margin-top:2px">🎫 Passagem: <strong style="color:'+(p.passagem_comprada?'var(--success)':'var(--warning)')+'">'+(p.passagem_comprada?'Comprada':'Não comprada')+'</strong></div>'+(p.passagem_observacao?'<div style="color:var(--text-muted);margin-top:2px;font-style:italic">"'+p.passagem_observacao+'"</div>':'')):'';
       return'<div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;font-size:12px">'
         +'<div style="font-weight:600;color:var(--text-muted);font-size:11px">'+formatDate(p.periodo_aquisitivo_inicio)+' → '+formatDate(p.periodo_aquisitivo_fim)+'</div>'
         +'<div style="margin-top:4px">Limite: <strong>'+(formatDate(p.dt_limite_maxima)||'—')+'</strong>'+diffStr+'</div>'
         +'<div style="color:var(--text-muted);margin-top:2px">'+progStr+'</div>'
+        +passagemStr
         +'</div>';
     }).join('');
     feriasSection='<div class="ficha-section">'
@@ -2735,6 +2741,17 @@ function openModalFolga(folgaId=null){
           <div class="form-section">Tipo de Passagem</div>
           <div class="form-group"><label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="fl-aerea" ${folga?.tipo_passagem_aerea?'checked':''} style="width:auto"> ✈️ Aérea</label></div>
           <div class="form-group"><label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="fl-terrestre" ${folga?.tipo_passagem_terrestre?'checked':''} style="width:auto"> 🚌 Terrestre</label></div>
+          <div class="form-group">
+            <label>Passagem Comprada</label>
+            <select id="fl-passagem-comprada">
+              <option value="nao" ${folga?.passagem_comprada!==true?'selected':''}>Não</option>
+              <option value="sim" ${folga?.passagem_comprada===true?'selected':''}>Sim</option>
+            </select>
+          </div>
+          <div class="form-group full">
+            <label>Observação</label>
+            <textarea id="fl-passagem-obs" rows="2" placeholder="Alguma particularidade sobre a passagem (trecho, data de compra, pendência...)">${folga?.passagem_observacao||''}</textarea>
+          </div>
         </div></div>
         <div class="modal-footer">
           <button class="btn" onclick="closeModal('modal-folga')">Cancelar</button>
@@ -2761,6 +2778,8 @@ async function saveFolga(id){
     cidade_origem:document.getElementById('fl-cidade').value.trim()||null,
     tipo_passagem_aerea:document.getElementById('fl-aerea').checked,
     tipo_passagem_terrestre:document.getElementById('fl-terrestre').checked,
+    passagem_comprada:document.getElementById('fl-passagem-comprada').value==='sim',
+    passagem_observacao:document.getElementById('fl-passagem-obs').value.trim()||null,
     ...projecoes
   };
   const{error}=id?await sb.from('folgas').update(payload).eq('id',id):await sb.from('folgas').insert(payload);
@@ -3453,6 +3472,20 @@ function openModalProgramarFerias(id){
           <div style="margin-top:12px;padding:10px;background:var(--info-light);border-radius:var(--radius);font-size:12px;color:var(--info)">
             <i class="ti ti-info-circle"></i> A programação é salva no sistema e não altera os dados importados do DP.
           </div>
+          <div class="form-section">Passagem</div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Passagem Comprada</label>
+              <select id="prog-passagem-comprada">
+                <option value="nao" ${f.passagem_comprada!==true?'selected':''}>Não</option>
+                <option value="sim" ${f.passagem_comprada===true?'selected':''}>Sim</option>
+              </select>
+            </div>
+            <div class="form-group full">
+              <label>Observação</label>
+              <textarea id="prog-passagem-obs" rows="2" placeholder="Alguma particularidade sobre a passagem (trecho, data de compra, pendência...)">${f.passagem_observacao||''}</textarea>
+            </div>
+          </div>
         </div>
         <div class="modal-footer">
           <button class="btn" onclick="closeModal('modal-prog-ferias')">Cancelar</button>
@@ -3467,8 +3500,10 @@ async function salvarProgFerias(id){
   const dias=parseInt(document.getElementById('prog-dias').value);
   const inicio=document.getElementById('prog-inicio').value;
   const fim=document.getElementById('prog-fim').value;
+  const passagemComprada=document.getElementById('prog-passagem-comprada').value==='sim';
+  const passagemObs=document.getElementById('prog-passagem-obs').value.trim()||null;
   if(!inicio||!fim){showToast('Data início e fim são obrigatórias','error');return;}
-  const{error}=await sb.from('ferias').update({programado:true,dias_programados:dias,data_inicio_programada:inicio,data_fim_programada:fim,validado_dp:false}).eq('id',id);
+  const{error}=await sb.from('ferias').update({programado:true,dias_programados:dias,data_inicio_programada:inicio,data_fim_programada:fim,validado_dp:false,passagem_comprada:passagemComprada,passagem_observacao:passagemObs}).eq('id',id);
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast('Férias programadas!');closeModal('modal-prog-ferias');await loadFerias();renderFerias();
 }
