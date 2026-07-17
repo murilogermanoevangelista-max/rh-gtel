@@ -2491,6 +2491,9 @@ function renderFolgasLocal(){
     for(let n=1;n<=5;n++){if(!f['saida'+n+'_real']){currentN=n;break;}}
     const historicoNs=[];
     for(let n=1;n<currentN&&n<=5;n++)historicoNs.push(n);
+    const trAtual=folgasTranslados.find(x=>String(x.folga_id)===String(f.id)&&x.numero_ciclo===currentN);
+    const compradaAtual=trAtual?.passagem_comprada===true;
+    const passagemAtualBadge=`<div style="margin-top:4px"><span class="passagem-badge" style="background:${compradaAtual?'#F0FDF4':'#FFFBEB'};color:${compradaAtual?'var(--success)':'#92400E'};border:1px solid ${compradaAtual?'#BBF7D0':'#FCD34D'}">🎫 ${compradaAtual?'Comprada':'Não comprada'}</span></div>${trAtual?.passagem_observacao?`<div style="font-size:10px;color:var(--text-muted);margin-top:2px;font-style:italic">💬 ${trAtual.passagem_observacao}</div>`:''}`;
 
     // ── Histórico (colapsado) ──
     const historicoHtml=historicoNs.length?historicoNs.map(n=>{
@@ -2540,6 +2543,7 @@ function renderFolgasLocal(){
         <div class="folga-cell-header">Venc.${currentN}</div>
         <div class="folga-venc ${realDate?'ok':(progDate?'prog':st)}">${formatDate(v)}<br><small>${diffTxt}</small></div>
         ${acoesHtml}
+        ${passagemAtualBadge}
       </div>`;
     } else {
       currentCell=`<div class="folga-cell">
@@ -2570,13 +2574,10 @@ function renderFolgasLocal(){
     }).join('');
 
     const vencCells=historicoCell+currentCell+previewCells;
-    const trAtual=folgasTranslados.find(x=>String(x.folga_id)===String(f.id)&&x.numero_ciclo===currentN);
-    const compradaAtual=trAtual?.passagem_comprada===true;
     const passagemBadges=`
       ${f.tipo_passagem_aerea?'<span class="passagem-badge passagem-aerea">✈ Aérea</span>':''}
       ${f.tipo_passagem_terrestre?'<span class="passagem-badge passagem-terrestre">🚌 Terrestre</span>':''}
-      ${!f.tipo_passagem_aerea&&!f.tipo_passagem_terrestre?'<span class="passagem-badge passagem-nao">—</span>':''}
-      <span class="passagem-badge" style="background:${compradaAtual?'#F0FDF4':'#FFFBEB'};color:${compradaAtual?'var(--success)':'#92400E'};border:1px solid ${compradaAtual?'#BBF7D0':'#FCD34D'}" title="Referente à saída Venc.${currentN<=5?currentN:5}">🎫 ${compradaAtual?'Comprada':'Não comprada'} (Venc.${currentN<=5?currentN:5})</span>`;
+      ${!f.tipo_passagem_aerea&&!f.tipo_passagem_terrestre?'<span class="passagem-badge passagem-nao">—</span>':''}`;
     return`<div class="folga-row">
       <div class="folga-cell">
         <div class="folga-func-name">${f.funcionario?.nome_completo||'—'}</div>
@@ -2588,7 +2589,6 @@ function renderFolgasLocal(){
         </div>
         <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">${passagemBadges}</div>
         ${f.cidade_origem?`<div style="font-size:11px;color:var(--text-muted);margin-top:2px">📍 ${f.cidade_origem}</div>`:''}
-        ${trAtual?.passagem_observacao?`<div style="font-size:11px;color:var(--text-muted);margin-top:2px;font-style:italic">💬 ${trAtual.passagem_observacao}</div>`:''}
       </div>
       <div class="folga-cell"><div class="folga-cell-header">Período</div><div style="font-weight:600">${f.periodo_trabalhado||'—'} dias</div></div>
       <div class="folga-cell"><div class="folga-cell-header">Início</div>${formatDate(f.data_inicio)}</div>
