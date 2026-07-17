@@ -342,7 +342,7 @@ const SUPABASE_URL='https://lqggoshphakeuufibdno.supabase.co';
 const SUPABASE_KEY='sb_publishable_QlnJaa5xdUXePvXFV6QFwQ_AmMk639T';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[],contratacoes=[],contratacoesVagas=[],contratacoesProspeccoes=[];
+let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[],contratacoes=[],contratacoesVagas=[],contratacoesProspeccoes=[],folgasTranslados=[];
 let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'nao_lancadas' | null
 let alojBusca='';
 let bannerNaoLancadasAberto=false;
@@ -643,6 +643,11 @@ async function loadFolgas(){
     lista=lista.filter(x=>x.funcionario?.obra?.codigo&&codigosPermitidos.has(x.funcionario.obra.codigo));
   }
   folgas=lista;
+}
+
+async function loadFolgasTranslados(){
+  const{data}=await sb.from('folgas_translados').select('*');
+  folgasTranslados=data||[];
 }
 
 async function loadFerias(){
@@ -2439,16 +2444,19 @@ function diasFolga(periodo){
 }
 
 async function renderFolgas(){
-  await loadFolgas();
+  await Promise.all([loadFolgas(),loadFolgasTranslados()]);
   renderFolgasLocal();
 }
 function irParaListaMesFolga(funcIds){
   folgasNomesFiltro=new Set((funcIds||[]).filter(Boolean).map(String));
   folgasFiltro='todos';folgasBusca='';
+  folgasAba='programacao';
   renderFolgasLocal();
   setTimeout(()=>document.querySelector('.folga-row')?.scrollIntoView({behavior:'smooth',block:'center'}),50);
 }
+let folgasAba='programacao',transladoObraFiltro='';
 function renderFolgasLocal(){
+  if(folgasAba==='translados'){renderFolgasTranslados();return;}
   const hoje=new Date();hoje.setHours(0,0,0,0);
   let lista=folgas;
   if(globalObraFiltro){lista=lista.filter(f=>String(f.funcionario?.obra_id)===String(globalObraFiltro));}
@@ -2560,7 +2568,8 @@ function renderFolgasLocal(){
     const passagemBadges=`
       ${f.tipo_passagem_aerea?'<span class="passagem-badge passagem-aerea">✈ Aérea</span>':''}
       ${f.tipo_passagem_terrestre?'<span class="passagem-badge passagem-terrestre">🚌 Terrestre</span>':''}
-      ${!f.tipo_passagem_aerea&&!f.tipo_passagem_terrestre?'<span class="passagem-badge passagem-nao">—</span>':''}`;
+      ${!f.tipo_passagem_aerea&&!f.tipo_passagem_terrestre?'<span class="passagem-badge passagem-nao">—</span>':''}
+      <span class="passagem-badge" style="background:${f.passagem_comprada?'#F0FDF4':'#FFFBEB'};color:${f.passagem_comprada?'var(--success)':'#92400E'};border:1px solid ${f.passagem_comprada?'#BBF7D0':'#FCD34D'}">🎫 ${f.passagem_comprada?'Comprada':'Não comprada'}</span>`;
     return`<div class="folga-row">
       <div class="folga-cell">
         <div class="folga-func-name">${f.funcionario?.nome_completo||'—'}</div>
@@ -2570,8 +2579,9 @@ function renderFolgasLocal(){
           <button class="btn btn-sm" title="Editar" onclick="openModalFolga('${f.id}')" style="padding:3px 8px;font-size:11px"><i class="ti ti-edit"></i> Editar</button>
           <button class="btn btn-sm btn-danger" title="Excluir" onclick="deleteFolgaConfirm('${f.id}')" style="padding:3px 8px;font-size:11px"><i class="ti ti-trash"></i></button>
         </div>
-        <div style="margin-top:4px">${passagemBadges}</div>
+        <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">${passagemBadges}</div>
         ${f.cidade_origem?`<div style="font-size:11px;color:var(--text-muted);margin-top:2px">📍 ${f.cidade_origem}</div>`:''}
+        ${f.passagem_observacao?`<div style="font-size:11px;color:var(--text-muted);margin-top:2px;font-style:italic">💬 ${f.passagem_observacao}</div>`:''}
       </div>
       <div class="folga-cell"><div class="folga-cell-header">Período</div><div style="font-weight:600">${f.periodo_trabalhado||'—'} dias</div></div>
       <div class="folga-cell"><div class="folga-cell-header">Início</div>${formatDate(f.data_inicio)}</div>
@@ -2685,6 +2695,10 @@ function renderFolgasLocal(){
         <button class="btn btn-primary" onclick="openModalFolga()"><i class="ti ti-plus"></i> Nova folga</button>
       </div>
     </div>
+    <div class="exp-tabs">
+      <div class="exp-tab active" onclick="folgasAba='programacao';renderFolgasLocal()">Programação</div>
+      <div class="exp-tab" onclick="folgasAba='translados';renderFolgasLocal()">Translados</div>
+    </div>
     ${cardsHtml}
     ${alertsHtml}
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
@@ -2711,6 +2725,101 @@ function renderFolgasLocal(){
       <div class="folga-header-cell">Proj. +4</div>
     </div>
     ${rows}`;
+}
+
+// ─── TRANSLADOS ────────────────────────────────────────────────────────────
+// Aba manual: puxa quem está com folga confirmada (saída programada ou realizada)
+// e passagem comprada, e permite lançar data/local/hora de ida e de retorno
+// para organizar o transporte (translado) até o ponto de embarque.
+function ctrCicloAtualFolga(f){
+  for(let n=1;n<=5;n++){if(!f['saida'+n+'_real'])return n;}
+  return 5;
+}
+function renderFolgasTranslados(){
+  const elegiveis=folgas.filter(f=>{
+    if(!f.passagem_comprada)return false;
+    const n=ctrCicloAtualFolga(f);
+    return !!(f['saida'+n+'_programada']||f['saida'+n+'_real']);
+  });
+  const lista=elegiveis.filter(f=>!transladoObraFiltro||String(f.funcionario?.obra_id)===String(transladoObraFiltro))
+    .sort((a,b)=>{
+      const na=ctrCicloAtualFolga(a),nb=ctrCicloAtualFolga(b);
+      const da=a['saida'+na+'_programada']||a['saida'+na+'_real'];
+      const db=b['saida'+nb+'_programada']||b['saida'+nb+'_real'];
+      return (parseDate(da)||new Date(9999,0))-(parseDate(db)||new Date(9999,0));
+    });
+  const obraOpts=obras.map(o=>`<option value="${o.id}" ${transladoObraFiltro===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
+  const rows=lista.map(f=>{
+    const n=ctrCicloAtualFolga(f);
+    const dataSaida=f['saida'+n+'_real']||f['saida'+n+'_programada'];
+    const t=folgasTranslados.find(x=>String(x.folga_id)===String(f.id)&&x.numero_ciclo===n)||{};
+    const nome=f.funcionario?.nome_completo||'—';
+    const obraNome=f.funcionario?.obra?.codigo||f.funcionario?.obra?.nome||'—';
+    const passagemStr=[f.tipo_passagem_aerea?'✈️ Aérea':'',f.tipo_passagem_terrestre?'🚌 Terrestre':''].filter(Boolean).join(' · ')||'—';
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <div>
+          <div style="font-weight:600">${nome}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${f.funcionario?.matricula||'—'} · ${obraNome} · Venc.${n}: <strong>${formatDate(dataSaida)}</strong> · ${passagemStr}</div>
+        </div>
+        <span class="badge" style="background:var(--success-light,#F0FDF4);color:var(--success)">🎫 Passagem comprada</span>
+      </div>
+      <div class="form-grid" style="gap:8px">
+        <div class="form-section" style="margin:0">Ida (saída até o ponto de embarque)</div>
+        <div></div>
+        <div class="form-group"><label>Data</label><input type="date" id="tr-ida-data-${f.id}" value="${t.data_ida||''}"></div>
+        <div class="form-group"><label>Hora</label><input type="time" id="tr-ida-hora-${f.id}" value="${t.hora_ida||''}"></div>
+        <div class="form-group full"><label>Local</label><input type="text" id="tr-ida-local-${f.id}" placeholder="Ex: Rodoviária de..., Aeroporto de..." value="${t.local_ida||''}"></div>
+        <div class="form-section" style="margin:0">Retorno (chegada de volta à obra/alojamento)</div>
+        <div></div>
+        <div class="form-group"><label>Data</label><input type="date" id="tr-volta-data-${f.id}" value="${t.data_retorno||''}"></div>
+        <div class="form-group"><label>Hora</label><input type="time" id="tr-volta-hora-${f.id}" value="${t.hora_retorno||''}"></div>
+        <div class="form-group full"><label>Local</label><input type="text" id="tr-volta-local-${f.id}" placeholder="Ex: Rodoviária de..., Aeroporto de..." value="${t.local_retorno||''}"></div>
+      </div>
+      <div style="margin-top:10px;display:flex;justify-content:flex-end">
+        <button class="btn btn-primary btn-sm" onclick="salvarTranslado('${f.id}',${n})"><i class="ti ti-check"></i> Salvar translado</button>
+      </div>
+    </div>`;
+  }).join('')||'<div style="color:var(--text-muted);font-size:13px;padding:24px 0;text-align:center">Nenhum funcionário com folga confirmada e passagem comprada no momento.</div>';
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title">Folgas de Campo</div><div class="page-subtitle">${lista.length} translado(s) a organizar</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="exportFolgasExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
+        <button class="btn btn-primary" onclick="openModalFolga()"><i class="ti ti-plus"></i> Nova folga</button>
+      </div>
+    </div>
+    <div class="exp-tabs">
+      <div class="exp-tab" onclick="folgasAba='programacao';renderFolgasLocal()">Programação</div>
+      <div class="exp-tab active" onclick="folgasAba='translados';renderFolgasLocal()">Translados</div>
+    </div>
+    <div style="background:var(--info-light);border-radius:var(--radius);padding:10px 14px;font-size:12px;color:var(--info);margin-bottom:16px">
+      <i class="ti ti-info-circle"></i> Mostra quem está com a próxima saída programada ou confirmada e a passagem já comprada. Lance aqui manualmente a data, local e horário de ida e de retorno para organizar o translado.
+    </div>
+    <div class="filters">
+      <select class="filter-select" onchange="transladoObraFiltro=this.value;renderFolgasTranslados()">
+        <option value="">Todas as obras</option>${obraOpts}
+      </select>
+      <button class="btn btn-sm" onclick="transladoObraFiltro='';renderFolgasTranslados()"><i class="ti ti-x"></i> Limpar</button>
+    </div>
+    ${rows}`;
+}
+
+async function salvarTranslado(folgaId,numeroCiclo){
+  const payload={
+    folga_id:folgaId,
+    numero_ciclo:numeroCiclo,
+    data_ida:document.getElementById(`tr-ida-data-${folgaId}`).value||null,
+    hora_ida:document.getElementById(`tr-ida-hora-${folgaId}`).value||null,
+    local_ida:document.getElementById(`tr-ida-local-${folgaId}`).value.trim()||null,
+    data_retorno:document.getElementById(`tr-volta-data-${folgaId}`).value||null,
+    hora_retorno:document.getElementById(`tr-volta-hora-${folgaId}`).value||null,
+    local_retorno:document.getElementById(`tr-volta-local-${folgaId}`).value.trim()||null,
+  };
+  const{error}=await sb.from('folgas_translados').upsert(payload,{onConflict:'folga_id,numero_ciclo'});
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Translado salvo!');
+  await loadFolgasTranslados();renderFolgasTranslados();
 }
 
 function openModalFolga(folgaId=null){
