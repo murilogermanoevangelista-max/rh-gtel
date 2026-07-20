@@ -7799,8 +7799,8 @@ function ctrDocsPct(c){
 }
 
 const CTR_ETAPAS=[
-  {key:'aguardando_exame',label:'Aguardando Exame',test:c=>!c.data_exame,icon:'ti-hourglass'},
-  {key:'exame_realizado',label:'Exame Realizado',test:c=>!!c.data_exame,icon:'ti-stethoscope'},
+  {key:'aguardando_exame',label:'Aguardando Exame',test:c=>!c.data_resultado_exame,icon:'ti-hourglass'},
+  {key:'exame_realizado',label:'Exame Realizado',test:c=>!!c.data_resultado_exame,icon:'ti-stethoscope'},
   {key:'documentos_portal',label:'Documentos Portal',test:c=>!!c.data_documentos_portal,icon:'ti-file-upload'},
   {key:'aprovacao_diretoria',label:'Aprovação Diretoria',test:c=>!!c.data_aprovacao_diretoria,icon:'ti-stamp'},
   {key:'envio_dp',label:'Envio DP → Registro',test:c=>!!c.data_envio_dp,icon:'ti-send'},
