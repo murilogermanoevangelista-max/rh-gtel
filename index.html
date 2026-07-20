@@ -7940,9 +7940,11 @@ function renderContratacoesCandidatos(){
     }
     return headerHtml+`<tr>
       <td>
-        <div style="font-weight:600;color:var(--primary-dark)">${c.nome||'—'}</div>
-        ${c.origem?`<div style="font-size:11px;color:var(--text-muted)">${c.origem}</div>`:''}
-        ${c.observacao?`<div style="font-size:11px;color:var(--warning);display:flex;align-items:center;gap:3px;margin-top:2px" title="${c.observacao.replace(/"/g,'&quot;')}"><i class="ti ti-note" style="font-size:12px"></i><span style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.observacao}</span></div>`:''}
+        <div style="display:flex;align-items:center;flex-wrap:nowrap;gap:6px;overflow:hidden">
+          <span style="font-weight:600;color:var(--primary-dark);white-space:nowrap">${c.nome||'—'}</span>
+          ${c.origem?`<span style="font-size:11px;color:var(--text-muted);white-space:nowrap">· ${c.origem}</span>`:''}
+          ${c.observacao?`<span style="font-size:11px;color:var(--warning);display:flex;align-items:center;gap:3px;overflow:hidden" title="${c.observacao.replace(/"/g,'&quot;')}"><i class="ti ti-note" style="font-size:12px;flex:0 0 auto"></i><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.observacao}</span></span>`:''}
+        </div>
       </td>
       <td style="font-size:12px">${c.funcao?.nome||'—'}</td>
       <td style="font-size:12px">${c.obra?`${c.obra.codigo?c.obra.codigo+' — ':''}${c.obra.nome||''}`:'<span style="color:var(--text-muted)">—</span>'}</td>
