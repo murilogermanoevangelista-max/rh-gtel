@@ -7870,6 +7870,23 @@ function ctrCalcularProjecoes(c){
   };
 }
 
+function ctrProjCelulas(c){
+  const hoje=ctrHojeISO();
+  const tipoLabel=c.tipo_exame==='operacional_ac'?'Operacional AC':(c.tipo_exame==='operacional'?'Operacional':null);
+  const p=ctrCalcularProjecoes(c);
+  const exameOk=p.resultadoExameReal||(p.resultadoExame&&hoje>=p.resultadoExame);
+  const registroOk=p.envioDp&&hoje>=p.envioDp;
+  const tag=(isReal,campo,valor)=>isReal?'':` <button class="btn btn-sm" style="padding:1px 5px;font-size:9px" onclick="event.stopPropagation();ctrConfirmarData('${c.id}','${campo}','${valor}')" title="Confirmar que essa data foi efetivada"><i class="ti ti-check"></i></button>`;
+  const nowrap='style="font-size:11px;white-space:nowrap"';
+  return{
+    exame:tipoLabel?`<div ${nowrap}>${tipoLabel} · ${ctrFmtData(c.data_exame)} <span class="badge ${exameOk?'badge-green':'badge-amber'}" style="margin-left:2px">${exameOk?'Result. disp.':'Aguard.'} ${ctrFmtData(p.resultadoExame)}</span>${p.resultadoExame?tag(p.resultadoExameReal,'data_resultado_exame',p.resultadoExame):''}</div>`:'<span style="color:var(--text-muted)">—</span>',
+    docPortal:p.docPortal?`<div ${nowrap}>${ctrFmtData(p.docPortal)}${tag(p.docPortalReal,'data_documentos_portal',p.docPortal)}</div>`:'<span style="color:var(--text-muted)">—</span>',
+    aprovacao:p.aprovacao?`<div ${nowrap}>${ctrFmtData(p.aprovacao)}${tag(p.aprovacaoReal,'data_aprovacao_diretoria',p.aprovacao)}</div>`:'<span style="color:var(--text-muted)">—</span>',
+    envioDp:p.envioDp?`<div ${nowrap}>${ctrFmtData(p.envioDp)}${tag(p.envioDpReal,'data_envio_dp',p.envioDp)} → <span class="badge ${registroOk?'badge-green':'badge-amber'}">${ctrFmtData(p.admissao)}</span>${tag(p.admissaoReal,'data_prevista_admissao',p.admissao)}</div>`:'<span style="color:var(--text-muted)">—</span>',
+    integracao:c.data_integracao_prevista?`<div ${nowrap}>${ctrFmtData(c.data_integracao_prevista)}</div>`:'<span style="color:var(--text-muted)">—</span>',
+    mobilizacao:c.data_viagem_mobilizacao?`<div ${nowrap}>${ctrFmtData(c.data_viagem_mobilizacao)} → ${ctrFmtData(c.data_prevista_chegada)}</div>`:'<span style="color:var(--text-muted)">—</span>',
+  };
+}
 function ctrProjResumoHtml(c){
   const hoje=ctrHojeISO();
   const tipoLabel=c.tipo_exame==='operacional_ac'?'Operacional AC':(c.tipo_exame==='operacional'?'Operacional':null);
@@ -7904,8 +7921,12 @@ function renderContratacoesCandidatos(){
     if(contratacoesFiltroObra&&String(c.obra_id)!==String(contratacoesFiltroObra))return false;
     if(contratacoesFiltroNome&&String(c.id)!==String(contratacoesFiltroNome))return false;
     if(contratacoesFiltroEtapa){
-      const etapa=CTR_ETAPAS.find(e=>e.key===contratacoesFiltroEtapa);
-      if(etapa&&!etapa.test(c))return false;
+      if(contratacoesFiltroEtapa==='admitido'){
+        if(!c.data_prevista_admissao)return false;
+      }else{
+        const etapa=CTR_ETAPAS.find(e=>e.key===contratacoesFiltroEtapa);
+        if(etapa&&!etapa.test(c))return false;
+      }
     }
     if(contratacoesBusca){
       const b=contratacoesBusca.toLowerCase();
@@ -7916,6 +7937,7 @@ function renderContratacoesCandidatos(){
 
   const total=ativos.length;
   const emProcesso=ativos.filter(c=>c.status==='em_processo').length;
+  const admitidos=ativos.filter(c=>!!c.data_prevista_admissao).length;
   const aguardando=ativos.filter(c=>c.status==='aguardando_integracao').length;
   const integrados=ativos.filter(c=>c.status==='integrado').length;
   const totalPrevisto=contratacoesVagas.reduce((s,v)=>s+(v.quantidade_prevista||0),0);
@@ -7936,8 +7958,9 @@ function renderContratacoesCandidatos(){
     if(funcaoNome!==ctrGrupoAnterior){
       ctrGrupoAnterior=funcaoNome;
       const countGrupo=listaOrdenada.filter(x=>(x.funcao?.nome||'Sem função')===funcaoNome).length;
-      headerHtml=`<tr><td colspan="7" style="background:var(--bg);padding:8px 14px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;border-top:2px solid var(--border)">${funcaoNome} <span style="font-weight:400;text-transform:none">(${countGrupo})</span></td></tr>`;
+      headerHtml=`<tr><td colspan="13" style="background:var(--bg);padding:8px 14px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;border-top:2px solid var(--border)">${funcaoNome} <span style="font-weight:400;text-transform:none">(${countGrupo})</span></td></tr>`;
     }
+    const pc=ctrProjCelulas(c);
     return headerHtml+`<tr>
       <td>
         <div style="display:flex;align-items:center;flex-wrap:nowrap;gap:6px;overflow:hidden">
@@ -7946,16 +7969,22 @@ function renderContratacoesCandidatos(){
           ${c.observacao?`<span style="font-size:11px;color:var(--warning);display:flex;align-items:center;gap:3px;overflow:hidden" title="${c.observacao.replace(/"/g,'&quot;')}"><i class="ti ti-note" style="font-size:12px;flex:0 0 auto"></i><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.observacao}</span></span>`:''}
         </div>
       </td>
-      <td style="font-size:12px">${c.funcao?.nome||'—'}</td>
-      <td style="font-size:12px">${c.obra?`${c.obra.codigo?c.obra.codigo+' — ':''}${c.obra.nome||''}`:'<span style="color:var(--text-muted)">—</span>'}</td>
-      <td style="font-size:12px">${c.contato||'—'}${c.salario?`<div style="color:var(--text-muted)">R$ ${Number(c.salario).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>`:''}</td>
-      <td style="min-width:140px">
+      <td style="font-size:12px;white-space:nowrap">${c.funcao?.nome||'—'}</td>
+      <td style="font-size:12px;white-space:nowrap">${c.obra?`${c.obra.codigo?c.obra.codigo+' — ':''}${c.obra.nome||''}`:'<span style="color:var(--text-muted)">—</span>'}</td>
+      <td style="font-size:12px;white-space:nowrap">${c.contato||'—'}${c.salario?`<div style="color:var(--text-muted)">R$ ${Number(c.salario).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>`:''}</td>
+      <td style="min-width:120px">
         <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="openModalDocumentosContratacao('${c.id}')" title="Ver/editar checklist de documentos">
-          <div style="flex:1;height:6px;background:var(--border);border-radius:3px"><div style="height:6px;border-radius:3px;background:${corBarra};width:${pct}%"></div></div>
-          <span style="font-size:11px;font-weight:600;color:${corBarra};min-width:52px">${done}/${tdocs}</span>
+          <div style="flex:1;height:6px;background:var(--border);border-radius:3px;min-width:40px"><div style="height:6px;border-radius:3px;background:${corBarra};width:${pct}%"></div></div>
+          <span style="font-size:11px;font-weight:600;color:${corBarra};min-width:40px">${done}/${tdocs}</span>
         </div>
       </td>
-      <td><span class="badge" style="background:${si.bg};color:${si.cor}">${si.label}</span></td>
+      <td style="white-space:nowrap">${pc.exame}</td>
+      <td style="white-space:nowrap">${pc.docPortal}</td>
+      <td style="white-space:nowrap">${pc.aprovacao}</td>
+      <td style="white-space:nowrap">${pc.envioDp}</td>
+      <td style="white-space:nowrap">${pc.integracao}</td>
+      <td style="white-space:nowrap">${pc.mobilizacao}</td>
+      <td><span class="badge" style="background:${si.bg};color:${si.cor};white-space:nowrap">${si.label}</span></td>
       <td>
         <div class="action-btns">
           <button class="btn btn-sm" onclick="openModalDocumentosContratacao('${c.id}')" title="Checklist de documentos"><i class="ti ti-checklist"></i></button>
@@ -7963,11 +7992,8 @@ function renderContratacoesCandidatos(){
           <button class="btn btn-sm btn-danger" onclick="deleteContratacao('${c.id}','${(c.nome||'').replace(/'/g,"\\'")}')" title="Excluir"><i class="ti ti-trash"></i></button>
         </div>
       </td>
-    </tr>
-    <tr>
-      <td colspan="7" style="background:var(--bg);border-top:none;padding:0">${ctrProjResumoHtml(c)}</td>
     </tr>`;
-  }).join('')||'<tr><td colspan="7"><div class="empty-state"><i class="ti ti-user-plus"></i><div>Nenhum candidato encontrado</div></div></td></tr>';
+  }).join('')||'<tr><td colspan="13"><div class="empty-state"><i class="ti ti-user-plus"></i><div>Nenhum candidato encontrado</div></div></td></tr>';
 
   const funcaoOpts=ctrFuncoesUnicas().map(f=>`<option value="${f.id}" ${contratacoesFiltroFuncao===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${contratacoesFiltroObra===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
@@ -8023,7 +8049,7 @@ function renderContratacoesCandidatos(){
       <div class="exp-tab${contratacoesTab==='vagas'?' active':''}" onclick="contratacoesTab='vagas';renderContratacoes()">Vagas Previstas</div>
       <div class="exp-tab${contratacoesTab==='desistencias'?' active':''}" onclick="contratacoesTab='desistencias';renderContratacoes()">Desistências</div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px">
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px">
       <div class="metric-card" onclick="contratacoesTab='vagas';renderContratacoes()" style="cursor:pointer;border-color:var(--border)">
         <div class="metric-label">Vagas Previstas</div><div class="metric-value">${totalPrevisto}</div>
       </div>
@@ -8032,6 +8058,9 @@ function renderContratacoesCandidatos(){
       </div>
       <div class="metric-card amber" onclick="contratacoesFiltroStatus='em_processo';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${contratacoesFiltroStatus==='em_processo'?'var(--warning)':'var(--border)'}">
         <div class="metric-label">Em Processo</div><div class="metric-value">${emProcesso}</div>
+      </div>
+      <div class="metric-card" onclick="contratacoesFiltroEtapa=contratacoesFiltroEtapa==='admitido'?'':'admitido';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${contratacoesFiltroEtapa==='admitido'?'var(--primary)':'var(--border)'}">
+        <div class="metric-label">Admitidos</div><div class="metric-value">${admitidos}</div>
       </div>
       <div class="metric-card" onclick="contratacoesFiltroStatus='aguardando_integracao';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${contratacoesFiltroStatus==='aguardando_integracao'?'var(--info)':'var(--border)'}">
         <div class="metric-label">Aguardando Integração</div><div class="metric-value">${aguardando}</div>
@@ -8064,9 +8093,9 @@ function renderContratacoesCandidatos(){
       </select>
       <button class="btn btn-sm" onclick="contratacoesBusca='';contratacoesFiltroStatus='';contratacoesFiltroFuncao='';contratacoesFiltroObra='';contratacoesFiltroNome='';contratacoesFiltroEtapa='';renderContratacoesCandidatos()"><i class="ti ti-x"></i> Limpar</button>
     </div>
-    <div class="table-container"><table>
+    <div class="table-container" style="overflow-x:auto"><table>
       <thead><tr>
-        <th>Candidato</th><th>Função</th><th>Obra</th><th>Contato</th><th>Documentação</th><th>Status</th><th>Ações</th>
+        <th>Candidato</th><th>Função</th><th>Obra</th><th>Contato</th><th>Documentação</th><th>Exame</th><th>Doc. Portal</th><th>Aprovação</th><th>Envio DP → Registro</th><th>Integração</th><th>Mobilização</th><th>Status</th><th>Ações</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
