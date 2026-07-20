@@ -2488,12 +2488,25 @@ function renderFolgasLocal(){
     // Se todos os 5 já foram confirmados, o atual fica "além" do armazenado (6), e as próximas projeções
     // passam a ser calculadas dinamicamente (calcVencimentoN), sem precisar de mais colunas no banco.
     let currentN=6;
-    for(let n=1;n<=5;n++){if(!f['saida'+n+'_real']){currentN=n;break;}}
+    for(let n=1;n<=5;n++){
+      const realN=f['saida'+n+'_real'];
+      if(!realN){currentN=n;break;}
+      const realNDate=parseDate(realN);
+      // Só considera o ciclo "concluído" (vai pro histórico) depois que a data de gozo já passou.
+      // Enquanto a data ainda não chegou, mesmo com saída confirmada, continua aparecendo como Próxima Saída.
+      if(realNDate&&realNDate>=hoje){currentN=n;break;}
+    }
     const historicoNs=[];
     for(let n=1;n<currentN&&n<=5;n++)historicoNs.push(n);
     const trAtual=folgasTranslados.find(x=>String(x.folga_id)===String(f.id)&&x.numero_ciclo===currentN);
     const compradaAtual=trAtual?.passagem_comprada===true;
-    const passagemAtualBadge=`<div style="margin-top:4px"><span class="passagem-badge" style="background:${compradaAtual?'#F0FDF4':'#FFFBEB'};color:${compradaAtual?'var(--success)':'#92400E'};border:1px solid ${compradaAtual?'#BBF7D0':'#FCD34D'}">🎫 ${compradaAtual?'Comprada':'Não comprada'}</span></div>${trAtual?.passagem_observacao?`<div style="font-size:10px;color:var(--text-muted);margin-top:2px;font-style:italic">💬 ${trAtual.passagem_observacao}</div>`:''}`;
+    const passagemAtualBadge=`<div style="margin-top:4px;display:flex;align-items:center;gap:6px">
+      <span style="font-size:10px;color:var(--text-muted);font-weight:600">🎫 Passagem:</span>
+      <select onchange="togglePassagemComprada('${f.id}',${currentN},this.value)" onclick="event.stopPropagation()" style="font-size:11px;padding:2px 6px;border-radius:6px;border:1px solid ${compradaAtual?'#BBF7D0':'#FCD34D'};background:${compradaAtual?'#F0FDF4':'#FFFBEB'};color:${compradaAtual?'var(--success)':'#92400E'};font-weight:600;cursor:pointer">
+        <option value="nao" ${!compradaAtual?'selected':''}>Não comprada</option>
+        <option value="sim" ${compradaAtual?'selected':''}>Comprada</option>
+      </select>
+    </div>${trAtual?.passagem_observacao?`<div style="font-size:10px;color:var(--text-muted);margin-top:2px;font-style:italic">💬 ${trAtual.passagem_observacao}</div>`:''}`;
 
     // ── Histórico (colapsado) ──
     const historicoHtml=historicoNs.length?historicoNs.map(n=>{
@@ -2521,9 +2534,14 @@ function renderFolgasLocal(){
       const progDate=f['saida'+currentN+'_programada'];
       const projDate=f['saida'+currentN+'_projecao'];
       const diff=Math.floor((v-hoje)/86400000);
-      const diffTxt=realDate?'✓':(diff<0?`${Math.abs(diff)}d atrás`:`${diff}d`);
+      const realDateObj=realDate?parseDate(realDate):null;
+      const aindaNaoChegou=realDateObj&&realDateObj>=hoje;
+      const diffSaida=realDateObj?Math.floor((realDateObj-hoje)/86400000):null;
+      const diffTxt=realDate?(aindaNaoChegou?`em ${diffSaida}d`:'✓'):(diff<0?`${Math.abs(diff)}d atrás`:`${diff}d`);
       let acoesHtml;
-      if(realDate){
+      if(realDate&&aindaNaoChegou){
+        acoesHtml=`<div style="font-size:11px;color:var(--info);font-weight:600">📌 Confirmado: ${formatDate(realDate)} <span style="cursor:pointer;color:var(--danger);margin-left:4px" onclick="removeSaidaReal('${f.id}',${currentN})">✕</span></div>`;
+      } else if(realDate){
         acoesHtml=`<div style="font-size:11px;color:var(--success)">✓ Saiu: ${formatDate(realDate)} <span style="cursor:pointer;color:var(--danger);margin-left:4px" onclick="removeSaidaReal('${f.id}',${currentN})">✕</span></div>`;
       } else if(progDate){
         acoesHtml=`<div style="font-size:11px;color:var(--info);font-weight:600">📅 Programado: ${formatDate(progDate)}</div>
@@ -2541,7 +2559,7 @@ function renderFolgasLocal(){
       }
       currentCell=`<div class="folga-cell">
         <div class="folga-cell-header">Venc.${currentN}</div>
-        <div class="folga-venc ${realDate?'ok':(progDate?'prog':st)}">${formatDate(v)}<br><small>${diffTxt}</small></div>
+        <div class="folga-venc ${realDate?(aindaNaoChegou?'prog':'ok'):(progDate?'prog':st)}">${formatDate(v)}<br><small>${diffTxt}</small></div>
         ${acoesHtml}
         ${passagemAtualBadge}
       </div>`;
@@ -2828,6 +2846,27 @@ function renderFolgasTranslados(){
     ${rows}`;
 }
 
+async function togglePassagemComprada(folgaId,numeroCiclo,valor){
+  // Atalho usado na tela de Programação: atualiza só o status da passagem,
+  // preservando os demais dados do translado (observação, datas/locais de ida e volta) já salvos.
+  const existente=folgasTranslados.find(x=>String(x.folga_id)===String(folgaId)&&x.numero_ciclo===numeroCiclo)||{};
+  const payload={
+    folga_id:folgaId,
+    numero_ciclo:numeroCiclo,
+    passagem_comprada:valor==='sim',
+    passagem_observacao:existente.passagem_observacao||null,
+    data_ida:existente.data_ida||null,
+    hora_ida:existente.hora_ida||null,
+    local_ida:existente.local_ida||null,
+    data_retorno:existente.data_retorno||null,
+    hora_retorno:existente.hora_retorno||null,
+    local_retorno:existente.local_retorno||null,
+  };
+  const{error}=await sb.from('folgas_translados').upsert(payload,{onConflict:'folga_id,numero_ciclo'});
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast(valor==='sim'?'Passagem marcada como comprada!':'Passagem marcada como não comprada.');
+  await loadFolgasTranslados();renderFolgasLocal();
+}
 async function salvarTranslado(folgaId,numeroCiclo){
   const payload={
     folga_id:folgaId,
