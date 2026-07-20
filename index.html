@@ -7799,12 +7799,13 @@ function ctrDocsPct(c){
 }
 
 const CTR_ETAPAS=[
-  {key:'exame',label:'Exame',campo:'data_exame',icon:'ti-stethoscope'},
-  {key:'documentos_portal',label:'Documentos Portal',campo:'data_documentos_portal',icon:'ti-file-upload'},
-  {key:'aprovacao_diretoria',label:'Aprovação Diretoria',campo:'data_aprovacao_diretoria',icon:'ti-stamp'},
-  {key:'envio_dp',label:'Envio DP → Registro',campo:'data_envio_dp',icon:'ti-send'},
-  {key:'integracao_prevista',label:'Integração Prevista',campo:'data_integracao_prevista',icon:'ti-calendar-event'},
-  {key:'mobilizacao',label:'Mobilização → Chegada',campo:'data_viagem_mobilizacao',icon:'ti-plane-departure'},
+  {key:'aguardando_exame',label:'Aguardando Exame',test:c=>!c.data_exame,icon:'ti-hourglass'},
+  {key:'exame_realizado',label:'Exame Realizado',test:c=>!!c.data_exame,icon:'ti-stethoscope'},
+  {key:'documentos_portal',label:'Documentos Portal',test:c=>!!c.data_documentos_portal,icon:'ti-file-upload'},
+  {key:'aprovacao_diretoria',label:'Aprovação Diretoria',test:c=>!!c.data_aprovacao_diretoria,icon:'ti-stamp'},
+  {key:'envio_dp',label:'Envio DP → Registro',test:c=>!!c.data_envio_dp,icon:'ti-send'},
+  {key:'integracao_prevista',label:'Integração Prevista',test:c=>!!c.data_integracao_prevista,icon:'ti-calendar-event'},
+  {key:'mobilizacao',label:'Mobilização → Chegada',test:c=>!!c.data_viagem_mobilizacao,icon:'ti-plane-departure'},
 ];
 function ctrStatusInfo(status){
   const map={
@@ -7901,7 +7902,7 @@ function renderContratacoesCandidatos(){
     if(contratacoesFiltroNome&&String(c.id)!==String(contratacoesFiltroNome))return false;
     if(contratacoesFiltroEtapa){
       const etapa=CTR_ETAPAS.find(e=>e.key===contratacoesFiltroEtapa);
-      if(etapa&&!c[etapa.campo])return false;
+      if(etapa&&!etapa.test(c))return false;
     }
     if(contratacoesBusca){
       const b=contratacoesBusca.toLowerCase();
@@ -7990,9 +7991,9 @@ function renderContratacoesCandidatos(){
   const etapasHtml=`
     <div style="margin-bottom:16px">
       <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Documentos / etapas lançadas no sistema</div>
-      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px">
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:10px">
         ${CTR_ETAPAS.map(e=>{
-          const count=ativos.filter(c=>!!c[e.campo]).length;
+          const count=ativos.filter(e.test).length;
           const ativo=contratacoesFiltroEtapa===e.key;
           return`<div onclick="contratacoesFiltroEtapa='${ativo?'':e.key}';renderContratacoesCandidatos()"
             style="cursor:pointer;background:var(--surface);border:1px solid ${ativo?'var(--primary)':'var(--border)'};border-radius:var(--radius-lg);padding:12px 14px;transition:.15s">
