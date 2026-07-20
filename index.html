@@ -7772,7 +7772,7 @@ const DOCS_CONTRATACAO=[
   ['cert_eletrica','Certificado de Elétrica'],
 ];
 
-let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesFiltroNome='',contratacoesVagasFiltroObra='',ctrFuncaoModoManual=false,prospBusca='',prospFiltroFuncao='',prospFiltroRetorno='',prospFuncaoModoManual=false,desistBusca='',desistFiltroFuncao='',desistFiltroTipo='';
+let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesFiltroNome='',contratacoesFiltroEtapa='',contratacoesVagasFiltroObra='',ctrFuncaoModoManual=false,prospBusca='',prospFiltroFuncao='',prospFiltroRetorno='',prospFuncaoModoManual=false,desistBusca='',desistFiltroFuncao='',desistFiltroTipo='';
 
 function ctrAddDiasUteis(dataISO,dias){
   if(!dataISO)return null;
@@ -7798,6 +7798,14 @@ function ctrDocsPct(c){
   return{done,total,pct:total?Math.round(done/total*100):100};
 }
 
+const CTR_ETAPAS=[
+  {key:'exame',label:'Exame',campo:'data_exame',icon:'ti-stethoscope'},
+  {key:'documentos_portal',label:'Documentos Portal',campo:'data_documentos_portal',icon:'ti-file-upload'},
+  {key:'aprovacao_diretoria',label:'Aprovação Diretoria',campo:'data_aprovacao_diretoria',icon:'ti-stamp'},
+  {key:'envio_dp',label:'Envio DP → Registro',campo:'data_envio_dp',icon:'ti-send'},
+  {key:'integracao_prevista',label:'Integração Prevista',campo:'data_integracao_prevista',icon:'ti-calendar-event'},
+  {key:'mobilizacao',label:'Mobilização → Chegada',campo:'data_viagem_mobilizacao',icon:'ti-plane-departure'},
+];
 function ctrStatusInfo(status){
   const map={
     em_processo:{label:'Em Processo',bg:'var(--warning-light)',cor:'var(--warning)'},
@@ -7874,6 +7882,10 @@ function renderContratacoesCandidatos(){
     if(contratacoesFiltroFuncao&&String(c.funcao_id)!==String(contratacoesFiltroFuncao))return false;
     if(contratacoesFiltroObra&&String(c.obra_id)!==String(contratacoesFiltroObra))return false;
     if(contratacoesFiltroNome&&String(c.id)!==String(contratacoesFiltroNome))return false;
+    if(contratacoesFiltroEtapa){
+      const etapa=CTR_ETAPAS.find(e=>e.key===contratacoesFiltroEtapa);
+      if(etapa&&!c[etapa.campo])return false;
+    }
     if(contratacoesBusca){
       const b=contratacoesBusca.toLowerCase();
       return(c.nome||'').toLowerCase().includes(b)||(c.origem||'').toLowerCase().includes(b)||(c.contato||'').toLowerCase().includes(b);
@@ -7958,6 +7970,25 @@ function renderContratacoesCandidatos(){
       </div>
     </div>` : '';
 
+  const etapasHtml=`
+    <div style="margin-bottom:16px">
+      <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Documentos / etapas lançadas no sistema</div>
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px">
+        ${CTR_ETAPAS.map(e=>{
+          const count=ativos.filter(c=>!!c[e.campo]).length;
+          const ativo=contratacoesFiltroEtapa===e.key;
+          return`<div onclick="contratacoesFiltroEtapa='${ativo?'':e.key}';renderContratacoesCandidatos()"
+            style="cursor:pointer;background:var(--surface);border:1px solid ${ativo?'var(--primary)':'var(--border)'};border-radius:var(--radius-lg);padding:12px 14px;transition:.15s">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+              <i class="ti ${e.icon}" style="font-size:14px;color:${ativo?'var(--primary)':'var(--text-muted)'}"></i>
+              <span style="font-size:10px;font-weight:700;color:${ativo?'var(--primary-dark)':'var(--text-muted)'};text-transform:uppercase;letter-spacing:.3px">${e.label}</span>
+            </div>
+            <div style="font-size:22px;font-weight:700;color:${ativo?'var(--primary-dark)':'var(--text)'}">${count}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div><div class="page-title"><i class="ti ti-user-plus"></i> Contratações</div><div class="page-subtitle">${total} candidato(s) cadastrado(s)</div></div>
@@ -7987,6 +8018,7 @@ function renderContratacoesCandidatos(){
       </div>
     </div>
     ${funcoesEmProcessoHtml}
+    ${etapasHtml}
     <div class="filters">
       <div class="search-box"><i class="ti ti-search"></i>
         <input placeholder="Buscar por nome, origem, contato..." value="${contratacoesBusca}"
@@ -8007,7 +8039,7 @@ function renderContratacoesCandidatos(){
         <option value="aguardando_integracao" ${contratacoesFiltroStatus==='aguardando_integracao'?'selected':''}>Aguardando Integração</option>
         <option value="integrado" ${contratacoesFiltroStatus==='integrado'?'selected':''}>Integrado</option>
       </select>
-      <button class="btn btn-sm" onclick="contratacoesBusca='';contratacoesFiltroStatus='';contratacoesFiltroFuncao='';contratacoesFiltroObra='';contratacoesFiltroNome='';renderContratacoesCandidatos()"><i class="ti ti-x"></i> Limpar</button>
+      <button class="btn btn-sm" onclick="contratacoesBusca='';contratacoesFiltroStatus='';contratacoesFiltroFuncao='';contratacoesFiltroObra='';contratacoesFiltroNome='';contratacoesFiltroEtapa='';renderContratacoesCandidatos()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div class="table-container"><table>
       <thead><tr>
