@@ -2511,9 +2511,12 @@ function renderFolgasLocal(){
     // ── Histórico (colapsado) ──
     const historicoHtml=historicoNs.length?historicoNs.map(n=>{
       const real=f['saida'+n+'_real'];
-      return`<div style="display:flex;justify-content:space-between;gap:6px;padding:3px 0;border-bottom:1px solid var(--border)">
+      return`<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid var(--border)">
         <span style="color:var(--text-muted)">Venc.${n}: ${formatDate(vencs[n-1])}</span>
-        <span style="color:var(--success);font-weight:600;white-space:nowrap">✓ ${formatDate(real)}</span>
+        <span style="display:flex;align-items:center;gap:6px;white-space:nowrap">
+          <span style="color:var(--success);font-weight:600">✓ ${formatDate(real)}</span>
+          <span title="Remover este lançamento (ex: duplicidade)" style="cursor:pointer;color:var(--danger)" onclick="event.stopPropagation();removeSaidaReal('${f.id}',${n})">✕</span>
+        </span>
       </div>`;
     }).join(''):'';
     const historicoCell=`<div class="folga-cell">
