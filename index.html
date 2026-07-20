@@ -7816,9 +7816,24 @@ function ctrStatusInfo(status){
   return map[status]||{label:status||'—',bg:'var(--bg)',cor:'var(--text-muted)'};
 }
 
+async function ctrAutoSyncProspeccoes(){
+  // Se o candidato já foi lançado em "Candidatos" (circuito de processo), o contato de
+  // Prospecção correspondente (mesmo nome) deve refletir automaticamente "Aceitou".
+  const nomesAtivos=new Set(contratacoes.filter(c=>c.status!=='desistiu').map(c=>ctrNorm(c.nome)));
+  const pendentes=contratacoesProspeccoes.filter(p=>p.retorno!=='aceitou'&&nomesAtivos.has(ctrNorm(p.nome)));
+  if(!pendentes.length)return false;
+  for(const p of pendentes){
+    await sb.from('contratacoes_prospeccoes').update({retorno:'aceitou',data_aceite:p.data_aceite||ctrHojeISO()}).eq('id',p.id);
+  }
+  await loadContratacoesProspeccoes();
+  return true;
+}
 function renderContratacoes(){
   if(contratacoesTab==='vagas')renderContratacoesVagas();
-  else if(contratacoesTab==='prospeccao')renderContratacoesProspeccao();
+  else if(contratacoesTab==='prospeccao'){
+    renderContratacoesProspeccao();
+    ctrAutoSyncProspeccoes().then(mudou=>{if(mudou&&contratacoesTab==='prospeccao')renderContratacoesProspeccao();});
+  }
   else if(contratacoesTab==='desistencias')renderContratacoesDesistencias();
   else renderContratacoesCandidatos();
 }
@@ -8152,7 +8167,7 @@ function renderContratacoesProspeccao(){
       return(p.nome||'').toLowerCase().includes(b)||(p.telefone||'').toLowerCase().includes(b)||(p.funcao?.nome||'').toLowerCase().includes(b);
     }
     return true;
-  });
+  }).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR'));
 
   const total=contratacoesProspeccoes.length;
   const aceitos=contratacoesProspeccoes.filter(p=>p.retorno==='aceitou').length;
@@ -8774,6 +8789,7 @@ async function saveContratacao(id){
   closeModal('modal-contratacao');
   if(payload.status==='desistiu')contratacoesTab='desistencias';
   await loadContratacoes();renderContratacoes();
+  ctrAutoSyncProspeccoes();
 }
 
 async function deleteContratacao(id,nome){
