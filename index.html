@@ -7892,7 +7892,8 @@ function ctrProjCelulas(c){
     exame:tipoLabel?`<div ${nowrap}>${tipoLabel} · ${ctrFmtData(c.data_exame)} <span class="badge ${exameOk?'badge-green':'badge-amber'}" style="margin-left:2px">${exameOk?'Result. disp.':'Aguard.'} ${ctrFmtData(p.resultadoExame)}</span>${p.resultadoExame?tag(p.resultadoExameReal,'data_resultado_exame',p.resultadoExame):''}</div>`:'<span style="color:var(--text-muted)">—</span>',
     docPortal:p.docPortal?`<div ${nowrap}>${ctrFmtData(p.docPortal)}${tag(p.docPortalReal,'data_documentos_portal',p.docPortal)}</div>`:'<span style="color:var(--text-muted)">—</span>',
     aprovacao:p.aprovacao?`<div ${nowrap}>${ctrFmtData(p.aprovacao)}${tag(p.aprovacaoReal,'data_aprovacao_diretoria',p.aprovacao)}</div>`:'<span style="color:var(--text-muted)">—</span>',
-    envioDp:p.envioDp?`<div ${nowrap}>${ctrFmtData(p.envioDp)}${tag(p.envioDpReal,'data_envio_dp',p.envioDp)} → <span class="badge ${registroOk?'badge-green':'badge-amber'}">${ctrFmtData(p.admissao)}</span>${tag(p.admissaoReal,'data_prevista_admissao',p.admissao)}</div>`:'<span style="color:var(--text-muted)">—</span>',
+    envioDp:p.envioDp?`<div ${nowrap}>${ctrFmtData(p.envioDp)}${tag(p.envioDpReal,'data_envio_dp',p.envioDp)}</div>`:'<span style="color:var(--text-muted)">—</span>',
+    admissao:p.admissao?`<div ${nowrap}><span class="badge ${registroOk?'badge-green':'badge-amber'}">${ctrFmtData(p.admissao)}</span>${tag(p.admissaoReal,'data_prevista_admissao',p.admissao)}</div>`:'<span style="color:var(--text-muted)">—</span>',
     integracao:c.data_integracao_prevista?`<div ${nowrap}>${ctrFmtData(c.data_integracao_prevista)}</div>`:'<span style="color:var(--text-muted)">—</span>',
     mobilizacao:c.data_viagem_mobilizacao?`<div ${nowrap}>${ctrFmtData(c.data_viagem_mobilizacao)} → ${ctrFmtData(c.data_prevista_chegada)}</div>`:'<span style="color:var(--text-muted)">—</span>',
   };
@@ -7968,7 +7969,7 @@ function renderContratacoesCandidatos(){
     if(funcaoNome!==ctrGrupoAnterior){
       ctrGrupoAnterior=funcaoNome;
       const countGrupo=listaOrdenada.filter(x=>(x.funcao?.nome||'Sem função')===funcaoNome).length;
-      headerHtml=`<tr><td colspan="12" style="background:var(--bg);padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;border-top:2px solid var(--border)">${funcaoNome} <span style="font-weight:400;text-transform:none">(${countGrupo})</span></td></tr>`;
+      headerHtml=`<tr><td colspan="13" style="background:var(--bg);padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;border-top:2px solid var(--border)">${funcaoNome} <span style="font-weight:400;text-transform:none">(${countGrupo})</span></td></tr>`;
     }
     const pc=ctrProjCelulas(c);
     return headerHtml+`<tr>
@@ -7991,6 +7992,7 @@ function renderContratacoesCandidatos(){
       <td style="white-space:normal;line-height:1.2">${pc.docPortal}</td>
       <td style="white-space:normal;line-height:1.2">${pc.aprovacao}</td>
       <td style="white-space:normal;line-height:1.2">${pc.envioDp}</td>
+      <td style="white-space:normal;line-height:1.2">${pc.admissao}</td>
       <td style="white-space:normal;line-height:1.2">${pc.integracao}</td>
       <td style="white-space:normal;line-height:1.2">${pc.mobilizacao}</td>
       <td><span class="badge" style="background:${si.bg};color:${si.cor};white-space:nowrap;font-size:10px">${si.label}</span></td>
@@ -8002,7 +8004,7 @@ function renderContratacoesCandidatos(){
         </div>
       </td>
     </tr>`;
-  }).join('')||'<tr><td colspan="12"><div class="empty-state"><i class="ti ti-user-plus"></i><div>Nenhum candidato encontrado</div></div></td></tr>';
+  }).join('')||'<tr><td colspan="13"><div class="empty-state"><i class="ti ti-user-plus"></i><div>Nenhum candidato encontrado</div></div></td></tr>';
 
   const funcaoOpts=ctrFuncoesUnicas().map(f=>`<option value="${f.id}" ${contratacoesFiltroFuncao===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${contratacoesFiltroObra===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
@@ -8104,12 +8106,12 @@ function renderContratacoesCandidatos(){
     </div>
     <div class="table-container"><table class="ctr-table">
       <colgroup>
-        <col style="width:14%"><col style="width:11%"><col style="width:9%"><col style="width:8%">
-        <col style="width:9%"><col style="width:8%"><col style="width:8%"><col style="width:11%">
-        <col style="width:7%"><col style="width:7%"><col style="width:6%"><col style="width:8%">
+        <col style="width:13%"><col style="width:10%"><col style="width:8%"><col style="width:7%">
+        <col style="width:9%"><col style="width:7%"><col style="width:7%"><col style="width:8%">
+        <col style="width:8%"><col style="width:6%"><col style="width:6%"><col style="width:6%"><col style="width:5%">
       </colgroup>
       <thead><tr>
-        <th>Candidato</th><th>Obra</th><th>Contato</th><th title="Documentação">Doc.</th><th>Exame</th><th title="Doc. Portal">D. Portal</th><th>Aprovação</th><th title="Envio DP → Registro">Envio DP</th><th>Integração</th><th>Mobiliz.</th><th>Status</th><th>Ações</th>
+        <th>Candidato</th><th>Obra</th><th>Contato</th><th title="Documentação">Doc.</th><th>Exame</th><th title="Doc. Portal">D. Portal</th><th>Aprovação</th><th>Envio DP</th><th>Admissão</th><th>Integração</th><th>Mobiliz.</th><th>Status</th><th>Ações</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
