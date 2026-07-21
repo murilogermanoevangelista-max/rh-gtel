@@ -7927,7 +7927,7 @@ async function ctrConfirmarData(id,campo,valor){
 }
 
 function renderContratacoesCandidatos(){
-  const ativos=contratacoes.filter(c=>c.status!=='desistiu');
+  const ativos=contratacoes.filter(c=>c.status!=='desistiu'&&(!globalObraFiltro||String(c.obra_id)===String(globalObraFiltro)));
   const lista=ativos.filter(c=>{
     if(contratacoesFiltroStatus&&c.status!==contratacoesFiltroStatus)return false;
     if(contratacoesFiltroFuncao&&String(c.funcao_id)!==String(contratacoesFiltroFuncao))return false;
@@ -7954,7 +7954,7 @@ function renderContratacoesCandidatos(){
   const admitidos=ativos.filter(c=>!!c.data_prevista_admissao).length;
   const aguardando=ativos.filter(c=>c.status==='aguardando_integracao').length;
   const integrados=ativos.filter(c=>c.status==='integrado').length;
-  const totalPrevisto=contratacoesVagas.reduce((s,v)=>s+(v.quantidade_prevista||0),0);
+  const totalPrevisto=contratacoesVagas.filter(v=>!globalObraFiltro||String(v.obra_id)===String(globalObraFiltro)).reduce((s,v)=>s+(v.quantidade_prevista||0),0);
 
   const listaOrdenada=lista.slice().sort((a,b)=>{
     const fa=(a.funcao?.nome||'Sem função').toUpperCase();
@@ -8411,7 +8411,7 @@ function ctrEstagioDesistencia(c){
 }
 
 function renderContratacoesDesistencias(){
-  const desistentes=contratacoes.filter(c=>c.status==='desistiu').map(c=>({
+  const desistentes=contratacoes.filter(c=>c.status==='desistiu'&&(!globalObraFiltro||String(c.obra_id)===String(globalObraFiltro))).map(c=>({
     id:c.id,tipo:'desistiu',nome:c.nome,origem:c.origem,funcaoNome:c.funcao?.nome,
     obraLabel:c.obra?`${c.obra.codigo?c.obra.codigo+' — ':''}${c.obra.nome||''}`:null,
     funcaoId:c.funcao_id,data:c.data_desistencia,
