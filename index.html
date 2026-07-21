@@ -486,7 +486,7 @@ function setGlobalObraFiltro(obraId){
   prestadoresFiltroObra=obraId||''; // prestadores
   prestadoresFiltroObraTocado=false; // troca no menu lateral sempre prevalece sobre escolha local antiga
   // re-renderizar a aba atual
-  const pageMap={funcionarios:renderFuncionarios,experiencia:renderExperiencia,folgas:renderFolgas,ferias:renderFerias,alojamentos:renderAlojamentos,efetivo:renderEfetivo,dashboard:renderDashboard,prestadores:renderPrestadores};
+  const pageMap={funcionarios:renderFuncionarios,experiencia:renderExperiencia,folgas:renderFolgas,ferias:renderFerias,alojamentos:renderAlojamentos,efetivo:renderEfetivo,dashboard:renderDashboard,prestadores:renderPrestadores,contratacoes:renderContratacoes};
   if(pageMap[currentPage]) pageMap[currentPage]();
 }
 
