@@ -59,6 +59,10 @@ tbody tr{border-bottom:1px solid var(--border);transition:background .1s}
 tbody tr:last-child{border-bottom:none}
 tbody tr:hover{background:#FAFAFA}
 tbody td{padding:10px 16px;font-size:13px}
+.ctr-table{table-layout:fixed;width:100%}
+.ctr-table thead th{padding:6px 8px;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctr-table tbody td{padding:6px 8px;font-size:11px;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+.ctr-table tbody td .action-btns .btn{padding:3px 6px}
 .avatar{width:36px;height:36px;border-radius:50%;background:var(--primary-light);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--primary-dark);overflow:hidden;flex-shrink:0}
 .avatar.has-foto{cursor:zoom-in}
 #foto-lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:9999;align-items:center;justify-content:center;flex-direction:column;gap:14px}
@@ -124,21 +128,25 @@ input:focus,select:focus{border-color:var(--primary)}
 .transfer-header.envio{background:var(--warning-light);color:var(--warning)}
 .transfer-header.recebimento{background:var(--info-light);color:var(--info)}
 /* FICHA */
-.ficha-modal{max-width:800px}
-.ficha-header-card{background:linear-gradient(135deg,var(--primary-dark),var(--primary));border-radius:var(--radius-lg);padding:24px;display:flex;align-items:center;gap:20px;margin-bottom:24px;color:#fff}
-.ficha-avatar{width:80px;height:80px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#fff;overflow:hidden;flex-shrink:0;border:3px solid rgba(255,255,255,.4)}
+.ficha-modal{max-width:1220px;width:96vw}
+.ficha-modal .modal-body{max-height:calc(94vh - 118px);overflow-y:auto;padding:16px 20px}
+.ficha-columns{column-count:2;column-gap:20px}
+.ficha-columns .ficha-section,.ficha-columns>div{break-inside:avoid;-webkit-column-break-inside:avoid;page-break-inside:avoid}
+@media(max-width:900px){.ficha-columns{column-count:1}}
+.ficha-header-card{background:linear-gradient(135deg,var(--primary-dark),var(--primary));border-radius:var(--radius-lg);padding:14px 18px;display:flex;align-items:center;gap:14px;margin-bottom:12px;color:#fff}
+.ficha-avatar{width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:#fff;overflow:hidden;flex-shrink:0;border:2px solid rgba(255,255,255,.4)}
 .ficha-avatar img{width:100%;height:100%;object-fit:cover}
-.ficha-nome{font-size:20px;font-weight:700;margin-bottom:4px}
-.ficha-mat{font-size:13px;opacity:.8}
-.ficha-badges{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.ficha-nome{font-size:16px;font-weight:700;margin-bottom:2px}
+.ficha-mat{font-size:12px;opacity:.8}
+.ficha-badges{display:flex;gap:6px;margin-top:5px;flex-wrap:wrap}
 .ficha-badge{padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;background:rgba(255,255,255,.2);color:#fff}
-.ficha-section{margin-bottom:20px}
-.ficha-section-title{font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border)}
-.ficha-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.ficha-field{display:flex;flex-direction:column;gap:3px}
+.ficha-section{margin-bottom:10px;background:var(--surface);display:inline-block;width:100%}
+.ficha-section-title{font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--border)}
+.ficha-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px}
+.ficha-field{display:flex;flex-direction:column;gap:1px}
 .ficha-field.full{grid-column:1/-1}
-.ficha-field-label{font-size:11px;color:var(--text-muted);font-weight:500}
-.ficha-field-value{font-size:14px;color:var(--text);font-weight:500}
+.ficha-field-label{font-size:10px;color:var(--text-muted);font-weight:500}
+.ficha-field-value{font-size:12.5px;color:var(--text);font-weight:500;line-height:1.3}
 .ficha-transf-card{background:var(--warning-light);border:1px solid #F0D090;border-radius:var(--radius);padding:16px;margin-bottom:20px}
 .ficha-transf-card.recebimento{background:var(--info-light);border-color:#9EC5F0}
 .ficha-transf-title{font-size:12px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:6px}
@@ -1685,7 +1693,7 @@ async function verFicha(id,historico=false){
 
   const html=`
     <div class="modal-overlay" id="modal-ficha" onclick="if(event.target===this)closeModal('modal-ficha')">
-      <div class="modal ficha-modal" style="max-width:860px">
+      <div class="modal ficha-modal">
         <div class="modal-header">
           <span class="modal-title"><i class="ti ti-id-badge"></i> Ficha do Funcionário</span>
           <div style="display:flex;gap:8px;align-items:center">
@@ -1706,6 +1714,7 @@ async function verFicha(id,historico=false){
               </div>
             </div>
           </div>
+          <div class="ficha-columns">
           <div class="ficha-section">
             <div class="ficha-section-title"><i class="ti ti-briefcase" style="margin-right:6px"></i>Dados Profissionais</div>
             <div class="ficha-grid">
@@ -1727,6 +1736,7 @@ async function verFicha(id,historico=false){
           ${treinSection}
           ${alojSectionFinal}
           ${obsHtml}
+          </div>
         </div>
         <div class="modal-footer">
           <button class="btn" onclick="closeModal('modal-ficha')">Fechar</button>
@@ -7877,7 +7887,7 @@ function ctrProjCelulas(c){
   const exameOk=p.resultadoExameReal||(p.resultadoExame&&hoje>=p.resultadoExame);
   const registroOk=p.envioDp&&hoje>=p.envioDp;
   const tag=(isReal,campo,valor)=>isReal?'':` <button class="btn btn-sm" style="padding:1px 5px;font-size:9px" onclick="event.stopPropagation();ctrConfirmarData('${c.id}','${campo}','${valor}')" title="Confirmar que essa data foi efetivada"><i class="ti ti-check"></i></button>`;
-  const nowrap='style="font-size:11px;white-space:nowrap"';
+  const nowrap='style="font-size:10px;white-space:normal;line-height:1.35"';
   return{
     exame:tipoLabel?`<div ${nowrap}>${tipoLabel} · ${ctrFmtData(c.data_exame)} <span class="badge ${exameOk?'badge-green':'badge-amber'}" style="margin-left:2px">${exameOk?'Result. disp.':'Aguard.'} ${ctrFmtData(p.resultadoExame)}</span>${p.resultadoExame?tag(p.resultadoExameReal,'data_resultado_exame',p.resultadoExame):''}</div>`:'<span style="color:var(--text-muted)">—</span>',
     docPortal:p.docPortal?`<div ${nowrap}>${ctrFmtData(p.docPortal)}${tag(p.docPortalReal,'data_documentos_portal',p.docPortal)}</div>`:'<span style="color:var(--text-muted)">—</span>',
@@ -7958,33 +7968,32 @@ function renderContratacoesCandidatos(){
     if(funcaoNome!==ctrGrupoAnterior){
       ctrGrupoAnterior=funcaoNome;
       const countGrupo=listaOrdenada.filter(x=>(x.funcao?.nome||'Sem função')===funcaoNome).length;
-      headerHtml=`<tr><td colspan="13" style="background:var(--bg);padding:8px 14px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;border-top:2px solid var(--border)">${funcaoNome} <span style="font-weight:400;text-transform:none">(${countGrupo})</span></td></tr>`;
+      headerHtml=`<tr><td colspan="12" style="background:var(--bg);padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;border-top:2px solid var(--border)">${funcaoNome} <span style="font-weight:400;text-transform:none">(${countGrupo})</span></td></tr>`;
     }
     const pc=ctrProjCelulas(c);
     return headerHtml+`<tr>
       <td>
-        <div style="display:flex;align-items:center;flex-wrap:nowrap;gap:6px;overflow:hidden">
-          <span style="font-weight:600;color:var(--primary-dark);white-space:nowrap">${c.nome||'—'}</span>
-          ${c.origem?`<span style="font-size:11px;color:var(--text-muted);white-space:nowrap">· ${c.origem}</span>`:''}
-          ${c.observacao?`<span style="font-size:11px;color:var(--warning);display:flex;align-items:center;gap:3px;overflow:hidden" title="${c.observacao.replace(/"/g,'&quot;')}"><i class="ti ti-note" style="font-size:12px;flex:0 0 auto"></i><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.observacao}</span></span>`:''}
+        <div style="display:flex;flex-direction:column;gap:1px;overflow:hidden">
+          <span style="font-weight:600;color:var(--primary-dark);white-space:normal;line-height:1.2" title="${(c.nome||'').replace(/"/g,'&quot;')}">${c.nome||'—'}</span>
+          ${c.origem?`<span style="font-size:10px;color:var(--text-muted)">${c.origem}</span>`:''}
+          ${c.observacao?`<span style="font-size:10px;color:var(--warning);display:flex;align-items:center;gap:3px;overflow:hidden" title="${c.observacao.replace(/"/g,'&quot;')}"><i class="ti ti-note" style="font-size:11px;flex:0 0 auto"></i><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.observacao}</span></span>`:''}
         </div>
       </td>
-      <td style="font-size:12px;white-space:nowrap">${c.funcao?.nome||'—'}</td>
-      <td style="font-size:12px;white-space:nowrap">${c.obra?`${c.obra.codigo?c.obra.codigo+' — ':''}${c.obra.nome||''}`:'<span style="color:var(--text-muted)">—</span>'}</td>
-      <td style="font-size:12px;white-space:nowrap">${c.contato||'—'}${c.salario?`<div style="color:var(--text-muted)">R$ ${Number(c.salario).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>`:''}</td>
-      <td style="min-width:120px">
-        <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="openModalDocumentosContratacao('${c.id}')" title="Ver/editar checklist de documentos">
-          <div style="flex:1;height:6px;background:var(--border);border-radius:3px;min-width:40px"><div style="height:6px;border-radius:3px;background:${corBarra};width:${pct}%"></div></div>
-          <span style="font-size:11px;font-weight:600;color:${corBarra};min-width:40px">${done}/${tdocs}</span>
+      <td style="white-space:normal;line-height:1.2" title="${c.obra?`${c.obra.codigo?c.obra.codigo+' — ':''}${c.obra.nome||''}`:''}">${c.obra?`${c.obra.codigo?c.obra.codigo+' — ':''}${c.obra.nome||''}`:'<span style="color:var(--text-muted)">—</span>'}</td>
+      <td style="white-space:normal;line-height:1.2">${c.contato||'—'}${c.salario?`<div style="color:var(--text-muted);font-size:10px">R$ ${Number(c.salario).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>`:''}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:5px;cursor:pointer" onclick="openModalDocumentosContratacao('${c.id}')" title="Ver/editar checklist de documentos">
+          <div style="flex:1;height:6px;background:var(--border);border-radius:3px;min-width:24px"><div style="height:6px;border-radius:3px;background:${corBarra};width:${pct}%"></div></div>
+          <span style="font-size:10px;font-weight:600;color:${corBarra};white-space:nowrap">${done}/${tdocs}</span>
         </div>
       </td>
-      <td style="white-space:nowrap">${pc.exame}</td>
-      <td style="white-space:nowrap">${pc.docPortal}</td>
-      <td style="white-space:nowrap">${pc.aprovacao}</td>
-      <td style="white-space:nowrap">${pc.envioDp}</td>
-      <td style="white-space:nowrap">${pc.integracao}</td>
-      <td style="white-space:nowrap">${pc.mobilizacao}</td>
-      <td><span class="badge" style="background:${si.bg};color:${si.cor};white-space:nowrap">${si.label}</span></td>
+      <td style="white-space:normal;line-height:1.2">${pc.exame}</td>
+      <td style="white-space:normal;line-height:1.2">${pc.docPortal}</td>
+      <td style="white-space:normal;line-height:1.2">${pc.aprovacao}</td>
+      <td style="white-space:normal;line-height:1.2">${pc.envioDp}</td>
+      <td style="white-space:normal;line-height:1.2">${pc.integracao}</td>
+      <td style="white-space:normal;line-height:1.2">${pc.mobilizacao}</td>
+      <td><span class="badge" style="background:${si.bg};color:${si.cor};white-space:nowrap;font-size:10px">${si.label}</span></td>
       <td>
         <div class="action-btns">
           <button class="btn btn-sm" onclick="openModalDocumentosContratacao('${c.id}')" title="Checklist de documentos"><i class="ti ti-checklist"></i></button>
@@ -7993,7 +8002,7 @@ function renderContratacoesCandidatos(){
         </div>
       </td>
     </tr>`;
-  }).join('')||'<tr><td colspan="13"><div class="empty-state"><i class="ti ti-user-plus"></i><div>Nenhum candidato encontrado</div></div></td></tr>';
+  }).join('')||'<tr><td colspan="12"><div class="empty-state"><i class="ti ti-user-plus"></i><div>Nenhum candidato encontrado</div></div></td></tr>';
 
   const funcaoOpts=ctrFuncoesUnicas().map(f=>`<option value="${f.id}" ${contratacoesFiltroFuncao===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${contratacoesFiltroObra===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
@@ -8093,9 +8102,14 @@ function renderContratacoesCandidatos(){
       </select>
       <button class="btn btn-sm" onclick="contratacoesBusca='';contratacoesFiltroStatus='';contratacoesFiltroFuncao='';contratacoesFiltroObra='';contratacoesFiltroNome='';contratacoesFiltroEtapa='';renderContratacoesCandidatos()"><i class="ti ti-x"></i> Limpar</button>
     </div>
-    <div class="table-container" style="overflow-x:auto"><table>
+    <div class="table-container"><table class="ctr-table">
+      <colgroup>
+        <col style="width:14%"><col style="width:11%"><col style="width:9%"><col style="width:8%">
+        <col style="width:9%"><col style="width:8%"><col style="width:8%"><col style="width:11%">
+        <col style="width:7%"><col style="width:7%"><col style="width:6%"><col style="width:8%">
+      </colgroup>
       <thead><tr>
-        <th>Candidato</th><th>Função</th><th>Obra</th><th>Contato</th><th>Documentação</th><th>Exame</th><th>Doc. Portal</th><th>Aprovação</th><th>Envio DP → Registro</th><th>Integração</th><th>Mobilização</th><th>Status</th><th>Ações</th>
+        <th>Candidato</th><th>Obra</th><th>Contato</th><th title="Documentação">Doc.</th><th>Exame</th><th title="Doc. Portal">D. Portal</th><th>Aprovação</th><th title="Envio DP → Registro">Envio DP</th><th>Integração</th><th>Mobiliz.</th><th>Status</th><th>Ações</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
