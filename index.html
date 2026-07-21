@@ -7814,6 +7814,7 @@ function ctrDocsPct(c){
 const CTR_ETAPAS=[
   {key:'aguardando_exame',label:'Aguardando Exame',test:c=>!c.data_resultado_exame,icon:'ti-hourglass'},
   {key:'exame_realizado',label:'Exame Realizado',test:c=>!!c.data_resultado_exame,icon:'ti-stethoscope'},
+  {key:'aguardando_cadastro_portal',label:'Aguard. Cadastro Portal RH',test:c=>ctrDocsPct(c).pct>=100&&!c.data_documentos_portal,icon:'ti-clipboard-check'},
   {key:'documentos_portal',label:'Documentos Portal',test:c=>!!c.data_documentos_portal,icon:'ti-file-upload'},
   {key:'aprovacao_diretoria',label:'Aprovação Diretoria',test:c=>!!c.data_aprovacao_diretoria,icon:'ti-stamp'},
   {key:'envio_dp',label:'Envio DP → Registro',test:c=>!!c.data_envio_dp,icon:'ti-send'},
@@ -8033,7 +8034,7 @@ function renderContratacoesCandidatos(){
   const etapasHtml=`
     <div style="margin-bottom:16px">
       <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Documentos / etapas lançadas no sistema</div>
-      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:10px">
+      <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:10px">
         ${CTR_ETAPAS.map(e=>{
           const count=ativos.filter(e.test).length;
           const ativo=contratacoesFiltroEtapa===e.key;
