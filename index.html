@@ -8614,8 +8614,6 @@ function openModalContratacao(id){
                 <option value="desistiu" ${c?.status==='desistiu'?'selected':''}>Desistiu/Reprovado</option>
               </select>
             </div>
-            <div class="form-group"><label>Data Prevista de Admissão</label>
-              <input type="date" id="ctr-data-prevista" value="${c?.data_prevista_admissao||p.admissao||''}" data-auto="${c?.data_prevista_admissao?'false':'true'}" oninput="this.dataset.auto='false'"></div>
             <div class="form-group" id="ctr-grupo-desistencia" style="display:${c?.status==='desistiu'?'block':'none'}"><label>Data da Desistência</label>
               <input type="date" id="ctr-data-desistencia" value="${c?.data_desistencia||ctrHojeISO()}"></div>
             <div class="form-group full"><label>Observação</label>
@@ -8658,7 +8656,7 @@ function openModalContratacao(id){
                 <input type="date" id="proj-envio-dp" value="${c?.data_envio_dp||p.envioDp||''}" data-auto="${c?.data_envio_dp?'false':'true'}" oninput="ctrCascataEnvioDp(true)"></div>
               <div class="form-group">
                 <label>Admissão Prevista <span style="font-weight:400;color:var(--text-muted)">(auto: envio DP +1 dia útil)</span></label>
-                <div style="padding:9px 0;font-size:13px;font-weight:600" id="proj-registro-previsto">${ctrFmtData(p.admissao)}</div>
+                <input type="date" id="proj-registro-previsto" value="${c?.data_prevista_admissao||p.admissao||''}" data-auto="${c?.data_prevista_admissao?'false':'true'}" oninput="this.dataset.auto='false'">
               </div>
 
               <div class="form-group"><label>Integração Prevista <span style="font-weight:400;color:var(--text-muted)">(manual — depende da obra)</span></label>
@@ -8767,17 +8765,12 @@ function ctrCascataEnvioDp(manual=true){
   if(manual)envioInput.dataset.auto='false';
   const dataEnvioDp=envioInput.value;
   const elAdmissao=document.getElementById('proj-registro-previsto');
-  let admissaoPrevista=null;
   if(dataEnvioDp){
-    admissaoPrevista=ctrAddDiasUteis(dataEnvioDp,1);
-    elAdmissao.textContent=ctrFmtData(admissaoPrevista);
+    elAdmissao.value=ctrAddDiasUteis(dataEnvioDp,1);
+    elAdmissao.dataset.auto='true';
   }else{
-    elAdmissao.textContent='—';
-  }
-  const inputAdmissao=document.getElementById('ctr-data-prevista');
-  if(inputAdmissao&&admissaoPrevista){
-    inputAdmissao.value=admissaoPrevista;
-    inputAdmissao.dataset.auto='true';
+    elAdmissao.value='';
+    elAdmissao.dataset.auto='true';
   }
 }
 
@@ -8817,7 +8810,7 @@ async function saveContratacao(id){
     contato:document.getElementById('ctr-contato').value.trim()||null,
     salario:document.getElementById('ctr-salario').value?parseFloat(document.getElementById('ctr-salario').value):null,
     status:document.getElementById('ctr-status').value,
-    data_prevista_admissao:ctrValorConfirmado('ctr-data-prevista'),
+    data_prevista_admissao:ctrValorConfirmado('proj-registro-previsto'),
     observacao:document.getElementById('ctr-obs').value.trim()||null,
     documentos,
     tipo_exame:document.getElementById('proj-tipo-exame').value||null,
