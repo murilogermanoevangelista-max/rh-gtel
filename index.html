@@ -7926,7 +7926,7 @@ async function ctrConfirmarData(id,campo,valor){
   await loadContratacoes();renderContratacoes();
 }
 
-function renderContratacoesCandidatos(){
+function ctrCandidatosFiltrados(){
   const ativos=contratacoes.filter(c=>c.status!=='desistiu'&&(!globalObraFiltro||String(c.obra_id)===String(globalObraFiltro)));
   const lista=ativos.filter(c=>{
     if(contratacoesFiltroStatus&&c.status!==contratacoesFiltroStatus)return false;
@@ -7948,6 +7948,11 @@ function renderContratacoesCandidatos(){
     }
     return true;
   });
+  return{ativos,lista};
+}
+
+function renderContratacoesCandidatos(){
+  const{ativos,lista}=ctrCandidatosFiltrados();
 
   const total=ativos.length;
   const emProcesso=ativos.filter(c=>c.status==='em_processo').length;
@@ -8055,7 +8060,10 @@ function renderContratacoesCandidatos(){
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div><div class="page-title"><i class="ti ti-user-plus"></i> Contratações</div><div class="page-subtitle">${total} candidato(s) cadastrado(s)</div></div>
-      <button class="btn btn-primary" onclick="openModalContratacao()"><i class="ti ti-plus"></i> Novo candidato</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="exportContratacoesExcel()"><i class="ti ti-file-type-xls"></i> Exportar Excel</button>
+        <button class="btn btn-primary" onclick="openModalContratacao()"><i class="ti ti-plus"></i> Novo candidato</button>
+      </div>
     </div>
     <div class="exp-tabs">
       <div class="exp-tab${contratacoesTab==='candidatos'?' active':''}" onclick="contratacoesTab='candidatos';renderContratacoes()">Candidatos</div>
@@ -8118,6 +8126,134 @@ function renderContratacoesCandidatos(){
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
+}
+
+function exportContratacoesExcel(){
+  const{ativos,lista}=ctrCandidatosFiltrados();
+  if(!lista.length){showToast('Nenhum candidato para exportar.','error');return;}
+
+  const listaOrdenada=lista.slice().sort((a,b)=>{
+    const fa=(a.funcao?.nome||'Sem função').toUpperCase();
+    const fb=(b.funcao?.nome||'Sem função').toUpperCase();
+    if(fa!==fb)return fa.localeCompare(fb,'pt-BR');
+    return(a.nome||'').localeCompare(b.nome||'','pt-BR');
+  });
+
+  const NCOL=17;
+  const pad=arr=>{while(arr.length<NCOL)arr.push('');return arr;};
+  const dataEmissao=new Date().toLocaleDateString('pt-BR');
+
+  // Filtros ativos aplicados (para constar no cabeçalho do relatório)
+  const filtrosAtivos=[];
+  const obraFiltroId=contratacoesFiltroObra||globalObraFiltro;
+  if(obraFiltroId){const o=obras.find(o=>String(o.id)===String(obraFiltroId));if(o)filtrosAtivos.push(`Obra: ${o.codigo?o.codigo+' — ':''}${o.nome||''}`);}
+  if(contratacoesFiltroFuncao){const f=funcoes.find(f=>String(f.id)===String(contratacoesFiltroFuncao));if(f)filtrosAtivos.push(`Função: ${f.nome}`);}
+  if(contratacoesFiltroStatus)filtrosAtivos.push(`Status: ${ctrStatusInfo(contratacoesFiltroStatus).label}`);
+  if(contratacoesFiltroEtapa){
+    const et=contratacoesFiltroEtapa==='admitido'?'Admitido':(CTR_ETAPAS.find(e=>e.key===contratacoesFiltroEtapa)?.label||contratacoesFiltroEtapa);
+    filtrosAtivos.push(`Etapa: ${et}`);
+  }
+  if(contratacoesBusca)filtrosAtivos.push(`Busca: "${contratacoesBusca}"`);
+
+  const rows=[];
+  rows.push(pad(['RELATÓRIO DE CONTRATAÇÕES — GTEL']));
+  rows.push(pad([`Emitido em: ${dataEmissao}  ·  ${listaOrdenada.length} candidato(s)${filtrosAtivos.length?'  ·  Filtros: '+filtrosAtivos.join(' | '):''}`]));
+  rows.push(pad([]));
+  const headerRowIdx=rows.length; // linha do cabeçalho da tabela (0-indexed)
+  rows.push([
+    'FUNÇÃO','CANDIDATO','ORIGEM','OBRA','CONTATO','SALÁRIO','DOCUMENTAÇÃO',
+    'EXAME','RESULTADO EXAME','DOC. PORTAL RH','APROVAÇÃO DIRETORIA','ENVIO DP → REGISTRO',
+    'ADMISSÃO','INTEGRAÇÃO PREVISTA','MOBILIZAÇÃO','CHEGADA PREVISTA','STATUS'
+  ]);
+
+  const grupoRowsIdx=[]; // linhas de cabeçalho de grupo (função), para aplicar destaque visual
+  let grupoAnterior=null;
+  listaOrdenada.forEach(c=>{
+    const funcaoNome=c.funcao?.nome||'Sem função';
+    if(funcaoNome!==grupoAnterior){
+      grupoAnterior=funcaoNome;
+      const countGrupo=listaOrdenada.filter(x=>(x.funcao?.nome||'Sem função')===funcaoNome).length;
+      grupoRowsIdx.push(rows.length);
+      rows.push(pad([`${funcaoNome.toUpperCase()} (${countGrupo})`]));
+    }
+    const p=ctrCalcularProjecoes(c);
+    const{done,total:tdocs,pct}=ctrDocsPct(c);
+    const tipoLabel=c.tipo_exame==='operacional_ac'?'Operacional AC':(c.tipo_exame==='operacional'?'Operacional':null);
+    const marca=isReal=>isReal?'':' (proj.)';
+    rows.push([
+      funcaoNome,
+      c.nome||'—',
+      c.origem||'—',
+      c.obra?`${c.obra.codigo?c.obra.codigo+' — ':''}${c.obra.nome||''}`:'—',
+      c.contato||'—',
+      c.salario?Number(c.salario):'',
+      `${done}/${tdocs} (${pct}%)`,
+      tipoLabel?`${tipoLabel} · ${ctrFmtData(c.data_exame)}`:'—',
+      p.resultadoExame?ctrFmtData(p.resultadoExame)+marca(p.resultadoExameReal):'—',
+      p.docPortal?ctrFmtData(p.docPortal)+marca(p.docPortalReal):'—',
+      p.aprovacao?ctrFmtData(p.aprovacao)+marca(p.aprovacaoReal):'—',
+      p.envioDp?ctrFmtData(p.envioDp)+marca(p.envioDpReal):'—',
+      p.admissao?ctrFmtData(p.admissao)+marca(p.admissaoReal):'—',
+      c.data_integracao_prevista?ctrFmtData(c.data_integracao_prevista):'—',
+      c.data_viagem_mobilizacao?ctrFmtData(c.data_viagem_mobilizacao):'—',
+      c.data_prevista_chegada?ctrFmtData(c.data_prevista_chegada):'—',
+      ctrStatusInfo(c.status).label,
+    ]);
+  });
+
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[
+    {wch:22},{wch:28},{wch:16},{wch:22},{wch:16},{wch:13},{wch:16},
+    {wch:24},{wch:20},{wch:18},{wch:20},{wch:20},{wch:20},{wch:20},{wch:16},{wch:20},{wch:20}
+  ];
+  ws['!merges']=[
+    {s:{r:0,c:0},e:{r:0,c:NCOL-1}},
+    {s:{r:1,c:0},e:{r:1,c:NCOL-1}},
+    ...grupoRowsIdx.map(r=>({s:{r,c:0},e:{r,c:NCOL-1}}))
+  ];
+  ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:headerRowIdx,c:0},e:{r:headerRowIdx,c:NCOL-1}})};
+  ws['!rows']=[{hpt:22},{hpt:16}];
+
+  // Aba Resumo — visão gerencial rápida
+  const totalPrevisto=contratacoesVagas.filter(v=>!globalObraFiltro||String(v.obra_id)===String(globalObraFiltro)).reduce((s,v)=>s+(v.quantidade_prevista||0),0);
+  const emProcesso=ativos.filter(c=>c.status==='em_processo').length;
+  const admitidos=ativos.filter(c=>!!c.data_prevista_admissao).length;
+  const aguardando=ativos.filter(c=>c.status==='aguardando_integracao').length;
+  const integrados=ativos.filter(c=>c.status==='integrado').length;
+
+  const funcoesMap={};
+  ativos.filter(c=>c.status==='em_processo').forEach(c=>{
+    const nome=c.funcao?.nome||'Sem função';
+    funcoesMap[nome]=(funcoesMap[nome]||0)+1;
+  });
+  const funcoesArr=Object.entries(funcoesMap).sort((a,b)=>b[1]-a[1]);
+
+  const resumoRows=[
+    ['RESUMO GERENCIAL — CONTRATAÇÕES GTEL','',''],
+    [`Emitido em: ${dataEmissao}`,'',''],
+    ['','',''],
+    ['INDICADOR','VALOR',''],
+    ['Vagas Previstas',totalPrevisto,''],
+    ['Total de Candidatos',ativos.length,''],
+    ['Em Processo',emProcesso,''],
+    ['Admitidos',admitidos,''],
+    ['Aguardando Integração',aguardando,''],
+    ['Integrados',integrados,''],
+    ['','',''],
+    ['FUNÇÕES EM PROCESSO','QTD.',''],
+    ...funcoesArr.map(([nome,qtd])=>[nome,qtd,'']),
+  ];
+  const wsRes=XLSX.utils.aoa_to_sheet(resumoRows);
+  wsRes['!cols']=[{wch:34},{wch:14},{wch:8}];
+  wsRes['!merges']=[{s:{r:0,c:0},e:{r:0,c:2}},{s:{r:1,c:0},e:{r:1,c:2}}];
+
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,wsRes,'Resumo');
+  XLSX.utils.book_append_sheet(wb,ws,'Candidatos');
+
+  const sufixoObra=obraFiltroId?`_${(obras.find(o=>String(o.id)===String(obraFiltroId))?.codigo)||'Obra'}`:'_TodasObras';
+  XLSX.writeFile(wb,`Contratacoes_GTEL${sufixoObra}_${dataEmissao.replace(/\//g,'-')}.xlsx`);
+  showToast(`Excel exportado — ${listaOrdenada.length} candidato(s)!`);
 }
 
 function ctrToggleDesistencia(){
