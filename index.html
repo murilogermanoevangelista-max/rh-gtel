@@ -7,6 +7,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>window.__XLSXCore=window.XLSX;</script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<script>window.XLSXStyle=window.XLSX;window.XLSX=window.__XLSXCore;</script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
@@ -8193,7 +8196,16 @@ function exportContratacoesExcel(){
     ]);
   });
 
-  const ws=XLSX.utils.aoa_to_sheet(rows);
+  const STATUS_COLORS={
+    em_processo:{bg:'FAEEDA',fg:'BA7517'},
+    aguardando_integracao:{bg:'E6F1FB',fg:'185FA5'},
+    integrado:{bg:'EAF3DE',fg:'3B6D11'},
+    desistiu:{bg:'FCEBEB',fg:'E24B4A'},
+  };
+  const thin={style:'thin',color:{rgb:'D9DCE1'}};
+  const borderAll={top:thin,bottom:thin,left:thin,right:thin};
+
+  const ws=XLSXStyle.utils.aoa_to_sheet(rows);
   ws['!cols']=[
     {wch:28},{wch:22},{wch:16},{wch:18},{wch:18},{wch:18},
     {wch:18},{wch:18},{wch:14},{wch:20}
@@ -8203,8 +8215,46 @@ function exportContratacoesExcel(){
     {s:{r:1,c:0},e:{r:1,c:NCOL-1}},
     ...grupoRowsIdx.map(r=>({s:{r,c:0},e:{r,c:NCOL-1}}))
   ];
-  ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:headerRowIdx,c:0},e:{r:headerRowIdx,c:NCOL-1}})};
-  ws['!rows']=[{hpt:22},{hpt:16}];
+  ws['!autofilter']={ref:XLSXStyle.utils.encode_range({s:{r:headerRowIdx,c:0},e:{r:headerRowIdx,c:NCOL-1}})};
+  ws['!rows']=[{hpt:24},{hpt:18},{hpt:6},{hpt:20},...grupoRowsIdx.reduce((acc,r)=>{acc[r-3]={hpt:19};return acc;},{})];
+
+  // Título
+  ws['A1'].s={font:{bold:true,sz:14,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1D9E75'}},alignment:{vertical:'center',horizontal:'left',indent:1}};
+  // Subtítulo
+  ws['A2'].s={font:{italic:true,sz:10,color:{rgb:'6B7280'}},fill:{fgColor:{rgb:'E1F5EE'}},alignment:{vertical:'center',horizontal:'left',indent:1}};
+
+  // Cabeçalho da tabela
+  for(let c=0;c<NCOL;c++){
+    const addr=XLSXStyle.utils.encode_cell({r:headerRowIdx,c});
+    if(ws[addr])ws[addr].s={font:{bold:true,color:{rgb:'FFFFFF'},sz:11},fill:{fgColor:{rgb:'0F6E56'}},alignment:{vertical:'center',horizontal:'center'},border:borderAll};
+  }
+
+  // Linhas de grupo (função)
+  grupoRowsIdx.forEach(r=>{
+    const addr=XLSXStyle.utils.encode_cell({r,c:0});
+    if(ws[addr])ws[addr].s={font:{bold:true,sz:11,color:{rgb:'0F6E56'}},fill:{fgColor:{rgb:'E1F5EE'}},alignment:{vertical:'center',horizontal:'left',indent:1},border:{bottom:thin}};
+  });
+
+  // Linhas de dados: bordas, zebra e cor de status
+  const dataStartRow=headerRowIdx+1;
+  for(let r=dataStartRow;r<rows.length;r++){
+    if(grupoRowsIdx.includes(r))continue;
+    const zebra=((r-dataStartRow)%2===1);
+    for(let c=0;c<NCOL;c++){
+      const addr=XLSXStyle.utils.encode_cell({r,c});
+      if(!ws[addr])continue;
+      const base={border:borderAll,alignment:{vertical:'center',horizontal:c===0||c===1?'left':'center',indent:c===0?1:0},font:{sz:10}};
+      if(zebra)base.fill={fgColor:{rgb:'F8F9FA'}};
+      ws[addr].s=base;
+    }
+    const statusAddr=XLSXStyle.utils.encode_cell({r,c:NCOL-1});
+    const statusVal=rows[r][NCOL-1];
+    const statusKey=Object.entries({em_processo:'Em Processo',aguardando_integracao:'Aguardando Integração',integrado:'Integrado',desistiu:'Desistiu/Reprovado'}).find(([,l])=>l===statusVal)?.[0];
+    const cores=STATUS_COLORS[statusKey];
+    if(ws[statusAddr]&&cores){
+      ws[statusAddr].s={...ws[statusAddr].s,font:{bold:true,sz:10,color:{rgb:cores.fg}},fill:{fgColor:{rgb:cores.bg}}};
+    }
+  }
 
   // Aba Resumo — visão gerencial rápida
   const totalPrevisto=contratacoesVagas.filter(v=>!globalObraFiltro||String(v.obra_id)===String(globalObraFiltro)).reduce((s,v)=>s+(v.quantidade_prevista||0),0);
@@ -8235,16 +8285,31 @@ function exportContratacoesExcel(){
     ['FUNÇÕES EM PROCESSO','QTD.',''],
     ...funcoesArr.map(([nome,qtd])=>[nome,qtd,'']),
   ];
-  const wsRes=XLSX.utils.aoa_to_sheet(resumoRows);
+  const wsRes=XLSXStyle.utils.aoa_to_sheet(resumoRows);
   wsRes['!cols']=[{wch:34},{wch:14},{wch:8}];
   wsRes['!merges']=[{s:{r:0,c:0},e:{r:0,c:2}},{s:{r:1,c:0},e:{r:1,c:2}}];
+  if(wsRes['A1'])wsRes['A1'].s={font:{bold:true,sz:14,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1D9E75'}},alignment:{vertical:'center',horizontal:'left',indent:1}};
+  if(wsRes['A2'])wsRes['A2'].s={font:{italic:true,sz:10,color:{rgb:'6B7280'}},fill:{fgColor:{rgb:'E1F5EE'}},alignment:{vertical:'center',horizontal:'left',indent:1}};
+  [3,11].forEach(r=>{
+    for(let c=0;c<2;c++){
+      const addr=XLSXStyle.utils.encode_cell({r,c});
+      if(wsRes[addr])wsRes[addr].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'0F6E56'}},border:borderAll};
+    }
+  });
+  for(let r=4;r<resumoRows.length;r++){
+    if(r===11)continue;
+    for(let c=0;c<2;c++){
+      const addr=XLSXStyle.utils.encode_cell({r,c});
+      if(wsRes[addr])wsRes[addr].s={border:borderAll,font:{sz:10},alignment:{horizontal:c===1?'center':'left',indent:c===0?1:0}};
+    }
+  }
 
-  const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,wsRes,'Resumo');
-  XLSX.utils.book_append_sheet(wb,ws,'Candidatos');
+  const wb=XLSXStyle.utils.book_new();
+  XLSXStyle.utils.book_append_sheet(wb,wsRes,'Resumo');
+  XLSXStyle.utils.book_append_sheet(wb,ws,'Candidatos');
 
   const sufixoObra=obraFiltroId?`_${(obras.find(o=>String(o.id)===String(obraFiltroId))?.codigo)||'Obra'}`:'_TodasObras';
-  XLSX.writeFile(wb,`Contratacoes_GTEL${sufixoObra}_${dataEmissao.replace(/\//g,'-')}.xlsx`);
+  XLSXStyle.writeFile(wb,`Contratacoes_GTEL${sufixoObra}_${dataEmissao.replace(/\//g,'-')}.xlsx`);
   showToast(`Excel exportado — ${listaOrdenada.length} candidato(s)!`);
 }
 
