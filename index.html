@@ -1313,7 +1313,7 @@ function getFuncionariosFiltrados(){
 }
 function getFuncionariosRows(lista){
   if(funcTab==='demitidos'){
-    const tipoDemLabel={aviso_previo_indenizado:'Aviso Prévio Indenizado',aviso_previo_trabalhado:'Aviso Prévio Trabalhado',termino_experiencia:'Término de Experiência',quebra_contrato:'Quebra de Contrato'};
+    const tipoDemLabel={aviso_previo_indenizado:'Aviso Prévio Indenizado',aviso_previo_trabalhado:'Aviso Prévio Trabalhado',termino_experiencia:'Término de Experiência',quebra_contrato:'Quebra de Contrato',pedido_demissao:'Pedido de Demissão'};
     return lista.length?lista.map(f=>{
       const funcaoNome=f.funcao?.nome||f.funcao_manual||'—';
       return`<tr style="opacity:.85">
@@ -1523,7 +1523,7 @@ async function verFicha(id,historico=false){
   // ── Demissão ──
   let demissaoSection='';
   if(f.situacao==='inativo'){
-    const tipoDemLabel={aviso_previo_indenizado:'Aviso Prévio Indenizado',aviso_previo_trabalhado:'Aviso Prévio Trabalhado',termino_experiencia:'Término de Experiência',quebra_contrato:'Quebra de Contrato'}[f.tipo_demissao]||'—';
+    const tipoDemLabel={aviso_previo_indenizado:'Aviso Prévio Indenizado',aviso_previo_trabalhado:'Aviso Prévio Trabalhado',termino_experiencia:'Término de Experiência',quebra_contrato:'Quebra de Contrato',pedido_demissao:'Pedido de Demissão'}[f.tipo_demissao]||'—';
     demissaoSection='<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:16px">'
       +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#B91C1C;margin-bottom:10px">🚫 Demissão</div>'
       +'<div class="ficha-grid">'
@@ -2088,6 +2088,7 @@ function openModalFuncionario(func=null){
                 <option value="aviso_previo_trabalhado" ${func?.tipo_demissao==='aviso_previo_trabalhado'?'selected':''}>Aviso Prévio Trabalhado</option>
                 <option value="termino_experiencia" ${func?.tipo_demissao==='termino_experiencia'?'selected':''}>Término de Experiência</option>
                 <option value="quebra_contrato" ${func?.tipo_demissao==='quebra_contrato'?'selected':''}>Quebra de Contrato</option>
+                <option value="pedido_demissao" ${func?.tipo_demissao==='pedido_demissao'?'selected':''}>Pedido de Demissão</option>
               </select>
             </div>
             <div class="form-group full">
@@ -8141,7 +8142,7 @@ function exportContratacoesExcel(){
     return(a.nome||'').localeCompare(b.nome||'','pt-BR');
   });
 
-  const NCOL=17;
+  const NCOL=10;
   const pad=arr=>{while(arr.length<NCOL)arr.push('');return arr;};
   const dataEmissao=new Date().toLocaleDateString('pt-BR');
 
@@ -8163,9 +8164,8 @@ function exportContratacoesExcel(){
   rows.push(pad([]));
   const headerRowIdx=rows.length; // linha do cabeçalho da tabela (0-indexed)
   rows.push([
-    'FUNÇÃO','CANDIDATO','ORIGEM','OBRA','CONTATO','SALÁRIO','DOCUMENTAÇÃO',
-    'EXAME','RESULTADO EXAME','DOC. PORTAL RH','APROVAÇÃO DIRETORIA','ENVIO DP → REGISTRO',
-    'ADMISSÃO','INTEGRAÇÃO PREVISTA','MOBILIZAÇÃO','CHEGADA PREVISTA','STATUS'
+    'NOME','FUNÇÃO','DATA DO EXAME','D. PORTAL','APROVAÇÃO','ENVIO DP',
+    'ADMISSÃO','INTEGRAÇÃO','MOBILIZ.','STATUS'
   ]);
 
   const grupoRowsIdx=[]; // linhas de cabeçalho de grupo (função), para aplicar destaque visual
@@ -8179,34 +8179,25 @@ function exportContratacoesExcel(){
       rows.push(pad([`${funcaoNome.toUpperCase()} (${countGrupo})`]));
     }
     const p=ctrCalcularProjecoes(c);
-    const{done,total:tdocs,pct}=ctrDocsPct(c);
-    const tipoLabel=c.tipo_exame==='operacional_ac'?'Operacional AC':(c.tipo_exame==='operacional'?'Operacional':null);
     const marca=isReal=>isReal?'':' (proj.)';
     rows.push([
-      funcaoNome,
       c.nome||'—',
-      c.origem||'—',
-      c.obra?`${c.obra.codigo?c.obra.codigo+' — ':''}${c.obra.nome||''}`:'—',
-      c.contato||'—',
-      c.salario?Number(c.salario):'',
-      `${done}/${tdocs} (${pct}%)`,
-      tipoLabel?`${tipoLabel} · ${ctrFmtData(c.data_exame)}`:'—',
-      p.resultadoExame?ctrFmtData(p.resultadoExame)+marca(p.resultadoExameReal):'—',
+      funcaoNome,
+      c.data_exame?ctrFmtData(c.data_exame):'—',
       p.docPortal?ctrFmtData(p.docPortal)+marca(p.docPortalReal):'—',
       p.aprovacao?ctrFmtData(p.aprovacao)+marca(p.aprovacaoReal):'—',
       p.envioDp?ctrFmtData(p.envioDp)+marca(p.envioDpReal):'—',
       p.admissao?ctrFmtData(p.admissao)+marca(p.admissaoReal):'—',
       c.data_integracao_prevista?ctrFmtData(c.data_integracao_prevista):'—',
       c.data_viagem_mobilizacao?ctrFmtData(c.data_viagem_mobilizacao):'—',
-      c.data_prevista_chegada?ctrFmtData(c.data_prevista_chegada):'—',
       ctrStatusInfo(c.status).label,
     ]);
   });
 
   const ws=XLSX.utils.aoa_to_sheet(rows);
   ws['!cols']=[
-    {wch:22},{wch:28},{wch:16},{wch:22},{wch:16},{wch:13},{wch:16},
-    {wch:24},{wch:20},{wch:18},{wch:20},{wch:20},{wch:20},{wch:20},{wch:16},{wch:20},{wch:20}
+    {wch:28},{wch:22},{wch:16},{wch:18},{wch:18},{wch:18},
+    {wch:18},{wch:18},{wch:14},{wch:20}
   ];
   ws['!merges']=[
     {s:{r:0,c:0},e:{r:0,c:NCOL-1}},
