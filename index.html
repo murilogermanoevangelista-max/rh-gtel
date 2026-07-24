@@ -8179,15 +8179,14 @@ function exportContratacoesExcel(){
       rows.push(pad([`${funcaoNome.toUpperCase()} (${countGrupo})`]));
     }
     const p=ctrCalcularProjecoes(c);
-    const marca=isReal=>isReal?'':' (proj.)';
     rows.push([
       c.nome||'—',
       funcaoNome,
       c.data_exame?ctrFmtData(c.data_exame):'—',
-      p.docPortal?ctrFmtData(p.docPortal)+marca(p.docPortalReal):'—',
-      p.aprovacao?ctrFmtData(p.aprovacao)+marca(p.aprovacaoReal):'—',
-      p.envioDp?ctrFmtData(p.envioDp)+marca(p.envioDpReal):'—',
-      p.admissao?ctrFmtData(p.admissao)+marca(p.admissaoReal):'—',
+      p.docPortal?ctrFmtData(p.docPortal):'—',
+      p.aprovacao?ctrFmtData(p.aprovacao):'—',
+      p.envioDp?ctrFmtData(p.envioDp):'—',
+      p.admissao?ctrFmtData(p.admissao):'—',
       c.data_integracao_prevista?ctrFmtData(c.data_integracao_prevista):'—',
       c.data_viagem_mobilizacao?ctrFmtData(c.data_viagem_mobilizacao):'—',
       ctrStatusInfo(c.status).label,
