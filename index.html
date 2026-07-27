@@ -7887,12 +7887,12 @@ function ctrCalcularProjecoes(c){
   };
 }
 
-function ctrDateSel(id,campo,valor,isReal,inBadge,projecao){
-  const style=inBadge
-    ?'font-size:10px;padding:0;border:none;background:transparent;color:inherit;width:80px;font-weight:600;font-family:inherit'
-    :`font-size:10px;padding:2px 4px;border:1px solid ${isReal?'var(--border)':'var(--warning)'};border-radius:4px;background:${isReal?'var(--card)':'#fff9ec'};width:104px;font-family:inherit`;
-  const title=isReal?'Data confirmada — altere se necessário':(projecao?`Projeção: ${ctrFmtData(projecao)} — selecione a data real para confirmar`:'Selecione a data para confirmar');
-  return `<input type="date" value="${valor||''}" style="${style}" onclick="event.stopPropagation()" onchange="event.stopPropagation();ctrConfirmarData('${id}','${campo}',this.value)" title="${title}">`;
+function ctrConfirmChk(id,campo,isReal,projecao,dataReal){
+  const title=isReal?`Confirmado em ${ctrFmtData(dataReal)} — desmarque para desfazer`:(projecao?`Previsto para ${ctrFmtData(projecao)} — marque para confirmar hoje`:'Marque para confirmar');
+  return `<label style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:10px" title="${title}" onclick="event.stopPropagation()">
+    <input type="checkbox" ${isReal?'checked':''} style="width:14px;height:14px;cursor:pointer;accent-color:var(--success)" onchange="event.stopPropagation();ctrToggleConfirmacao('${id}','${campo}',this.checked)">
+    ${isReal?`<span style="color:var(--text-muted)">${ctrFmtData(dataReal)}</span>`:''}
+  </label>`;
 }
 function ctrProjCelulas(c){
   const hoje=ctrHojeISO();
@@ -7903,13 +7903,21 @@ function ctrProjCelulas(c){
   const nowrap='style="font-size:10px;white-space:normal;line-height:1.35"';
   return{
     exame:tipoLabel?`<div ${nowrap}>${tipoLabel} · ${ctrFmtData(c.data_exame)}<div style="margin-top:3px;display:flex;align-items:center;gap:4px"><span class="badge ${exameOk?'badge-green':'badge-amber'}">${exameOk?'Result. disp.':'Aguard.'} ${ctrFmtData(p.resultadoExame)}</span></div></div>`:'<span style="color:var(--text-muted)">—</span>',
-    docPortal:p.docPortal?ctrDateSel(c.id,'data_documentos_portal',c.data_documentos_portal||'',p.docPortalReal,false,p.docPortal):'<span style="color:var(--text-muted)">—</span>',
-    aprovacao:p.aprovacao?ctrDateSel(c.id,'data_aprovacao_diretoria',c.data_aprovacao_diretoria||'',p.aprovacaoReal,false,p.aprovacao):'<span style="color:var(--text-muted)">—</span>',
-    envioDp:p.envioDp?ctrDateSel(c.id,'data_envio_dp',c.data_envio_dp||'',p.envioDpReal,false,p.envioDp):'<span style="color:var(--text-muted)">—</span>',
-    admissao:p.admissao?`<span class="badge ${registroOk?'badge-green':'badge-amber'}" style="padding:2px 6px">${ctrDateSel(c.id,'data_prevista_admissao',c.data_prevista_admissao||'',p.admissaoReal,true,p.admissao)}</span>`:'<span style="color:var(--text-muted)">—</span>',
+    docPortal:p.docPortal?ctrConfirmChk(c.id,'data_documentos_portal',p.docPortalReal,p.docPortal,c.data_documentos_portal):'<span style="color:var(--text-muted)">—</span>',
+    aprovacao:p.aprovacao?ctrConfirmChk(c.id,'data_aprovacao_diretoria',p.aprovacaoReal,p.aprovacao,c.data_aprovacao_diretoria):'<span style="color:var(--text-muted)">—</span>',
+    envioDp:p.envioDp?ctrConfirmChk(c.id,'data_envio_dp',p.envioDpReal,p.envioDp,c.data_envio_dp):'<span style="color:var(--text-muted)">—</span>',
+    admissao:p.admissao?`<span class="badge ${registroOk?'badge-green':'badge-amber'}" style="padding:2px 6px">${ctrConfirmChk(c.id,'data_prevista_admissao',p.admissaoReal,p.admissao,c.data_prevista_admissao)}</span>`:'<span style="color:var(--text-muted)">—</span>',
     integracao:c.data_integracao_prevista?`<div ${nowrap}>${ctrFmtData(c.data_integracao_prevista)}</div>`:'<span style="color:var(--text-muted)">—</span>',
     mobilizacao:c.data_viagem_mobilizacao?`<div ${nowrap}>${ctrFmtData(c.data_viagem_mobilizacao)} → ${ctrFmtData(c.data_prevista_chegada)}</div>`:'<span style="color:var(--text-muted)">—</span>',
   };
+}
+async function ctrToggleConfirmacao(id,campo,checked){
+  const valor=checked?ctrHojeISO():null;
+  const payload={};payload[campo]=valor;
+  const{error}=await sb.from('contratacoes').update(payload).eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast(checked?'Etapa confirmada!':'Confirmação desfeita');
+  await loadContratacoes();renderContratacoes();
 }
 function ctrProjResumoHtml(c){
   const hoje=ctrHojeISO();
