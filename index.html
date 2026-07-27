@@ -7887,11 +7887,12 @@ function ctrCalcularProjecoes(c){
   };
 }
 
-function ctrDateSel(id,campo,valor,isReal,inBadge){
+function ctrDateSel(id,campo,valor,isReal,inBadge,projecao){
   const style=inBadge
     ?'font-size:10px;padding:0;border:none;background:transparent;color:inherit;width:80px;font-weight:600;font-family:inherit'
     :`font-size:10px;padding:2px 4px;border:1px solid ${isReal?'var(--border)':'var(--warning)'};border-radius:4px;background:${isReal?'var(--card)':'#fff9ec'};width:104px;font-family:inherit`;
-  return `<input type="date" value="${valor||''}" style="${style}" onclick="event.stopPropagation()" onchange="event.stopPropagation();ctrConfirmarData('${id}','${campo}',this.value)" title="${isReal?'Data confirmada':'Data projetada — altere para confirmar'}">`;
+  const title=isReal?'Data confirmada — altere se necessário':(projecao?`Projeção: ${ctrFmtData(projecao)} — selecione a data real para confirmar`:'Selecione a data para confirmar');
+  return `<input type="date" value="${valor||''}" style="${style}" onclick="event.stopPropagation()" onchange="event.stopPropagation();ctrConfirmarData('${id}','${campo}',this.value)" title="${title}">`;
 }
 function ctrProjCelulas(c){
   const hoje=ctrHojeISO();
@@ -7901,11 +7902,11 @@ function ctrProjCelulas(c){
   const registroOk=p.envioDp&&hoje>=p.envioDp;
   const nowrap='style="font-size:10px;white-space:normal;line-height:1.35"';
   return{
-    exame:tipoLabel?`<div ${nowrap}>${tipoLabel} · ${ctrFmtData(c.data_exame)}<div style="margin-top:3px;display:flex;align-items:center;gap:4px"><span class="badge ${exameOk?'badge-green':'badge-amber'}">${exameOk?'Result. disp.':'Aguard.'}</span>${p.resultadoExame?ctrDateSel(c.id,'data_resultado_exame',p.resultadoExame,p.resultadoExameReal):''}</div></div>`:'<span style="color:var(--text-muted)">—</span>',
-    docPortal:p.docPortal?ctrDateSel(c.id,'data_documentos_portal',p.docPortal,p.docPortalReal):'<span style="color:var(--text-muted)">—</span>',
-    aprovacao:p.aprovacao?ctrDateSel(c.id,'data_aprovacao_diretoria',p.aprovacao,p.aprovacaoReal):'<span style="color:var(--text-muted)">—</span>',
-    envioDp:p.envioDp?ctrDateSel(c.id,'data_envio_dp',p.envioDp,p.envioDpReal):'<span style="color:var(--text-muted)">—</span>',
-    admissao:p.admissao?`<span class="badge ${registroOk?'badge-green':'badge-amber'}" style="padding:2px 6px">${ctrDateSel(c.id,'data_prevista_admissao',p.admissao,p.admissaoReal,true)}</span>`:'<span style="color:var(--text-muted)">—</span>',
+    exame:tipoLabel?`<div ${nowrap}>${tipoLabel} · ${ctrFmtData(c.data_exame)}<div style="margin-top:3px;display:flex;align-items:center;gap:4px"><span class="badge ${exameOk?'badge-green':'badge-amber'}">${exameOk?'Result. disp.':'Aguard.'} ${ctrFmtData(p.resultadoExame)}</span></div></div>`:'<span style="color:var(--text-muted)">—</span>',
+    docPortal:p.docPortal?ctrDateSel(c.id,'data_documentos_portal',c.data_documentos_portal||'',p.docPortalReal,false,p.docPortal):'<span style="color:var(--text-muted)">—</span>',
+    aprovacao:p.aprovacao?ctrDateSel(c.id,'data_aprovacao_diretoria',c.data_aprovacao_diretoria||'',p.aprovacaoReal,false,p.aprovacao):'<span style="color:var(--text-muted)">—</span>',
+    envioDp:p.envioDp?ctrDateSel(c.id,'data_envio_dp',c.data_envio_dp||'',p.envioDpReal,false,p.envioDp):'<span style="color:var(--text-muted)">—</span>',
+    admissao:p.admissao?`<span class="badge ${registroOk?'badge-green':'badge-amber'}" style="padding:2px 6px">${ctrDateSel(c.id,'data_prevista_admissao',c.data_prevista_admissao||'',p.admissaoReal,true,p.admissao)}</span>`:'<span style="color:var(--text-muted)">—</span>',
     integracao:c.data_integracao_prevista?`<div ${nowrap}>${ctrFmtData(c.data_integracao_prevista)}</div>`:'<span style="color:var(--text-muted)">—</span>',
     mobilizacao:c.data_viagem_mobilizacao?`<div ${nowrap}>${ctrFmtData(c.data_viagem_mobilizacao)} → ${ctrFmtData(c.data_prevista_chegada)}</div>`:'<span style="color:var(--text-muted)">—</span>',
   };
