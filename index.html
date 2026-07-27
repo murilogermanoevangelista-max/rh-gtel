@@ -7823,7 +7823,7 @@ function ctrDocsPct(c){
 const CTR_ETAPAS=[
   {key:'aguardando_exame',label:'Aguardando Exame',test:c=>!c.data_resultado_exame,icon:'ti-hourglass'},
   {key:'exame_realizado',label:'Exame Realizado',test:c=>{const d=c.documentos||{};const asoOk=d.aso==='ok'||d.aso===true;return!!c.data_resultado_exame&&!asoOk;},icon:'ti-stethoscope'},
-  {key:'aso_liberado',label:'ASO Liberado',test:c=>{const d=c.documentos||{};const asoOk=d.aso==='ok'||d.aso===true;return asoOk&&!c.data_documentos_portal;},icon:'ti-medical-cross'},
+  {key:'aso_liberado',label:'ASO Liberado',test:c=>{const d=c.documentos||{};const asoOk=d.aso==='ok'||d.aso===true;return asoOk&&ctrDocsPct(c).pct<100&&!c.data_documentos_portal;},icon:'ti-medical-cross'},
   {key:'aguardando_cadastro_portal',label:'Aguard. Cadastro Portal RH',test:c=>ctrDocsPct(c).pct>=100&&!c.data_documentos_portal,icon:'ti-clipboard-check'},
   {key:'documentos_portal',label:'Documentos Portal',test:c=>!!c.data_documentos_portal&&!c.data_aprovacao_diretoria,icon:'ti-file-upload'},
   {key:'aguardando_aprovacao_diretoria',label:'Aguard. Aprov. Diretoria',test:c=>!!c.data_documentos_portal&&!c.data_aprovacao_diretoria,icon:'ti-gavel'},
