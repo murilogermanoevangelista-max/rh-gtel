@@ -7818,7 +7818,7 @@ function ctrDocsPct(c){
 const CTR_ETAPAS=[
   {key:'aguardando_exame',label:'Aguardando Exame',test:c=>!c.data_resultado_exame,icon:'ti-hourglass'},
   {key:'exame_realizado',label:'Exame Realizado',test:c=>{const d=c.documentos||{};const asoOk=d.aso==='ok'||d.aso===true;return!!c.data_resultado_exame&&!asoOk;},icon:'ti-stethoscope'},
-  {key:'aso_liberado',label:'ASO Liberado',test:c=>{const d=c.documentos||{};return d.aso==='ok'||d.aso===true;},icon:'ti-medical-cross'},
+  {key:'aso_liberado',label:'ASO Liberado',test:c=>{const d=c.documentos||{};const asoOk=d.aso==='ok'||d.aso===true;return asoOk&&!c.data_documentos_portal;},icon:'ti-medical-cross'},
   {key:'aguardando_cadastro_portal',label:'Aguard. Cadastro Portal RH',test:c=>ctrDocsPct(c).pct>=100&&!c.data_documentos_portal,icon:'ti-clipboard-check'},
   {key:'documentos_portal',label:'Documentos Portal',test:c=>!!c.data_documentos_portal,icon:'ti-file-upload'},
   {key:'aguardando_aprovacao_diretoria',label:'Aguard. Aprov. Diretoria',test:c=>!!c.data_documentos_portal&&!c.data_aprovacao_diretoria,icon:'ti-gavel'},
@@ -7887,20 +7887,25 @@ function ctrCalcularProjecoes(c){
   };
 }
 
+function ctrDateSel(id,campo,valor,isReal,inBadge){
+  const style=inBadge
+    ?'font-size:10px;padding:0;border:none;background:transparent;color:inherit;width:80px;font-weight:600;font-family:inherit'
+    :`font-size:10px;padding:2px 4px;border:1px solid ${isReal?'var(--border)':'var(--warning)'};border-radius:4px;background:${isReal?'var(--card)':'#fff9ec'};width:104px;font-family:inherit`;
+  return `<input type="date" value="${valor||''}" style="${style}" onclick="event.stopPropagation()" onchange="event.stopPropagation();ctrConfirmarData('${id}','${campo}',this.value)" title="${isReal?'Data confirmada':'Data projetada — altere para confirmar'}">`;
+}
 function ctrProjCelulas(c){
   const hoje=ctrHojeISO();
   const tipoLabel=c.tipo_exame==='operacional_ac'?'Operacional AC':(c.tipo_exame==='operacional'?'Operacional':null);
   const p=ctrCalcularProjecoes(c);
   const exameOk=p.resultadoExameReal||(p.resultadoExame&&hoje>=p.resultadoExame);
   const registroOk=p.envioDp&&hoje>=p.envioDp;
-  const tag=(isReal,campo,valor)=>isReal?'':` <button class="btn btn-sm" style="padding:1px 5px;font-size:9px" onclick="event.stopPropagation();ctrConfirmarData('${c.id}','${campo}','${valor}')" title="Confirmar que essa data foi efetivada"><i class="ti ti-check"></i></button>`;
   const nowrap='style="font-size:10px;white-space:normal;line-height:1.35"';
   return{
-    exame:tipoLabel?`<div ${nowrap}>${tipoLabel} · ${ctrFmtData(c.data_exame)} <span class="badge ${exameOk?'badge-green':'badge-amber'}" style="margin-left:2px">${exameOk?'Result. disp.':'Aguard.'} ${ctrFmtData(p.resultadoExame)}</span>${p.resultadoExame?tag(p.resultadoExameReal,'data_resultado_exame',p.resultadoExame):''}</div>`:'<span style="color:var(--text-muted)">—</span>',
-    docPortal:p.docPortal?`<div ${nowrap}>${ctrFmtData(p.docPortal)}${tag(p.docPortalReal,'data_documentos_portal',p.docPortal)}</div>`:'<span style="color:var(--text-muted)">—</span>',
-    aprovacao:p.aprovacao?`<div ${nowrap}>${ctrFmtData(p.aprovacao)}${tag(p.aprovacaoReal,'data_aprovacao_diretoria',p.aprovacao)}</div>`:'<span style="color:var(--text-muted)">—</span>',
-    envioDp:p.envioDp?`<div ${nowrap}>${ctrFmtData(p.envioDp)}${tag(p.envioDpReal,'data_envio_dp',p.envioDp)}</div>`:'<span style="color:var(--text-muted)">—</span>',
-    admissao:p.admissao?`<div ${nowrap}><span class="badge ${registroOk?'badge-green':'badge-amber'}">${ctrFmtData(p.admissao)}</span>${tag(p.admissaoReal,'data_prevista_admissao',p.admissao)}</div>`:'<span style="color:var(--text-muted)">—</span>',
+    exame:tipoLabel?`<div ${nowrap}>${tipoLabel} · ${ctrFmtData(c.data_exame)}<div style="margin-top:3px;display:flex;align-items:center;gap:4px"><span class="badge ${exameOk?'badge-green':'badge-amber'}">${exameOk?'Result. disp.':'Aguard.'}</span>${p.resultadoExame?ctrDateSel(c.id,'data_resultado_exame',p.resultadoExame,p.resultadoExameReal):''}</div></div>`:'<span style="color:var(--text-muted)">—</span>',
+    docPortal:p.docPortal?ctrDateSel(c.id,'data_documentos_portal',p.docPortal,p.docPortalReal):'<span style="color:var(--text-muted)">—</span>',
+    aprovacao:p.aprovacao?ctrDateSel(c.id,'data_aprovacao_diretoria',p.aprovacao,p.aprovacaoReal):'<span style="color:var(--text-muted)">—</span>',
+    envioDp:p.envioDp?ctrDateSel(c.id,'data_envio_dp',p.envioDp,p.envioDpReal):'<span style="color:var(--text-muted)">—</span>',
+    admissao:p.admissao?`<span class="badge ${registroOk?'badge-green':'badge-amber'}" style="padding:2px 6px">${ctrDateSel(c.id,'data_prevista_admissao',p.admissao,p.admissaoReal,true)}</span>`:'<span style="color:var(--text-muted)">—</span>',
     integracao:c.data_integracao_prevista?`<div ${nowrap}>${ctrFmtData(c.data_integracao_prevista)}</div>`:'<span style="color:var(--text-muted)">—</span>',
     mobilizacao:c.data_viagem_mobilizacao?`<div ${nowrap}>${ctrFmtData(c.data_viagem_mobilizacao)} → ${ctrFmtData(c.data_prevista_chegada)}</div>`:'<span style="color:var(--text-muted)">—</span>',
   };
