@@ -2144,6 +2144,11 @@ async function saveFuncionario(id){
   const mat=document.getElementById('f-matricula').value.trim();
   const nome=document.getElementById('f-nome').value.trim();
   if(!mat||!nome){showToast('Matrícula e nome são obrigatórios','error');return;}
+  const matDuplicada=funcionarios.find(f=>String(f.matricula||'').trim()===mat&&String(f.id)!==String(id));
+  if(matDuplicada){
+    showToast(`Matrícula ${mat} já pertence a ${matDuplicada.nome_completo} (${matDuplicada.situacao||'—'}). Use outra matrícula.`,'error');
+    return;
+  }
   const isMod=funcaoModoManual;
   let funcaoId=isMod?null:document.getElementById('f-funcao-select').value||null;
   const funcaoManualTexto=isMod?document.getElementById('f-funcao-input').value.trim():null;
@@ -2262,7 +2267,14 @@ async function saveFuncionario(id){
   };
   if(fotoUrl)payload.foto_url=fotoUrl;
   const{error}=id?await sb.from('funcionarios').update(payload).eq('id',id):await sb.from('funcionarios').insert(payload);
-  if(error){showToast('Erro ao salvar: '+error.message,'error');return;}
+  if(error){
+    if(/funcionarios_matricula_key/.test(error.message)){
+      showToast(`Matrícula ${mat} já está em uso por outro funcionário. Verifique e tente novamente.`,'error');
+    }else{
+      showToast('Erro ao salvar: '+error.message,'error');
+    }
+    return;
+  }
   showToast(id?'Funcionário atualizado!':'Funcionário cadastrado!');
   closeModal('modal-func');showPage('funcionarios');
 }
