@@ -356,7 +356,7 @@ const SUPABASE_URL='https://lqggoshphakeuufibdno.supabase.co';
 const SUPABASE_KEY='sb_publishable_QlnJaa5xdUXePvXFV6QFwQ_AmMk639T';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[],contratacoes=[],contratacoesVagas=[],contratacoesProspeccoes=[],folgasTranslados=[],movimentacoesHistorico=[];
+let funcionarios=[],obras=[],obrasTodas=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosTodos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[],contratacoes=[],contratacoesVagas=[],contratacoesProspeccoes=[],folgasTranslados=[],movimentacoesHistorico=[];
 let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'nao_lancadas' | null
 let alojBusca='';
 let bannerNaoLancadasAberto=false;
@@ -640,7 +640,9 @@ async function loadAll(){
     sb.from('movimentacoes_historico').select('*,obra_origem:obras!movimentacoes_historico_obra_origem_id_fkey(nome,codigo),obra_destino:obras!movimentacoes_historico_obra_destino_id_fkey(nome,codigo)').order('data_movimentacao'),
   ]);
   funcionarios=f.data||[];obras=o.data||[];empresas=e.data||[];funcoes=fn.data||[];
+  obrasTodas=o.data||[]; // lista completa, sem restrição — usada em campos onde o destino pode ser fora da obra do usuário (ex: transferência)
   let listaAloj=al.data||[];
+  alojamentosTodos=listaAloj; // idem, para o seletor de alojamento ao transferir para uma obra fora da permissão do usuário
   movimentacoesHistorico=mh.data||[];
   if(obrasPermitidasIds){
     obras=obras.filter(o=>obrasPermitidasIds.has(String(o.id)));
@@ -1993,7 +1995,7 @@ function openModalFuncionario(func=null){
   tipoTransferencia='';fotoFile=null;
   const isEdit=!!func;
   const obraOptions=obras.map(o=>`<option value="${o.id}" ${func?.obra_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
-  const obraTransfOptions=obras.map(o=>`<option value="${o.id}" ${func?.obra_transferencia_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
+  const obraTransfOptions=obrasTodas.map(o=>`<option value="${o.id}" ${func?.obra_transferencia_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
   const empresaOptions=empresas.map(e=>`<option value="${e.id}" ${func?.empresa_id===e.id?'selected':''}>${e.nome}</option>`).join('');
   const funcoesUnicas=[...new Map(funcoes.map(f=>[f.nome?.trim().toUpperCase(),f])).values()].sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR'));
   const funcaoOptions=funcoesUnicas.map(f=>`<option value="${f.id}" ${func?.funcao_id===f.id?'selected':''}>${f.nome}</option>`).join('');
@@ -2153,7 +2155,8 @@ function atualizarAlojamentoPorObra(preselecionarAtual){
   const obraTransfEl=document.getElementById('f-obra-transf');
   const obraId=(emEnvio&&obraTransfEl?.value)?obraTransfEl.value:document.getElementById('f-obra').value;
   const func=window._funcEditando;
-  const candidatos=obraId?alojamentos.filter(a=>String(a.obra_id)===String(obraId)):alojamentos;
+  const listaBase=emEnvio?alojamentosTodos:alojamentos; // em envio, o destino pode ser uma obra fora da permissão do usuário
+  const candidatos=obraId?listaBase.filter(a=>String(a.obra_id)===String(obraId)):listaBase;
   const manterAtual=preselecionarAtual&&!emEnvio&&func?.alojamento_id&&candidatos.some(a=>String(a.id)===String(func.alojamento_id));
   sel.innerHTML='<option value="">— Nenhum —</option>'+candidatos.map(a=>`<option value="${a.id}" ${manterAtual&&String(func.alojamento_id)===String(a.id)?'selected':''}>${a.nome}${a.obra?.codigo?' ('+a.obra.codigo+')':''}</option>`).join('');
 }
