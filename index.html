@@ -7890,9 +7890,17 @@ function ctrDocsPct(c){
   return{done,total,pct:total?Math.round(done/total*100):100};
 }
 
+function ctrExameJaOcorreu(c){
+  // O exame é considerado "realizado" quando o resultado já foi confirmado manualmente
+  // OU quando a data agendada do exame já chegou/passou (mesmo sem o resultado lançado ainda).
+  if(c.data_resultado_exame)return true;
+  if(!c.data_exame)return false;
+  return c.data_exame<=ctrHojeISO();
+}
+
 const CTR_ETAPAS=[
-  {key:'aguardando_exame',label:'Aguardando Exame',test:c=>!c.data_resultado_exame,icon:'ti-hourglass'},
-  {key:'exame_realizado',label:'Exame Realizado',test:c=>{const d=c.documentos||{};const asoOk=d.aso==='ok'||d.aso===true;return!!c.data_resultado_exame&&!asoOk;},icon:'ti-stethoscope'},
+  {key:'aguardando_exame',label:'Aguardando Exame',test:c=>!ctrExameJaOcorreu(c),icon:'ti-hourglass'},
+  {key:'exame_realizado',label:'Exame Realizado',test:c=>{const d=c.documentos||{};const asoOk=d.aso==='ok'||d.aso===true;return ctrExameJaOcorreu(c)&&!asoOk;},icon:'ti-stethoscope'},
   {key:'aso_liberado',label:'ASO Liberado',test:c=>{const d=c.documentos||{};const asoOk=d.aso==='ok'||d.aso===true;return asoOk&&ctrDocsPct(c).pct<100&&!c.data_documentos_portal;},icon:'ti-medical-cross'},
   {key:'aguardando_cadastro_portal',label:'Aguard. Cadastro Portal RH',test:c=>ctrDocsPct(c).pct>=100&&!c.data_documentos_portal,icon:'ti-clipboard-check'},
   {key:'documentos_portal',label:'Documentos Portal',test:c=>!!c.data_documentos_portal&&!c.data_aprovacao_diretoria,icon:'ti-file-upload'},
