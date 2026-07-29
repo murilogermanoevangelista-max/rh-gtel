@@ -8263,6 +8263,7 @@ function renderContratacoesCandidatos(){
 }
 
 function exportContratacoesExcel(){
+ try{
   const{ativos,lista}=ctrCandidatosFiltrados();
   if(!lista.length){showToast('Nenhum candidato para exportar.','error');return;}
 
@@ -8273,7 +8274,7 @@ function exportContratacoesExcel(){
     return(a.nome||'').localeCompare(b.nome||'','pt-BR');
   });
 
-  const NCOL=10;
+  const NCOL=11;
   const pad=arr=>{while(arr.length<NCOL)arr.push('');return arr;};
   const dataEmissao=new Date().toLocaleDateString('pt-BR');
 
@@ -8295,7 +8296,7 @@ function exportContratacoesExcel(){
   rows.push(pad([]));
   const headerRowIdx=rows.length; // linha do cabeçalho da tabela (0-indexed)
   rows.push([
-    'NOME','FUNÇÃO','EXAME','D. PORTAL','APROVAÇÃO','ENVIO DP',
+    'NOME','FUNÇÃO','CIDADE','EXAME','D. PORTAL','APROVAÇÃO','ENVIO DP',
     'ADMISSÃO','INTEGRAÇÃO','MOBILIZ.','STATUS'
   ]);
 
@@ -8313,6 +8314,7 @@ function exportContratacoesExcel(){
     rows.push([
       c.nome||'—',
       funcaoNome,
+      c.origem||'—',
       c.data_exame?ctrFmtData(c.data_exame):'—',
       p.docPortalReal?ctrFmtData(c.data_documentos_portal):'—',
       p.aprovacaoReal?ctrFmtData(c.data_aprovacao_diretoria):'—',
@@ -8335,8 +8337,8 @@ function exportContratacoesExcel(){
 
   const ws=XLSXStyle.utils.aoa_to_sheet(rows);
   ws['!cols']=[
-    {wch:28},{wch:22},{wch:16},{wch:18},{wch:18},{wch:18},
-    {wch:18},{wch:18},{wch:14},{wch:20}
+    {wch:28},{wch:22},{wch:20},{wch:16},{wch:18},{wch:18},
+    {wch:18},{wch:18},{wch:18},{wch:14},{wch:20}
   ];
   ws['!merges']=[
     {s:{r:0,c:0},e:{r:0,c:NCOL-1}},
@@ -8373,7 +8375,7 @@ function exportContratacoesExcel(){
     for(let c=0;c<NCOL;c++){
       const addr=XLSXStyle.utils.encode_cell({r,c});
       if(!ws[addr])continue;
-      const base={border:borderAll,alignment:{vertical:'center',horizontal:c===0||c===1?'left':'center',indent:c===0?1:0},font:{sz:10}};
+      const base={border:borderAll,alignment:{vertical:'center',horizontal:c===0||c===1||c===2?'left':'center',indent:c===0?1:0},font:{sz:10}};
       if(zebra)base.fill={fgColor:{rgb:'F8F9FA'}};
       ws[addr].s=base;
     }
@@ -8441,6 +8443,10 @@ function exportContratacoesExcel(){
   const sufixoObra=obraFiltroId?`_${(obras.find(o=>String(o.id)===String(obraFiltroId))?.codigo)||'Obra'}`:'_TodasObras';
   XLSXStyle.writeFile(wb,`Contratacoes_GTEL${sufixoObra}_${dataEmissao.replace(/\//g,'-')}.xlsx`);
   showToast(`Excel exportado — ${listaOrdenada.length} candidato(s)!`);
+ }catch(err){
+  console.error('Erro ao exportar Excel:',err);
+  showToast('Erro ao exportar Excel: '+(err?.message||err),'error');
+ }
 }
 
 function ctrToggleDesistencia(){
