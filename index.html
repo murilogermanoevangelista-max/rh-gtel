@@ -7902,10 +7902,6 @@ const CTR_ETAPAS=[
   {key:'integracao_prevista',label:'Integração Prevista',test:c=>!!c.data_integracao_prevista,icon:'ti-calendar-event',todosStatus:true},
   {key:'mobilizacao',label:'Mobilização → Chegada',test:c=>!!c.data_viagem_mobilizacao,icon:'ti-plane-departure',todosStatus:true},
 ];
-const CTR_ETAPAS_STATUS_MAP={
-  integracao_prevista:'aguardando_integracao',
-  mobilizacao:'integrado',
-};
 function ctrStatusInfo(status){
   const map={
     em_processo:{label:'Em Processo',bg:'var(--warning-light)',cor:'var(--warning)'},
@@ -7928,6 +7924,24 @@ async function ctrAutoSyncProspeccoes(){
   await loadContratacoesProspeccoes();
   return true;
 }
+async function ctrAutoSyncStatusIntegracao(){
+  // Se o candidato já tem a data de Mobilização ou Integração Prevista lançada,
+  // o status deve refletir isso automaticamente (só avança, nunca rebaixa e nunca mexe em quem desistiu).
+  const ordem={em_processo:0,aguardando_integracao:1,integrado:2};
+  const pendentes=contratacoes.filter(c=>{
+    if(c.status==='desistiu')return false;
+    const alvo=c.data_viagem_mobilizacao?'integrado':(c.data_integracao_prevista?'aguardando_integracao':null);
+    if(!alvo)return false;
+    return(ordem[c.status]??0)<ordem[alvo];
+  });
+  if(!pendentes.length)return false;
+  for(const c of pendentes){
+    const alvo=c.data_viagem_mobilizacao?'integrado':'aguardando_integracao';
+    await sb.from('contratacoes').update({status:alvo}).eq('id',c.id);
+  }
+  await loadContratacoes();
+  return true;
+}
 function renderContratacoes(){
   if(contratacoesTab==='vagas')renderContratacoesVagas();
   else if(contratacoesTab==='prospeccao'){
@@ -7935,7 +7949,10 @@ function renderContratacoes(){
     ctrAutoSyncProspeccoes().then(mudou=>{if(mudou&&contratacoesTab==='prospeccao')renderContratacoesProspeccao();});
   }
   else if(contratacoesTab==='desistencias')renderContratacoesDesistencias();
-  else renderContratacoesCandidatos();
+  else{
+    renderContratacoesCandidatos();
+    ctrAutoSyncStatusIntegracao().then(mudou=>{if(mudou&&contratacoesTab==='candidatos')renderContratacoesCandidatos();});
+  }
 }
 
 function ctrCalcularProjecoes(c){
@@ -8142,13 +8159,9 @@ function renderContratacoesCandidatos(){
       <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Documentos / etapas lançadas no sistema</div>
       <div style="display:grid;grid-template-columns:repeat(10,1fr);gap:10px">
         ${CTR_ETAPAS.map(e=>{
-          const statusAlvo=CTR_ETAPAS_STATUS_MAP[e.key];
           const count=ativos.filter(c=>e.todosStatus||c.status==='em_processo').filter(e.test).length;
-          const ativo=statusAlvo?contratacoesFiltroStatus===statusAlvo:contratacoesFiltroEtapa===e.key;
-          const onclickAction=statusAlvo
-            ?`contratacoesFiltroEtapa='';contratacoesFiltroStatus='${ativo?'':statusAlvo}';renderContratacoesCandidatos()`
-            :`contratacoesFiltroEtapa='${ativo?'':e.key}';renderContratacoesCandidatos()`;
-          return`<div onclick="${onclickAction}"
+          const ativo=contratacoesFiltroEtapa===e.key;
+          return`<div onclick="contratacoesFiltroEtapa='${ativo?'':e.key}';renderContratacoesCandidatos()"
             style="cursor:pointer;background:var(--surface);border:1px solid ${ativo?'var(--primary)':'var(--border)'};border-radius:var(--radius-lg);padding:12px 14px;transition:.15s">
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
               <i class="ti ${e.icon}" style="font-size:14px;color:${ativo?'var(--primary)':'var(--text-muted)'}"></i>
@@ -8417,6 +8430,19 @@ function ctrToggleDesistencia(){
   grupo.style.display=status==='desistiu'?'block':'none';
   if(status==='desistiu'&&!document.getElementById('ctr-data-desistencia').value){
     document.getElementById('ctr-data-desistencia').value=ctrHojeISO();
+  }
+}
+
+function ctrAutoStatusPorData(statusAlvo,valor){
+  if(!valor)return; // só avança o status quando a data é preenchida, nunca ao apagar
+  const sel=document.getElementById('ctr-status');
+  if(!sel)return;
+  const ordem={em_processo:0,aguardando_integracao:1,integrado:2};
+  const atual=sel.value;
+  if(atual==='desistiu')return; // não mexe em candidato já marcado como desistiu
+  if((ordem[atual]??0)<ordem[statusAlvo]){
+    sel.value=statusAlvo;
+    ctrToggleDesistencia();
   }
 }
 
@@ -8965,9 +8991,9 @@ function openModalContratacao(id){
               </div>
 
               <div class="form-group"><label>Integração Prevista <span style="font-weight:400;color:var(--text-muted)">(manual — depende da obra)</span></label>
-                <input type="date" id="proj-integracao" value="${c?.data_integracao_prevista||''}"></div>
+                <input type="date" id="proj-integracao" value="${c?.data_integracao_prevista||''}" onchange="ctrAutoStatusPorData('aguardando_integracao',this.value)"></div>
               <div class="form-group"><label>Viagem de Mobilização <span style="font-weight:400;color:var(--text-muted)">(manual — depende da obra)</span></label>
-                <input type="date" id="proj-viagem" value="${c?.data_viagem_mobilizacao||''}"></div>
+                <input type="date" id="proj-viagem" value="${c?.data_viagem_mobilizacao||''}" onchange="ctrAutoStatusPorData('integrado',this.value)"></div>
               <div class="form-group"><label>Previsão de Chegada</label>
                 <input type="date" id="proj-chegada" value="${c?.data_prevista_chegada||''}"></div>
             </div>
