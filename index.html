@@ -356,7 +356,7 @@ const SUPABASE_URL='https://lqggoshphakeuufibdno.supabase.co';
 const SUPABASE_KEY='sb_publishable_QlnJaa5xdUXePvXFV6QFwQ_AmMk639T';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[],contratacoes=[],contratacoesVagas=[],contratacoesProspeccoes=[],folgasTranslados=[];
+let funcionarios=[],obras=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[],contratacoes=[],contratacoesVagas=[],contratacoesProspeccoes=[],folgasTranslados=[],movimentacoesHistorico=[];
 let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'nao_lancadas' | null
 let alojBusca='';
 let bannerNaoLancadasAberto=false;
@@ -631,15 +631,17 @@ function toISO(d){
 const UFS=['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];
 
 async function loadAll(){
-  const [f,o,e,fn,al]=await Promise.all([
+  const [f,o,e,fn,al,mh]=await Promise.all([
     sb.from('funcionarios').select('*,funcao:funcoes!funcionarios_funcao_id_fkey(nome),empresa:empresas!funcionarios_empresa_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo),obra_transferencia:obras!funcionarios_obra_transferencia_id_fkey(nome,codigo)').order('nome_completo'),
     sb.from('obras').select('*,empresa:empresas(nome)').order('nome'),
     sb.from('empresas').select('*').order('nome'),
     sb.from('funcoes').select('*').order('nome'),
     sb.from('alojamentos').select('*,obra:obras(nome,codigo)').order('nome'),
+    sb.from('movimentacoes_historico').select('*,obra_origem:obras!movimentacoes_historico_obra_origem_id_fkey(nome,codigo),obra_destino:obras!movimentacoes_historico_obra_destino_id_fkey(nome,codigo)').order('data_movimentacao'),
   ]);
   funcionarios=f.data||[];obras=o.data||[];empresas=e.data||[];funcoes=fn.data||[];
   let listaAloj=al.data||[];
+  movimentacoesHistorico=mh.data||[];
   if(obrasPermitidasIds){
     obras=obras.filter(o=>obrasPermitidasIds.has(String(o.id)));
     funcionarios=funcionarios.filter(f=>f.obra_id&&obrasPermitidasIds.has(String(f.obra_id)));
@@ -1570,6 +1572,26 @@ async function verFicha(id,historico=false){
       +'</div></div>';
   }
 
+  // ── Histórico completo de movimentações (todas as transferências já registradas) ──
+  const historicoMovs=movimentacoesHistorico.filter(m=>String(m.funcionario_id)===String(id)).sort((a,b)=>(parseDate(a.data_movimentacao)||new Date(0))-(parseDate(b.data_movimentacao)||new Date(0)));
+  let historicoMovSection='';
+  if(historicoMovs.length>0){
+    const itensHist=historicoMovs.map(m=>{
+      const isEnvioM=m.tipo==='envio';
+      const origemStr=(m.obra_origem?.codigo?m.obra_origem.codigo+' ':'')+(m.obra_origem?.nome||'—');
+      const destinoStr=(m.obra_destino?.codigo?m.obra_destino.codigo+' ':'')+(m.obra_destino?.nome||'—');
+      return '<div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;font-size:12px">'
+        +'<div style="font-weight:600">'+(isEnvioM?'📤 Envio':'📥 Recebimento')+' · '+(formatDate(m.data_movimentacao)||'—')+'</div>'
+        +'<div style="color:var(--text-muted);margin-top:2px">'+origemStr+' → '+destinoStr+'</div>'
+        +(m.centro_custo?'<div style="color:var(--text-muted);margin-top:2px">Centro de Custo: '+m.centro_custo+'</div>':'')
+        +'</div>';
+    }).join('');
+    historicoMovSection='<div class="ficha-section">'
+      +'<div class="ficha-section-title"><i class="ti ti-history" style="margin-right:6px"></i>Histórico de Movimentações ('+historicoMovs.length+')</div>'
+      +'<div style="display:flex;flex-direction:column;gap:6px">'+itensHist+'</div>'
+      +'</div>';
+  }
+
   // ── Experiência ──
   const exp=calcExp(f);
   let expSection='';
@@ -1738,6 +1760,7 @@ async function verFicha(id,historico=false){
           </div>
           ${demissaoSection}
           ${transferSection}
+          ${historicoMovSection}
           ${expSection}
           ${folgasSection}
           ${feriasSection}
@@ -2237,6 +2260,14 @@ async function saveFuncionario(id){
   const dataTransferenciaFinal=isTransf?(document.getElementById('f-data-transf').value||null):(existente?.data_transferencia||null);
   const centroCustoTransfFinal=isTransf?(document.getElementById('f-centro-custo').value.trim()||null):(existente?.centro_custo_transferencia||null);
   const dataDesmobFinal=isTransf&&tipoTransferencia==='envio'?(document.getElementById('f-desmobilizacao').value||null):(existente?.data_desmobilizacao||null);
+  // ── Detecta se esta é uma movimentação NOVA (diferente da última já registrada), para gravar
+  // no histórico (movimentacoes_historico) sem apagar as movimentações anteriores.
+  const movimentacaoNova=isTransf&&(
+    String(obraTransferenciaFinal||'')!==String(existente?.obra_transferencia_id||'')||
+    String(obraFinal||'')!==String(existente?.obra_id||'')||
+    String(dataTransferenciaFinal||'')!==String(existente?.data_transferencia||'')||
+    String(tipoTransferenciaFinal||'')!==String(existente?.tipo_transferencia||'')
+  );
   const payload={
     matricula:mat,nome_completo:nome,
     data_admissao:document.getElementById('f-admissao').value||null,
@@ -2266,7 +2297,15 @@ async function saveFuncionario(id){
     motivo_demissao:isDemitido?document.getElementById('f-motivo-demissao').value.trim()||null:null,
   };
   if(fotoUrl)payload.foto_url=fotoUrl;
-  const{error}=id?await sb.from('funcionarios').update(payload).eq('id',id):await sb.from('funcionarios').insert(payload);
+  let idFinal=id;
+  let error;
+  if(id){
+    ({error}=await sb.from('funcionarios').update(payload).eq('id',id));
+  }else{
+    const{data,error:errIns}=await sb.from('funcionarios').insert(payload).select().single();
+    error=errIns;
+    if(data)idFinal=data.id;
+  }
   if(error){
     if(/funcionarios_matricula_key/.test(error.message)){
       showToast(`Matrícula ${mat} já está em uso por outro funcionário. Verifique e tente novamente.`,'error');
@@ -2275,8 +2314,27 @@ async function saveFuncionario(id){
     }
     return;
   }
+  // ── Registra a movimentação no histórico (nunca sobrescreve movimentações anteriores) ──
+  if(movimentacaoNova&&idFinal){
+    const{error:errHist}=await sb.from('movimentacoes_historico').insert({
+      funcionario_id:idFinal,
+      obra_origem_id:obraTransferenciaFinal,
+      obra_destino_id:obraFinal,
+      tipo:tipoTransferenciaFinal,
+      data_movimentacao:dataTransferenciaFinal,
+      centro_custo:centroCustoTransfFinal,
+      data_desmobilizacao:dataDesmobFinal,
+    });
+    if(errHist)showToast('Funcionário salvo, mas houve erro ao gravar o histórico de movimentação: '+errHist.message,'error');
+    else await carregarMovimentacoesHistorico();
+  }
   showToast(id?'Funcionário atualizado!':'Funcionário cadastrado!');
   closeModal('modal-func');showPage('funcionarios');
+}
+
+async function carregarMovimentacoesHistorico(){
+  const{data}=await sb.from('movimentacoes_historico').select('*,obra_origem:obras!movimentacoes_historico_obra_origem_id_fkey(nome,codigo),obra_destino:obras!movimentacoes_historico_obra_destino_id_fkey(nome,codigo)').order('data_movimentacao');
+  movimentacoesHistorico=data||[];
 }
 
 async function deleteFuncionario(id,nome){
@@ -7844,6 +7902,10 @@ const CTR_ETAPAS=[
   {key:'integracao_prevista',label:'Integração Prevista',test:c=>!!c.data_integracao_prevista,icon:'ti-calendar-event',todosStatus:true},
   {key:'mobilizacao',label:'Mobilização → Chegada',test:c=>!!c.data_viagem_mobilizacao,icon:'ti-plane-departure',todosStatus:true},
 ];
+const CTR_ETAPAS_STATUS_MAP={
+  integracao_prevista:'aguardando_integracao',
+  mobilizacao:'integrado',
+};
 function ctrStatusInfo(status){
   const map={
     em_processo:{label:'Em Processo',bg:'var(--warning-light)',cor:'var(--warning)'},
@@ -8080,9 +8142,13 @@ function renderContratacoesCandidatos(){
       <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Documentos / etapas lançadas no sistema</div>
       <div style="display:grid;grid-template-columns:repeat(10,1fr);gap:10px">
         ${CTR_ETAPAS.map(e=>{
+          const statusAlvo=CTR_ETAPAS_STATUS_MAP[e.key];
           const count=ativos.filter(c=>e.todosStatus||c.status==='em_processo').filter(e.test).length;
-          const ativo=contratacoesFiltroEtapa===e.key;
-          return`<div onclick="contratacoesFiltroEtapa='${ativo?'':e.key}';renderContratacoesCandidatos()"
+          const ativo=statusAlvo?contratacoesFiltroStatus===statusAlvo:contratacoesFiltroEtapa===e.key;
+          const onclickAction=statusAlvo
+            ?`contratacoesFiltroEtapa='';contratacoesFiltroStatus='${ativo?'':statusAlvo}';renderContratacoesCandidatos()`
+            :`contratacoesFiltroEtapa='${ativo?'':e.key}';renderContratacoesCandidatos()`;
+          return`<div onclick="${onclickAction}"
             style="cursor:pointer;background:var(--surface);border:1px solid ${ativo?'var(--primary)':'var(--border)'};border-radius:var(--radius-lg);padding:12px 14px;transition:.15s">
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
               <i class="ti ${e.icon}" style="font-size:14px;color:${ativo?'var(--primary)':'var(--text-muted)'}"></i>
