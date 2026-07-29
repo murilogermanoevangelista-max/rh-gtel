@@ -8083,13 +8083,16 @@ function ctrCandidatosFiltrados(){
 
 function renderContratacoesCandidatos(){
   const{ativos,lista}=ctrCandidatosFiltrados();
+  // Quando uma função está selecionada no filtro, os cards (métricas e etapas)
+  // devem refletir apenas os candidatos daquela função — não o total geral.
+  const ativosFuncao=ativos.filter(c=>!contratacoesFiltroFuncao||String(c.funcao_id)===String(contratacoesFiltroFuncao));
 
-  const total=ativos.length;
-  const emProcesso=ativos.filter(c=>c.status==='em_processo').length;
-  const admitidos=ativos.filter(c=>!!c.data_prevista_admissao).length;
-  const aguardando=ativos.filter(c=>c.status==='aguardando_integracao').length;
-  const integrados=ativos.filter(c=>c.status==='integrado').length;
-  const totalPrevisto=contratacoesVagas.filter(v=>!globalObraFiltro||String(v.obra_id)===String(globalObraFiltro)).reduce((s,v)=>s+(v.quantidade_prevista||0),0);
+  const total=ativosFuncao.length;
+  const emProcesso=ativosFuncao.filter(c=>c.status==='em_processo').length;
+  const admitidos=ativosFuncao.filter(c=>!!c.data_prevista_admissao).length;
+  const aguardando=ativosFuncao.filter(c=>c.status==='aguardando_integracao').length;
+  const integrados=ativosFuncao.filter(c=>c.status==='integrado').length;
+  const totalPrevisto=contratacoesVagas.filter(v=>(!globalObraFiltro||String(v.obra_id)===String(globalObraFiltro))&&(!contratacoesFiltroFuncao||String(v.funcao_id)===String(contratacoesFiltroFuncao))).reduce((s,v)=>s+(v.quantidade_prevista||0),0);
 
   const listaOrdenada=lista.slice().sort((a,b)=>{
     const fa=(a.funcao?.nome||'Sem função').toUpperCase();
@@ -8173,7 +8176,7 @@ function renderContratacoesCandidatos(){
       <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Documentos / etapas lançadas no sistema</div>
       <div style="display:grid;grid-template-columns:repeat(10,1fr);gap:10px">
         ${CTR_ETAPAS.map(e=>{
-          const count=ativos.filter(c=>e.todosStatus||c.status==='em_processo').filter(e.test).length;
+          const count=ativosFuncao.filter(c=>e.todosStatus||c.status==='em_processo').filter(e.test).length;
           const ativo=contratacoesFiltroEtapa===e.key;
           return`<div onclick="contratacoesFiltroEtapa='${ativo?'':e.key}';renderContratacoesCandidatos()"
             style="cursor:pointer;background:var(--surface);border:1px solid ${ativo?'var(--primary)':'var(--border)'};border-radius:var(--radius-lg);padding:12px 14px;transition:.15s">
@@ -8311,10 +8314,10 @@ function exportContratacoesExcel(){
       c.nome||'—',
       funcaoNome,
       c.data_exame?ctrFmtData(c.data_exame):'—',
-      p.docPortal?ctrFmtData(p.docPortal):'—',
-      p.aprovacao?ctrFmtData(p.aprovacao):'—',
-      p.envioDp?ctrFmtData(p.envioDp):'—',
-      p.admissao?ctrFmtData(p.admissao):'—',
+      p.docPortalReal?ctrFmtData(c.data_documentos_portal):'—',
+      p.aprovacaoReal?ctrFmtData(c.data_aprovacao_diretoria):'—',
+      p.envioDpReal?ctrFmtData(c.data_envio_dp):'—',
+      p.admissaoReal?ctrFmtData(c.data_prevista_admissao):'—',
       c.data_integracao_prevista?ctrFmtData(c.data_integracao_prevista):'—',
       c.data_viagem_mobilizacao?ctrFmtData(c.data_viagem_mobilizacao):'—',
       ctrStatusInfo(c.status).label,
