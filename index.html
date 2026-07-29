@@ -7899,8 +7899,8 @@ const CTR_ETAPAS=[
   {key:'aguardando_aprovacao_diretoria',label:'Aguard. Aprov. Diretoria',test:c=>!!c.data_documentos_portal&&!c.data_aprovacao_diretoria,icon:'ti-gavel'},
   {key:'aprovacao_diretoria',label:'Aprovação Diretoria',test:c=>!!c.data_aprovacao_diretoria&&!c.data_envio_dp,icon:'ti-stamp'},
   {key:'envio_dp',label:'Envio DP → Registro',test:c=>!!c.data_envio_dp,icon:'ti-send'},
-  {key:'integracao_prevista',label:'Integração Prevista',test:c=>!!c.data_integracao_prevista,icon:'ti-calendar-event',todosStatus:true},
-  {key:'mobilizacao',label:'Mobilização → Chegada',test:c=>!!c.data_viagem_mobilizacao,icon:'ti-plane-departure',todosStatus:true},
+  {key:'integracao_prevista',label:'Aguardando Integração',test:c=>c.status==='aguardando_integracao',icon:'ti-calendar-event',todosStatus:true},
+  {key:'mobilizacao',label:'Integrado',test:c=>c.status==='integrado',icon:'ti-plane-departure',todosStatus:true},
 ];
 function ctrStatusInfo(status){
   const map={
