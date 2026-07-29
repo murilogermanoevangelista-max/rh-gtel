@@ -8341,7 +8341,9 @@ function exportContratacoesExcel(){
     ...grupoRowsIdx.map(r=>({s:{r,c:0},e:{r,c:NCOL-1}}))
   ];
   ws['!autofilter']={ref:XLSXStyle.utils.encode_range({s:{r:headerRowIdx,c:0},e:{r:headerRowIdx,c:NCOL-1}})};
-  ws['!rows']=[{hpt:24},{hpt:18},{hpt:6},{hpt:20},...grupoRowsIdx.reduce((acc,r)=>{acc[r-3]={hpt:19};return acc;},{})];
+  const rowHeights=[{hpt:24},{hpt:18},{hpt:6},{hpt:20}];
+  grupoRowsIdx.forEach(r=>{rowHeights[r]={hpt:19};});
+  ws['!rows']=rowHeights;
 
   // Título
   ws['A1'].s={font:{bold:true,sz:14,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1D9E75'}},alignment:{vertical:'center',horizontal:'left',indent:1}};
