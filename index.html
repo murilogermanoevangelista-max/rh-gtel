@@ -7924,9 +7924,12 @@ async function ctrAutoSyncProspeccoes(){
   await loadContratacoesProspeccoes();
   return true;
 }
-async function ctrAutoSyncStatusIntegracao(){
-  // Se o candidato já tem a data de Mobilização ou Integração Prevista lançada,
-  // o status deve refletir isso automaticamente (só avança, nunca rebaixa e nunca mexe em quem desistiu).
+async function ctrAutoSyncStatusIntegracao(silencioso){
+  // Corrige, sob demanda, o status de candidatos cuja data de Mobilização/Integração
+  // Prevista já foi lançada mas o status ainda não reflete isso (só avança nível,
+  // nunca rebaixa e nunca mexe em quem desistiu). NÃO roda sozinho a cada render —
+  // só quando chamado explicitamente (botão "Sincronizar Status"), para não sobrescrever
+  // uma escolha manual de status feita pelo usuário.
   const ordem={em_processo:0,aguardando_integracao:1,integrado:2};
   const pendentes=contratacoes.filter(c=>{
     if(c.status==='desistiu')return false;
@@ -7934,12 +7937,16 @@ async function ctrAutoSyncStatusIntegracao(){
     if(!alvo)return false;
     return(ordem[c.status]??0)<ordem[alvo];
   });
-  if(!pendentes.length)return false;
+  if(!pendentes.length){
+    if(!silencioso)showToast('Nenhum status pendente de sincronização.');
+    return false;
+  }
   for(const c of pendentes){
     const alvo=c.data_viagem_mobilizacao?'integrado':'aguardando_integracao';
     await sb.from('contratacoes').update({status:alvo}).eq('id',c.id);
   }
   await loadContratacoes();
+  if(!silencioso)showToast(`${pendentes.length} candidato(s) com status sincronizado!`);
   return true;
 }
 function renderContratacoes(){
@@ -7951,7 +7958,6 @@ function renderContratacoes(){
   else if(contratacoesTab==='desistencias')renderContratacoesDesistencias();
   else{
     renderContratacoesCandidatos();
-    ctrAutoSyncStatusIntegracao().then(mudou=>{if(mudou&&contratacoesTab==='candidatos')renderContratacoesCandidatos();});
   }
 }
 
@@ -8177,6 +8183,7 @@ function renderContratacoesCandidatos(){
     <div class="page-header">
       <div><div class="page-title"><i class="ti ti-user-plus"></i> Contratações</div><div class="page-subtitle">${total} candidato(s) cadastrado(s)</div></div>
       <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="ctrAutoSyncStatusIntegracao(false).then(mudou=>{if(mudou)renderContratacoes()})" title="Corrige o status de candidatos cuja data de Integração/Mobilização já foi lançada"><i class="ti ti-refresh"></i> Sincronizar Status</button>
         <button class="btn btn-sm" onclick="exportContratacoesExcel()"><i class="ti ti-file-type-xls"></i> Exportar Excel</button>
         <button class="btn btn-primary" onclick="openModalContratacao()"><i class="ti ti-plus"></i> Novo candidato</button>
       </div>
