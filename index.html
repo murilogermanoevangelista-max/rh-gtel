@@ -1990,10 +1990,11 @@ function previewFoto(input){
   reader.readAsDataURL(file);
 }
 function openModalFuncionario(func=null){
+  if(!func?._origemCandidato)window._ctrOrigemCandidatoId=null;
   window._funcEditando=func;
   funcaoModoManual=!!(func&&func.funcao_manual&&!func.funcao_id&&!func.funcao);
   tipoTransferencia='';fotoFile=null;
-  const isEdit=!!func;
+  const isEdit=!!(func&&func.id);
   const obraOptions=obras.map(o=>`<option value="${o.id}" ${func?.obra_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
   const obraTransfOptions=obrasTodas.map(o=>`<option value="${o.id}" ${func?.obra_transferencia_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
   const empresaOptions=empresas.map(e=>`<option value="${e.id}" ${func?.empresa_id===e.id?'selected':''}>${e.nome}</option>`).join('');
@@ -2009,7 +2010,7 @@ function openModalFuncionario(func=null){
           <span class="modal-title">${isEdit?'Editar':'Novo'} Funcionário</span>
           <button class="btn btn-sm" onclick="closeModal('modal-func')"><i class="ti ti-x"></i></button>
         </div>
-        <div class="modal-body"><div class="form-grid">
+        <div class="modal-body">${func?._origemCandidato?`<div style="background:var(--primary-light);border:1px solid var(--primary);border-radius:var(--radius);padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--primary-dark);display:flex;align-items:center;gap:8px"><i class="ti ti-user-check" style="font-size:16px"></i> Admissão confirmada em Contratações — complete os dados abaixo (matrícula, empresa etc.) para finalizar o cadastro do funcionário.</div>`:''}<div class="form-grid">
           <div class="form-group foto-upload">
             <div class="foto-preview" id="foto-prev">${func?.foto_url?`<img src="${func.foto_url}" alt="">`:func?initials(func.nome_completo):'<i class="ti ti-user" style="font-size:24px;opacity:.4"></i>'}</div>
             <div>
@@ -2330,6 +2331,13 @@ async function saveFuncionario(id){
     });
     if(errHist)showToast('Funcionário salvo, mas houve erro ao gravar o histórico de movimentação: '+errHist.message,'error');
     else await carregarMovimentacoesHistorico();
+  }
+  if(!id&&window._ctrOrigemCandidatoId){
+    const origemId=window._ctrOrigemCandidatoId;
+    window._ctrOrigemCandidatoId=null;
+    const{error:errLink}=await sb.from('contratacoes').update({funcionario_id:idFinal}).eq('id',origemId);
+    if(errLink)showToast('Funcionário cadastrado, mas houve erro ao vincular ao candidato: '+errLink.message,'error');
+    else await loadContratacoes();
   }
   showToast(id?'Funcionário atualizado!':'Funcionário cadastrado!');
   closeModal('modal-func');showPage('funcionarios');
@@ -8019,10 +8027,27 @@ function ctrProjCelulas(c){
     docPortal:p.docPortal?ctrConfirmChk(c.id,'data_documentos_portal',p.docPortalReal,p.docPortal,c.data_documentos_portal):'<span style="color:var(--text-muted)">—</span>',
     aprovacao:p.aprovacao?ctrConfirmChk(c.id,'data_aprovacao_diretoria',p.aprovacaoReal,p.aprovacao,c.data_aprovacao_diretoria):'<span style="color:var(--text-muted)">—</span>',
     envioDp:p.envioDp?ctrConfirmChk(c.id,'data_envio_dp',p.envioDpReal,p.envioDp,c.data_envio_dp):'<span style="color:var(--text-muted)">—</span>',
-    admissao:p.admissao?`<span class="badge ${registroOk?'badge-green':'badge-amber'}" style="padding:2px 6px">${ctrConfirmChk(c.id,'data_prevista_admissao',p.admissaoReal,p.admissao,c.data_prevista_admissao)}</span>`:'<span style="color:var(--text-muted)">—</span>',
+    admissao:p.admissao?`<span class="badge ${registroOk?'badge-green':'badge-amber'}" style="padding:2px 6px">${ctrConfirmChk(c.id,'data_prevista_admissao',p.admissaoReal,p.admissao,c.data_prevista_admissao)}</span>${c.funcionario_id?` <i class="ti ti-user-check" style="color:var(--success)" title="Funcionário já cadastrado"></i>`:''}`:'<span style="color:var(--text-muted)">—</span>',
     integracao:c.data_integracao_prevista?`<div ${nowrap}>${ctrFmtData(c.data_integracao_prevista)}</div>`:'<span style="color:var(--text-muted)">—</span>',
     mobilizacao:c.data_viagem_mobilizacao?`<div ${nowrap}>${ctrFmtData(c.data_viagem_mobilizacao)} → ${ctrFmtData(c.data_prevista_chegada)}</div>`:'<span style="color:var(--text-muted)">—</span>',
   };
+}
+// Ao confirmar a data de Admissão de um candidato, abre o cadastro de Funcionário já pré-preenchido
+// (nome, função, obra, salário, data de admissão), evitando redigitar tudo. O candidato fica vinculado
+// ao funcionário criado (funcionario_id) para não abrir esse cadastro de novo nem duplicar o funcionário.
+function ctrAbrirCadastroFuncionario(c){
+  window._ctrOrigemCandidatoId=c.id;
+  openModalFuncionario({
+    _origemCandidato:true,
+    nome_completo:c.nome||'',
+    data_admissao:c.data_prevista_admissao||ctrHojeISO(),
+    situacao:'ativo',
+    tipo:'nova_admissao',
+    periodo_experiencia:45,
+    funcao_id:c.funcao_id||null,
+    obra_id:c.obra_id||null,
+    salario:c.salario??null,
+  });
 }
 async function ctrToggleConfirmacao(id,campo,checked){
   const valor=checked?ctrHojeISO():null;
@@ -8030,7 +8055,11 @@ async function ctrToggleConfirmacao(id,campo,checked){
   const{error}=await sb.from('contratacoes').update(payload).eq('id',id);
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast(checked?'Etapa confirmada!':'Confirmação desfeita');
+  const candidato=contratacoes.find(x=>x.id===id);
   await loadContratacoes();renderContratacoes();
+  if(checked&&campo==='data_prevista_admissao'&&candidato&&!candidato.funcionario_id){
+    ctrAbrirCadastroFuncionario({...candidato,data_prevista_admissao:valor});
+  }
 }
 function ctrProjResumoHtml(c){
   const hoje=ctrHojeISO();
@@ -8044,7 +8073,7 @@ function ctrProjResumoHtml(c){
     ${item('Exame',tipoLabel?`${tipoLabel} · ${ctrFmtData(c.data_exame)}<br><span class="badge ${exameOk?'badge-green':'badge-amber'}" style="margin-top:3px">${exameOk?'Resultado disp.':'Aguardando'} ${ctrFmtData(p.resultadoExame)}</span>${p.resultadoExame?tag(p.resultadoExameReal,'data_resultado_exame',p.resultadoExame):''}`:'<span style="color:var(--text-muted)">—</span>')}
     ${item('Documentos Portal',p.docPortal?`${ctrFmtData(p.docPortal)}${tag(p.docPortalReal,'data_documentos_portal',p.docPortal)}`:'<span style="color:var(--text-muted)">—</span>')}
     ${item('Aprovação Diretoria',p.aprovacao?`${ctrFmtData(p.aprovacao)}${tag(p.aprovacaoReal,'data_aprovacao_diretoria',p.aprovacao)}`:'<span style="color:var(--text-muted)">—</span>')}
-    ${item('Envio DP → Registro',p.envioDp?`${ctrFmtData(p.envioDp)}${tag(p.envioDpReal,'data_envio_dp',p.envioDp)} → <span class="badge ${registroOk?'badge-green':'badge-amber'}">${ctrFmtData(p.admissao)}</span>${tag(p.admissaoReal,'data_prevista_admissao',p.admissao)}`:'<span style="color:var(--text-muted)">—</span>')}
+    ${item('Envio DP → Registro',p.envioDp?`${ctrFmtData(p.envioDp)}${tag(p.envioDpReal,'data_envio_dp',p.envioDp)} → <span class="badge ${registroOk?'badge-green':'badge-amber'}">${ctrFmtData(p.admissao)}</span>${tag(p.admissaoReal,'data_prevista_admissao',p.admissao)}${c.funcionario_id?` <i class="ti ti-user-check" style="color:var(--success)" title="Funcionário já cadastrado"></i>`:''}`:'<span style="color:var(--text-muted)">—</span>')}
     ${item('Integração Prevista',ctrFmtData(c.data_integracao_prevista))}
     ${item('Mobilização → Chegada',c.data_viagem_mobilizacao?`${ctrFmtData(c.data_viagem_mobilizacao)} → ${ctrFmtData(c.data_prevista_chegada)}`:'<span style="color:var(--text-muted)">—</span>')}
   </div>`;
@@ -8055,7 +8084,11 @@ async function ctrConfirmarData(id,campo,valor){
   const{error}=await sb.from('contratacoes').update(payload).eq('id',id);
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast('Data confirmada!');
+  const candidato=contratacoes.find(x=>x.id===id);
   await loadContratacoes();renderContratacoes();
+  if(campo==='data_prevista_admissao'&&candidato&&!candidato.funcionario_id){
+    ctrAbrirCadastroFuncionario({...candidato,data_prevista_admissao:valor});
+  }
 }
 
 function ctrCandidatosFiltrados(){
