@@ -7865,9 +7865,10 @@ const DOCS_CONTRATACAO=[
   ['certidao_nasc','Certidão de Nascimento'],
   ['nr10','NR10 (40h)'],
   ['cert_eletrica','Certificado de Elétrica'],
+  ['cert_curso','Certificado de Curso'],
 ];
 
-let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesFiltroNome='',contratacoesFiltroEtapa='',contratacoesVagasFiltroObra='',ctrFuncaoModoManual=false,prospBusca='',prospFiltroFuncao='',prospFiltroRetorno='',prospFuncaoModoManual=false,desistBusca='',desistFiltroFuncao='',desistFiltroTipo='';
+let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesFiltroNome='',contratacoesFiltroEtapa='',contratacoesFiltroDocPendente=false,contratacoesVagasFiltroObra='',ctrFuncaoModoManual=false,prospBusca='',prospFiltroFuncao='',prospFiltroRetorno='',prospFuncaoModoManual=false,desistBusca='',desistFiltroFuncao='',desistFiltroTipo='';
 
 function ctrAddDiasUteis(dataISO,dias){
   if(!dataISO)return null;
@@ -8065,6 +8066,7 @@ function ctrCandidatosFiltrados(){
     if(contratacoesFiltroFuncao&&String(c.funcao_id)!==String(contratacoesFiltroFuncao))return false;
     if(contratacoesFiltroObra&&String(c.obra_id)!==String(contratacoesFiltroObra))return false;
     if(contratacoesFiltroNome&&String(c.id)!==String(contratacoesFiltroNome))return false;
+    if(contratacoesFiltroDocPendente&&ctrDocsPct(c).pct>=100)return false;
     if(contratacoesFiltroEtapa){
       if(contratacoesFiltroEtapa==='admitido'){
         if(!c.data_prevista_admissao)return false;
@@ -8250,7 +8252,11 @@ function renderContratacoesCandidatos(){
         <option value="aguardando_integracao" ${contratacoesFiltroStatus==='aguardando_integracao'?'selected':''}>Aguardando Integração</option>
         <option value="integrado" ${contratacoesFiltroStatus==='integrado'?'selected':''}>Integrado</option>
       </select>
-      <button class="btn btn-sm" onclick="contratacoesBusca='';contratacoesFiltroStatus='';contratacoesFiltroFuncao='';contratacoesFiltroObra='';contratacoesFiltroNome='';contratacoesFiltroEtapa='';renderContratacoesCandidatos()"><i class="ti ti-x"></i> Limpar</button>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text);cursor:pointer;white-space:nowrap;padding:0 4px">
+        <input type="checkbox" ${contratacoesFiltroDocPendente?'checked':''} onchange="contratacoesFiltroDocPendente=this.checked;renderContratacoesCandidatos()" style="width:15px;height:15px">
+        Doc. incompleta
+      </label>
+      <button class="btn btn-sm" onclick="contratacoesBusca='';contratacoesFiltroStatus='';contratacoesFiltroFuncao='';contratacoesFiltroObra='';contratacoesFiltroNome='';contratacoesFiltroEtapa='';contratacoesFiltroDocPendente=false;renderContratacoesCandidatos()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div class="table-container"><table class="ctr-table">
       <colgroup>
@@ -8291,6 +8297,7 @@ function exportContratacoesExcel(){
     const et=contratacoesFiltroEtapa==='admitido'?'Admitido':(CTR_ETAPAS.find(e=>e.key===contratacoesFiltroEtapa)?.label||contratacoesFiltroEtapa);
     filtrosAtivos.push(`Etapa: ${et}`);
   }
+  if(contratacoesFiltroDocPendente)filtrosAtivos.push('Documentação incompleta');
   if(contratacoesBusca)filtrosAtivos.push(`Busca: "${contratacoesBusca}"`);
 
   const rows=[];
