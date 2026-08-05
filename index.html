@@ -7980,8 +7980,7 @@ const CTR_ETAPAS=[
   {key:'exame_realizado',label:'Exame Realizado',test:c=>{const d=c.documentos||{};const asoOk=d.aso==='ok'||d.aso===true;return ctrExameJaOcorreu(c)&&!asoOk;},icon:'ti-stethoscope'},
   {key:'aso_liberado',label:'ASO Liberado',test:c=>{const d=c.documentos||{};const asoOk=d.aso==='ok'||d.aso===true;return asoOk&&ctrDocsPct(c).pct<100&&!c.data_documentos_portal;},icon:'ti-medical-cross'},
   {key:'aguardando_cadastro_portal',label:'Aguard. Cadastro Portal RH',test:c=>ctrDocsPct(c).pct>=100&&!c.data_documentos_portal,icon:'ti-clipboard-check'},
-  {key:'documentos_portal',label:'Documentos Portal',test:c=>{if(!c.data_documentos_portal||c.data_aprovacao_diretoria)return false;const p=ctrCalcularProjecoes(c);return!p.aprovacao||ctrHojeISO()<p.aprovacao;},icon:'ti-file-upload'},
-  {key:'aguardando_aprovacao_diretoria',label:'Aguard. Aprov. Diretoria',test:c=>{if(!c.data_documentos_portal||c.data_aprovacao_diretoria)return false;const p=ctrCalcularProjecoes(c);return!!p.aprovacao&&ctrHojeISO()>=p.aprovacao;},icon:'ti-gavel'},
+  {key:'documentos_portal',label:'Documentos Portal',test:c=>!!c.data_documentos_portal&&!c.data_aprovacao_diretoria,icon:'ti-file-upload'},
   {key:'aprovacao_diretoria',label:'Aprovação Diretoria',test:c=>!!c.data_aprovacao_diretoria&&!c.data_envio_dp,icon:'ti-stamp'},
   {key:'envio_dp',label:'Envio DP → Registro',test:c=>!!c.data_envio_dp,icon:'ti-send'},
   {key:'integracao_prevista',label:'Aguardando Integração',test:c=>c.status==='aguardando_integracao',icon:'ti-calendar-event',todosStatus:true},
@@ -8277,7 +8276,7 @@ function renderContratacoesCandidatos(){
   const etapasHtml=`
     <div style="margin-bottom:16px">
       <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Documentos / etapas lançadas no sistema</div>
-      <div style="display:grid;grid-template-columns:repeat(10,1fr);gap:10px">
+      <div style="display:grid;grid-template-columns:repeat(9,1fr);gap:10px">
         ${CTR_ETAPAS.map(e=>{
           const count=ativosFuncao.filter(c=>e.todosStatus||c.status==='em_processo').filter(e.test).length;
           const ativo=contratacoesFiltroEtapa===e.key;
