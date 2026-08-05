@@ -7941,7 +7941,7 @@ const DOCS_CONTRATACAO=[
   ['cert_eletrica','Certificado de Elétrica'],
 ];
 
-let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesFiltroNome='',contratacoesFiltroEtapa='',contratacoesFiltroDocPendente=false,contratacoesVagasFiltroObra='',ctrFuncaoModoManual=false,prospBusca='',prospFiltroFuncao='',prospFiltroRetorno='',prospFuncaoModoManual=false,desistBusca='',desistFiltroFuncao='',desistFiltroTipo='';
+let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesFiltroNome='',contratacoesFiltroEtapa='',contratacoesFiltroDocPendente=false,contratacoesVagasFiltroObra='',contratacoesVagasFiltroFalta=false,ctrFuncaoModoManual=false,prospBusca='',prospFiltroFuncao='',prospFiltroRetorno='',prospFuncaoModoManual=false,desistBusca='',desistFiltroFuncao='',desistFiltroTipo='';
 
 function ctrAddDiasUteis(dataISO,dias){
   if(!dataISO)return null;
@@ -8167,6 +8167,8 @@ function ctrCandidatosFiltrados(){
     if(contratacoesFiltroEtapa){
       if(contratacoesFiltroEtapa==='admitido'){
         if(!c.data_prevista_admissao)return false;
+      }else if(contratacoesFiltroEtapa==='nao_admitido'){
+        if(c.data_prevista_admissao)return false;
       }else{
         const etapa=CTR_ETAPAS.find(e=>e.key===contratacoesFiltroEtapa);
         if(!etapa)return false;
@@ -8190,11 +8192,15 @@ function renderContratacoesCandidatos(){
   const ativosFuncao=ativos.filter(c=>!contratacoesFiltroFuncao||String(c.funcao_id)===String(contratacoesFiltroFuncao));
 
   const total=ativosFuncao.length;
-  const emProcesso=ativosFuncao.filter(c=>c.status==='em_processo').length;
-  const admitidos=ativosFuncao.filter(c=>!!c.data_prevista_admissao).length;
+  // Em Processo e Admitidos são mutuamente exclusivos (Admitido = já em_processo com data de
+  // admissão confirmada, mas ainda não avançou para Aguardando Integração), assim como
+  // Aguardando Integração e Integrados já são status distintos. Soma das 4 = total.
+  const emProcesso=ativosFuncao.filter(c=>c.status==='em_processo'&&!c.data_prevista_admissao).length;
+  const admitidos=ativosFuncao.filter(c=>c.status==='em_processo'&&!!c.data_prevista_admissao).length;
   const aguardando=ativosFuncao.filter(c=>c.status==='aguardando_integracao').length;
   const integrados=ativosFuncao.filter(c=>c.status==='integrado').length;
   const totalPrevisto=contratacoesVagas.filter(v=>(!globalObraFiltro||String(v.obra_id)===String(globalObraFiltro))&&(!contratacoesFiltroFuncao||String(v.funcao_id)===String(contratacoesFiltroFuncao))).reduce((s,v)=>s+(v.quantidade_prevista||0),0);
+  const faltaCaptacao=Math.max(totalPrevisto-total,0);
 
   const listaOrdenada=lista.slice().sort((a,b)=>{
     const fa=(a.funcao?.nome||'Sem função').toUpperCase();
@@ -8307,23 +8313,26 @@ function renderContratacoesCandidatos(){
       <div class="exp-tab${contratacoesTab==='vagas'?' active':''}" onclick="contratacoesTab='vagas';renderContratacoes()">Vagas Previstas</div>
       <div class="exp-tab${contratacoesTab==='desistencias'?' active':''}" onclick="contratacoesTab='desistencias';renderContratacoes()">Desistências</div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px">
-      <div class="metric-card" onclick="contratacoesTab='vagas';renderContratacoes()" style="cursor:pointer;border-color:var(--border)">
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-bottom:16px">
+      <div class="metric-card" onclick="contratacoesTab='vagas';contratacoesVagasFiltroFalta=false;renderContratacoes()" style="cursor:pointer;border-color:var(--border)">
         <div class="metric-label">Vagas Previstas</div><div class="metric-value">${totalPrevisto}</div>
       </div>
-      <div class="metric-card" onclick="contratacoesFiltroStatus='';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${!contratacoesFiltroStatus?'var(--primary)':'var(--border)'}">
+      <div class="metric-card${faltaCaptacao>0?' red':''}" onclick="contratacoesTab='vagas';contratacoesVagasFiltroFalta=true;renderContratacoes()" title="Vagas previstas ainda sem candidato captado" style="cursor:pointer;border-color:${faltaCaptacao>0?'var(--danger)':'var(--border)'}">
+        <div class="metric-label">Falta Captação</div><div class="metric-value">${faltaCaptacao}</div>
+      </div>
+      <div class="metric-card" onclick="contratacoesFiltroStatus='';contratacoesFiltroEtapa='';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${!contratacoesFiltroStatus&&!contratacoesFiltroEtapa?'var(--primary)':'var(--border)'}">
         <div class="metric-label">Total</div><div class="metric-value">${total}</div>
       </div>
-      <div class="metric-card amber" onclick="contratacoesFiltroStatus='em_processo';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${contratacoesFiltroStatus==='em_processo'?'var(--warning)':'var(--border)'}">
+      <div class="metric-card amber" onclick="contratacoesFiltroStatus='em_processo';contratacoesFiltroEtapa='nao_admitido';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${contratacoesFiltroStatus==='em_processo'&&contratacoesFiltroEtapa==='nao_admitido'?'var(--warning)':'var(--border)'}">
         <div class="metric-label">Em Processo</div><div class="metric-value">${emProcesso}</div>
       </div>
-      <div class="metric-card" onclick="contratacoesFiltroEtapa=contratacoesFiltroEtapa==='admitido'?'':'admitido';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${contratacoesFiltroEtapa==='admitido'?'var(--primary)':'var(--border)'}">
+      <div class="metric-card" onclick="contratacoesFiltroStatus='em_processo';contratacoesFiltroEtapa='admitido';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${contratacoesFiltroStatus==='em_processo'&&contratacoesFiltroEtapa==='admitido'?'var(--primary)':'var(--border)'}">
         <div class="metric-label">Admitidos</div><div class="metric-value">${admitidos}</div>
       </div>
-      <div class="metric-card" onclick="contratacoesFiltroStatus='aguardando_integracao';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${contratacoesFiltroStatus==='aguardando_integracao'?'var(--info)':'var(--border)'}">
+      <div class="metric-card" onclick="contratacoesFiltroStatus='aguardando_integracao';contratacoesFiltroEtapa='';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${contratacoesFiltroStatus==='aguardando_integracao'?'var(--info)':'var(--border)'}">
         <div class="metric-label">Aguardando Integração</div><div class="metric-value">${aguardando}</div>
       </div>
-      <div class="metric-card green" onclick="contratacoesFiltroStatus='integrado';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${contratacoesFiltroStatus==='integrado'?'var(--success)':'var(--border)'}">
+      <div class="metric-card green" onclick="contratacoesFiltroStatus='integrado';contratacoesFiltroEtapa='';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${contratacoesFiltroStatus==='integrado'?'var(--success)':'var(--border)'}">
         <div class="metric-label">Integrados</div><div class="metric-value">${integrados}</div>
       </div>
     </div>
@@ -8391,7 +8400,7 @@ function exportContratacoesExcel(){
   if(contratacoesFiltroFuncao){const f=funcoes.find(f=>String(f.id)===String(contratacoesFiltroFuncao));if(f)filtrosAtivos.push(`Função: ${f.nome}`);}
   if(contratacoesFiltroStatus)filtrosAtivos.push(`Status: ${ctrStatusInfo(contratacoesFiltroStatus).label}`);
   if(contratacoesFiltroEtapa){
-    const et=contratacoesFiltroEtapa==='admitido'?'Admitido':(CTR_ETAPAS.find(e=>e.key===contratacoesFiltroEtapa)?.label||contratacoesFiltroEtapa);
+    const et=contratacoesFiltroEtapa==='admitido'?'Admitido':(contratacoesFiltroEtapa==='nao_admitido'?'Em processo (não admitido)':(CTR_ETAPAS.find(e=>e.key===contratacoesFiltroEtapa)?.label||contratacoesFiltroEtapa));
     filtrosAtivos.push(`Etapa: ${et}`);
   }
   if(contratacoesFiltroDocPendente)filtrosAtivos.push('Documentação incompleta');
@@ -8497,10 +8506,11 @@ function exportContratacoesExcel(){
 
   // Aba Resumo — visão gerencial rápida
   const totalPrevisto=contratacoesVagas.filter(v=>!globalObraFiltro||String(v.obra_id)===String(globalObraFiltro)).reduce((s,v)=>s+(v.quantidade_prevista||0),0);
-  const emProcesso=ativos.filter(c=>c.status==='em_processo').length;
-  const admitidos=ativos.filter(c=>!!c.data_prevista_admissao).length;
+  const emProcesso=ativos.filter(c=>c.status==='em_processo'&&!c.data_prevista_admissao).length;
+  const admitidos=ativos.filter(c=>c.status==='em_processo'&&!!c.data_prevista_admissao).length;
   const aguardando=ativos.filter(c=>c.status==='aguardando_integracao').length;
   const integrados=ativos.filter(c=>c.status==='integrado').length;
+  const faltaCaptacao=Math.max(totalPrevisto-ativos.length,0);
 
   const funcoesMap={};
   ativos.filter(c=>c.status==='em_processo').forEach(c=>{
@@ -8515,6 +8525,7 @@ function exportContratacoesExcel(){
     ['','',''],
     ['INDICADOR','VALOR',''],
     ['Vagas Previstas',totalPrevisto,''],
+    ['Falta Captação',faltaCaptacao,''],
     ['Total de Candidatos',ativos.length,''],
     ['Em Processo',emProcesso,''],
     ['Admitidos',admitidos,''],
@@ -8529,14 +8540,14 @@ function exportContratacoesExcel(){
   wsRes['!merges']=[{s:{r:0,c:0},e:{r:0,c:2}},{s:{r:1,c:0},e:{r:1,c:2}}];
   if(wsRes['A1'])wsRes['A1'].s={font:{bold:true,sz:14,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1D9E75'}},alignment:{vertical:'center',horizontal:'left',indent:1}};
   if(wsRes['A2'])wsRes['A2'].s={font:{italic:true,sz:10,color:{rgb:'6B7280'}},fill:{fgColor:{rgb:'E1F5EE'}},alignment:{vertical:'center',horizontal:'left',indent:1}};
-  [3,11].forEach(r=>{
+  [3,12].forEach(r=>{
     for(let c=0;c<2;c++){
       const addr=XLSXStyle.utils.encode_cell({r,c});
       if(wsRes[addr])wsRes[addr].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'0F6E56'}},border:borderAll};
     }
   });
   for(let r=4;r<resumoRows.length;r++){
-    if(r===11)continue;
+    if(r===12)continue;
     for(let c=0;c<2;c++){
       const addr=XLSXStyle.utils.encode_cell({r,c});
       if(wsRes[addr])wsRes[addr].s={border:borderAll,font:{sz:10},alignment:{horizontal:c===1?'center':'left',indent:c===0?1:0}};
@@ -8589,7 +8600,7 @@ function renderContratacoesVagas(){
 
   let tPrevisto=0,tFalta=0,tEmProcesso=0,tAguardando=0,tIntegrado=0;
 
-  const rows=vagas.map(v=>{
+  const linhas=vagas.map(v=>{
     // Match por funcao_id OU por nome da função normalizado (fallback para casos de
     // funções duplicadas com IDs diferentes mas mesmo nome, ex: digitadas manualmente em momentos distintos)
     const candidatosVaga=contratacoes.filter(c=>
@@ -8601,6 +8612,10 @@ function renderContratacoesVagas(){
     const integrado=candidatosVaga.filter(c=>c.status==='integrado').length;
     const previsto=v.quantidade_prevista||0;
     const falta=Math.max(previsto-(emProcesso+aguardando+integrado),0);
+    return{v,emProcesso,aguardando,integrado,previsto,falta};
+  }).filter(l=>!contratacoesVagasFiltroFalta||l.falta>0);
+
+  const rows=linhas.map(({v,emProcesso,aguardando,integrado,previsto,falta})=>{
     tPrevisto+=previsto;tFalta+=falta;tEmProcesso+=emProcesso;tAguardando+=aguardando;tIntegrado+=integrado;
     return`<tr>
       <td style="font-weight:500">${v.funcao?.nome||'—'}${v.observacao?` <i class="ti ti-note" style="color:var(--warning);cursor:help" title="${v.observacao.replace(/"/g,'&quot;')}"></i>`:''}</td>
@@ -8618,7 +8633,7 @@ function renderContratacoesVagas(){
         </div>
       </td>
     </tr>`;
-  }).join('')||'<tr><td colspan="9"><div class="empty-state"><i class="ti ti-clipboard-list"></i><div>Nenhuma vaga prevista cadastrada</div></div></td></tr>';
+  }).join('')||`<tr><td colspan="9"><div class="empty-state"><i class="ti ti-clipboard-list"></i><div>${contratacoesVagasFiltroFalta?'Nenhuma vaga com falta de captação':'Nenhuma vaga prevista cadastrada'}</div></div></td></tr>`;
 
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${contratacoesVagasFiltroObra===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
 
@@ -8637,7 +8652,8 @@ function renderContratacoesVagas(){
       <select class="filter-select" onchange="contratacoesVagasFiltroObra=this.value;renderContratacoesVagas()">
         <option value="">Todas as obras</option>${obraOpts}
       </select>
-      <button class="btn btn-sm" onclick="contratacoesVagasFiltroObra='';renderContratacoesVagas()"><i class="ti ti-x"></i> Limpar</button>
+      <button class="btn btn-sm" style="${contratacoesVagasFiltroFalta?'border-color:var(--danger);color:var(--danger)':''}" onclick="contratacoesVagasFiltroFalta=!contratacoesVagasFiltroFalta;renderContratacoesVagas()"><i class="ti ti-alert-triangle"></i> Falta Captação${contratacoesVagasFiltroFalta?' ✓':''}</button>
+      <button class="btn btn-sm" onclick="contratacoesVagasFiltroObra='';contratacoesVagasFiltroFalta=false;renderContratacoesVagas()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div class="table-container"><table>
       <thead><tr>
