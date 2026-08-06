@@ -7257,14 +7257,24 @@ async function importarEfetivo(file){
       if(m)return m[3]+'-'+m[2]+'-'+m[1];
       return null;
     }
-    // Primeiro tenta achar a data no título/cabeçalho (linhas antes do header da tabela) — mais confiável.
+    // Prioriza a data de cada linha de registro (coluna Data, por funcionário) — é a fonte mais confiável.
+    // O cabeçalho/título às vezes traz um PERÍODO (ex: "de 04/08/2026 até 05/08/2026"), e pegar a primeira
+    // data dali causava importação no dia errado, apagando o dia anterior e deixando o dia certo vazio.
     let dataISO=null;
-    for(let i=0;i<hi&&!dataISO;i++){
-      const row=rows[i]||[];
-      for(let j=0;j<row.length&&!dataISO;j++)dataISO=extrairDataDDMMAAAA(row[j]);
+    const contagemDatasLinhas={};
+    dr.forEach(r=>{
+      const d=extrairDataDDMMAAAA(r[3]);
+      if(d)contagemDatasLinhas[d]=(contagemDatasLinhas[d]||0)+1;
+    });
+    const datasLinhasOrdenadas=Object.entries(contagemDatasLinhas).sort((a,b)=>b[1]-a[1]);
+    if(datasLinhasOrdenadas.length)dataISO=datasLinhasOrdenadas[0][0];
+    // Se nenhuma linha tinha data válida na coluna, tenta achar no título/cabeçalho como último recurso.
+    if(!dataISO){
+      for(let i=0;i<hi&&!dataISO;i++){
+        const row=rows[i]||[];
+        for(let j=0;j<row.length&&!dataISO;j++)dataISO=extrairDataDDMMAAAA(row[j]);
+      }
     }
-    // Se não achou, tenta a coluna Data (índice 3) da primeira linha de dados.
-    if(!dataISO)dataISO=extrairDataDDMMAAAA(dr[0][3]);
     if(!dataISO)dataISO=new Date().toISOString().slice(0,10);
 
     const regs=[];
@@ -7288,6 +7298,12 @@ async function importarEfetivo(file){
       });
     });
     if(!regs.length){showToast('Nenhum registro para importar','error');return;}
+    const dataFmt=dataISO.split('-').reverse().join('/');
+    const{count:qtdExistente}=await sb.from('efetivo_presenca').select('id',{count:'exact',head:true}).eq('data',dataISO);
+    if(qtdExistente>0){
+      const ok=confirm('Data detectada: '+dataFmt+'\n\nJá existem '+qtdExistente+' registro(s) para esse dia e serão SUBSTITUÍDOS pelos '+regs.length+' registro(s) da planilha importada.\n\nConfirmar?');
+      if(!ok){showToast('Importação cancelada','error');return;}
+    }
     await sb.from('efetivo_presenca').delete().eq('data',dataISO);
     for(let i=0;i<regs.length;i+=500){
       const{error}=await sb.from('efetivo_presenca').insert(regs.slice(i,i+500));
@@ -7984,12 +8000,14 @@ const CTR_ETAPAS=[
   {key:'aprovacao_diretoria',label:'Aprovação Diretoria',test:c=>!!c.data_aprovacao_diretoria&&!c.data_envio_dp,icon:'ti-stamp'},
   {key:'envio_dp',label:'Envio DP → Registro',test:c=>!!c.data_envio_dp,icon:'ti-send'},
   {key:'integracao_prevista',label:'Aguardando Integração',test:c=>c.status==='aguardando_integracao',icon:'ti-calendar-event',todosStatus:true},
+  {key:'integracao_liberada',label:'Integração Liberada',test:c=>c.status==='integracao_liberada',icon:'ti-lock-open',todosStatus:true},
   {key:'mobilizacao',label:'Integrado',test:c=>c.status==='integrado',icon:'ti-plane-departure',todosStatus:true},
 ];
 function ctrStatusInfo(status){
   const map={
     em_processo:{label:'Em Processo',bg:'var(--warning-light)',cor:'var(--warning)'},
     aguardando_integracao:{label:'Aguardando Integração',bg:'var(--info-light)',cor:'var(--info)'},
+    integracao_liberada:{label:'Integração Liberada',bg:'var(--primary-light)',cor:'var(--primary-dark)'},
     integrado:{label:'Integrado',bg:'var(--success-light)',cor:'var(--success)'},
     desistiu:{label:'Desistiu/Reprovado',bg:'var(--danger-light)',cor:'var(--danger)'},
   };
@@ -8014,10 +8032,10 @@ async function ctrAutoSyncStatusIntegracao(silencioso){
   // nunca rebaixa e nunca mexe em quem desistiu). NÃO roda sozinho a cada render —
   // só quando chamado explicitamente (botão "Sincronizar Status"), para não sobrescrever
   // uma escolha manual de status feita pelo usuário.
-  const ordem={em_processo:0,aguardando_integracao:1,integrado:2};
+  const ordem={em_processo:0,aguardando_integracao:1,integracao_liberada:2,integrado:3};
   const pendentes=contratacoes.filter(c=>{
     if(c.status==='desistiu')return false;
-    const alvo=c.data_viagem_mobilizacao?'integrado':(c.data_integracao_prevista?'aguardando_integracao':null);
+    const alvo=c.data_viagem_mobilizacao?'integrado':(c.data_integracao_liberada?'integracao_liberada':(c.data_integracao_prevista?'aguardando_integracao':null));
     if(!alvo)return false;
     return(ordem[c.status]??0)<ordem[alvo];
   });
@@ -8026,7 +8044,7 @@ async function ctrAutoSyncStatusIntegracao(silencioso){
     return false;
   }
   for(const c of pendentes){
-    const alvo=c.data_viagem_mobilizacao?'integrado':'aguardando_integracao';
+    const alvo=c.data_viagem_mobilizacao?'integrado':(c.data_integracao_liberada?'integracao_liberada':'aguardando_integracao');
     await sb.from('contratacoes').update({status:alvo}).eq('id',c.id);
   }
   await loadContratacoes();
@@ -8140,6 +8158,7 @@ function ctrProjResumoHtml(c){
     ${item('Aprovação Diretoria',p.aprovacao?`${ctrFmtData(p.aprovacao)}${tag(p.aprovacaoReal,'data_aprovacao_diretoria',p.aprovacao)}`:'<span style="color:var(--text-muted)">—</span>')}
     ${item('Envio DP → Registro',p.envioDp?`${ctrFmtData(p.envioDp)}${tag(p.envioDpReal,'data_envio_dp',p.envioDp)} → <span class="badge ${registroOk?'badge-green':'badge-amber'}">${ctrFmtData(p.admissao)}</span>${tag(p.admissaoReal,'data_prevista_admissao',p.admissao)}${c.funcionario_id?` <i class="ti ti-user-check" style="color:var(--success)" title="Funcionário já cadastrado"></i>`:''}`:'<span style="color:var(--text-muted)">—</span>')}
     ${item('Integração Prevista',ctrFmtData(c.data_integracao_prevista))}
+    ${item('Integração Liberada',c.data_integracao_liberada?`${ctrFmtData(c.data_integracao_liberada)}<br><span class="badge badge-green" style="margin-top:3px">Autorizada</span>`:'<span style="color:var(--text-muted)">—</span>')}
     ${item('Mobilização → Chegada',c.data_viagem_mobilizacao?`${ctrFmtData(c.data_viagem_mobilizacao)} → ${ctrFmtData(c.data_prevista_chegada)}`:'<span style="color:var(--text-muted)">—</span>')}
   </div>`;
 }
@@ -8198,6 +8217,7 @@ function renderContratacoesCandidatos(){
   const emProcesso=ativosFuncao.filter(c=>c.status==='em_processo'&&!c.data_prevista_admissao).length;
   const admitidos=ativosFuncao.filter(c=>c.status==='em_processo'&&!!c.data_prevista_admissao).length;
   const aguardando=ativosFuncao.filter(c=>c.status==='aguardando_integracao').length;
+  const integracaoLiberada=ativosFuncao.filter(c=>c.status==='integracao_liberada').length;
   const integrados=ativosFuncao.filter(c=>c.status==='integrado').length;
   const totalPrevisto=contratacoesVagas.filter(v=>(!globalObraFiltro||String(v.obra_id)===String(globalObraFiltro))&&(!contratacoesFiltroFuncao||String(v.funcao_id)===String(contratacoesFiltroFuncao))).reduce((s,v)=>s+(v.quantidade_prevista||0),0);
   const faltaCaptacao=Math.max(totalPrevisto-total,0);
@@ -8313,7 +8333,7 @@ function renderContratacoesCandidatos(){
       <div class="exp-tab${contratacoesTab==='vagas'?' active':''}" onclick="contratacoesTab='vagas';renderContratacoes()">Vagas Previstas</div>
       <div class="exp-tab${contratacoesTab==='desistencias'?' active':''}" onclick="contratacoesTab='desistencias';renderContratacoes()">Desistências</div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-bottom:16px">
+    <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:10px;margin-bottom:16px">
       <div class="metric-card" onclick="contratacoesTab='vagas';contratacoesVagasFiltroFalta=false;renderContratacoes()" style="cursor:pointer;border-color:var(--border)">
         <div class="metric-label">Vagas Previstas</div><div class="metric-value">${totalPrevisto}</div>
       </div>
@@ -8331,6 +8351,9 @@ function renderContratacoesCandidatos(){
       </div>
       <div class="metric-card" onclick="contratacoesFiltroStatus='aguardando_integracao';contratacoesFiltroEtapa='';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${contratacoesFiltroStatus==='aguardando_integracao'?'var(--info)':'var(--border)'}">
         <div class="metric-label">Aguardando Integração</div><div class="metric-value">${aguardando}</div>
+      </div>
+      <div class="metric-card" onclick="contratacoesFiltroStatus='integracao_liberada';contratacoesFiltroEtapa='';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${contratacoesFiltroStatus==='integracao_liberada'?'var(--primary-dark)':'var(--border)'}">
+        <div class="metric-label">Integração Liberada</div><div class="metric-value">${integracaoLiberada}</div>
       </div>
       <div class="metric-card green" onclick="contratacoesFiltroStatus='integrado';contratacoesFiltroEtapa='';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${contratacoesFiltroStatus==='integrado'?'var(--success)':'var(--border)'}">
         <div class="metric-label">Integrados</div><div class="metric-value">${integrados}</div>
@@ -8356,6 +8379,7 @@ function renderContratacoesCandidatos(){
         <option value="">Todos os status</option>
         <option value="em_processo" ${contratacoesFiltroStatus==='em_processo'?'selected':''}>Em Processo</option>
         <option value="aguardando_integracao" ${contratacoesFiltroStatus==='aguardando_integracao'?'selected':''}>Aguardando Integração</option>
+        <option value="integracao_liberada" ${contratacoesFiltroStatus==='integracao_liberada'?'selected':''}>Integração Liberada</option>
         <option value="integrado" ${contratacoesFiltroStatus==='integrado'?'selected':''}>Integrado</option>
       </select>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text);cursor:pointer;white-space:nowrap;padding:0 4px">
@@ -8445,6 +8469,7 @@ function exportContratacoesExcel(){
   const STATUS_COLORS={
     em_processo:{bg:'FAEEDA',fg:'BA7517'},
     aguardando_integracao:{bg:'E6F1FB',fg:'185FA5'},
+    integracao_liberada:{bg:'E1F5EE',fg:'0F6E56'},
     integrado:{bg:'EAF3DE',fg:'3B6D11'},
     desistiu:{bg:'FCEBEB',fg:'E24B4A'},
   };
@@ -8497,7 +8522,7 @@ function exportContratacoesExcel(){
     }
     const statusAddr=XLSXStyle.utils.encode_cell({r,c:NCOL-1});
     const statusVal=rows[r][NCOL-1];
-    const statusKey=Object.entries({em_processo:'Em Processo',aguardando_integracao:'Aguardando Integração',integrado:'Integrado',desistiu:'Desistiu/Reprovado'}).find(([,l])=>l===statusVal)?.[0];
+    const statusKey=Object.entries({em_processo:'Em Processo',aguardando_integracao:'Aguardando Integração',integracao_liberada:'Integração Liberada',integrado:'Integrado',desistiu:'Desistiu/Reprovado'}).find(([,l])=>l===statusVal)?.[0];
     const cores=STATUS_COLORS[statusKey];
     if(ws[statusAddr]&&cores){
       ws[statusAddr].s={...ws[statusAddr].s,font:{bold:true,sz:10,color:{rgb:cores.fg}},fill:{fgColor:{rgb:cores.bg}}};
@@ -8509,6 +8534,7 @@ function exportContratacoesExcel(){
   const emProcesso=ativos.filter(c=>c.status==='em_processo'&&!c.data_prevista_admissao).length;
   const admitidos=ativos.filter(c=>c.status==='em_processo'&&!!c.data_prevista_admissao).length;
   const aguardando=ativos.filter(c=>c.status==='aguardando_integracao').length;
+  const integracaoLiberada=ativos.filter(c=>c.status==='integracao_liberada').length;
   const integrados=ativos.filter(c=>c.status==='integrado').length;
   const faltaCaptacao=Math.max(totalPrevisto-ativos.length,0);
 
@@ -8530,6 +8556,7 @@ function exportContratacoesExcel(){
     ['Em Processo',emProcesso,''],
     ['Admitidos',admitidos,''],
     ['Aguardando Integração',aguardando,''],
+    ['Integração Liberada',integracaoLiberada,''],
     ['Integrados',integrados,''],
     ['','',''],
     ['FUNÇÕES EM PROCESSO','QTD.',''],
@@ -8540,14 +8567,14 @@ function exportContratacoesExcel(){
   wsRes['!merges']=[{s:{r:0,c:0},e:{r:0,c:2}},{s:{r:1,c:0},e:{r:1,c:2}}];
   if(wsRes['A1'])wsRes['A1'].s={font:{bold:true,sz:14,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1D9E75'}},alignment:{vertical:'center',horizontal:'left',indent:1}};
   if(wsRes['A2'])wsRes['A2'].s={font:{italic:true,sz:10,color:{rgb:'6B7280'}},fill:{fgColor:{rgb:'E1F5EE'}},alignment:{vertical:'center',horizontal:'left',indent:1}};
-  [3,12].forEach(r=>{
+  [3,13].forEach(r=>{
     for(let c=0;c<2;c++){
       const addr=XLSXStyle.utils.encode_cell({r,c});
       if(wsRes[addr])wsRes[addr].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'0F6E56'}},border:borderAll};
     }
   });
   for(let r=4;r<resumoRows.length;r++){
-    if(r===12)continue;
+    if(r===13)continue;
     for(let c=0;c<2;c++){
       const addr=XLSXStyle.utils.encode_cell({r,c});
       if(wsRes[addr])wsRes[addr].s={border:borderAll,font:{sz:10},alignment:{horizontal:c===1?'center':'left',indent:c===0?1:0}};
@@ -8581,7 +8608,7 @@ function ctrAutoStatusPorData(statusAlvo,valor){
   if(!valor)return; // só avança o status quando a data é preenchida, nunca ao apagar
   const sel=document.getElementById('ctr-status');
   if(!sel)return;
-  const ordem={em_processo:0,aguardando_integracao:1,integrado:2};
+  const ordem={em_processo:0,aguardando_integracao:1,integracao_liberada:2,integrado:3};
   const atual=sel.value;
   if(atual==='desistiu')return; // não mexe em candidato já marcado como desistiu
   if((ordem[atual]??0)<ordem[statusAlvo]){
@@ -8598,7 +8625,7 @@ function ctrFuncoesUnicas(){
 function renderContratacoesVagas(){
   const vagas=contratacoesVagas.filter(v=>!contratacoesVagasFiltroObra||String(v.obra_id)===String(contratacoesVagasFiltroObra));
 
-  let tPrevisto=0,tFalta=0,tEmProcesso=0,tAguardando=0,tIntegrado=0;
+  let tPrevisto=0,tFalta=0,tEmProcesso=0,tAguardando=0,tIntegracaoLiberada=0,tIntegrado=0;
 
   const linhas=vagas.map(v=>{
     // Match por funcao_id OU por nome da função normalizado (fallback para casos de
@@ -8609,14 +8636,15 @@ function renderContratacoesVagas(){
     );
     const emProcesso=candidatosVaga.filter(c=>c.status==='em_processo').length;
     const aguardando=candidatosVaga.filter(c=>c.status==='aguardando_integracao').length;
+    const integracaoLiberada=candidatosVaga.filter(c=>c.status==='integracao_liberada').length;
     const integrado=candidatosVaga.filter(c=>c.status==='integrado').length;
     const previsto=v.quantidade_prevista||0;
-    const falta=Math.max(previsto-(emProcesso+aguardando+integrado),0);
-    return{v,emProcesso,aguardando,integrado,previsto,falta};
+    const falta=Math.max(previsto-(emProcesso+aguardando+integracaoLiberada+integrado),0);
+    return{v,emProcesso,aguardando,integracaoLiberada,integrado,previsto,falta};
   }).filter(l=>!contratacoesVagasFiltroFalta||l.falta>0);
 
-  const rows=linhas.map(({v,emProcesso,aguardando,integrado,previsto,falta})=>{
-    tPrevisto+=previsto;tFalta+=falta;tEmProcesso+=emProcesso;tAguardando+=aguardando;tIntegrado+=integrado;
+  const rows=linhas.map(({v,emProcesso,aguardando,integracaoLiberada,integrado,previsto,falta})=>{
+    tPrevisto+=previsto;tFalta+=falta;tEmProcesso+=emProcesso;tAguardando+=aguardando;tIntegracaoLiberada+=integracaoLiberada;tIntegrado+=integrado;
     return`<tr>
       <td style="font-weight:500">${v.funcao?.nome||'—'}${v.observacao?` <i class="ti ti-note" style="color:var(--warning);cursor:help" title="${v.observacao.replace(/"/g,'&quot;')}"></i>`:''}</td>
       <td style="font-size:12px">${v.obra?`${v.obra.codigo?v.obra.codigo+' — ':''}${v.obra.nome||''}`:'<span style="color:var(--text-muted)">—</span>'}</td>
@@ -8624,6 +8652,7 @@ function renderContratacoesVagas(){
       <td style="text-align:center;${falta>0?'color:var(--danger);font-weight:600':'color:var(--text-muted)'}">${falta}</td>
       <td style="text-align:center;color:var(--warning);font-weight:600">${emProcesso}</td>
       <td style="text-align:center;color:var(--info);font-weight:600">${aguardando}</td>
+      <td style="text-align:center;color:var(--primary-dark);font-weight:600">${integracaoLiberada}</td>
       <td style="text-align:center;color:var(--success);font-weight:600">${integrado}</td>
       <td style="font-size:12px;color:var(--text-muted);max-width:200px">${v.observacao?`<span title="${v.observacao.replace(/"/g,'&quot;')}">${v.observacao.length>40?v.observacao.slice(0,40)+'…':v.observacao}</span>`:'—'}</td>
       <td>
@@ -8633,7 +8662,7 @@ function renderContratacoesVagas(){
         </div>
       </td>
     </tr>`;
-  }).join('')||`<tr><td colspan="9"><div class="empty-state"><i class="ti ti-clipboard-list"></i><div>${contratacoesVagasFiltroFalta?'Nenhuma vaga com falta de captação':'Nenhuma vaga prevista cadastrada'}</div></div></td></tr>`;
+  }).join('')||`<tr><td colspan="10"><div class="empty-state"><i class="ti ti-clipboard-list"></i><div>${contratacoesVagasFiltroFalta?'Nenhuma vaga com falta de captação':'Nenhuma vaga prevista cadastrada'}</div></div></td></tr>`;
 
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${contratacoesVagasFiltroObra===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
 
@@ -8657,7 +8686,7 @@ function renderContratacoesVagas(){
     </div>
     <div class="table-container"><table>
       <thead><tr>
-        <th>Função</th><th>Obra</th><th>Previsto</th><th>Falta Captação</th><th>Em Processo</th><th>Aguardando Integração</th><th>Integrado</th><th>Observação</th><th>Ações</th>
+        <th>Função</th><th>Obra</th><th>Previsto</th><th>Falta Captação</th><th>Em Processo</th><th>Aguardando Integração</th><th>Integ. Liberada</th><th>Integrado</th><th>Observação</th><th>Ações</th>
       </tr></thead>
       <tbody>${rows}</tbody>
       ${vagas.length?`<tfoot><tr style="font-weight:700;background:var(--bg)">
@@ -8666,6 +8695,7 @@ function renderContratacoesVagas(){
         <td style="text-align:center;color:var(--danger)">${tFalta}</td>
         <td style="text-align:center;color:var(--warning)">${tEmProcesso}</td>
         <td style="text-align:center;color:var(--info)">${tAguardando}</td>
+        <td style="text-align:center;color:var(--primary-dark)">${tIntegracaoLiberada}</td>
         <td style="text-align:center;color:var(--success)">${tIntegrado}</td>
         <td></td>
         <td></td>
@@ -9090,6 +9120,7 @@ function openModalContratacao(id){
               <select id="ctr-status" onchange="ctrToggleDesistencia()">
                 <option value="em_processo" ${(!c||c.status==='em_processo')?'selected':''}>Em Processo</option>
                 <option value="aguardando_integracao" ${c?.status==='aguardando_integracao'?'selected':''}>Aguardando Integração</option>
+                <option value="integracao_liberada" ${c?.status==='integracao_liberada'?'selected':''}>Integração Liberada</option>
                 <option value="integrado" ${c?.status==='integrado'?'selected':''}>Integrado</option>
                 <option value="desistiu" ${c?.status==='desistiu'?'selected':''}>Desistiu/Reprovado</option>
               </select>
@@ -9141,6 +9172,8 @@ function openModalContratacao(id){
 
               <div class="form-group"><label>Integração Prevista <span style="font-weight:400;color:var(--text-muted)">(manual — depende da obra)</span></label>
                 <input type="date" id="proj-integracao" value="${c?.data_integracao_prevista||''}" onchange="ctrAutoStatusPorData('aguardando_integracao',this.value)"></div>
+              <div class="form-group"><label>Integração Liberada <span style="font-weight:400;color:var(--text-muted)">(autorizada, não significa que já foi realizada)</span></label>
+                <input type="date" id="proj-integracao-liberada" value="${c?.data_integracao_liberada||''}" onchange="ctrAutoStatusPorData('integracao_liberada',this.value)"></div>
               <div class="form-group"><label>Viagem de Mobilização <span style="font-weight:400;color:var(--text-muted)">(manual — depende da obra)</span></label>
                 <input type="date" id="proj-viagem" value="${c?.data_viagem_mobilizacao||''}" onchange="ctrAutoStatusPorData('integrado',this.value)"></div>
               <div class="form-group"><label>Previsão de Chegada</label>
@@ -9303,6 +9336,7 @@ async function saveContratacao(id){
     data_aprovacao_diretoria:ctrValorConfirmado('proj-aprovacao'),
     data_envio_dp:ctrValorConfirmado('proj-envio-dp'),
     data_integracao_prevista:document.getElementById('proj-integracao').value||null,
+    data_integracao_liberada:document.getElementById('proj-integracao-liberada').value||null,
     data_viagem_mobilizacao:document.getElementById('proj-viagem').value||null,
     data_prevista_chegada:document.getElementById('proj-chegada').value||null,
   };
