@@ -8135,6 +8135,11 @@ function ctrAbrirCadastroFuncionario(c){
 async function ctrToggleConfirmacao(id,campo,checked){
   const valor=checked?ctrHojeISO():null;
   const payload={};payload[campo]=valor;
+  const candidatoAntes=contratacoes.find(x=>x.id===id);
+  if(campo==='data_prevista_admissao'&&candidatoAntes){
+    if(checked&&candidatoAntes.status==='em_processo')payload.status='aguardando_integracao';
+    else if(!checked&&candidatoAntes.status==='aguardando_integracao')payload.status='em_processo';
+  }
   const{error}=await sb.from('contratacoes').update(payload).eq('id',id);
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast(checked?'Etapa confirmada!':'Confirmação desfeita');
@@ -8165,6 +8170,10 @@ function ctrProjResumoHtml(c){
 
 async function ctrConfirmarData(id,campo,valor){
   const payload={};payload[campo]=valor;
+  const candidatoAntes=contratacoes.find(x=>x.id===id);
+  if(campo==='data_prevista_admissao'&&candidatoAntes&&candidatoAntes.status==='em_processo'){
+    payload.status='aguardando_integracao';
+  }
   const{error}=await sb.from('contratacoes').update(payload).eq('id',id);
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast('Data confirmada!');
@@ -8279,8 +8288,24 @@ function renderContratacoesCandidatos(){
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${contratacoesFiltroObra===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
   const nomeOpts=ativos.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR')).map(c=>`<option value="${c.id}" ${contratacoesFiltroNome===String(c.id)?'selected':''}>${c.nome}</option>`).join('');
 
+  // Painel de funções reflete o status/etapa atualmente selecionado nos cards de métrica
+  // (antes ficava travado sempre em "Em Processo", ignorando o card clicado).
+  const painelStatusKey=contratacoesFiltroStatus||'em_processo';
+  let painelCandidatos,painelTitulo;
+  if(painelStatusKey==='em_processo'&&contratacoesFiltroEtapa==='admitido'){
+    painelCandidatos=ativosFuncao.filter(c=>c.status==='em_processo'&&!!c.data_prevista_admissao);
+    painelTitulo='Funções — Admitidos';
+  }else if(painelStatusKey==='em_processo'&&contratacoesFiltroEtapa==='nao_admitido'){
+    painelCandidatos=ativosFuncao.filter(c=>c.status==='em_processo'&&!c.data_prevista_admissao);
+    painelTitulo='Funções — Em Processo (não admitido)';
+  }else{
+    painelCandidatos=ativosFuncao.filter(c=>c.status===painelStatusKey);
+    painelTitulo='Funções — '+ctrStatusInfo(painelStatusKey).label;
+  }
+  const painelCor=ctrStatusInfo(painelStatusKey).cor;
+  const painelBg=ctrStatusInfo(painelStatusKey).bg;
   const funcoesEmProcessoMap={};
-  ativos.filter(c=>c.status==='em_processo').forEach(c=>{
+  painelCandidatos.forEach(c=>{
     const key=c.funcao_id||'sem_funcao';
     if(!funcoesEmProcessoMap[key])funcoesEmProcessoMap[key]={nome:c.funcao?.nome||'Sem função',count:0};
     funcoesEmProcessoMap[key].count++;
@@ -8288,13 +8313,13 @@ function renderContratacoesCandidatos(){
   const funcoesEmProcessoArr=Object.entries(funcoesEmProcessoMap).sort((a,b)=>b[1].count-a[1].count);
   const funcoesEmProcessoHtml=funcoesEmProcessoArr.length?`
     <div style="margin-bottom:16px">
-      <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Funções em processo</div>
+      <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">${painelTitulo}</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px">
         ${funcoesEmProcessoArr.map(([fid,v])=>`
-          <div onclick="contratacoesFiltroFuncao='${fid==='sem_funcao'?'':fid}';contratacoesFiltroStatus='em_processo';renderContratacoesCandidatos()"
-            style="cursor:pointer;display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;border:1px solid ${contratacoesFiltroFuncao===String(fid)&&contratacoesFiltroStatus==='em_processo'?'var(--warning)':'var(--border)'};background:${contratacoesFiltroFuncao===String(fid)&&contratacoesFiltroStatus==='em_processo'?'var(--warning-light)':'var(--surface)'};font-size:12px;font-weight:500;transition:.15s">
+          <div onclick="contratacoesFiltroFuncao='${fid==='sem_funcao'?'':fid}';contratacoesFiltroStatus='${painelStatusKey}';renderContratacoesCandidatos()"
+            style="cursor:pointer;display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;border:1px solid ${contratacoesFiltroFuncao===String(fid)?painelCor:'var(--border)'};background:${contratacoesFiltroFuncao===String(fid)?painelBg:'var(--surface)'};font-size:12px;font-weight:500;transition:.15s">
             <span>${v.nome}</span>
-            <span style="background:var(--warning);color:#fff;border-radius:20px;font-size:10px;font-weight:700;padding:1px 7px;min-width:18px;text-align:center">${v.count}</span>
+            <span style="background:${painelCor};color:#fff;border-radius:20px;font-size:10px;font-weight:700;padding:1px 7px;min-width:18px;text-align:center">${v.count}</span>
           </div>`).join('')}
       </div>
     </div>` : '';
