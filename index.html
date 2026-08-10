@@ -7298,22 +7298,35 @@ async function importarEfetivo(file){
       });
     });
     if(!regs.length){showToast('Nenhum registro para importar','error');return;}
+
+    // Deduplica por crachá (Kairos às vezes traz 2 batidas/linhas para a mesma
+    // pessoa no mesmo dia) — mantém a última ocorrência. Sem isso o upsert no
+    // banco pode falhar com "ON CONFLICT DO UPDATE command cannot affect row
+    // a second time" e o import inteiro seria perdido.
+    const regsPorCracha={};
+    regs.forEach(r=>{regsPorCracha[r.cracha]=r;});
+    const regsDedup=Object.values(regsPorCracha);
+
     const dataFmt=dataISO.split('-').reverse().join('/');
     const{count:qtdExistente}=await sb.from('efetivo_presenca').select('id',{count:'exact',head:true}).eq('data',dataISO);
     if(qtdExistente>0){
-      const ok=confirm('Data detectada: '+dataFmt+'\n\nJá existem '+qtdExistente+' registro(s) para esse dia e serão SUBSTITUÍDOS pelos '+regs.length+' registro(s) da planilha importada.\n\nConfirmar?');
+      const ok=confirm('Data detectada: '+dataFmt+'\n\nJá existem '+qtdExistente+' registro(s) para esse dia e serão SUBSTITUÍDOS pelos '+regsDedup.length+' registro(s) da planilha importada.\n\nConfirmar?');
       if(!ok){showToast('Importação cancelada','error');return;}
     }
-    await sb.from('efetivo_presenca').delete().eq('data',dataISO);
-    for(let i=0;i<regs.length;i+=500){
-      const{error}=await sb.from('efetivo_presenca').insert(regs.slice(i,i+500));
-      if(error){showToast('Erro: '+error.message,'error');return;}
-    }
-    const np=regs.filter(r=>r.situacao==='PRESENTE').length,na=regs.filter(r=>r.situacao==='AUSENTE').length;
-    showToast('Importado! '+np+' presentes · '+na+' ausentes · '+dataISO.split('-').reverse().join('/'));
+
+    // Delete+insert em UMA transação no banco (função importar_efetivo_presenca).
+    // Evita perder os dados do dia caso o insert falhe no meio do caminho —
+    // antes era delete() e insert() em chamadas separadas, e um erro no insert
+    // deixava o dia sem nenhum registro (era isso que causava "some" e
+    // "não grava").
+    const{data:totalGravado,error}=await sb.rpc('importar_efetivo_presenca',{p_data:dataISO,p_regs:regsDedup});
+    if(error){showToast('Erro ao gravar: '+error.message,'error');console.error('[importarEfetivo]',error);return;}
+
+    const np=regsDedup.filter(r=>r.situacao==='PRESENTE').length,na=regsDedup.filter(r=>r.situacao==='AUSENTE').length;
+    showToast('Importado! '+np+' presentes · '+na+' ausentes · '+dataFmt+(totalGravado!=null?' · '+totalGravado+' no banco':''));
     efetivoDataFiltro=dataISO;
     await loadEfetivo();renderEfetivo();
-  }catch(e){showToast('Erro ao importar: '+e.message,'error');}
+  }catch(e){showToast('Erro ao importar: '+e.message,'error');console.error('[importarEfetivo]',e);}
 }
 
 function exportarEfetivoExcel(tipo){
