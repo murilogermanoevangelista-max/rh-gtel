@@ -588,6 +588,9 @@ function badgeSituacao(s){
   const labels={ativo:'Ativo',inativo:'Demitido',transferido:'Transferido'};
   return`<span class="badge ${map[s]||'badge-blue'}">${labels[s]||s}</span>`;
 }
+// Normaliza matrícula para comparação (remove espaços e zeros à esquerda) — evita que "75793" e "075793"
+// sejam tratados como matrículas diferentes e escapem da checagem de duplicidade.
+function normMatricula(v){return String(v||'').trim().replace(/^0+(?=\d)/,'').toUpperCase();}
 function formatDate(d){
   if(!d)return'—';
   if(d instanceof Date){if(isNaN(d.getTime()))return'—';return d.toLocaleDateString('pt-BR');}
@@ -646,7 +649,10 @@ async function loadAll(){
   movimentacoesHistorico=mh.data||[];
   if(obrasPermitidasIds){
     obras=obras.filter(o=>obrasPermitidasIds.has(String(o.id)));
-    funcionarios=funcionarios.filter(f=>f.obra_id&&obrasPermitidasIds.has(String(f.obra_id)));
+    // Mantém visível também quem tem uma transferência pendente PARA uma obra do usuário, mesmo que
+    // ele ainda esteja (obra_id) numa obra fora do acesso do usuário — senão quem só tem acesso à obra
+    // de destino nunca veria a solicitação para poder aprovar/recusar.
+    funcionarios=funcionarios.filter(f=>(f.obra_id&&obrasPermitidasIds.has(String(f.obra_id)))||(f.transf_pendente&&f.transf_pendente_obra_id&&obrasPermitidasIds.has(String(f.transf_pendente_obra_id))));
     listaAloj=listaAloj.filter(x=>x.obra_id&&obrasPermitidasIds.has(String(x.obra_id)));
   }
   alojamentos=listaAloj;
@@ -1384,7 +1390,7 @@ function getFuncionariosRows(lista){
       <td>${f.obra?.codigo?f.obra.codigo+' ':''} ${f.obra?.nome||'—'}</td>
       <td>${f.empresa?.nome||'—'}</td>
       <td>${formatDate(f.data_admissao)}</td>
-      <td>${badgeSituacao(f.situacao)}</td>
+      <td>${badgeSituacao(f.situacao)}${f.transf_pendente?`<div style="font-size:10px;color:#92400E;margin-top:3px;white-space:nowrap"><i class="ti ti-clock" style="font-size:10px"></i> Transferência pendente</div>`:''}</td>
       <td><div class="action-btns">
         <button class="btn btn-sm btn-info" title="Visualizar ficha" onclick="verFicha('${f.id}')"><i class="ti ti-eye"></i></button>
         <button class="btn btn-sm" title="Editar" onclick="editFuncionario('${f.id}')"><i class="ti ti-edit"></i></button>
@@ -1444,6 +1450,9 @@ function renderFuncionarios(){
   const totalAtivos=baseObra.filter(f=>f.situacao==='ativo'||f.situacao==='transferido').length;
   const totalDemitidos=baseObra.filter(f=>f.situacao==='inativo').length;
   const totalTransf=baseTransf.length;
+  const pendentesGlobal=funcionarios.filter(f=>f.transf_pendente);
+  const pendentesVisiveis=obraEfetiva?pendentesGlobal.filter(f=>String(f.obra_id)===String(obraEfetiva)||String(f.transf_pendente_obra_id)===String(obraEfetiva)):pendentesGlobal;
+  const pendentesParaAprovarUsuario=pendentesGlobal.filter(f=>usuarioPodeAprovarObra(f.transf_pendente_obra_id)).length;
   const theadTransf=`<tr><th>Funcionário</th><th>Função</th><th>Obra Origem → Destino</th><th>Alojamento na Origem</th><th>Empresa</th><th>Admissão</th><th>Transferência</th><th></th></tr>`;
   const theadAtivos=`<tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Empresa</th><th>Admissão</th><th>Situação</th><th></th></tr>`;
   const theadDemitidos=`<tr><th>Funcionário</th><th>Função</th><th>Obra / Contrato</th><th>Data Demissão</th><th>Tipo</th><th>Motivo</th><th></th></tr>`;
@@ -1460,7 +1469,7 @@ function renderFuncionarios(){
       <div class="exp-tabs">
         <div class="exp-tab${funcTab==='ativos'?' active':''}" id="tab-func-ativos" onclick="funcTab='ativos';filtroSituacao='';filtroFuncaoDash='';atualizarTabelaFuncionarios()">Ativos <span style="background:var(--primary);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalAtivos}</span></div>
         <div class="exp-tab${funcTab==='demitidos'?' active':''}" id="tab-func-demitidos" onclick="funcTab='demitidos';filtroSituacao='';filtroFuncaoDash='';atualizarTabelaFuncionarios()">Demitidos <span style="background:var(--danger);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalDemitidos}</span></div>
-        <div class="exp-tab${funcTab==='transferidos'?' active':''}" id="tab-func-transf" onclick="funcTab='transferidos';filtroSituacao='';filtroFuncaoDash='';atualizarTabelaFuncionarios()">Transferidos <span style="background:#B45309;color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalTransf}</span></div>
+        <div class="exp-tab${funcTab==='transferidos'?' active':''}" id="tab-func-transf" onclick="funcTab='transferidos';filtroSituacao='';filtroFuncaoDash='';atualizarTabelaFuncionarios()">Transferidos <span style="background:#B45309;color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalTransf}</span>${pendentesParaAprovarUsuario?` <span title="Transferências aguardando sua aprovação" style="background:var(--danger);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:2px"><i class="ti ti-alert-triangle" style="font-size:10px"></i> ${pendentesParaAprovarUsuario}</span>`:''}</div>
       </div>
     </div>
     <div class="filters">
@@ -1476,12 +1485,40 @@ function renderFuncionarios(){
       <button class="btn btn-sm" onclick="filtroObra='';filtroObraTocado=false;busca='';filtroFuncaoDash='';document.getElementById('func-busca').value='';atualizarTabelaFuncionarios()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div id="transf-banner" style="display:${funcTab==='transferidos'?'flex':'none'};align-items:center;gap:8px;padding:10px 14px;background:#FEF3C7;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:12px;font-size:13px;color:#92400E"><i class="ti ti-info-circle" style="font-size:16px;flex-shrink:0"></i><span>Funcionários transferidos aparecem aqui como <strong>histórico</strong> e não são contabilizados nos indicadores da obra de origem.</span></div>
+    ${funcTab==='transferidos'?renderPainelTransferenciasPendentes(pendentesVisiveis):''}
     <div class="table-container"><table>
       <thead id="func-thead">${funcTab==='transferidos'?theadTransf:funcTab==='demitidos'?theadDemitidos:theadAtivos}</thead>
       <tbody id="func-tbody">${getFuncionariosRows(lista)}</tbody>
     </table></div>`;
 }
 
+
+function renderPainelTransferenciasPendentes(lista){
+  if(!lista.length)return'';
+  return`<div style="margin-bottom:14px;border:1px solid #FCD34D;background:#FFFBEB;border-radius:var(--radius-lg);overflow:hidden">
+    <div style="padding:10px 14px;font-weight:600;font-size:13px;color:#92400E;display:flex;align-items:center;gap:6px;border-bottom:1px solid #FDE68A"><i class="ti ti-alert-triangle"></i> Transferências pendentes de aprovação (${lista.length})</div>
+    <div>${lista.map(f=>{
+      const podeAprovar=usuarioPodeAprovarObra(f.transf_pendente_obra_id);
+      const obraOrigLabel=f.obra?.codigo?`${f.obra.codigo} — ${f.obra.nome}`:(f.obra?.nome||'—');
+      const obraDest=obras.find(o=>String(o.id)===String(f.transf_pendente_obra_id))||obrasTodas.find(o=>String(o.id)===String(f.transf_pendente_obra_id));
+      const obraDestLabel=obraDest?`${obraDest.codigo?obraDest.codigo+' — ':''}${obraDest.nome}`:'—';
+      const solicitanteEhUsuarioAtual=currentUser&&(f.transf_pendente_solicitado_por===currentUser.nome||f.transf_pendente_solicitado_por===currentUser.usuario);
+      return`<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-top:1px solid #FDE68A;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:500;font-size:13px">${f.nome_completo} <span style="font-weight:400;color:var(--text-muted);font-size:11px">(${f.matricula||'—'})</span></div>
+          <div style="font-size:12px;color:#92400E;margin-top:2px">📤 ${obraOrigLabel} → 📥 ${obraDestLabel}${f.transf_pendente_data?' · '+formatDate(f.transf_pendente_data):''}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Solicitado por ${f.transf_pendente_solicitado_por||'—'}${f.transf_pendente_solicitado_em?' em '+new Date(f.transf_pendente_solicitado_em).toLocaleString('pt-BR'):''}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          ${podeAprovar?`
+            <button class="btn btn-sm" style="background:var(--success-light);color:var(--success);border-color:var(--success)" onclick="aprovarTransferenciaPendente('${f.id}')"><i class="ti ti-check"></i> Aprovar</button>
+            <button class="btn btn-sm btn-danger" onclick="abrirModalRecusarTransferencia('${f.id}')"><i class="ti ti-x"></i> Recusar</button>
+          `:(solicitanteEhUsuarioAtual?`<button class="btn btn-sm" onclick="cancelarTransferenciaPendente('${f.id}')"><i class="ti ti-x"></i> Cancelar solicitação</button>`:`<span style="font-size:11px;color:var(--text-muted)">Aguardando aprovação da obra de destino</span>`)}
+        </div>
+      </div>`;
+    }).join('')}</div>
+  </div>`;
+}
 
 function exportFuncionariosExcel(){
   const hoje=new Date();
@@ -1582,10 +1619,16 @@ async function verFicha(id,historico=false){
       const isEnvioM=m.tipo==='envio';
       const origemStr=(m.obra_origem?.codigo?m.obra_origem.codigo+' ':'')+(m.obra_origem?.nome||'—');
       const destinoStr=(m.obra_destino?.codigo?m.obra_destino.codigo+' ':'')+(m.obra_destino?.nome||'—');
+      const statusPill=m.status==='pendente'?'<span style="background:#FEF3C7;color:#92400E;border-radius:20px;font-size:10px;padding:1px 8px;margin-left:6px">⏳ Pendente</span>'
+        :m.status==='recusada'?'<span style="background:var(--danger-light);color:var(--danger);border-radius:20px;font-size:10px;padding:1px 8px;margin-left:6px">✕ Recusada</span>'
+        :'<span style="background:var(--success-light);color:var(--success);border-radius:20px;font-size:10px;padding:1px 8px;margin-left:6px">✓ Aprovada</span>';
+      const recusaInfo=m.status==='recusada'?'<div style="color:var(--danger);margin-top:2px">Recusada por '+(m.recusado_por||'—')+(m.recusado_em?' em '+new Date(m.recusado_em).toLocaleString('pt-BR'):'')+(m.motivo_recusa?' · Motivo: '+m.motivo_recusa:'')+'</div>':'';
+      const solicitInfo=m.solicitado_por?'<div style="color:var(--text-muted);margin-top:2px">Solicitado por '+m.solicitado_por+(m.solicitado_em?' em '+new Date(m.solicitado_em).toLocaleString('pt-BR'):'')+'</div>':'';
       return '<div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;font-size:12px">'
-        +'<div style="font-weight:600">'+(isEnvioM?'📤 Envio':'📥 Recebimento')+' · '+(formatDate(m.data_movimentacao)||'—')+'</div>'
+        +'<div style="font-weight:600">'+(isEnvioM?'📤 Envio':'📥 Recebimento')+' · '+(formatDate(m.data_movimentacao)||'—')+statusPill+'</div>'
         +'<div style="color:var(--text-muted);margin-top:2px">'+origemStr+' → '+destinoStr+'</div>'
         +(m.centro_custo?'<div style="color:var(--text-muted);margin-top:2px">Centro de Custo: '+m.centro_custo+'</div>':'')
+        +solicitInfo+recusaInfo
         +'</div>';
     }).join('');
     historicoMovSection='<div class="ficha-section">'
@@ -1955,7 +1998,7 @@ function selectTipoTransferencia(tipo){
   fields.classList.add('visible');header.className='transfer-header '+tipo;
   const hint=document.getElementById('f-alojamento-hint');
   if(tipo==='envio'){
-    header.innerHTML='<i class="ti ti-arrow-right"></i> Envio — funcionário transferido para outra obra';
+    header.innerHTML='<i class="ti ti-arrow-right"></i> Envio — ficará pendente até a obra de destino aprovar';
     document.getElementById('label-obra-transf').textContent='Obra de Destino';
     document.getElementById('row-mobilizacao').style.display='none';
     document.getElementById('row-desmobilizacao').style.display='flex';
@@ -2010,7 +2053,7 @@ function openModalFuncionario(func=null){
           <span class="modal-title">${isEdit?'Editar':'Novo'} Funcionário</span>
           <button class="btn btn-sm" onclick="closeModal('modal-func')"><i class="ti ti-x"></i></button>
         </div>
-        <div class="modal-body">${func?._origemCandidato?`<div style="background:var(--primary-light);border:1px solid var(--primary);border-radius:var(--radius);padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--primary-dark);display:flex;align-items:center;gap:8px"><i class="ti ti-user-check" style="font-size:16px"></i> Admissão confirmada em Contratações — complete os dados abaixo (matrícula, empresa etc.) para finalizar o cadastro do funcionário.</div>`:''}<div class="form-grid">
+        <div class="modal-body">${func?._origemCandidato?`<div style="background:var(--primary-light);border:1px solid var(--primary);border-radius:var(--radius);padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--primary-dark);display:flex;align-items:center;gap:8px"><i class="ti ti-user-check" style="font-size:16px"></i> Admissão confirmada em Contratações — complete os dados abaixo (matrícula, empresa etc.) para finalizar o cadastro do funcionário.</div>`:''}${func?.transf_pendente?`<div style="background:#FFFBEB;border:1px solid #FCD34D;border-radius:var(--radius);padding:10px 12px;margin-bottom:12px;font-size:12px;color:#92400E;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap"><span><i class="ti ti-clock" style="font-size:16px"></i> Já existe uma transferência para <strong>${(obrasTodas.find(o=>String(o.id)===String(func.transf_pendente_obra_id))||{}).nome||'outra obra'}</strong> aguardando aprovação (solicitado por ${func.transf_pendente_solicitado_por||'—'}). Selecionar "Transferido → Envio" novamente abaixo substitui esta solicitação.</span><button class="btn btn-sm" onclick="closeModal('modal-func');cancelarTransferenciaPendente('${func.id}')"><i class="ti ti-x"></i> Cancelar solicitação</button></div>`:''}<div class="form-grid">
           <div class="form-group foto-upload">
             <div class="foto-preview" id="foto-prev">${func?.foto_url?`<img src="${func.foto_url}" alt="">`:func?initials(func.nome_completo):'<i class="ti ti-user" style="font-size:24px;opacity:.4"></i>'}</div>
             <div>
@@ -2171,9 +2214,12 @@ async function saveFuncionario(id){
   const mat=document.getElementById('f-matricula').value.trim();
   const nome=document.getElementById('f-nome').value.trim();
   if(!mat||!nome){showToast('Matrícula e nome são obrigatórios','error');return;}
-  const matDuplicada=funcionarios.find(f=>String(f.matricula||'').trim()===mat&&String(f.id)!==String(id));
+  // Comparação normalizada (ignora zeros à esquerda e caixa) — pega duplicidade tipo "75793" vs "075793",
+  // e cobre TODOS os funcionários (qualquer obra/situação), pois o array `funcionarios` é global.
+  const matNorm=normMatricula(mat);
+  const matDuplicada=funcionarios.find(f=>normMatricula(f.matricula)===matNorm&&String(f.id)!==String(id));
   if(matDuplicada){
-    showToast(`Matrícula ${mat} já pertence a ${matDuplicada.nome_completo} (${matDuplicada.situacao||'—'}). Use outra matrícula.`,'error');
+    showToast(`Matrícula ${mat} já pertence a ${matDuplicada.nome_completo} (${matDuplicada.situacao||'—'} · ${matDuplicada.obra?.nome||'obra não definida'}). Cada matrícula só pode existir uma vez no sistema, independente da obra.`,'error');
     return;
   }
   const isMod=funcaoModoManual;
@@ -2195,23 +2241,21 @@ async function saveFuncionario(id){
   const isTransf=situacao==='transferido';
   const isDemitido=situacao==='inativo';
   const tipoTransf=isTransf?tipoTransferencia:'';
-  // Na transferência por Envio: o funcionário VAI para outra obra
-  //   obra_id = nova obra (destino) → onde está agora
-  //   obra_transferencia_id = obra atual (origem) → histórico
-  //   situacao = ativo (continua ativo na nova obra)
-  // Na transferência por Recebimento: o funcionário VEIO de outra obra
+  const isEnvio=isTransf&&tipoTransf==='envio';
+  const isRecebimento=isTransf&&tipoTransf==='recebimento';
+  // Na transferência por Envio: o funcionário fica PENDENTE de aprovação da obra de destino — só muda
+  //   de obra_id de fato quando alguém com acesso à obra de destino aprovar (ver aprovarTransferenciaPendente).
+  //   Até lá permanece normalmente na obra atual, apenas marcado como transf_pendente=true.
+  // Na transferência por Recebimento: o funcionário VEIO de outra obra e a própria obra de destino está
+  //   confirmando o recebimento agora — é aplicada imediatamente (quem está lançando já é o destino).
   //   obra_id = obra atual (já preenchida no form, onde está agora)
   //   obra_transferencia_id = obra de origem
   //   situacao = ativo
   const obraTransfId=isTransf?document.getElementById('f-obra-transf').value||null:null;
   const obraAtualId=document.getElementById('f-obra').value||null;
-  let obraFinal=obraAtualId;
+  const obraFinal=obraAtualId; // Envio não move a obra imediatamente; Recebimento já usa a obra atual.
   let obraOrigem=null;
-  if(isTransf&&tipoTransf==='envio'&&obraTransfId){
-    obraFinal=obraTransfId;   // vai para a obra de destino
-    obraOrigem=obraAtualId;   // registra a obra de origem
-  } else if(isTransf&&tipoTransf==='recebimento'&&obraTransfId){
-    obraFinal=obraAtualId;    // já está na obra atual
+  if(isRecebimento&&obraTransfId){
     obraOrigem=obraTransfId;  // veio desta obra
   }
   let fotoUrl=null;
@@ -2255,23 +2299,47 @@ async function saveFuncionario(id){
       if(integracaoSelecionada===existente.data_mobilizacao)integracaoSelecionada=null;
     }
   }
-  // ── Histórico de transferência: só é regravado quando o usuário está ATIVAMENTE transferindo
-  // nesta edição (isTransf=true). Em qualquer outra edição (ex: trocar salário, alojamento, etc.),
-  // preserva o histórico já existente — sem isso, cada edição futura apagava a transferência anterior.
-  const transferidoFinal=isTransf?true:(existente?.transferido||false);
-  const tipoTransferenciaFinal=isTransf?tipoTransferencia:(existente?.tipo_transferencia||null);
-  const obraTransferenciaFinal=isTransf?obraOrigem:(existente?.obra_transferencia_id||null);
-  const dataTransferenciaFinal=isTransf?(document.getElementById('f-data-transf').value||null):(existente?.data_transferencia||null);
-  const centroCustoTransfFinal=isTransf?(document.getElementById('f-centro-custo').value.trim()||null):(existente?.centro_custo_transferencia||null);
-  const dataDesmobFinal=isTransf&&tipoTransferencia==='envio'?(document.getElementById('f-desmobilizacao').value||null):(existente?.data_desmobilizacao||null);
-  // ── Detecta se esta é uma movimentação NOVA (diferente da última já registrada), para gravar
-  // no histórico (movimentacoes_historico) sem apagar as movimentações anteriores.
-  const movimentacaoNova=isTransf&&(
+  // ── Histórico de transferência: só é regravado quando é um Recebimento ativo nesta edição.
+  // Envio não altera esses campos aqui — só quando a transferência for aprovada (ver aprovarTransferenciaPendente).
+  // Em qualquer outra edição (ex: trocar salário, alojamento, etc.), preserva o histórico já existente.
+  const transferidoFinal=isRecebimento?true:(existente?.transferido||false);
+  const tipoTransferenciaFinal=isRecebimento?tipoTransferencia:(existente?.tipo_transferencia||null);
+  const obraTransferenciaFinal=isRecebimento?obraOrigem:(existente?.obra_transferencia_id||null);
+  const dataTransferenciaFinal=isRecebimento?(document.getElementById('f-data-transf').value||null):(existente?.data_transferencia||null);
+  const centroCustoTransfFinal=isRecebimento?(document.getElementById('f-centro-custo').value.trim()||null):(existente?.centro_custo_transferencia||null);
+  const dataDesmobFinal=existente?.data_desmobilizacao||null;
+  // ── Detecta se esta é uma movimentação NOVA de Recebimento (diferente da última já registrada), para
+  // gravar no histórico (movimentacoes_historico) sem apagar as movimentações anteriores.
+  const movimentacaoNova=isRecebimento&&(
     String(obraTransferenciaFinal||'')!==String(existente?.obra_transferencia_id||'')||
     String(obraFinal||'')!==String(existente?.obra_id||'')||
     String(dataTransferenciaFinal||'')!==String(existente?.data_transferencia||'')||
     String(tipoTransferenciaFinal||'')!==String(existente?.tipo_transferencia||'')
   );
+  // ── Campos de transferência PENDENTE (Envio aguardando aprovação da obra de destino) ──
+  const dataTransfPendenteForm=document.getElementById('f-data-transf').value||null;
+  const centroCustoPendenteForm=document.getElementById('f-centro-custo').value.trim()||null;
+  const dataDesmobPendenteForm=document.getElementById('f-desmobilizacao').value||null;
+  const transfPendenteFields=isEnvio?{
+    transf_pendente:true,
+    transf_pendente_obra_id:obraTransfId,
+    transf_pendente_tipo:'envio',
+    transf_pendente_data:dataTransfPendenteForm,
+    transf_pendente_centro_custo:centroCustoPendenteForm,
+    transf_pendente_desmobilizacao:dataDesmobPendenteForm,
+    transf_pendente_solicitado_por:currentUser?.nome||currentUser?.usuario||'—',
+    transf_pendente_solicitado_em:new Date().toISOString(),
+  }:{
+    // Fora do fluxo de Envio, preserva qualquer pendência já existente (não mexe nela nesta edição).
+    transf_pendente:existente?.transf_pendente||false,
+    transf_pendente_obra_id:existente?.transf_pendente_obra_id||null,
+    transf_pendente_tipo:existente?.transf_pendente_tipo||null,
+    transf_pendente_data:existente?.transf_pendente_data||null,
+    transf_pendente_centro_custo:existente?.transf_pendente_centro_custo||null,
+    transf_pendente_desmobilizacao:existente?.transf_pendente_desmobilizacao||null,
+    transf_pendente_solicitado_por:existente?.transf_pendente_solicitado_por||null,
+    transf_pendente_solicitado_em:existente?.transf_pendente_solicitado_em||null,
+  };
   const payload={
     matricula:mat,nome_completo:nome,
     data_admissao:document.getElementById('f-admissao').value||null,
@@ -2299,6 +2367,7 @@ async function saveFuncionario(id){
     data_demissao:isDemitido?document.getElementById('f-data-demissao').value||null:null,
     tipo_demissao:isDemitido?document.getElementById('f-tipo-demissao').value||null:null,
     motivo_demissao:isDemitido?document.getElementById('f-motivo-demissao').value.trim()||null:null,
+    ...transfPendenteFields,
   };
   if(fotoUrl)payload.foto_url=fotoUrl;
   let idFinal=id;
@@ -2318,7 +2387,7 @@ async function saveFuncionario(id){
     }
     return;
   }
-  // ── Registra a movimentação no histórico (nunca sobrescreve movimentações anteriores) ──
+  // ── Registra a movimentação de Recebimento no histórico (já aplicada) — nunca sobrescreve anteriores ──
   if(movimentacaoNova&&idFinal){
     const{error:errHist}=await sb.from('movimentacoes_historico').insert({
       funcionario_id:idFinal,
@@ -2328,9 +2397,45 @@ async function saveFuncionario(id){
       data_movimentacao:dataTransferenciaFinal,
       centro_custo:centroCustoTransfFinal,
       data_desmobilizacao:dataDesmobFinal,
+      status:'aprovada',
+      aprovado_por:currentUser?.nome||currentUser?.usuario||'—',
+      aprovado_em:new Date().toISOString(),
     });
     if(errHist)showToast('Funcionário salvo, mas houve erro ao gravar o histórico de movimentação: '+errHist.message,'error');
     else await carregarMovimentacoesHistorico();
+  }
+  // ── Registra/atualiza a SOLICITAÇÃO de transferência por Envio, pendente de aprovação da obra de destino ──
+  if(isEnvio&&idFinal){
+    if(existente?.transf_pendente_historico_id){
+      const{error:errUpd}=await sb.from('movimentacoes_historico').update({
+        obra_origem_id:obraAtualId,
+        obra_destino_id:obraTransfId,
+        data_movimentacao:dataTransfPendenteForm,
+        centro_custo:centroCustoPendenteForm,
+        data_desmobilizacao:dataDesmobPendenteForm,
+      }).eq('id',existente.transf_pendente_historico_id);
+      if(errUpd)showToast('Funcionário salvo, mas houve erro ao atualizar a solicitação de transferência: '+errUpd.message,'error');
+      else await carregarMovimentacoesHistorico();
+    }else{
+      const{data:histData,error:errHist}=await sb.from('movimentacoes_historico').insert({
+        funcionario_id:idFinal,
+        obra_origem_id:obraAtualId,
+        obra_destino_id:obraTransfId,
+        tipo:'envio',
+        data_movimentacao:dataTransfPendenteForm,
+        centro_custo:centroCustoPendenteForm,
+        data_desmobilizacao:dataDesmobPendenteForm,
+        status:'pendente',
+        solicitado_por:currentUser?.nome||currentUser?.usuario||'—',
+        solicitado_em:new Date().toISOString(),
+      }).select().single();
+      if(errHist){
+        showToast('Funcionário salvo, mas houve erro ao registrar a solicitação de transferência: '+errHist.message,'error');
+      }else{
+        await sb.from('funcionarios').update({transf_pendente_historico_id:histData.id}).eq('id',idFinal);
+        await carregarMovimentacoesHistorico();
+      }
+    }
   }
   if(!id&&window._ctrOrigemCandidatoId){
     const origemId=window._ctrOrigemCandidatoId;
@@ -2339,8 +2444,152 @@ async function saveFuncionario(id){
     if(errLink)showToast('Funcionário cadastrado, mas houve erro ao vincular ao candidato: '+errLink.message,'error');
     else await loadContratacoes();
   }
-  showToast(id?'Funcionário atualizado!':'Funcionário cadastrado!');
+  showToast(isEnvio?'Transferência registrada! Aguardando aprovação da obra de destino.':(id?'Funcionário atualizado!':'Funcionário cadastrado!'));
   closeModal('modal-func');showPage('funcionarios');
+}
+
+// ─── APROVAÇÃO DE TRANSFERÊNCIAS PENDENTES ─────────────────────────────────────
+// Um usuário pode aprovar/recusar uma transferência pendente se for admin, ou se tiver acesso
+// (obras_acesso) à obra de destino da transferência. obrasPermitidasIds===null significa acesso irrestrito.
+function usuarioPodeAprovarObra(obraId){
+  if(!obraId||!currentUser)return false;
+  if(currentUser.perfil==='admin')return true;
+  if(!obrasPermitidasIds)return true;
+  return obrasPermitidasIds.has(String(obraId));
+}
+
+async function aprovarTransferenciaPendente(id){
+  const f=funcionarios.find(x=>x.id===id);
+  if(!f||!f.transf_pendente)return;
+  if(!usuarioPodeAprovarObra(f.transf_pendente_obra_id)){showToast('Você não tem permissão para aprovar transferências para esta obra.','error');return;}
+  const obraDest=obras.find(o=>String(o.id)===String(f.transf_pendente_obra_id))||obrasTodas.find(o=>String(o.id)===String(f.transf_pendente_obra_id));
+  if(!confirm(`Aprovar a transferência de ${f.nome_completo} para ${obraDest?.nome||'a obra de destino'}? O funcionário passará a constar nessa obra.`))return;
+  const obraOrigemId=f.obra_id;
+  const obraDestinoId=f.transf_pendente_obra_id;
+  // O alojamento atual (na origem) vira histórico se não pertencer à obra de destino.
+  let alojamentoOrigemId=f.alojamento_origem_id||null;
+  if(f.alojamento_id){
+    const alojAtual=alojamentos.find(a=>String(a.id)===String(f.alojamento_id))||alojamentosTodos.find(a=>String(a.id)===String(f.alojamento_id));
+    if(alojAtual&&String(alojAtual.obra_id)!==String(obraDestinoId))alojamentoOrigemId=f.alojamento_id;
+  }
+  let integracaoOrigem=f.data_integracao_origem||null;
+  let mobilizacaoFinal=f.data_mobilizacao||null;
+  if(f.data_mobilizacao&&!integracaoOrigem){integracaoOrigem=f.data_mobilizacao;mobilizacaoFinal=null;}
+  const payload={
+    obra_id:obraDestinoId,
+    situacao:'ativo',
+    transferido:true,
+    tipo_transferencia:'envio',
+    obra_transferencia_id:obraOrigemId,
+    data_transferencia:f.transf_pendente_data,
+    centro_custo_transferencia:f.transf_pendente_centro_custo,
+    data_desmobilizacao:f.transf_pendente_desmobilizacao,
+    alojamento_id:null,
+    alojamento_origem_id:alojamentoOrigemId,
+    data_mobilizacao:mobilizacaoFinal,
+    data_integracao_origem:integracaoOrigem,
+    transf_pendente:false,
+    transf_pendente_obra_id:null,
+    transf_pendente_tipo:null,
+    transf_pendente_data:null,
+    transf_pendente_centro_custo:null,
+    transf_pendente_desmobilizacao:null,
+    transf_pendente_solicitado_por:null,
+    transf_pendente_solicitado_em:null,
+    transf_pendente_historico_id:null,
+  };
+  const{error}=await sb.from('funcionarios').update(payload).eq('id',id);
+  if(error){showToast('Erro ao aprovar transferência: '+error.message,'error');return;}
+  if(f.transf_pendente_historico_id){
+    await sb.from('movimentacoes_historico').update({
+      status:'aprovada',
+      aprovado_por:currentUser?.nome||currentUser?.usuario||'—',
+      aprovado_em:new Date().toISOString(),
+    }).eq('id',f.transf_pendente_historico_id);
+  }
+  showToast('Transferência aprovada! Funcionário movido para a obra de destino.');
+  await loadAll();
+  showPage('funcionarios');
+}
+
+function abrirModalRecusarTransferencia(id){
+  const f=funcionarios.find(x=>x.id===id);
+  if(!f||!f.transf_pendente)return;
+  if(!usuarioPodeAprovarObra(f.transf_pendente_obra_id)){showToast('Você não tem permissão para recusar transferências para esta obra.','error');return;}
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-recusar-transf" onclick="if(event.target===this)closeModal('modal-recusar-transf')">
+      <div class="modal" style="max-width:420px">
+        <div class="modal-header">
+          <span class="modal-title">Recusar transferência</span>
+          <button class="btn btn-sm" onclick="closeModal('modal-recusar-transf')"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div style="font-size:13px;margin-bottom:10px">Recusar a transferência de <strong>${f.nome_completo}</strong>? O funcionário permanece normalmente na obra atual.</div>
+          <div class="form-group full">
+            <label>Motivo da recusa *</label>
+            <textarea id="motivo-recusa-transf" rows="3" placeholder="Explique por que esta transferência está sendo recusada..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" onclick="closeModal('modal-recusar-transf')">Cancelar</button>
+          <button class="btn btn-danger" onclick="confirmarRecusaTransferencia('${id}')"><i class="ti ti-x"></i> Recusar transferência</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+async function confirmarRecusaTransferencia(id){
+  const f=funcionarios.find(x=>x.id===id);
+  if(!f||!f.transf_pendente)return;
+  if(!usuarioPodeAprovarObra(f.transf_pendente_obra_id)){showToast('Você não tem permissão para recusar transferências para esta obra.','error');return;}
+  const motivoEl=document.getElementById('motivo-recusa-transf');
+  const motivo=motivoEl?motivoEl.value.trim():'';
+  if(!motivo){showToast('Informe o motivo da recusa.','error');return;}
+  const payload={
+    transf_pendente:false,
+    transf_pendente_obra_id:null,
+    transf_pendente_tipo:null,
+    transf_pendente_data:null,
+    transf_pendente_centro_custo:null,
+    transf_pendente_desmobilizacao:null,
+    transf_pendente_solicitado_por:null,
+    transf_pendente_solicitado_em:null,
+    transf_pendente_historico_id:null,
+  };
+  const{error}=await sb.from('funcionarios').update(payload).eq('id',id);
+  if(error){showToast('Erro ao recusar transferência: '+error.message,'error');return;}
+  if(f.transf_pendente_historico_id){
+    await sb.from('movimentacoes_historico').update({
+      status:'recusada',
+      recusado_por:currentUser?.nome||currentUser?.usuario||'—',
+      recusado_em:new Date().toISOString(),
+      motivo_recusa:motivo,
+    }).eq('id',f.transf_pendente_historico_id);
+  }
+  closeModal('modal-recusar-transf');
+  showToast('Transferência recusada. O funcionário permanece na obra de origem.');
+  await loadAll();
+  showPage('funcionarios');
+}
+
+// Cancela a própria solicitação (usado por quem iniciou o Envio, sem precisar de aprovação/recusa formal)
+async function cancelarTransferenciaPendente(id){
+  const f=funcionarios.find(x=>x.id===id);
+  if(!f||!f.transf_pendente)return;
+  if(!confirm('Cancelar esta solicitação de transferência?'))return;
+  const payload={
+    transf_pendente:false,transf_pendente_obra_id:null,transf_pendente_tipo:null,transf_pendente_data:null,
+    transf_pendente_centro_custo:null,transf_pendente_desmobilizacao:null,transf_pendente_solicitado_por:null,
+    transf_pendente_solicitado_em:null,transf_pendente_historico_id:null,
+  };
+  const{error}=await sb.from('funcionarios').update(payload).eq('id',id);
+  if(error){showToast('Erro ao cancelar: '+error.message,'error');return;}
+  if(f.transf_pendente_historico_id){
+    await sb.from('movimentacoes_historico').delete().eq('id',f.transf_pendente_historico_id).eq('status','pendente');
+  }
+  showToast('Solicitação de transferência cancelada.');
+  await loadAll();
+  showPage('funcionarios');
 }
 
 async function carregarMovimentacoesHistorico(){
@@ -8311,6 +8560,14 @@ function renderContratacoesCandidatos(){
   }else if(painelStatusKey==='em_processo'&&contratacoesFiltroEtapa==='nao_admitido'){
     painelCandidatos=ativosFuncao.filter(c=>c.status==='em_processo'&&!c.data_prevista_admissao);
     painelTitulo='Funções — Em Processo (não admitido)';
+  }else if(contratacoesFiltroEtapa){
+    // Cards de ETAPA (Aguardando Exame, ASO Liberado, Documentos Portal, etc) também
+    // devem recortar o painel de funções — antes só os cards de STATUS faziam isso,
+    // então clicar num card de etapa deixava o painel travado mostrando todo mundo
+    // "Em Processo" em vez de só quem está naquela etapa específica.
+    const etapaAtiva=CTR_ETAPAS.find(e=>e.key===contratacoesFiltroEtapa);
+    painelCandidatos=etapaAtiva?ativosFuncao.filter(c=>(etapaAtiva.todosStatus||c.status==='em_processo')&&etapaAtiva.test(c)):[];
+    painelTitulo='Funções — '+(etapaAtiva?.label||contratacoesFiltroEtapa);
   }else{
     painelCandidatos=ativosFuncao.filter(c=>c.status===painelStatusKey);
     painelTitulo='Funções — '+ctrStatusInfo(painelStatusKey).label;
@@ -8329,7 +8586,7 @@ function renderContratacoesCandidatos(){
       <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">${painelTitulo}</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px">
         ${funcoesEmProcessoArr.map(([fid,v])=>`
-          <div onclick="contratacoesFiltroFuncao='${fid==='sem_funcao'?'':fid}';contratacoesFiltroStatus='${painelStatusKey}';renderContratacoesCandidatos()"
+          <div onclick="contratacoesFiltroFuncao='${fid==='sem_funcao'?'':fid}';${contratacoesFiltroEtapa?'':`contratacoesFiltroStatus='${painelStatusKey}';`}renderContratacoesCandidatos()"
             style="cursor:pointer;display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;border:1px solid ${contratacoesFiltroFuncao===String(fid)?painelCor:'var(--border)'};background:${contratacoesFiltroFuncao===String(fid)?painelBg:'var(--surface)'};font-size:12px;font-weight:500;transition:.15s">
             <span>${v.nome}</span>
             <span style="background:${painelCor};color:#fff;border-radius:20px;font-size:10px;font-weight:700;padding:1px 7px;min-width:18px;text-align:center">${v.count}</span>
