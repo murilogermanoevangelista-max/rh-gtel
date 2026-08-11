@@ -317,6 +317,7 @@ input:focus,select:focus{border-color:var(--primary)}
     <div class="nav-section">Principal</div>
     <div class="nav-item active" onclick="showPage('dashboard')"><i class="ti ti-dashboard"></i> Dashboard</div>
     <div class="nav-item" onclick="showPage('funcionarios')"><i class="ti ti-users"></i> Funcionários</div>
+    <div class="nav-item" onclick="showPage('transferencias-pendentes')"><i class="ti ti-transfer"></i> Transferências Pendentes <span id="nav-transf-badge" style="display:none;background:var(--danger);color:#fff;border-radius:20px;font-size:10px;padding:1px 7px;margin-left:4px"></span></div>
     <div class="nav-item" onclick="showPage('experiencia')"><i class="ti ti-certificate"></i> Experiência</div>
     <div class="nav-item" onclick="showPage('treinamentos')"><i class="ti ti-school"></i> Treinamentos</div>
     <div class="nav-item" onclick="showPage('folgas')"><i class="ti ti-beach"></i> Folgas de Campo</div>
@@ -788,6 +789,7 @@ async function showPage(page){
     el.classList.toggle('active',
       (page==='dashboard'&&t.includes('dashboard'))||
       (page==='funcionarios'&&t.includes('funcionário'))||
+      (page==='transferencias-pendentes'&&t.includes('transferências pendentes'))||
       (page==='experiencia'&&t.includes('experiência'))||
       (page==='treinamentos'&&t.includes('treinamentos'))||
       (page==='folgas'&&t.includes('folga'))||
@@ -808,9 +810,11 @@ async function showPage(page){
     return;
   }
   populateGlobalObraSelect();
+  atualizarBadgeTransferenciasPendentes();
   try{
     if(page==='dashboard')await renderDashboard();
     else if(page==='funcionarios')renderFuncionarios();
+    else if(page==='transferencias-pendentes')renderTransferenciasPendentesPage();
     else if(page==='experiencia')renderExperiencia();
     else if(page==='treinamentos'){await loadTreinamentos();renderTreinamentos();}
     else if(page==='folgas')renderFolgas();
@@ -1518,6 +1522,30 @@ function renderPainelTransferenciasPendentes(lista){
       </div>`;
     }).join('')}</div>
   </div>`;
+}
+
+function atualizarBadgeTransferenciasPendentes(){
+  const el=document.getElementById('nav-transf-badge');
+  if(!el)return;
+  const qtd=funcionarios.filter(f=>f.transf_pendente&&usuarioPodeAprovarObra(f.transf_pendente_obra_id)).length;
+  if(qtd>0){el.textContent=qtd;el.style.display='';}
+  else{el.style.display='none';}
+}
+
+// Página dedicada "Transferências Pendentes" — reúne TODAS as solicitações pendentes do sistema
+// (independente de obra/aba), pra quem precisa acompanhar/aprovar não precisar entrar em Funcionários.
+function renderTransferenciasPendentesPage(){
+  const todasPendentes=funcionarios.filter(f=>f.transf_pendente);
+  const paraAprovar=todasPendentes.filter(f=>usuarioPodeAprovarObra(f.transf_pendente_obra_id));
+  const deOutras=todasPendentes.filter(f=>!usuarioPodeAprovarObra(f.transf_pendente_obra_id));
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title">Transferências Pendentes</div><div class="page-subtitle">${todasPendentes.length} solicitação(ões) aguardando aprovação da obra de destino</div></div>
+    </div>
+    ${paraAprovar.length?`<div style="margin-bottom:8px;font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Aguardando sua aprovação</div>${renderPainelTransferenciasPendentes(paraAprovar)}`:''}
+    ${deOutras.length?`<div style="margin:20px 0 8px;font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Pendentes em outras obras</div>${renderPainelTransferenciasPendentes(deOutras)}`:''}
+    ${!todasPendentes.length?`<div class="empty-state"><i class="ti ti-transfer"></i><div>Nenhuma transferência pendente no momento</div></div>`:''}
+  `;
 }
 
 function exportFuncionariosExcel(){
