@@ -7611,24 +7611,85 @@ async function importarEfetivo(file){
     regs.forEach(r=>{regsPorCracha[r.cracha]=r;});
     const regsDedup=Object.values(regsPorCracha);
 
-    const dataFmt=dataISO.split('-').reverse().join('/');
-    const{count:qtdExistente}=await sb.from('efetivo_presenca').select('id',{count:'exact',head:true}).eq('data',dataISO);
-    if(qtdExistente>0){
-      const ok=confirm('Data detectada: '+dataFmt+'\n\nJá existem '+qtdExistente+' registro(s) para esse dia e serão SUBSTITUÍDOS pelos '+regsDedup.length+' registro(s) da planilha importada.\n\nConfirmar?');
-      if(!ok){showToast('Importação cancelada','error');return;}
-    }
+    // Guarda os dados já processados e abre um modal de confirmação (em vez de importar direto) —
+    // a detecção automática de data pode errar quando a planilha do Kairos mistura datas (ex: batidas de
+    // virada de turno com data do dia anterior), e um confirm() simples do navegador é fácil de não notar.
+    // O modal mostra a data detectada de forma EDITÁVEL e o total de linhas encontradas por data, pra dar
+    // pro usuário a chance de perceber e corrigir antes de sobrescrever o dia errado.
+    window._efetivoImportPendente={regsDedup,dataISO,contagemDatasLinhas};
+    abrirModalConfirmarImportEfetivo();
+  }catch(e){showToast('Erro ao importar: '+e.message,'error');console.error('[importarEfetivo]',e);}
+}
 
+function abrirModalConfirmarImportEfetivo(){
+  const pend=window._efetivoImportPendente;
+  if(!pend)return;
+  const{regsDedup,dataISO,contagemDatasLinhas}=pend;
+  const datasOrdenadas=Object.entries(contagemDatasLinhas||{}).sort((a,b)=>b[1]-a[1]);
+  const temAmbiguidade=datasOrdenadas.length>1;
+  const breakdownHtml=datasOrdenadas.length?`<div style="font-size:12px;color:var(--text-muted);margin-top:8px">
+    <div style="font-weight:600;margin-bottom:4px">Datas encontradas nas linhas da planilha:</div>
+    ${datasOrdenadas.map(([d,qtd])=>`<div>${formatDate(d)}: ${qtd} registro(s)${d===dataISO?' <strong style="color:var(--primary)">← selecionada</strong>':''}</div>`).join('')}
+  </div>`:'';
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-confirmar-import-efetivo">
+      <div class="modal" style="max-width:460px">
+        <div class="modal-header">
+          <span class="modal-title">Confirmar importação de Efetivo</span>
+          <button class="btn btn-sm" onclick="closeModal('modal-confirmar-import-efetivo');window._efetivoImportPendente=null"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          ${temAmbiguidade?`<div style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:var(--radius);padding:10px 12px;margin-bottom:12px;font-size:12px;color:#92400E"><i class="ti ti-alert-triangle"></i> A planilha tem linhas com mais de uma data — confira com atenção qual data está correta antes de confirmar.</div>`:''}
+          <div class="form-group">
+            <label>Data detectada (confira e corrija se necessário)</label>
+            <input type="date" id="efetivo-import-data" value="${dataISO}" onchange="atualizarAvisoImportEfetivo()">
+          </div>
+          <div style="font-size:13px;margin-top:6px">${regsDedup.length} funcionário(s) na planilha (${regsDedup.filter(r=>r.situacao==='PRESENTE').length} presentes · ${regsDedup.filter(r=>r.situacao==='AUSENTE').length} ausentes)</div>
+          <div id="efetivo-import-aviso-existente"></div>
+          ${breakdownHtml}
+        </div>
+        <div class="modal-footer">
+          <button class="btn" onclick="closeModal('modal-confirmar-import-efetivo');window._efetivoImportPendente=null">Cancelar</button>
+          <button class="btn btn-primary" onclick="confirmarImportEfetivo()"><i class="ti ti-check"></i> Confirmar e Importar</button>
+        </div>
+      </div>
+    </div>`);
+  atualizarAvisoImportEfetivo();
+}
+
+async function atualizarAvisoImportEfetivo(){
+  const dataEl=document.getElementById('efetivo-import-data');
+  const avisoEl=document.getElementById('efetivo-import-aviso-existente');
+  if(!dataEl||!avisoEl)return;
+  const data=dataEl.value;
+  if(!data){avisoEl.innerHTML='';return;}
+  const{count:qtdExistente}=await sb.from('efetivo_presenca').select('id',{count:'exact',head:true}).eq('data',data);
+  avisoEl.innerHTML=qtdExistente>0?`<div style="background:var(--danger-light);border:1px solid var(--danger);border-radius:var(--radius);padding:8px 10px;margin-top:8px;font-size:12px;color:var(--danger)"><i class="ti ti-alert-triangle"></i> Já existem <strong>${qtdExistente}</strong> registro(s) para ${formatDate(data)} — serão SUBSTITUÍDOS pelos desta planilha.</div>`:`<div style="font-size:12px;color:var(--success);margin-top:8px"><i class="ti ti-circle-check"></i> Nenhum registro existente para ${formatDate(data)} — será uma importação nova.</div>`;
+}
+
+async function confirmarImportEfetivo(){
+  const pend=window._efetivoImportPendente;
+  if(!pend)return;
+  const dataEl=document.getElementById('efetivo-import-data');
+  const dataEscolhida=dataEl?dataEl.value:pend.dataISO;
+  if(!dataEscolhida){showToast('Informe a data da importação.','error');return;}
+  // Remapeia todos os registros pra data efetivamente escolhida (caso o usuário tenha corrigido)
+  const regsFinal=pend.regsDedup.map(r=>({...r,data:dataEscolhida}));
+  const dataFmt=formatDate(dataEscolhida);
+  closeModal('modal-confirmar-import-efetivo');
+  showToast('Importando...');
+  try{
     // Delete+insert em UMA transação no banco (função importar_efetivo_presenca).
     // Evita perder os dados do dia caso o insert falhe no meio do caminho —
     // antes era delete() e insert() em chamadas separadas, e um erro no insert
     // deixava o dia sem nenhum registro (era isso que causava "some" e
-    // "não grava").
-    const{data:totalGravado,error}=await sb.rpc('importar_efetivo_presenca',{p_data:dataISO,p_regs:regsDedup});
+    // "não grava"). A função só mexe em registros da data enviada (p_data).
+    const{data:totalGravado,error}=await sb.rpc('importar_efetivo_presenca',{p_data:dataEscolhida,p_regs:regsFinal});
     if(error){showToast('Erro ao gravar: '+error.message,'error');console.error('[importarEfetivo]',error);return;}
-
-    const np=regsDedup.filter(r=>r.situacao==='PRESENTE').length,na=regsDedup.filter(r=>r.situacao==='AUSENTE').length;
+    const np=regsFinal.filter(r=>r.situacao==='PRESENTE').length,na=regsFinal.filter(r=>r.situacao==='AUSENTE').length;
     showToast('Importado! '+np+' presentes · '+na+' ausentes · '+dataFmt+(totalGravado!=null?' · '+totalGravado+' no banco':''));
-    efetivoDataFiltro=dataISO;
+    efetivoDataFiltro=dataEscolhida;
+    window._efetivoImportPendente=null;
     await loadEfetivo();renderEfetivo();
   }catch(e){showToast('Erro ao importar: '+e.message,'error');console.error('[importarEfetivo]',e);}
 }
