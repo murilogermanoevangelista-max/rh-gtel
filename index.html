@@ -1514,6 +1514,7 @@ function renderPainelTransferenciasPendentes(lista){
           <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Solicitado por ${f.transf_pendente_solicitado_por||'—'}${f.transf_pendente_solicitado_em?' em '+new Date(f.transf_pendente_solicitado_em).toLocaleString('pt-BR'):''}</div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn btn-sm btn-info" title="Visualizar ficha completa" onclick="verFicha('${f.id}')"><i class="ti ti-eye"></i> Ver ficha</button>
           ${podeAprovar?`
             <button class="btn btn-sm" style="background:var(--success-light);color:var(--success);border-color:var(--success)" onclick="aprovarTransferenciaPendente('${f.id}')"><i class="ti ti-check"></i> Aprovar</button>
             <button class="btn btn-sm btn-danger" onclick="abrirModalRecusarTransferencia('${f.id}')"><i class="ti ti-x"></i> Recusar</button>
@@ -1637,6 +1638,28 @@ async function verFicha(id,historico=false){
       +alojOrigemHtml
       +integOrigemHtml
       +'</div></div>';
+  }
+
+  // ── Transferência PENDENTE (Envio ainda não aprovado pela obra de destino) ──
+  let transfPendenteSection='';
+  if(f.transf_pendente){
+    const obraDestPend=obras.find(o=>String(o.id)===String(f.transf_pendente_obra_id))||obrasTodas.find(o=>String(o.id)===String(f.transf_pendente_obra_id));
+    const obraDestPendNome=(obraDestPend?.codigo?obraDestPend.codigo+' ':'')+(obraDestPend?.nome||'—');
+    const obraAtualNomePend=(f.obra?.codigo?f.obra.codigo+' ':'')+(f.obra?.nome||'—');
+    transfPendenteSection='<div style="background:#FFFBEB;border:1px solid #FCD34D;border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:16px">'
+      +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#92400E;margin-bottom:10px"><i class="ti ti-clock"></i> ⏳ Transferência pendente de aprovação</div>'
+      +'<div class="ficha-grid">'
+      +'<div class="ficha-field"><div class="ficha-field-label">Obra Atual (Origem)</div><div class="ficha-field-value">'+obraAtualNomePend+'</div></div>'
+      +'<div class="ficha-field"><div class="ficha-field-label">Obra de Destino (a aprovar)</div><div class="ficha-field-value">'+obraDestPendNome+'</div></div>'
+      +'<div class="ficha-field"><div class="ficha-field-label">Data da Transferência</div><div class="ficha-field-value">'+(formatDate(f.transf_pendente_data)||'—')+'</div></div>'
+      +'<div class="ficha-field"><div class="ficha-field-label">Centro de Custo</div><div class="ficha-field-value">'+(f.transf_pendente_centro_custo||'—')+'</div></div>'
+      +'<div class="ficha-field"><div class="ficha-field-label">Solicitado por</div><div class="ficha-field-value">'+(f.transf_pendente_solicitado_por||'—')+(f.transf_pendente_solicitado_em?' em '+new Date(f.transf_pendente_solicitado_em).toLocaleString('pt-BR'):'')+'</div></div>'
+      +'</div>'
+      +(usuarioPodeAprovarObra(f.transf_pendente_obra_id)?'<div style="display:flex;gap:8px;margin-top:12px">'
+        +'<button class="btn btn-sm" style="background:var(--success-light);color:var(--success);border-color:var(--success)" onclick="aprovarTransferenciaPendente(\''+f.id+'\')"><i class="ti ti-check"></i> Aprovar</button>'
+        +'<button class="btn btn-sm btn-danger" onclick="abrirModalRecusarTransferencia(\''+f.id+'\')"><i class="ti ti-x"></i> Recusar</button>'
+        +'</div>':'')
+      +'</div>';
   }
 
   // ── Histórico completo de movimentações (todas as transferências já registradas) ──
@@ -1832,6 +1855,7 @@ async function verFicha(id,historico=false){
             </div>
           </div>
           ${demissaoSection}
+          ${transfPendenteSection}
           ${transferSection}
           ${historicoMovSection}
           ${expSection}
@@ -2536,6 +2560,7 @@ async function aprovarTransferenciaPendente(id){
     }).eq('id',f.transf_pendente_historico_id);
   }
   showToast('Transferência aprovada! Funcionário movido para a obra de destino.');
+  closeModal('modal-ficha');
   await loadAll();
   showPage('funcionarios');
 }
@@ -2596,6 +2621,7 @@ async function confirmarRecusaTransferencia(id){
   }
   closeModal('modal-recusar-transf');
   showToast('Transferência recusada. O funcionário permanece na obra de origem.');
+  closeModal('modal-ficha');
   await loadAll();
   showPage('funcionarios');
 }
@@ -2616,6 +2642,7 @@ async function cancelarTransferenciaPendente(id){
     await sb.from('movimentacoes_historico').delete().eq('id',f.transf_pendente_historico_id).eq('status','pendente');
   }
   showToast('Solicitação de transferência cancelada.');
+  closeModal('modal-ficha');
   await loadAll();
   showPage('funcionarios');
 }
