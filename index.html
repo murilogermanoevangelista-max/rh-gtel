@@ -8480,12 +8480,11 @@ function ctrConfirmChk(id,campo,isReal,projecao,dataReal){
 // de projeção/confirmação usada nas células da tabela — para filtrar "quem está
 // previsto/confirmado para tal etapa em tal dia".
 function ctrValorEtapaData(c,etapa){
-  const p=ctrCalcularProjecoes(c);
   switch(etapa){
-    case 'doc_portal':return c.data_documentos_portal||p.docPortal||null;
-    case 'aprovacao':return c.data_aprovacao_diretoria||p.aprovacao||null;
-    case 'envio_dp':return c.data_envio_dp||p.envioDp||null;
-    case 'admissao':return c.data_prevista_admissao||p.admissao||null;
+    case 'doc_portal':return c.data_documentos_portal||null;
+    case 'aprovacao':return c.data_aprovacao_diretoria||null;
+    case 'envio_dp':return c.data_envio_dp||null;
+    case 'admissao':return c.data_prevista_admissao||null;
     case 'integracao':return c.data_integracao_prevista||null;
     case 'mobilizacao':return c.data_viagem_mobilizacao||null;
     default:return null;
