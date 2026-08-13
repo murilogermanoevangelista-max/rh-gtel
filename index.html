@@ -8335,7 +8335,7 @@ const DOCS_CONTRATACAO=[
   ['cert_eletrica','Certificado de Elétrica'],
 ];
 
-let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesFiltroNome='',contratacoesFiltroEtapa='',contratacoesFiltroDocPendente=false,contratacoesVagasFiltroObra='',contratacoesVagasFiltroFalta=false,ctrFuncaoModoManual=false,prospBusca='',prospFiltroFuncao='',prospFiltroRetorno='',prospFuncaoModoManual=false,desistBusca='',desistFiltroFuncao='',desistFiltroTipo='';
+let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesFiltroNome='',contratacoesFiltroEtapa='',contratacoesFiltroDocPendente=false,contratacoesVagasFiltroObra='',contratacoesVagasFiltroObraTocado=false,contratacoesVagasFiltroFalta=false,ctrFuncaoModoManual=false,prospBusca='',prospFiltroFuncao='',prospFiltroRetorno='',prospFuncaoModoManual=false,desistBusca='',desistFiltroFuncao='',desistFiltroTipo='';
 
 function ctrAddDiasUteis(dataISO,dias){
   if(!dataISO)return null;
@@ -9034,7 +9034,8 @@ function ctrFuncoesUnicas(){
 }
 
 function renderContratacoesVagas(){
-  const vagas=contratacoesVagas.filter(v=>!contratacoesVagasFiltroObra||String(v.obra_id)===String(contratacoesVagasFiltroObra));
+  const vagasObraEfetiva=contratacoesVagasFiltroObraTocado?contratacoesVagasFiltroObra:(contratacoesVagasFiltroObra||globalObraFiltro);
+  const vagas=contratacoesVagas.filter(v=>!vagasObraEfetiva||String(v.obra_id)===String(vagasObraEfetiva));
 
   let tPrevisto=0,tFalta=0,tEmProcesso=0,tAguardando=0,tIntegracaoLiberada=0,tIntegrado=0;
 
@@ -9075,7 +9076,7 @@ function renderContratacoesVagas(){
     </tr>`;
   }).join('')||`<tr><td colspan="10"><div class="empty-state"><i class="ti ti-clipboard-list"></i><div>${contratacoesVagasFiltroFalta?'Nenhuma vaga com falta de captação':'Nenhuma vaga prevista cadastrada'}</div></div></td></tr>`;
 
-  const obraOpts=obras.map(o=>`<option value="${o.id}" ${contratacoesVagasFiltroObra===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
+  const obraOpts=obras.map(o=>`<option value="${o.id}" ${String(vagasObraEfetiva)===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
 
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
@@ -9089,11 +9090,11 @@ function renderContratacoesVagas(){
       <div class="exp-tab${contratacoesTab==='desistencias'?' active':''}" onclick="contratacoesTab='desistencias';renderContratacoes()">Desistências</div>
     </div>
     <div class="filters">
-      <select class="filter-select" onchange="contratacoesVagasFiltroObra=this.value;renderContratacoesVagas()">
+      <select class="filter-select" onchange="contratacoesVagasFiltroObra=this.value;contratacoesVagasFiltroObraTocado=true;renderContratacoesVagas()">
         <option value="">Todas as obras</option>${obraOpts}
       </select>
       <button class="btn btn-sm" style="${contratacoesVagasFiltroFalta?'border-color:var(--danger);color:var(--danger)':''}" onclick="contratacoesVagasFiltroFalta=!contratacoesVagasFiltroFalta;renderContratacoesVagas()"><i class="ti ti-alert-triangle"></i> Falta Captação${contratacoesVagasFiltroFalta?' ✓':''}</button>
-      <button class="btn btn-sm" onclick="contratacoesVagasFiltroObra='';contratacoesVagasFiltroFalta=false;renderContratacoesVagas()"><i class="ti ti-x"></i> Limpar</button>
+      <button class="btn btn-sm" onclick="contratacoesVagasFiltroObra='';contratacoesVagasFiltroObraTocado=true;contratacoesVagasFiltroFalta=false;renderContratacoesVagas()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div class="table-container"><table>
       <thead><tr>
