@@ -8335,7 +8335,7 @@ const DOCS_CONTRATACAO=[
   ['cert_eletrica','Certificado de Elétrica'],
 ];
 
-let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesFiltroNome='',contratacoesFiltroEtapa='',contratacoesFiltroDocPendente=false,contratacoesVagasFiltroObra='',contratacoesVagasFiltroObraTocado=false,contratacoesVagasFiltroFalta=false,ctrFuncaoModoManual=false,prospBusca='',prospFiltroFuncao='',prospFiltroRetorno='',prospFuncaoModoManual=false,desistBusca='',desistFiltroFuncao='',desistFiltroTipo='';
+let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesFiltroNome='',contratacoesFiltroEtapa='',contratacoesFiltroDocPendente=false,contratacoesFiltroEtapaData='',contratacoesFiltroData='',contratacoesVagasFiltroObra='',contratacoesVagasFiltroObraTocado=false,contratacoesVagasFiltroFalta=false,ctrFuncaoModoManual=false,prospBusca='',prospFiltroFuncao='',prospFiltroRetorno='',prospFuncaoModoManual=false,desistBusca='',desistFiltroFuncao='',desistFiltroTipo='';
 
 function ctrAddDiasUteis(dataISO,dias){
   if(!dataISO)return null;
@@ -8476,6 +8476,29 @@ function ctrConfirmChk(id,campo,isReal,projecao,dataReal){
     ${isReal?`<span style="color:var(--text-muted)">${ctrFmtData(dataReal)}</span>`:''}
   </label>`;
 }
+// Retorna a data (ISO) exibida na coluna da etapa informada, usando a mesma lógica
+// de projeção/confirmação usada nas células da tabela — para filtrar "quem está
+// previsto/confirmado para tal etapa em tal dia".
+function ctrValorEtapaData(c,etapa){
+  const p=ctrCalcularProjecoes(c);
+  switch(etapa){
+    case 'doc_portal':return c.data_documentos_portal||p.docPortal||null;
+    case 'aprovacao':return c.data_aprovacao_diretoria||p.aprovacao||null;
+    case 'envio_dp':return c.data_envio_dp||p.envioDp||null;
+    case 'admissao':return c.data_prevista_admissao||p.admissao||null;
+    case 'integracao':return c.data_integracao_prevista||null;
+    case 'mobilizacao':return c.data_viagem_mobilizacao||null;
+    default:return null;
+  }
+}
+const CTR_ETAPAS_DATA=[
+  {key:'doc_portal',label:'Doc. Portal'},
+  {key:'aprovacao',label:'Aprovação'},
+  {key:'envio_dp',label:'Envio DP'},
+  {key:'admissao',label:'Admissão'},
+  {key:'integracao',label:'Integração'},
+  {key:'mobilizacao',label:'Mobilização'},
+];
 function ctrProjCelulas(c){
   const hoje=ctrHojeISO();
   const tipoLabel=c.tipo_exame==='operacional_ac'?'Operacional AC':(c.tipo_exame==='operacional'?'Operacional':null);
@@ -8570,6 +8593,9 @@ function ctrCandidatosFiltrados(){
     if(contratacoesFiltroObra&&String(c.obra_id)!==String(contratacoesFiltroObra))return false;
     if(contratacoesFiltroNome&&String(c.id)!==String(contratacoesFiltroNome))return false;
     if(contratacoesFiltroDocPendente&&ctrDocsPct(c).pct>=100)return false;
+    if(contratacoesFiltroEtapaData&&contratacoesFiltroData){
+      if(ctrValorEtapaData(c,contratacoesFiltroEtapaData)!==contratacoesFiltroData)return false;
+    }
     if(contratacoesFiltroEtapa){
       if(contratacoesFiltroEtapa==='admitido'){
         if(!c.data_prevista_admissao)return false;
@@ -8797,8 +8823,14 @@ function renderContratacoesCandidatos(){
         <input type="checkbox" ${contratacoesFiltroDocPendente?'checked':''} onchange="contratacoesFiltroDocPendente=this.checked;renderContratacoesCandidatos()" style="width:15px;height:15px">
         Doc. incompleta
       </label>
-      <button class="btn btn-sm" onclick="contratacoesBusca='';contratacoesFiltroStatus='';contratacoesFiltroFuncao='';contratacoesFiltroObra='';contratacoesFiltroNome='';contratacoesFiltroEtapa='';contratacoesFiltroDocPendente=false;renderContratacoesCandidatos()"><i class="ti ti-x"></i> Limpar</button>
+      <select class="filter-select" onchange="contratacoesFiltroEtapaData=this.value;renderContratacoesCandidatos()">
+        <option value="">Filtrar por data em...</option>
+        ${CTR_ETAPAS_DATA.map(e=>`<option value="${e.key}" ${contratacoesFiltroEtapaData===e.key?'selected':''}>${e.label}</option>`).join('')}
+      </select>
+      <input type="date" class="filter-select" style="${contratacoesFiltroEtapaData?'':'opacity:.5;pointer-events:none'}" value="${contratacoesFiltroData}" onchange="contratacoesFiltroData=this.value;renderContratacoesCandidatos()">
+      <button class="btn btn-sm" onclick="contratacoesBusca='';contratacoesFiltroStatus='';contratacoesFiltroFuncao='';contratacoesFiltroObra='';contratacoesFiltroNome='';contratacoesFiltroEtapa='';contratacoesFiltroDocPendente=false;contratacoesFiltroEtapaData='';contratacoesFiltroData='';renderContratacoesCandidatos()"><i class="ti ti-x"></i> Limpar</button>
     </div>
+    ${contratacoesFiltroEtapaData&&contratacoesFiltroData?`<div style="margin:-8px 0 12px;font-size:12px;color:var(--primary-dark);display:flex;align-items:center;gap:6px"><i class="ti ti-filter"></i> Mostrando candidatos com <strong>${CTR_ETAPAS_DATA.find(e=>e.key===contratacoesFiltroEtapaData)?.label}</strong> em <strong>${ctrFmtData(contratacoesFiltroData)}</strong></div>`:''}
     <div class="table-container"><table class="ctr-table">
       <colgroup>
         <col style="width:13%"><col style="width:10%"><col style="width:8%"><col style="width:7%">
