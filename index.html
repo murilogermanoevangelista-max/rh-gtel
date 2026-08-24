@@ -7289,14 +7289,30 @@ let efetivoSituacaoFiltro='';
 let efetivoBusca='';
 let efetivoFuncaoExpandida=''; // '' | 'PRESENTE' | 'AUSENTE'
 
+// Busca todas as linhas de uma tabela em lotes de 1000, contornando o limite padrão do Supabase
+// (uma query simples sem paginação trunca silenciosamente em 1000 registros, cortando dados mais
+// antigos quando ordenado por data desc — foi o que escondia o Efetivo de obras com lançamentos antigos).
+async function fetchAllPaginado(tabela,ordenarPor){
+  const PAGE=1000;
+  let de=0,tudo=[];
+  while(true){
+    const{data,error}=await sb.from(tabela).select('*').order(ordenarPor,{ascending:false}).range(de,de+PAGE-1);
+    if(error){console.error('fetchAllPaginado erro em '+tabela+':',error);break;}
+    tudo=tudo.concat(data||[]);
+    if(!data||data.length<PAGE)break;
+    de+=PAGE;
+  }
+  return tudo;
+}
+
 async function loadEfetivo(){
   try{
-    const[r1,r2,r3]=await Promise.all([
-      sb.from('efetivo_presenca').select('*').order('data',{ascending:false}),
-      sb.from('efetivo_horas').select('*').order('data',{ascending:false}),
-      sb.from('efetivo_he').select('*').order('data',{ascending:false}),
+    const[rPres,rHoras,rHE]=await Promise.all([
+      fetchAllPaginado('efetivo_presenca','data'),
+      fetchAllPaginado('efetivo_horas','data'),
+      fetchAllPaginado('efetivo_he','data'),
     ]);
-    let dPres=r1.data||[],dHoras=r2.data||[],dHE=r3.data||[];
+    let dPres=rPres,dHoras=rHoras,dHE=rHE;
     if(obrasPermitidasIds){
       const normM=v=>String(v||'').trim().replace(/^0+/,'');
       const matriculasPermitidas=new Set(funcionarios.map(f=>normM(f.matricula)));
