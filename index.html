@@ -357,7 +357,7 @@ const SUPABASE_URL='https://lqggoshphakeuufibdno.supabase.co';
 const SUPABASE_KEY='sb_publishable_QlnJaa5xdUXePvXFV6QFwQ_AmMk639T';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-let funcionarios=[],obras=[],obrasTodas=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosTodos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[],contratacoes=[],contratacoesVagas=[],contratacoesProspeccoes=[],folgasTranslados=[],movimentacoesHistorico=[];
+let funcionarios=[],obras=[],obrasTodas=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosTodos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[],contratacoes=[],contratacoesVagas=[],contratacoesProspeccoes=[],folgasTranslados=[],movimentacoesHistorico=[],folgasCiclos=[];
 let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'nao_lancadas' | null
 let alojBusca='';
 let bannerNaoLancadasAberto=false;
@@ -673,6 +673,14 @@ async function loadFolgas(){
 async function loadFolgasTranslados(){
   const{data}=await sb.from('folgas_translados').select('*');
   folgasTranslados=data||[];
+}
+
+// A tabela `folgas` só guarda 5 ciclos fixos por funcionário (saida1_real..saida5_real, etc).
+// Para funcionários que já ultrapassaram os 5 ciclos, os ciclos 6+ ficam nesta tabela à parte,
+// sem limite de quantidade — permitindo manter o histórico completo desde o início na GTEL.
+async function loadFolgasCiclos(){
+  const{data}=await sb.from('folgas_ciclos').select('*');
+  folgasCiclos=data||[];
 }
 
 async function loadFerias(){
@@ -1747,6 +1755,7 @@ async function verFicha(id,historico=false){
       +'<div class="ficha-field"><div class="ficha-field-label">Cidade de Origem</div><div class="ficha-field-value">'+(fl.cidade_origem||'—')+'</div></div>'
       +'</div>'
       +'<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px">'+vencsHtml+'</div>'
+      +'<div style="margin-top:8px;text-align:right"><span style="cursor:pointer;color:var(--info);font-weight:600;font-size:12px" onclick="abrirHistoricoCompletoFolga(\''+fl.id+'\')">🕘 Ver histórico completo (desde o início na GTEL)</span></div>'
       +'</div>';
   }
 
@@ -2842,6 +2851,42 @@ function calcVencimentoN(folga,n){
   const v=new Date(baseDate);v.setDate(v.getDate()+periodo*n);
   return v;
 }
+// ── Acesso aos ciclos além do 5º (armazenados em folgas_ciclos, sem limite de quantidade) ──
+function getCicloExtra(folgaId,n){
+  return folgasCiclos.find(x=>String(x.folga_id)===String(folgaId)&&x.numero_ciclo===n);
+}
+function getSaidaReal(f,n){
+  if(n<=5)return f['saida'+n+'_real'];
+  return getCicloExtra(f.id,n)?.saida_real||null;
+}
+function getSaidaProgramada(f,n){
+  if(n<=5)return f['saida'+n+'_programada'];
+  return getCicloExtra(f.id,n)?.saida_programada||null;
+}
+function getVencN(f,vencs,n){
+  return n<=5?vencs[n-1]:calcVencimentoN(f,n);
+}
+// Descobre o ciclo "atual" (1-indexado) de um registro de folga: o primeiro ciclo sem saída real
+// confirmada e já vencida. Sem limite — depois do 5º ciclo (slots fixos), continua contando pelos
+// ciclos extras em folgas_ciclos, o que permite manter o histórico completo desde o início na GTEL.
+function cicloAtualFolga(f){
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  for(let n=1;n<=5;n++){
+    const realN=f['saida'+n+'_real'];
+    if(!realN)return n;
+    const realNDate=parseDate(realN);
+    if(realNDate&&realNDate>=hoje)return n;
+  }
+  let n=6;
+  while(n<200){
+    const realN=getSaidaReal(f,n);
+    if(!realN)return n;
+    const realNDate=parseDate(realN);
+    if(realNDate&&realNDate>=hoje)return n;
+    n++;
+  }
+  return n;
+}
 function vencStatus(venc,realDate,periodo){
   if(realDate)return'ok';
   const hoje=new Date();hoje.setHours(0,0,0,0);
@@ -2856,7 +2901,7 @@ function diasFolga(periodo){
 }
 
 async function renderFolgas(){
-  await Promise.all([loadFolgas(),loadFolgasTranslados()]);
+  await Promise.all([loadFolgas(),loadFolgasTranslados(),loadFolgasCiclos()]);
   renderFolgasLocal();
 }
 function irParaListaMesFolga(funcIds){
@@ -2876,7 +2921,7 @@ function renderFolgasLocal(){
   if(folgasNomesFiltro)lista=lista.filter(f=>folgasNomesFiltro.has(String(f.funcionario_id)));
   if(folgasFiltro==='warn')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado)==='warn');});
   if(folgasFiltro==='danger')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado)==='danger');});
-  if(folgasFiltro==='programadas')lista=lista.filter(f=>[1,2,3,4,5].some(n=>f[`saida${n}_programada`]&&!f[`saida${n}_real`]));
+  if(folgasFiltro==='programadas')lista=lista.filter(f=>{const n=cicloAtualFolga(f);return!!(getSaidaProgramada(f,n)&&!getSaidaReal(f,n));});
   lista=[...lista].sort((a,b)=>{
     const aVencs=calcVencimentos(a);const bVencs=calcVencimentos(b);
     const aMin=Math.min(...aVencs.filter((_,i)=>!a[`saida${i+1}_real`]).map(v=>v.getTime()),Infinity);
@@ -2886,7 +2931,18 @@ function renderFolgasLocal(){
   // totalVenc/totalWarn baseados na lista já filtrada por obra
   const listaBase=globalObraFiltro?folgas.filter(f=>String(f.funcionario?.obra_id)===String(globalObraFiltro)):folgas;
   let totalVenc=0,totalWarn=0,totalProg=0;
-  listaBase.forEach(f=>{const vencs=calcVencimentos(f);vencs.forEach((v,i)=>{const st=vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado);if(st==='danger')totalVenc++;if(st==='warn')totalWarn++;if(f[`saida${i+1}_programada`]&&!f[`saida${i+1}_real`])totalProg++;});});
+  listaBase.forEach(f=>{
+    const vencs=calcVencimentos(f);
+    vencs.forEach((v,i)=>{const st=vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado);if(st==='danger')totalVenc++;if(st==='warn')totalWarn++;if(f[`saida${i+1}_programada`]&&!f[`saida${i+1}_real`])totalProg++;});
+    // Funcionários já além dos 5 slots fixos: o ciclo atual (6+) também entra na contagem.
+    const cn=cicloAtualFolga(f);
+    if(cn>5){
+      const v=getVencN(f,vencs,cn),real=getSaidaReal(f,cn);
+      const st=vencStatus(v,real,f.periodo_trabalhado);
+      if(st==='danger')totalVenc++;if(st==='warn')totalWarn++;
+      if(getSaidaProgramada(f,cn)&&!real)totalProg++;
+    }
+  });
   const obraOptions=obras.map(o=>`<option value="${o.id}">${o.codigo} — ${o.nome}</option>`).join('');
   const rows=lista.map(f=>{
     const vencs=calcVencimentos(f);
@@ -2894,17 +2950,9 @@ function renderFolgasLocal(){
     // Descobre o ciclo "atual" (1-indexado): o primeiro dos 5 slots que ainda não tem saída real confirmada.
     // Se todos os 5 já foram confirmados, o atual fica "além" do armazenado (6), e as próximas projeções
     // passam a ser calculadas dinamicamente (calcVencimentoN), sem precisar de mais colunas no banco.
-    let currentN=6;
-    for(let n=1;n<=5;n++){
-      const realN=f['saida'+n+'_real'];
-      if(!realN){currentN=n;break;}
-      const realNDate=parseDate(realN);
-      // Só considera o ciclo "concluído" (vai pro histórico) depois que a data de gozo já passou.
-      // Enquanto a data ainda não chegou, mesmo com saída confirmada, continua aparecendo como Próxima Saída.
-      if(realNDate&&realNDate>=hoje){currentN=n;break;}
-    }
+    const currentN=cicloAtualFolga(f);
     const historicoNs=[];
-    for(let n=1;n<currentN&&n<=5;n++)historicoNs.push(n);
+    for(let n=1;n<currentN;n++)historicoNs.push(n);
     const trAtual=folgasTranslados.find(x=>String(x.folga_id)===String(f.id)&&x.numero_ciclo===currentN);
     const compradaAtual=trAtual?.passagem_comprada===true;
     const passagemAtualBadge=`<div style="margin-top:4px;display:flex;align-items:center;gap:6px">
@@ -2916,10 +2964,14 @@ function renderFolgasLocal(){
     </div>${trAtual?.passagem_observacao?`<div style="font-size:10px;color:var(--text-muted);margin-top:2px;font-style:italic">💬 ${trAtual.passagem_observacao}</div>`:''}`;
 
     // ── Histórico (colapsado) ──
-    const historicoHtml=historicoNs.length?historicoNs.map(n=>{
-      const real=f['saida'+n+'_real'];
+    // Pra quem já tem muitos ciclos (funcionários antigos), mostra só os últimos inline e
+    // deixa o histórico completo (desde o início na GTEL) pra tela dedicada.
+    const LIMITE_INLINE=8;
+    const historicoNsInline=historicoNs.slice(-LIMITE_INLINE);
+    const historicoHtml=historicoNsInline.length?historicoNsInline.map(n=>{
+      const real=getSaidaReal(f,n);
       return`<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid var(--border)">
-        <span style="color:var(--text-muted)">Venc.${n}: ${formatDate(vencs[n-1])}</span>
+        <span style="color:var(--text-muted)">Venc.${n}: ${formatDate(getVencN(f,vencs,n))}</span>
         <span style="display:flex;align-items:center;gap:6px;white-space:nowrap">
           <span style="color:var(--success);font-weight:600">✓ ${formatDate(real)}</span>
           <span title="Remover este lançamento (ex: duplicidade)" style="cursor:pointer;color:var(--danger)" onclick="event.stopPropagation();removeSaidaReal('${f.id}',${n})">✕</span>
@@ -2930,19 +2982,26 @@ function renderFolgasLocal(){
       <div class="folga-cell-header">Histórico</div>
       ${historicoNs.length?`<details style="font-size:11px">
         <summary style="cursor:pointer;color:var(--text-muted);font-weight:600">📜 ${historicoNs.length} ciclo(s)</summary>
-        <div style="margin-top:6px">${historicoHtml}</div>
+        <div style="margin-top:6px">
+          ${historicoNs.length>LIMITE_INLINE?`<div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">Mostrando os últimos ${LIMITE_INLINE} de ${historicoNs.length}</div>`:''}
+          ${historicoHtml}
+          <div style="margin-top:6px;text-align:center">
+            <span style="cursor:pointer;color:var(--info);font-weight:600" onclick="event.stopPropagation();abrirHistoricoCompletoFolga('${f.id}')">🕘 Ver histórico completo</span>
+          </div>
+        </div>
       </details>`:`<div style="font-size:11px;color:var(--text-muted)">—</div>`}
     </div>`;
 
     // ── Célula "Próxima Saída" (ciclo atual, com todas as ações) ──
+    // Funciona igual pra qualquer ciclo, seja ele um dos 5 slots fixos (n<=5, tabela `folgas`)
+    // ou um ciclo além disso (n>5, tabela `folgas_ciclos`) — sem mais o antigo teto de 5.
     let currentCell;
-    if(currentN<=5){
-      const i=currentN-1;
-      const v=vencs[i];
-      const st=vencStatus(v,f['saida'+currentN+'_real'],f.periodo_trabalhado);
-      const realDate=f['saida'+currentN+'_real'];
-      const progDate=f['saida'+currentN+'_programada'];
-      const projDate=f['saida'+currentN+'_projecao'];
+    if(currentN<200){
+      const v=getVencN(f,vencs,currentN);
+      const realDate=getSaidaReal(f,currentN);
+      const st=vencStatus(v,realDate,f.periodo_trabalhado);
+      const progDate=getSaidaProgramada(f,currentN);
+      const projDate=currentN<=5?f['saida'+currentN+'_projecao']:v;
       const diff=Math.floor((v-hoje)/86400000);
       const realDateObj=realDate?parseDate(realDate):null;
       const aindaNaoChegou=realDateObj&&realDateObj>=hoje;
@@ -2976,7 +3035,7 @@ function renderFolgasLocal(){
     } else {
       currentCell=`<div class="folga-cell">
         <div class="folga-cell-header">Próxima Saída</div>
-        <div style="font-size:11px;color:var(--text-muted);padding:6px 0">Os 5 ciclos cadastrados já foram utilizados. Contate o suporte para estender o registro.</div>
+        <div style="font-size:11px;color:var(--text-muted);padding:6px 0">Ciclo muito além do esperado — verifique o cadastro deste funcionário.</div>
       </div>`;
     }
 
@@ -2984,13 +3043,9 @@ function renderFolgasLocal(){
     const previewCells=[1,2,3,4].map(k=>{
       const nFut=currentN+k;
       let vFut,statusLabel='',isProgramado=false,progLabel='';
-      if(nFut<=5){
-        vFut=vencs[nFut-1];
-        const progF=f['saida'+nFut+'_programada'];
-        if(progF){isProgramado=true;progLabel=formatDate(progF);}
-      } else {
-        vFut=calcVencimentoN(f,nFut);
-      }
+      vFut=getVencN(f,vencs,nFut);
+      const progF=getSaidaProgramada(f,nFut);
+      if(progF){isProgramado=true;progLabel=formatDate(progF);}
       if(!vFut)return`<div class="folga-cell"><div class="folga-cell-header">Proj. +${k}</div><div style="font-size:11px;color:var(--text-muted)">—</div></div>`;
       const diff=Math.floor((vFut-hoje)/86400000);
       return`<div class="folga-cell" style="opacity:.75">
@@ -3168,13 +3223,16 @@ function renderFolgasLocal(){
 // para organizar o transporte (translado) até o ponto de embarque. Essas
 // informações também aparecem na ficha do funcionário.
 function ctrCicloAtualFolga(f){
-  for(let n=1;n<=5;n++){if(!f['saida'+n+'_real'])return n;}
-  return 5;
+  return cicloAtualFolga(f);
+}
+function projecaoOuData(f,n){
+  const proj=n<=5?f['saida'+n+'_projecao']:calcVencimentoN(f,n);
+  return getSaidaReal(f,n)||getSaidaProgramada(f,n)||proj;
 }
 function renderFolgasTranslados(){
   let lista=folgas.filter(f=>{
     const n=ctrCicloAtualFolga(f);
-    return !!(f['saida'+n+'_programada']||f['saida'+n+'_real']||f['saida'+n+'_projecao']);
+    return !!projecaoOuData(f,n);
   });
   if(transladoObraFiltro)lista=lista.filter(f=>String(f.funcionario?.obra_id)===String(transladoObraFiltro));
   if(transladoBusca){
@@ -3183,15 +3241,14 @@ function renderFolgasTranslados(){
   }
   lista=lista.sort((a,b)=>{
     const na=ctrCicloAtualFolga(a),nb=ctrCicloAtualFolga(b);
-    const da=a['saida'+na+'_real']||a['saida'+na+'_programada']||a['saida'+na+'_projecao'];
-    const db=b['saida'+nb+'_real']||b['saida'+nb+'_programada']||b['saida'+nb+'_projecao'];
+    const da=projecaoOuData(a,na),db=projecaoOuData(b,nb);
     return (parseDate(da)||new Date(9999,0))-(parseDate(db)||new Date(9999,0));
   });
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${transladoObraFiltro===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
   const rows=lista.map(f=>{
     const n=ctrCicloAtualFolga(f);
-    const dataSaida=f['saida'+n+'_real']||f['saida'+n+'_programada']||f['saida'+n+'_projecao'];
-    const statusSaida=f['saida'+n+'_real']?'✅ Realizada':f['saida'+n+'_programada']?'📅 Programada':'⏳ Projetada';
+    const dataSaida=projecaoOuData(f,n);
+    const statusSaida=getSaidaReal(f,n)?'✅ Realizada':getSaidaProgramada(f,n)?'📅 Programada':'⏳ Projetada';
     const t=folgasTranslados.find(x=>String(x.folga_id)===String(f.id)&&x.numero_ciclo===n)||{};
     const nome=f.funcionario?.nome_completo||'—';
     const obraNome=f.funcionario?.obra?.codigo||f.funcionario?.obra?.nome||'—';
@@ -3296,6 +3353,77 @@ async function salvarTranslado(folgaId,numeroCiclo){
   await loadFolgasTranslados();renderFolgasTranslados();
 }
 
+// ── Histórico completo de ciclos (desde o início na GTEL, sem limite de 5) ──
+async function abrirHistoricoCompletoFolga(folgaId){
+  const f=folgas.find(x=>String(x.id)===String(folgaId));
+  if(!f){showToast('Registro de folga não encontrado','error');return;}
+  // Busca direto no banco (não depende de a página Folgas já ter carregado folgasCiclos antes).
+  const{data,error}=await sb.from('folgas_ciclos').select('*').eq('folga_id',folgaId).order('numero_ciclo');
+  if(error){showToast('Erro ao buscar histórico: '+error.message,'error');return;}
+  folgasCiclos=[...folgasCiclos.filter(x=>String(x.folga_id)!==String(folgaId)),...(data||[])];
+  document.getElementById('modal-hist-folga')?.remove();
+  renderModalHistoricoCompletoFolga(folgaId);
+}
+function renderModalHistoricoCompletoFolga(folgaId){
+  const f=folgas.find(x=>String(x.id)===String(folgaId));
+  if(!f)return;
+  const nome=f.funcionario?.nome_completo||'—';
+  const matricula=f.funcionario?.matricula||'—';
+  const obraNome=f.funcionario?.obra?.codigo||f.funcionario?.obra?.nome||'—';
+  const currentN=cicloAtualFolga(f);
+  const vencs=calcVencimentos(f);
+  const linhas=Array.from({length:currentN},(_,idx)=>idx+1).map(n=>{
+    const venc=getVencN(f,vencs,n);
+    const real=getSaidaReal(f,n);
+    const prog=getSaidaProgramada(f,n);
+    const isAtual=n===currentN;
+    const realDateObj=real?parseDate(real):null;
+    const hoje=new Date();hoje.setHours(0,0,0,0);
+    const confirmadoFuturo=realDateObj&&realDateObj>=hoje;
+    let statusHtml;
+    if(real)statusHtml=`<span style="color:${confirmadoFuturo?'var(--info)':'var(--success)'};font-weight:600">${confirmadoFuturo?'📌 Confirmado':'✅ Realizada'}</span>`;
+    else if(prog)statusHtml='<span style="color:var(--info);font-weight:600">📅 Programada</span>';
+    else if(isAtual)statusHtml='<span style="color:var(--text-muted)">⏳ Em aberto</span>';
+    else statusHtml='<span style="color:var(--text-muted)">—</span>';
+    return`<tr style="${isAtual?'background:var(--info-light)':''}">
+      <td style="padding:6px 10px;font-weight:600">${n}${isAtual?' <span style="font-size:10px;color:var(--info)">(atual)</span>':''}</td>
+      <td style="padding:6px 10px">${formatDate(venc)||'—'}</td>
+      <td style="padding:6px 10px">${real?formatDate(real):'—'}</td>
+      <td style="padding:6px 10px">${prog?formatDate(prog):'—'}</td>
+      <td style="padding:6px 10px">${statusHtml}</td>
+    </tr>`;
+  }).join('');
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-hist-folga" onclick="if(event.target===this)closeModal('modal-hist-folga')">
+      <div class="modal" style="max-width:640px">
+        <div class="modal-header">
+          <span class="modal-title">Histórico completo de folgas — ${nome}</span>
+          <button class="btn btn-sm" onclick="closeModal('modal-hist-folga')"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
+            ${matricula} · ${obraNome} · Início na GTEL: <strong>${formatDate(f.data_inicio)||'—'}</strong> · Período: ${f.periodo_trabalhado||'—'} dias · Total de ciclos: <strong>${currentN}</strong>
+          </div>
+          <div class="table-container" style="max-height:60vh;overflow-y:auto">
+            <table style="width:100%">
+              <thead><tr style="text-align:left;border-bottom:1px solid var(--border)">
+                <th style="padding:6px 10px">Ciclo</th>
+                <th style="padding:6px 10px">Vencimento</th>
+                <th style="padding:6px 10px">Saída real</th>
+                <th style="padding:6px 10px">Programada</th>
+                <th style="padding:6px 10px">Situação</th>
+              </tr></thead>
+              <tbody>${linhas||'<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">Sem ciclos registrados ainda.</td></tr>'}</tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" onclick="closeModal('modal-hist-folga')">Fechar</button>
+        </div>
+      </div>
+    </div>`);
+}
+
 function openModalFolga(folgaId=null){
   const folga=folgaId?folgas.find(f=>f.id===folgaId)||null:null;
   const isEdit=!!folga;
@@ -3385,19 +3513,33 @@ function parseDataBR(entrada){
   return dataISO;
 }
 
+// Grava um campo de ciclo (saída real ou programada): nos 5 slots fixos vai direto na tabela
+// `folgas`; além disso (ciclo 6+) vira upsert em `folgas_ciclos`, que não tem limite de linhas.
+async function salvarCampoCiclo(folgaId,num,campo,valor){
+  if(num<=5){
+    return await sb.from('folgas').update({[`saida${num}_${campo}`]:valor}).eq('id',folgaId);
+  }
+  const existente=folgasCiclos.find(x=>String(x.folga_id)===String(folgaId)&&x.numero_ciclo===num)||{};
+  const payload={folga_id:folgaId,numero_ciclo:num,saida_real:existente.saida_real||null,saida_programada:existente.saida_programada||null};
+  payload[`saida_${campo}`]=valor;
+  const res=await sb.from('folgas_ciclos').upsert(payload,{onConflict:'folga_id,numero_ciclo'});
+  await loadFolgasCiclos();
+  return res;
+}
+
 async function lancarSaidaReal(folgaId,num){
   const entrada=prompt(`Confirmar saída real (saída ${num}) — formato DD/MM/AAAA:`);
   if(!entrada)return;
   const dataISO=parseDataBR(entrada);
   if(!dataISO){showToast('Data inválida. Use DD/MM/AAAA','error');return;}
-  const{error}=await sb.from('folgas').update({[`saida${num}_real`]:dataISO}).eq('id',folgaId);
+  const{error}=await salvarCampoCiclo(folgaId,num,'real',dataISO);
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast('Saída real confirmada!');renderFolgas();
 }
 
 async function removeSaidaReal(folgaId,num){
   if(!confirm('Remover confirmação de saída real?'))return;
-  await sb.from('folgas').update({[`saida${num}_real`]:null}).eq('id',folgaId);
+  await salvarCampoCiclo(folgaId,num,'real',null);
   showToast('Confirmação removida.');renderFolgas();
 }
 
@@ -3406,14 +3548,14 @@ async function programarSaida(folgaId,num){
   if(!entrada)return;
   const dataISO=parseDataBR(entrada);
   if(!dataISO){showToast('Data inválida. Use DD/MM/AAAA','error');return;}
-  const{error}=await sb.from('folgas').update({[`saida${num}_programada`]:dataISO}).eq('id',folgaId);
+  const{error}=await salvarCampoCiclo(folgaId,num,'programada',dataISO);
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast('Saída programada!');renderFolgas();
 }
 
 async function removeSaidaProgramada(folgaId,num){
   if(!confirm('Remover programação desta saída?'))return;
-  await sb.from('folgas').update({[`saida${num}_programada`]:null}).eq('id',folgaId);
+  await salvarCampoCiclo(folgaId,num,'programada',null);
   showToast('Programação removida.');renderFolgas();
 }
 
@@ -3427,7 +3569,7 @@ function exportFolgasExcel(){
   if(folgasNomesFiltro)lista=lista.filter(f=>folgasNomesFiltro.has(String(f.funcionario_id)));
   if(folgasFiltro==='warn')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado)==='warn');});
   if(folgasFiltro==='danger')lista=lista.filter(f=>{const vencs=calcVencimentos(f);return vencs.some((v,i)=>vencStatus(v,f[`saida${i+1}_real`],f.periodo_trabalhado)==='danger');});
-  if(folgasFiltro==='programadas')lista=lista.filter(f=>[1,2,3,4,5].some(n=>f[`saida${n}_programada`]&&!f[`saida${n}_real`]));
+  if(folgasFiltro==='programadas')lista=lista.filter(f=>{const n=cicloAtualFolga(f);return!!(getSaidaProgramada(f,n)&&!getSaidaReal(f,n));});
 
   if(!lista.length){showToast('Nenhum registro para exportar.','error');return;}
 
