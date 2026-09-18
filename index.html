@@ -3697,7 +3697,10 @@ function renderFeriasLocal(){
     if(arr.some(f=>f.programado&&!isGozada(f)))progCount++;
     if(arr.some(f=>!f.programado))naoProgCount++;
     gozadasCount+=arr.filter(f=>isGozada(f)).length;
-    const p1=arr[0],p2=arr[1];
+    // Mesma janela usada na tabela: pula períodos já Gozados pra pegar o 1º/2º período REAL (em aberto).
+    const idxAtivoStat=arr.findIndex(f=>!isGozada(f));
+    const p1=idxAtivoStat>=0?arr[idxAtivoStat]:null;
+    const p2=idxAtivoStat>=0?arr[idxAtivoStat+1]:null;
     // 1º período — alerta pelo Limite Máx. Legal
     if(p1&&!p1.programado){
       const limMax=parseDate(p1.dt_limite_maxima);
@@ -3964,8 +3967,19 @@ function renderFeriasLocal(){
     const obraFunc=f0.funcionario?.obra?.codigo
       ?`${f0.funcionario.obra.codigo} — ${f0.funcionario.obra.nome||''}`
       :f0.funcionario?.obra?.nome||'—';
-    const per1=arr[0]||null;
-    const per2=arr[1]||( per1?projetarPer2(per1):null );
+    // Avança a "janela" de exibição pulando períodos já Gozados (histórico) — assim, quando o 1º
+    // período é confirmado como gozado, a linha passa a mostrar o próximo período real como "1º",
+    // em vez de ficar travada mostrando um período que já virou histórico.
+    const idxAtivo=arr.findIndex(f=>!isGozada(f));
+    let per1,per2;
+    if(idxAtivo>=0){
+      per1=arr[idxAtivo];
+      per2=arr[idxAtivo+1]||projetarPer2(per1);
+    } else {
+      // todos os períodos registrados já foram gozados — projeta o próximo ciclo a partir do último
+      per1=projetarPer2(arr[arr.length-1]);
+      per2=per1?projetarPer2(per1):null;
+    }
     const st=getStatus(arr);
     const estaEmFerias=matsEmFerias.has(f0.matricula);
     const rowStyle=estaEmFerias?'border-left:4px solid #2563EB;background:#EFF6FF':st==='vencida'?'border-left:4px solid var(--danger)':st==='vencendo'?'border-left:4px solid var(--warning)':'';
