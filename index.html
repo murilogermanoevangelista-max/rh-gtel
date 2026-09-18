@@ -783,7 +783,6 @@ async function loadContratacoesProspeccoes(){
 }
 
 let currentPage='dashboard';
-let dashPendMostrarTudo=false; // false = mostra só críticos+avisos (esconde informativos) na lista de pendências do Dashboard
 
 async function showPage(page){
   const _vindoDeAlerta=window._filtroViaAlerta;
@@ -895,18 +894,23 @@ async function renderDashboard(){
     const key=f.funcao?.nome||f.funcao_manual||'Sem função';
     byFuncao[key]=(byFuncao[key]||0)+1;
   });
-  const admissoesMeses=[];
+  // Movimentações do mês (admissões + demissões + transferências) — pool de funcionários já
+  // filtrado por obra (funcsFiltrados) para respeitar o filtro global. Guarda os IDs de cada
+  // grupo/mês para permitir clicar e ver exatamente quem entrou/saiu/mudou de obra.
+  const transfDash=globalObraFiltro
+    ?movimentacoesHistorico.filter(m=>m.status==='aprovada'&&(String(m.obra_origem_id)===String(globalObraFiltro)||String(m.obra_destino_id)===String(globalObraFiltro)))
+    :movimentacoesHistorico.filter(m=>m.status==='aprovada');
+  const movMeses=[];
   for(let i=5;i>=0;i--){
     const d=new Date();d.setMonth(d.getMonth()-i);
     const label=d.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'});
-    const count=funcionarios.filter(f=>{
-      if(!f.data_admissao)return false;
-      const fd=new Date(f.data_admissao+'T12:00:00');
-      return fd.getMonth()===d.getMonth()&&fd.getFullYear()===d.getFullYear();
-    }).length;
-    admissoesMeses.push({label,count});
+    const noMes=dt=>{if(!dt)return false;const fd=new Date(dt);return fd.getMonth()===d.getMonth()&&fd.getFullYear()===d.getFullYear();};
+    const admIds=funcsFiltrados.filter(f=>noMes(f.data_admissao?f.data_admissao+'T12:00:00':null)).map(f=>f.id);
+    const demIds=funcsFiltrados.filter(f=>f.situacao==='inativo'&&noMes(f.data_demissao?f.data_demissao+'T12:00:00':null)).map(f=>f.id);
+    const transfIds=transfDash.filter(m=>noMes(m.aprovado_em||m.data_movimentacao)).map(m=>m.funcionario_id);
+    movMeses.push({label,mesIdx:d.getMonth(),anoIdx:d.getFullYear(),admIds,demIds,transfIds});
   }
-  const maxAdm=Math.max(...admissoesMeses.map(m=>m.count),1);
+  const maxMov=Math.max(...movMeses.map(m=>Math.max(m.admIds.length,m.demIds.length,m.transfIds.length)),1);
   // Férias programadas — cálculo antecipado (necessário para alertas)
   const feriasProgramadas=[];
   feriasDash.forEach(f=>{
@@ -1009,31 +1013,9 @@ async function renderDashboard(){
   const totalAlertas=alertas.length;
   const resumoPartes=[qtdCriticos?`${qtdCriticos} crítica${qtdCriticos>1?'s':''}`:'',qtdAvisos?`${qtdAvisos} aviso${qtdAvisos>1?'s':''}`:'',qtdInfo?`${qtdInfo} informativo${qtdInfo>1?'s':''}`:''].filter(Boolean).join(' · ');
 
-  const corAlerta=t=>t==='danger'?{bg:'var(--danger-light)',border:'#FCA5A5',text:'#991B1B',dot:'#DC2626',tag:'CRÍTICO'}:t==='info'?{bg:'var(--info-light)',border:'#93C5FD',text:'#185FA5',dot:'#2563EB',tag:'INFO'}:{bg:'var(--warning-light)',border:'#FCD34D',text:'#92400E',dot:'#D97706',tag:'AVISO'};
+  const corAlerta=t=>t==='danger'?{bg:'var(--danger-light)',border:'#FCA5A5',text:'#991B1B'}:t==='info'?{bg:'var(--info-light)',border:'#93C5FD',text:'#185FA5'}:{bg:'var(--warning-light)',border:'#FCD34D',text:'#92400E'};
 
-  // Lista única de pendências, ordenada por severidade (crítico → aviso → info) — em vez de
-  // vários cards coloridos repetindo o mesmo módulo (Férias/Folgas apareciam 3x na versão antiga).
-  const ordemSeveridade={danger:0,warning:1,info:2};
-  const alertasOrdenados=[...alertas].sort((a,b)=>ordemSeveridade[a.tipo]-ordemSeveridade[b.tipo]);
-  const alertasVisiveis=dashPendMostrarTudo?alertasOrdenados:alertasOrdenados.filter(a=>a.tipo!=='info').slice(0,6);
-  const alertasHtml=!totalAlertas?'':`
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-      <div style="font-size:14px;font-weight:600">Requer atenção</div>
-      ${totalAlertas>alertasVisiveis.length||dashPendMostrarTudo?`<span style="font-size:12px;font-weight:600;color:var(--primary);cursor:pointer" onclick="dashPendMostrarTudo=${!dashPendMostrarTudo};renderDashboard()">${dashPendMostrarTudo?'Mostrar menos':`Ver todas (${totalAlertas})`}</span>`:''}
-    </div>
-    <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">${resumoPartes}</div>
-    <div>
-      ${alertasVisiveis.map(a=>{const c=corAlerta(a.tipo);return`
-      <div onclick="irParaAlertaDashboard('${a.link}','${a.filtroVar||''}','${a.filtroVal||''}')" style="display:flex;align-items:center;gap:12px;padding:9px 4px;border-top:1px solid var(--border);cursor:pointer" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">
-        <div style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:${c.dot}"></div>
-        <div style="width:130px;flex-shrink:0;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase">${a.modulo}</div>
-        <div style="flex:1 1 auto;font-size:13px;min-width:0">${a.qtd} ${a.msg}</div>
-        <span style="font-size:10px;font-weight:700;letter-spacing:.03em;color:${c.dot};background:${c.bg};border-radius:999px;padding:3px 9px;flex-shrink:0">${c.tag}</span>
-        <span style="font-size:12px;color:var(--primary);flex-shrink:0;white-space:nowrap">${a.destino} →</span>
-      </div>`}).join('')}
-    </div>`;
-
-  const pendObraHtml=(!obrasComPendencia.length||globalObraFiltro)?'':`
+  const pendObraHtml=!obrasComPendencia.length?'':`
     <div style="display:flex;align-items:center;gap:8px;margin:24px 0 14px">
       <i class="ti ti-building" style="font-size:18px;color:var(--text-muted)"></i>
       <span style="font-size:13px;font-weight:600;color:var(--text-muted)">Pendências por obra</span>
@@ -1084,14 +1066,27 @@ async function renderDashboard(){
       <i class="ti ti-arrow-right" style="font-size:11px;color:var(--text-muted);flex-shrink:0"></i>
     </div>`).join('');
 
-  const admBarras=admissoesMeses.map(m=>`
+  const admBarras=movMeses.map(m=>{
+    const total=m.admIds.length+m.demIds.length+m.transfIds.length;
+    const barH=Math.round((Math.max(m.admIds.length,m.demIds.length,m.transfIds.length)/maxMov)*60);
+    const segAlt=v=>total?Math.max(Math.round((v/Math.max(m.admIds.length,m.demIds.length,m.transfIds.length,1))*barH),v>0?3:0):0;
+    const mesLabelCap=m.label.charAt(0).toUpperCase()+m.label.slice(1);
+    const seg=(ids,cor,rotulo)=>ids.length?`<div title="${ids.length} ${rotulo} em ${mesLabelCap} — clique para ver" onclick="irParaFuncionariosPorMes(${JSON.stringify(ids)},'${rotulo} em ${mesLabelCap}','${rotulo==='admissão(ões)'?'ativos':rotulo==='demissão(ões)'?'demitidos':'transferidos'}')" style="width:7px;border-radius:3px 3px 0 0;background:${cor};height:${segAlt(ids.length)}px;cursor:pointer"></div>`:'';
+    return`
     <div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex:1">
-      <div style="font-weight:700;font-size:13px;color:var(--primary-dark)">${m.count}</div>
-      <div style="width:100%;background:var(--border);border-radius:4px;height:60px;display:flex;align-items:flex-end">
-        <div style="background:var(--primary);border-radius:4px;width:100%;height:${Math.round(m.count/maxAdm*100)}%;min-height:${m.count>0?4:0}px"></div>
+      <div style="font-weight:700;font-size:12px;color:var(--text)" title="${m.admIds.length} admissão(ões) · ${m.demIds.length} demissão(ões) · ${m.transfIds.length} transferência(s)">${total||''}</div>
+      <div style="display:flex;align-items:flex-end;gap:3px;height:60px">
+        ${seg(m.admIds,'var(--success)','admissão(ões)')}
+        ${seg(m.transfIds,'#3B82F6','transferência(s)')}
+        ${seg(m.demIds,'var(--danger)','demissão(ões)')}
       </div>
-      <div style="font-size:11px;color:var(--text-muted);text-transform:capitalize">${m.label}</div>
-    </div>`).join('');
+      <div style="font-size:10px;color:var(--text-muted);text-transform:capitalize">${m.label}</div>
+    </div>`;}).join('');
+  const admLegenda=`<div style="display:flex;gap:12px;justify-content:center;margin-top:8px;font-size:10px;color:var(--text-muted)">
+    <span><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:var(--success);margin-right:4px"></span>Admissões</span>
+    <span><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:#3B82F6;margin-right:4px"></span>Transferências</span>
+    <span><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:var(--danger);margin-right:4px"></span>Demissões</span>
+  </div>`;
 
   // Próximas folgas
   const proximasFolgas=[];
@@ -1105,12 +1100,12 @@ async function renderDashboard(){
   });
   proximasFolgas.sort((a,b)=>a.diff-b.diff);
   const folgasRows=proximasFolgas.slice(0,6).map(f=>`
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
-      <div>
-        ${nomeFichaHtml(f.funcId,f.nome,'font-size:13px')}
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="min-width:0;flex:1;overflow:hidden">
+        ${nomeFichaHtml(f.funcId,f.nome,'font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block')}
         <div style="font-size:11px;color:var(--text-muted)">${f.mat} · Venc.${f.num}</div>
       </div>
-      <div style="text-align:right">
+      <div style="text-align:right;flex-shrink:0">
         <div style="font-size:12px;font-weight:700;color:${f.diff<=15?'var(--warning)':'var(--primary-dark)'}">
           ${f.diff===0?'Hoje':f.diff===1?'Amanhã':`${f.diff}d`}
         </div>
@@ -1121,12 +1116,12 @@ async function renderDashboard(){
   // Próximas efetivações
   const proxEfet=comExp.filter(f=>f._exp.status==='exp1'||f._exp.status==='exp2'||f._exp.status==='vencendo').sort((a,b)=>(a._exp.restantes||0)-(b._exp.restantes||0)).slice(0,6);
   const efetRows=proxEfet.map(f=>`
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
-      <div>
-        ${nomeFichaHtml(f.id,f.nome_completo,'font-size:13px')}
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="min-width:0;flex:1;overflow:hidden">
+        ${nomeFichaHtml(f.id,f.nome_completo,'font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block')}
         <div style="font-size:11px;color:var(--text-muted)">${f.matricula||''} · ${f._exp.status==='exp1'?'Exp.1':'Exp.2'}</div>
       </div>
-      <div style="text-align:right">
+      <div style="text-align:right;flex-shrink:0">
         <div style="font-size:12px;font-weight:700;color:${f._exp.restantes<=15?'var(--warning)':'var(--text-muted)'}">
           ${f._exp.restantes}d
         </div>
@@ -1150,29 +1145,35 @@ async function renderDashboard(){
   });
   proximasFerias.sort((a,b)=>a.diff-b.diff);
 
-  const feriasProgramadasRows=feriasProgramadas.slice(0,8).map(f=>`
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+  const feriasProgramadasRows=feriasProgramadas.slice(0,8).map(f=>{
+    // f.diffIni pode ser negativo quando a folga já devia ter começado; f.diffFim negativo quando já
+    // devia ter terminado (ainda aparece por até 7 dias de tolerância — ver filtro de feriasProgramadas).
+    let statusHtml;
+    if(f.emCurso)statusHtml=`<div style="font-size:11px;font-weight:700;color:var(--success);background:var(--success-light);padding:2px 7px;border-radius:20px;margin-bottom:2px">✈ Em férias</div>`;
+    else if(f.diffFim<0)statusHtml=`<div style="font-size:11px;font-weight:700;color:var(--warning)">Encerrou há ${Math.abs(f.diffFim)}d</div>`;
+    else if(f.diffIni===0)statusHtml=`<div style="font-size:11px;font-weight:700;color:var(--primary-dark)">Inicia hoje</div>`;
+    else if(f.diffIni===1)statusHtml=`<div style="font-size:11px;font-weight:700;color:var(--primary-dark)">Inicia amanhã</div>`;
+    else if(f.diffIni<0)statusHtml=`<div style="font-size:11px;font-weight:700;color:var(--warning)">Iniciou há ${Math.abs(f.diffIni)}d</div>`;
+    else statusHtml=`<div style="font-size:11px;font-weight:700;color:var(--primary-dark)">em ${f.diffIni}d</div>`;
+    return`
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
       <div style="min-width:0;flex:1;overflow:hidden">
-        ${nomeFichaHtml(f.funcId,f.nome,'font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis')}
+        ${nomeFichaHtml(f.funcId,f.nome,'font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block')}
         <div style="font-size:11px;color:var(--text-muted)">${f.mat}${f.obra?' · '+f.obra:''}</div>
       </div>
-      <div style="text-align:right;flex-shrink:0;margin-left:8px">
-        ${f.emCurso
-          ?`<div style="font-size:11px;font-weight:700;color:var(--success);background:var(--success-light);padding:2px 7px;border-radius:20px;margin-bottom:2px">✈ Em férias</div>`
-          :f.diffIni===0?`<div style="font-size:11px;font-weight:700;color:var(--primary-dark);margin-bottom:2px">Inicia hoje</div>`
-          :f.diffIni===1?`<div style="font-size:11px;font-weight:700;color:var(--primary-dark);margin-bottom:2px">Inicia amanhã</div>`
-          :`<div style="font-size:11px;font-weight:700;color:var(--primary-dark);margin-bottom:2px">em ${f.diffIni}d</div>`}
+      <div style="text-align:right;flex-shrink:0">
+        ${statusHtml}
         <div style="font-size:10px;color:var(--text-muted)">${formatDate(f.ini)} → ${formatDate(f.fim)}</div>
       </div>
-    </div>`).join('')||'<div style="color:var(--text-muted);font-size:13px;padding:12px 0">Nenhuma férias programada</div>';
+    </div>`;}).join('')||'<div style="color:var(--text-muted);font-size:13px;padding:12px 0">Nenhuma férias programada</div>';
 
   const feriasRows=proximasFerias.slice(0,6).map(f=>`
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
-      <div>
-        ${nomeFichaHtml(f.funcId,f.nome,'font-size:13px')}
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="min-width:0;flex:1;overflow:hidden">
+        ${nomeFichaHtml(f.funcId,f.nome,'font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block')}
         <div style="font-size:11px;color:var(--text-muted)">${f.mat} · Per.${f.per}</div>
       </div>
-      <div style="text-align:right">
+      <div style="text-align:right;flex-shrink:0">
         <div style="font-size:12px;font-weight:700;color:${f.diff<=30?'var(--danger)':f.diff<=60?'var(--warning)':'var(--primary-dark)'}">
           ${f.diff===0?'Hoje':f.diff===1?'Amanhã':`${f.diff}d`}
         </div>
@@ -1194,6 +1195,15 @@ async function renderDashboard(){
         <i class="ti ti-users"></i> Ver funcionários
       </button>
     </div>
+    <!-- Totais compactos -->
+    <div class="table-container" style="padding:14px 20px;display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:16px">
+      <div style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Total</div><div class="metric-value" style="font-size:19px">${ativos+inativos}</div></div>
+      <div style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Ativos</div><div class="metric-value" style="font-size:19px;color:var(--success)">${ativos}</div></div>
+      <div style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Inativos</div><div class="metric-value" style="font-size:19px;color:var(--danger)">${inativos}</div></div>
+      <div style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Transferidos</div><div class="metric-value" style="font-size:19px;color:var(--warning)">${transferidos}</div></div>
+      <div style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Adm. no mês</div><div class="metric-value" style="font-size:19px">${admMes}</div></div>
+      <div style="cursor:pointer" onclick="showPage('obras')"><div class="metric-label">Obras</div><div class="metric-value" style="font-size:19px">${obras.length}</div></div>
+    </div>
     <!-- 3 KPIs principais -->
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px">
       <div class="table-container" style="padding:18px 20px;cursor:pointer" onclick="showPage('funcionarios')">
@@ -1213,17 +1223,7 @@ async function renderDashboard(){
       </div>
     </div>
     <div id="dash-pendencias"></div>
-    ${totalAlertas?`<div class="table-container" style="padding:14px 18px 6px;margin-bottom:20px">${alertasHtml}</div>`:''}
     ${pendObraHtml?`<div style="margin-bottom:20px">${pendObraHtml}</div>`:''}
-    <!-- Totais compactos -->
-    <div class="table-container" style="padding:14px 20px;display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:20px">
-      <div style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Total</div><div class="metric-value" style="font-size:19px">${ativos+inativos}</div></div>
-      <div style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Ativos</div><div class="metric-value" style="font-size:19px;color:var(--success)">${ativos}</div></div>
-      <div style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Inativos</div><div class="metric-value" style="font-size:19px;color:var(--danger)">${inativos}</div></div>
-      <div style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Transferidos</div><div class="metric-value" style="font-size:19px;color:var(--warning)">${transferidos}</div></div>
-      <div style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Adm. no mês</div><div class="metric-value" style="font-size:19px">${admMes}</div></div>
-      <div style="cursor:pointer" onclick="showPage('obras')"><div class="metric-label">Obras</div><div class="metric-value" style="font-size:19px">${obras.length}</div></div>
-    </div>
     <!-- LINHA 3 -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
       <div class="table-container" style="padding:16px">
@@ -1271,9 +1271,10 @@ async function renderDashboard(){
       </div>
       <div class="table-container" style="padding:16px">
         <div style="font-weight:600;font-size:14px;margin-bottom:12px;display:flex;align-items:center;gap:8px">
-          <i class="ti ti-chart-bar" style="color:var(--primary)"></i> Admissões (6 meses)
+          <i class="ti ti-chart-bar" style="color:var(--primary)"></i> Movimentações (6 meses)
         </div>
         <div style="display:flex;align-items:flex-end;gap:6px;height:100px">${admBarras}</div>
+        ${admLegenda}
       </div>
     </div>
   `;
@@ -1297,6 +1298,7 @@ function calcFeriasStats(data,hoje){
 let filtroSituacao='',filtroObra='',busca='';
 let filtroObraTocado=false; // true quando o usuário interage manualmente com o select de obra desta página
 let filtroFuncaoDash=''; // filtro de função vindo do clique no card do Dashboard
+let dashMesIdsFiltro=null,dashMesLabel=''; // filtro por IDs vindo do clique num mês do gráfico de Admissões/Demissões/Transferências do Dashboard
 
 let funcTab='ativos'; // 'ativos' | 'demitidos' | 'transferidos'
 
@@ -1327,6 +1329,7 @@ function getFuncionariosFiltrados(){
   }
   if(busca){const b=busca.toLowerCase();lista=lista.filter(f=>f.nome_completo?.toLowerCase().includes(b)||f.matricula?.toLowerCase().includes(b));}
   if(filtroFuncaoDash){lista=lista.filter(f=>(f.funcao?.nome||f.funcao_manual||'Sem função')===filtroFuncaoDash);}
+  if(dashMesIdsFiltro){lista=lista.filter(f=>dashMesIdsFiltro.has(String(f.id)));}
   return lista;
 }
 function getFuncionariosRows(lista){
@@ -1435,6 +1438,13 @@ function irParaFuncaoDash(funcaoNome){
   filtroFuncaoDash=funcaoNome;
   showPage('funcionarios');
 }
+function irParaFuncionariosPorMes(ids,label,tab){
+  dashMesIdsFiltro=new Set((ids||[]).filter(Boolean).map(String));
+  dashMesLabel=label;
+  funcTab=tab;
+  filtroSituacao='';filtroFuncaoDash='';
+  showPage('funcionarios');
+}
 function limparFiltroFuncaoDash(){
   filtroFuncaoDash='';
   renderFuncionarios();
@@ -1467,9 +1477,9 @@ function renderFuncionarios(){
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       <div class="exp-tabs">
-        <div class="exp-tab${funcTab==='ativos'?' active':''}" id="tab-func-ativos" onclick="funcTab='ativos';filtroSituacao='';filtroFuncaoDash='';atualizarTabelaFuncionarios()">Ativos <span style="background:var(--primary);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalAtivos}</span></div>
-        <div class="exp-tab${funcTab==='demitidos'?' active':''}" id="tab-func-demitidos" onclick="funcTab='demitidos';filtroSituacao='';filtroFuncaoDash='';atualizarTabelaFuncionarios()">Demitidos <span style="background:var(--danger);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalDemitidos}</span></div>
-        <div class="exp-tab${funcTab==='transferidos'?' active':''}" id="tab-func-transf" onclick="funcTab='transferidos';filtroSituacao='';filtroFuncaoDash='';atualizarTabelaFuncionarios()">Transferidos <span style="background:#B45309;color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalTransf}</span>${pendentesParaAprovarUsuario?` <span title="Transferências aguardando sua aprovação" style="background:var(--danger);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:2px"><i class="ti ti-alert-triangle" style="font-size:10px"></i> ${pendentesParaAprovarUsuario}</span>`:''}</div>
+        <div class="exp-tab${funcTab==='ativos'?' active':''}" id="tab-func-ativos" onclick="funcTab='ativos';filtroSituacao='';filtroFuncaoDash='';dashMesIdsFiltro=null;renderFuncionarios()">Ativos <span style="background:var(--primary);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalAtivos}</span></div>
+        <div class="exp-tab${funcTab==='demitidos'?' active':''}" id="tab-func-demitidos" onclick="funcTab='demitidos';filtroSituacao='';filtroFuncaoDash='';dashMesIdsFiltro=null;renderFuncionarios()">Demitidos <span style="background:var(--danger);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalDemitidos}</span></div>
+        <div class="exp-tab${funcTab==='transferidos'?' active':''}" id="tab-func-transf" onclick="funcTab='transferidos';filtroSituacao='';filtroFuncaoDash='';dashMesIdsFiltro=null;renderFuncionarios()">Transferidos <span style="background:#B45309;color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">${totalTransf}</span>${pendentesParaAprovarUsuario?` <span title="Transferências aguardando sua aprovação" style="background:var(--danger);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:2px"><i class="ti ti-alert-triangle" style="font-size:10px"></i> ${pendentesParaAprovarUsuario}</span>`:''}</div>
       </div>
     </div>
     <div class="filters">
@@ -1482,9 +1492,10 @@ function renderFuncionarios(){
       <select id="func-funcao-select" class="filter-select" onchange="filtroFuncaoDash=this.value;atualizarTabelaFuncionarios()">
         <option value="">Todas funções</option>${funcaoOptions}
       </select>
-      <button class="btn btn-sm" onclick="filtroObra='';filtroObraTocado=false;busca='';filtroFuncaoDash='';document.getElementById('func-busca').value='';atualizarTabelaFuncionarios()"><i class="ti ti-x"></i> Limpar</button>
+      <button class="btn btn-sm" onclick="filtroObra='';filtroObraTocado=false;busca='';filtroFuncaoDash='';dashMesIdsFiltro=null;document.getElementById('func-busca').value='';renderFuncionarios()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div id="transf-banner" style="display:${funcTab==='transferidos'?'flex':'none'};align-items:center;gap:8px;padding:10px 14px;background:#FEF3C7;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:12px;font-size:13px;color:#92400E"><i class="ti ti-info-circle" style="font-size:16px;flex-shrink:0"></i><span>Funcionários transferidos aparecem aqui como <strong>histórico</strong> e não são contabilizados nos indicadores da obra de origem.</span></div>
+    ${dashMesIdsFiltro?`<div style="display:flex;align-items:center;gap:8px;background:#E6F7F0;border:1px solid var(--primary);border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;font-size:13px;color:var(--primary-dark)"><i class="ti ti-filter"></i><span>${dashMesLabel} (${lista.length})</span><button class="btn btn-sm" style="margin-left:auto" onclick="dashMesIdsFiltro=null;dashMesLabel='';renderFuncionarios()"><i class="ti ti-x"></i> Limpar filtro</button></div>`:''}
     ${funcTab==='transferidos'?renderPainelTransferenciasPendentes(pendentesVisiveis):''}
     <div class="table-container"><table>
       <thead id="func-thead">${funcTab==='transferidos'?theadTransf:funcTab==='demitidos'?theadDemitidos:theadAtivos}</thead>
