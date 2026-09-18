@@ -3688,14 +3688,15 @@ function renderFeriasLocal(){
   const emFeriasCount=matsEmFerias.size;
 
   // Stats
-  let progCount=0,naoProgCount=0;
+  let progCount=0,naoProgCount=0,gozadasCount=0;
   let per1Vencidas=0,per1Vencendo60=0;
   let per2Vencidas=0,per2Vencendo60=0;
   let alertaVencidas=0,alertaVencendo30=0;
 
   Object.values(byMat).forEach(arr=>{
-    if(arr.some(f=>f.programado))progCount++;
+    if(arr.some(f=>f.programado&&!isGozada(f)))progCount++;
     if(arr.some(f=>!f.programado))naoProgCount++;
+    gozadasCount+=arr.filter(f=>isGozada(f)).length;
     const p1=arr[0],p2=arr[1];
     // 1º período — alerta pelo Limite Máx. Legal
     if(p1&&!p1.programado){
@@ -3735,7 +3736,8 @@ function renderFeriasLocal(){
     const f=arr[0];
     return(f.funcionario?.nome_completo||'').toLowerCase().includes(feriasBusca.toLowerCase())||(f.matricula||'').includes(feriasBusca);
   });
-  if(feriasFiltro==='programado')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>f.programado));
+  if(feriasFiltro==='programado')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>f.programado&&!isGozada(f)));
+  if(feriasFiltro==='gozadas')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>isGozada(f)));
   if(feriasFiltro==='naoprog')listaFuncs=listaFuncs.filter(arr=>arr.some(p=>ePendente(p)));
   if(feriasFiltro==='emferias')listaFuncs=listaFuncs.filter(arr=>matsEmFerias.has(arr[0]?.matricula));
   if(feriasFiltro==='vencidas')listaFuncs=listaFuncs.filter(arr=>{const p=getPeriodoUrgente(arr);if(!p)return false;const l=parseDate(p.dt_limite_maxima);return l&&l<hoje;});
@@ -3760,6 +3762,15 @@ function renderFeriasLocal(){
     if(!p.programado) return true;
     const ini=parseDate(p.data_inicio_programada);
     return !ini || ini > hoje; // se início futuro, ainda não gozou
+  }
+  // Período "gozado" = já foi programado, o DP já validou (gerou o recibo) e a data de retorno já passou.
+  // Enquanto não tiver os dois (validado_dp E data_fim_programada no passado), continua contando como
+  // "Programada" — isso também sinaliza períodos já vividos mas ainda não confirmados pelo DP, que
+  // precisam de atenção antes de virar histórico.
+  function isGozada(p){
+    if(!p||!p.programado||!p.validado_dp||!p.data_fim_programada)return false;
+    const fim=parseDate(p.data_fim_programada);
+    return !!(fim&&fim<hoje);
   }
   function getUrgenciaNivel(arr){
     // 0=limMax vencido (férias não gozadas — multa legal)
@@ -3826,11 +3837,17 @@ function renderFeriasLocal(){
     var cor, bg, border, icon, corpo;
 
     if (f.programado) {
-      cor='var(--success)'; bg='var(--success-light)'; border='none'; icon='✓ ';
-      corpo = '<span style="font-size:11px;font-weight:600;color:var(--success)">Programado · ' + dias + 'd</span>'
-            + (f.validado_dp
-                ? '<br><span style="font-size:10px;font-weight:700;color:var(--success)">✓ Validado DP</span>'
-                : '<br><span style="font-size:10px;font-weight:700;color:var(--warning)">⏳ Aguardando DP</span>');
+      if(isGozada(f)){
+        cor='var(--text-muted)'; bg='var(--bg)'; border='1px solid var(--border)'; icon='📁 ';
+        corpo = '<span style="font-size:11px;font-weight:600;color:var(--text-muted)">Gozada · ' + dias + 'd</span>'
+              + '<br><span style="font-size:10px;font-weight:700;color:var(--success)">✓ Validado DP</span>';
+      } else {
+        cor='var(--success)'; bg='var(--success-light)'; border='none'; icon='✓ ';
+        corpo = '<span style="font-size:11px;font-weight:600;color:var(--success)">Programado · ' + dias + 'd</span>'
+              + (f.validado_dp
+                  ? '<br><span style="font-size:10px;font-weight:700;color:var(--success)">✓ Validado DP</span>'
+                  : '<br><span style="font-size:10px;font-weight:700;color:var(--warning)">⏳ Aguardando DP</span>');
+      }
 
     } else if (isSegundo) {
       // ── 2º PERÍODO ──
@@ -4018,7 +4035,7 @@ function renderFeriasLocal(){
     ${alertas.length?`<div style="margin-bottom:16px">${alertas.join('')}</div>`:''}
 
     <!-- Cards linha 1: geral -->
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:10px">
       <div class="ferias-card ${feriasFiltro==='todos'?'active':''}" onclick="feriasFiltro='todos';renderFerias()">
         <div class="ferias-card-value" style="color:var(--text)">${totalFuncs}</div>
         <div class="ferias-card-label">Funcionários</div>
@@ -4034,6 +4051,10 @@ function renderFeriasLocal(){
       <div class="ferias-card ${feriasFiltro==='emferias'?'active':''}" style="${emFeriasCount?'border-color:#93C5FD':''}" onclick="feriasFiltro='emferias';renderFerias()">
         <div class="ferias-card-value" style="color:#185FA5">${emFeriasCount}</div>
         <div class="ferias-card-label">Em Férias</div>
+      </div>
+      <div class="ferias-card ${feriasFiltro==='gozadas'?'active':''}" style="${gozadasCount?'border-color:#BBF7D0':''}" onclick="feriasFiltro='gozadas';renderFerias()" title="Períodos com recibo validado pelo DP e já concluídos — histórico da obra">
+        <div class="ferias-card-value" style="color:var(--text-muted)">${gozadasCount}</div>
+        <div class="ferias-card-label">Gozadas</div>
       </div>
     </div>
 
