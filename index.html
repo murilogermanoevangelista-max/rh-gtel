@@ -4566,7 +4566,7 @@ function processImportFile(file){
         dataAdmis:   findCol('admis','admissão','admissao'), // col 4 — Data Admis.
         periodoAqui: findCol('aquisitivo','periodo a'),  // col 6 — string "DD/MM/YYYY  DD/MM/YYYY"
         dtIdeal:     findCol('ideal'),                   // col 7 se existir — Date (opcional)
-        dtMaxima:    findCol('maxima','máxima','limite max','dt.limite'),// col 7 — Date
+        dtMaxima:    findCol('maxima','máxima','limite max'),// col 8 — Date (NUNCA usar 'dt.limite' aqui: bate com "Dt.Limite Ideal" também e pega a coluna errada — ver Bug 3 abaixo)
         feriasVenc:  findCol('vencidas'),                // col 8
         totalFerias: findCol('total'),                   // col 12
       };
