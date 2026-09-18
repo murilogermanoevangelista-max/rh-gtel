@@ -3662,6 +3662,14 @@ function renderFeriasLocal(){
     ?feriasData.filter(f=>f.funcionario?.obra_id===obraFiltroAtivo||f.funcionario?.obra?.codigo===obraFiltroAtivo)
     :feriasData;
 
+  // Data da importação mais recente já rodada no sistema (comparando TODOS os períodos, não só os
+  // filtrados por obra) — usada para detectar períodos que "sumiram" de uma planilha do DP pra outra.
+  const ultimaImportacaoGlobal=feriasData.reduce((max,f)=>{
+    if(!f.importado_em)return max;
+    const d=new Date(f.importado_em);
+    return(!isNaN(d)&&(!max||d>max))?d:max;
+  },null);
+
   // Agrupar por matrícula, ordenar por periodo_aquisitivo_inicio asc
   const byMat={};
   feriasBase.forEach(f=>{
@@ -3695,10 +3703,11 @@ function renderFeriasLocal(){
 
   Object.values(byMat).forEach(arr=>{
     if(arr.some(f=>f.programado&&!isGozada(f)))progCount++;
-    if(arr.some(f=>!f.programado))naoProgCount++;
-    gozadasCount+=arr.filter(f=>isGozada(f)).length;
-    // Mesma janela usada na tabela: pula períodos já Gozados pra pegar o 1º/2º período REAL (em aberto).
-    const idxAtivoStat=arr.findIndex(f=>!isGozada(f));
+    if(arr.some(f=>!f.programado&&!isEncerradoSemData(f)))naoProgCount++;
+    gozadasCount+=arr.filter(f=>estaResolvido(f)).length;
+    // Mesma janela usada na tabela: pula períodos já resolvidos (gozados ou sumidos da planilha do DP)
+    // pra pegar o 1º/2º período REAL (em aberto).
+    const idxAtivoStat=arr.findIndex(f=>!estaResolvido(f));
     const p1=idxAtivoStat>=0?arr[idxAtivoStat]:null;
     const p2=idxAtivoStat>=0?arr[idxAtivoStat+1]:null;
     // 1º período — alerta pelo Limite Máx. Legal
@@ -3740,15 +3749,15 @@ function renderFeriasLocal(){
     return(f.funcionario?.nome_completo||'').toLowerCase().includes(feriasBusca.toLowerCase())||(f.matricula||'').includes(feriasBusca);
   });
   if(feriasFiltro==='programado')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>f.programado&&!isGozada(f)));
-  if(feriasFiltro==='gozadas')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>isGozada(f)));
+  if(feriasFiltro==='gozadas')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>estaResolvido(f)));
   if(feriasFiltro==='naoprog')listaFuncs=listaFuncs.filter(arr=>arr.some(p=>ePendente(p)));
   if(feriasFiltro==='emferias')listaFuncs=listaFuncs.filter(arr=>matsEmFerias.has(arr[0]?.matricula));
   if(feriasFiltro==='vencidas')listaFuncs=listaFuncs.filter(arr=>{const p=getPeriodoUrgente(arr);if(!p)return false;const l=parseDate(p.dt_limite_maxima);return l&&l<hoje;});
   if(feriasFiltro==='vencendo60')listaFuncs=listaFuncs.filter(arr=>{const p=getPeriodoUrgente(arr);if(!p)return false;const l=parseDate(p.dt_limite_maxima);if(!l)return false;const d=Math.floor((l-hoje)/86400000);return d>=0&&d<=60;});
-  if(feriasFiltro==='per1vencida')listaFuncs=listaFuncs.filter(arr=>{const p=arr[0];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);return l&&l<hoje;});
-  if(feriasFiltro==='per1vencendo')listaFuncs=listaFuncs.filter(arr=>{const p=arr[0];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);if(!l)return false;const d=Math.floor((l-hoje)/86400000);return d>=0&&d<=60;});
-  if(feriasFiltro==='per2vencida')listaFuncs=listaFuncs.filter(arr=>{const p=arr[1];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);return l&&l<hoje;});
-  if(feriasFiltro==='per2vencendo')listaFuncs=listaFuncs.filter(arr=>{const p=arr[1];if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);if(!l)return false;const d=Math.floor((l-hoje)/86400000);return d>=0&&d<=60;});
+  if(feriasFiltro==='per1vencida')listaFuncs=listaFuncs.filter(arr=>{const i=arr.findIndex(f=>!estaResolvido(f));const p=i>=0?arr[i]:null;if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);return l&&l<hoje;});
+  if(feriasFiltro==='per1vencendo')listaFuncs=listaFuncs.filter(arr=>{const i=arr.findIndex(f=>!estaResolvido(f));const p=i>=0?arr[i]:null;if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);if(!l)return false;const d=Math.floor((l-hoje)/86400000);return d>=0&&d<=60;});
+  if(feriasFiltro==='per2vencida')listaFuncs=listaFuncs.filter(arr=>{const i=arr.findIndex(f=>!estaResolvido(f));const p=i>=0?arr[i+1]:null;if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);return l&&l<hoje;});
+  if(feriasFiltro==='per2vencendo')listaFuncs=listaFuncs.filter(arr=>{const i=arr.findIndex(f=>!estaResolvido(f));const p=i>=0?arr[i+1]:null;if(!p||p.programado)return false;const l=parseDate(p.dt_limite_maxima);if(!l)return false;const d=Math.floor((l-hoje)/86400000);return d>=0&&d<=60;});
 
   // Ordenar por urgência real:
   // Critério: periodo_aquisitivo_fim do período mais urgente (não programado)
@@ -3762,6 +3771,7 @@ function renderFeriasLocal(){
   // Período "pendente" = não gozado ainda
   // programado mas data_inicio no futuro = agendado mas não saiu = AINDA pendente
   function ePendente(p){
+    if(isEncerradoSemData(p))return false; // sumiu da planilha do DP — já não é mais pendência real
     if(!p.programado) return true;
     const ini=parseDate(p.data_inicio_programada);
     return !ini || ini > hoje; // se início futuro, ainda não gozou
@@ -3775,6 +3785,19 @@ function renderFeriasLocal(){
     const fim=parseDate(p.data_fim_programada);
     return !!(fim&&fim<hoje);
   }
+  // Período que NUNCA foi programado no sistema, mas que sumiu da planilha mensal do DP — ou seja,
+  // a importação mais recente não trouxe mais esse período pra essa pessoa. Como a empresa segue a
+  // planilha do DP como fonte da verdade, isso é sinal de que o período já foi resolvido do lado deles
+  // (gozado, indenizado, etc.), mesmo sem termos as datas exatas aqui. Não conta como "Gozada" (não temos
+  // as datas), mas também não pode continuar contando como pendência/risco legal em aberto.
+  function isEncerradoSemData(p){
+    if(!p||p.programado||!p.importado_em||!ultimaImportacaoGlobal)return false;
+    const importado=new Date(p.importado_em);
+    if(isNaN(importado))return false;
+    const diasDefasagem=Math.floor((ultimaImportacaoGlobal-importado)/86400000);
+    return diasDefasagem>20; // ficou de fora de pelo menos uma importação mensal mais recente
+  }
+  function estaResolvido(p){return isGozada(p)||isEncerradoSemData(p);}
   function getUrgenciaNivel(arr){
     // 0=limMax vencido (férias não gozadas — multa legal)
     // 1=prazo p/ programar vencido
@@ -3854,6 +3877,19 @@ function renderFeriasLocal(){
 
     } else if (isSegundo) {
       // ── 2º PERÍODO ──
+      if (isEncerradoSemData(f)) {
+        // Sumiu da planilha mensal do DP sem nunca ter sido programado aqui — tratado como resolvido,
+        // sem inventar datas que não temos.
+        cor='var(--text-muted)'; bg='var(--bg)'; border='1px solid var(--border)'; icon='📁 ';
+        corpo = '<span style="font-size:11px;font-weight:600;color:var(--text-muted)">Encerrado — sumiu da planilha do DP</span>'
+              + '<br><span style="font-size:10px;color:var(--text-muted)">Sem datas exatas no sistema</span>';
+        return '<td style="padding:8px 12px">'
+          + '<div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;white-space:nowrap">' + perAqui + '</div>'
+          + '<div style="background:' + bg + ';border:' + border + ';border-radius:6px;padding:6px 10px;display:inline-block;min-width:140px">'
+            + '<div style="margin-top:0;line-height:1.5">' + corpo + '</div>'
+          + '</div>'
+        + '</td>';
+      }
       // Data principal = periodo_aquisitivo_fim (23/09/2026) — vencimento real das férias
       // NÃO usar dt_limite_maxima como data principal
       var feriasVenc = diasFim  !== null && diasFim  < 0;
@@ -3894,6 +3930,17 @@ function renderFeriasLocal(){
 
     } else {
       // ── 1º PERÍODO ──
+      if (isEncerradoSemData(f)) {
+        // Sumiu da planilha mensal do DP sem nunca ter sido programado aqui — tratado como resolvido,
+        // sem inventar datas que não temos.
+        return '<td style="padding:8px 12px">'
+          + '<div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;white-space:nowrap">' + perAqui + '</div>'
+          + '<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;display:inline-block;min-width:140px">'
+            + '<div style="font-size:11px;font-weight:600;color:var(--text-muted)">📁 Encerrado — sumiu da planilha do DP</div>'
+            + '<div style="font-size:10px;color:var(--text-muted);margin-top:2px">Sem datas exatas no sistema</div>'
+          + '</div>'
+        + '</td>';
+      }
       var jaVenc  = limMax && limMax < hoje;
       var temProx = !!per2Ref;
 
@@ -3970,7 +4017,7 @@ function renderFeriasLocal(){
     // Avança a "janela" de exibição pulando períodos já Gozados (histórico) — assim, quando o 1º
     // período é confirmado como gozado, a linha passa a mostrar o próximo período real como "1º",
     // em vez de ficar travada mostrando um período que já virou histórico.
-    const idxAtivo=arr.findIndex(f=>!isGozada(f));
+    const idxAtivo=arr.findIndex(f=>!estaResolvido(f));
     let per1,per2;
     if(idxAtivo>=0){
       per1=arr[idxAtivo];
@@ -3983,7 +4030,7 @@ function renderFeriasLocal(){
     const st=getStatus(arr);
     const estaEmFerias=matsEmFerias.has(f0.matricula);
     const rowStyle=estaEmFerias?'border-left:4px solid #2563EB;background:#EFF6FF':st==='vencida'?'border-left:4px solid var(--danger)':st==='vencendo'?'border-left:4px solid var(--warning)':'';
-    const pendente=arr.find(f=>!f.programado);
+    const pendente=arr.find(f=>!f.programado&&!isEncerradoSemData(f));
     const programados=arr.filter(f=>f.programado);
     const btnProg=`<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">
       ${programados.map(f=>`
