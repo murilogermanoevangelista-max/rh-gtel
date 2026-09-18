@@ -783,6 +783,7 @@ async function loadContratacoesProspeccoes(){
 }
 
 let currentPage='dashboard';
+let dashPendNivelFiltro=null; // null|'danger'|'warning'|'info' — filtro de nível de pendência no Dashboard (clique nos cards Crítico/Atenção/Informativo)
 
 async function showPage(page){
   const _vindoDeAlerta=window._filtroViaAlerta;
@@ -1014,22 +1015,30 @@ async function renderDashboard(){
   const resumoPartes=[qtdCriticos?`${qtdCriticos} crítica${qtdCriticos>1?'s':''}`:'',qtdAvisos?`${qtdAvisos} aviso${qtdAvisos>1?'s':''}`:'',qtdInfo?`${qtdInfo} informativo${qtdInfo>1?'s':''}`:''].filter(Boolean).join(' · ');
 
   const corAlerta=t=>t==='danger'?{bg:'var(--danger-light)',border:'#FCA5A5',text:'#991B1B'}:t==='info'?{bg:'var(--info-light)',border:'#93C5FD',text:'#185FA5'}:{bg:'var(--warning-light)',border:'#FCD34D',text:'#92400E'};
+  const nivelLabel=t=>t==='danger'?'Crítico':t==='warning'?'Atenção':'Informativo';
 
-  const pendObraHtml=!obrasComPendencia.length?'':`
-    <div style="display:flex;align-items:center;gap:8px;margin:24px 0 14px">
+  // Filtro de nível (crítico/atenção/informativo) aplicado à seção "Pendências por obra" —
+  // acionado pelos 3 cards de nível no topo, para o administrador focar num horizonte por vez.
+  const obrasComPendenciaFiltradas=obrasComPendencia
+    .map(o=>({...o,itensArr:dashPendNivelFiltro?o.itensArr.filter(it=>it.tipo===dashPendNivelFiltro):o.itensArr}))
+    .filter(o=>o.itensArr.length>0);
+
+  const pendObraHtml=!obrasComPendenciaFiltradas.length?'':`
+    <div style="display:flex;align-items:center;gap:8px;margin:24px 0 14px;flex-wrap:wrap">
       <i class="ti ti-building" style="font-size:18px;color:var(--text-muted)"></i>
       <span style="font-size:13px;font-weight:600;color:var(--text-muted)">Pendências por obra</span>
-      <span style="font-size:12px;color:var(--text-muted);opacity:.7">· ${obrasComPendencia.length} obra${obrasComPendencia.length>1?'s':''} com pendência${obrasComPendencia.length>1?'s':''}</span>
+      <span style="font-size:12px;color:var(--text-muted);opacity:.7">· ${obrasComPendenciaFiltradas.length} obra${obrasComPendenciaFiltradas.length>1?'s':''} com pendência${obrasComPendenciaFiltradas.length>1?'s':''}</span>
+      ${dashPendNivelFiltro?`<span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:${corAlerta(dashPendNivelFiltro).text};background:${corAlerta(dashPendNivelFiltro).bg};padding:3px 10px;border-radius:20px">Mostrando: ${nivelLabel(dashPendNivelFiltro)} <span style="cursor:pointer;font-weight:700" onclick="dashPendNivelFiltro=null;renderDashboard()">✕</span></span>`:''}
     </div>
     <div style="display:flex;flex-direction:column;gap:10px">
-      ${obrasComPendencia.map(o=>{
+      ${obrasComPendenciaFiltradas.map(o=>{
         const badgeTxt=o.danger>0?`${o.danger} crítica${o.danger>1?'s':''}`:`${o.warning} aviso${o.warning>1?'s':''}`;
         const badgeCor=o.danger>0?corAlerta('danger'):corAlerta('warning');
         return`
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden">
         <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--bg-subtle);border-bottom:1px solid var(--border)">
           <div style="font-size:14px;font-weight:600">${o.obraKey}</div>
-          <span style="font-size:11px;font-weight:600;color:${badgeCor.text};background:${badgeCor.bg};padding:2px 10px;border-radius:var(--radius)">${badgeTxt}</span>
+          ${dashPendNivelFiltro?'':`<span style="font-size:11px;font-weight:600;color:${badgeCor.text};background:${badgeCor.bg};padding:2px 10px;border-radius:var(--radius)">${badgeTxt}</span>`}
         </div>
         <div style="padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px">
           ${o.itensArr.map(it=>{const c=corAlerta(it.tipo);return`
@@ -1204,22 +1213,22 @@ async function renderDashboard(){
       <div style="cursor:pointer" onclick="showPage('funcionarios')"><div class="metric-label">Adm. no mês</div><div class="metric-value" style="font-size:19px">${admMes}</div></div>
       <div style="cursor:pointer" onclick="showPage('obras')"><div class="metric-label">Obras</div><div class="metric-value" style="font-size:19px">${obras.length}</div></div>
     </div>
-    <!-- 3 KPIs principais -->
+    <!-- 3 níveis de pendências — para o administrador se antecipar antes de virar crítico -->
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px">
-      <div class="table-container" style="padding:18px 20px;cursor:pointer" onclick="showPage('funcionarios')">
-        <div style="display:flex;align-items:center;gap:8px;color:var(--text-muted);font-size:12px;font-weight:600"><i class="ti ti-users" style="font-size:16px"></i> Funcionários ativos</div>
-        <div style="font-size:30px;font-weight:700;margin-top:6px">${ativos}</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:2px">de ${ativos+inativos} no total · ${inativos} inativos</div>
+      <div class="table-container" style="padding:18px 20px;cursor:pointer;${dashPendNivelFiltro==='danger'?'border-color:var(--danger)':''}" onclick="dashPendNivelFiltro='danger';renderDashboard();setTimeout(()=>document.getElementById('dash-pendencias')?.scrollIntoView({behavior:'smooth'}),50)">
+        <div style="display:flex;align-items:center;gap:8px;color:var(--danger);font-size:12px;font-weight:600"><i class="ti ti-alert-triangle" style="font-size:16px"></i> Crítico</div>
+        <div style="font-size:30px;font-weight:700;margin-top:6px;color:var(--danger)">${qtdCriticos}</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Já venceu — ação imediata</div>
       </div>
-      <div class="table-container" style="padding:18px 20px;cursor:pointer" onclick="showPage('alojamentos')">
-        <div style="display:flex;align-items:center;gap:8px;color:var(--text-muted);font-size:12px;font-weight:600"><i class="ti ti-home" style="font-size:16px"></i> Ocupação de alojamentos</div>
-        <div style="font-size:30px;font-weight:700;margin-top:6px">${totalOcupDash}<span style="font-size:15px;color:var(--text-muted);font-weight:600">/${totalVagasDash}</span></div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${totalVagasDash?Math.round(totalOcupDash/totalVagasDash*100):0}% ocupado · ${Math.max(totalVagasDash-totalOcupDash,0)} vaga(s) livre(s)</div>
+      <div class="table-container" style="padding:18px 20px;cursor:pointer;${dashPendNivelFiltro==='warning'?'border-color:var(--warning)':''}" onclick="dashPendNivelFiltro='warning';renderDashboard();setTimeout(()=>document.getElementById('dash-pendencias')?.scrollIntoView({behavior:'smooth'}),50)">
+        <div style="display:flex;align-items:center;gap:8px;color:var(--warning);font-size:12px;font-weight:600"><i class="ti ti-clock" style="font-size:16px"></i> Atenção</div>
+        <div style="font-size:30px;font-weight:700;margin-top:6px;color:var(--warning)">${qtdAvisos}</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Vencendo em breve — planeje agora</div>
       </div>
-      <div class="table-container" style="padding:18px 20px;cursor:pointer" onclick="document.getElementById('dash-pendencias')?.scrollIntoView({behavior:'smooth'})">
-        <div style="display:flex;align-items:center;gap:8px;color:var(--text-muted);font-size:12px;font-weight:600"><i class="ti ti-alert-triangle" style="font-size:16px"></i> Pendências que exigem ação</div>
-        <div style="font-size:30px;font-weight:700;margin-top:6px">${totalAlertas}</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${resumoPartes||'Nenhuma pendência'}</div>
+      <div class="table-container" style="padding:18px 20px;cursor:pointer;${dashPendNivelFiltro==='info'?'border-color:var(--info)':''}" onclick="dashPendNivelFiltro='info';renderDashboard();setTimeout(()=>document.getElementById('dash-pendencias')?.scrollIntoView({behavior:'smooth'}),50)">
+        <div style="display:flex;align-items:center;gap:8px;color:var(--info);font-size:12px;font-weight:600"><i class="ti ti-calendar-event" style="font-size:16px"></i> Informativo</div>
+        <div style="font-size:30px;font-weight:700;margin-top:6px;color:var(--info)">${qtdInfo}</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Programado — de olho no horizonte</div>
       </div>
     </div>
     <div id="dash-pendencias"></div>
