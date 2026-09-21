@@ -6664,6 +6664,8 @@ function renderAlojamentos(){
     _byObra[obraKey].push(a);
   });
   const masterDetailHtml=(()=>{
+    try{
+    return (()=>{
     if(!alojsFiltrados.length)return '<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-home-off" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum alojamento cadastrado</div>';
 
     // garante que sempre há algo selecionado dentre os visíveis (respeitando filtros/busca)
@@ -6820,6 +6822,15 @@ function renderAlojamentos(){
         +'<div style="background:#fff;border:1px solid #E0E2E7;border-top:none;border-radius:0 0 4px 4px;overflow:hidden">'+secoesHtml+'</div>'
       +'</div>'
     +'</div>';
+    })();
+    }catch(e){
+      console.error('[Alojamentos] erro ao montar o painel:',e);
+      return '<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:16px;color:#991B1B">'
+        +'<strong>⚠ Erro ao montar o painel de alojamentos</strong>'
+        +'<div style="font-size:12px;margin-top:6px;font-family:monospace;white-space:pre-wrap">'+(e.message||e)+'</div>'
+        +'<div style="font-size:11px;margin-top:8px;color:#7F1D1D">Tire um print desta caixa e envie — isso mostra exatamente onde o código travou.</div>'
+        +'</div>';
+    }
   })();
 
   // Calcular alojamentos sem contas obrigatórias para o banner
@@ -6968,7 +6979,7 @@ function renderAlojamentos(){
         <div style="font-size:18px;font-weight:700">R$ ${totalCaucao.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
       </div>
     </div>
-    ${(alojFiltroAtivo||alojBusca)?`<div style="margin-bottom:10px"><button class="btn btn-sm" onclick="alojFiltroAtivo=null;alojBusca='';document.querySelectorAll('.search-box input').forEach(i=>i.value='');renderAlojamentos()"><i class="ti ti-filter-x"></i> Limpar filtros</button></div>`:''}
+    ${(()=>{const temFiltro=alojFiltroAtivo||alojBusca;return `<div style="margin-bottom:10px"><button class="btn btn-sm" ${temFiltro?'':'disabled style="opacity:.5;cursor:default"'} onclick="alojFiltroAtivo=null;alojBusca='';document.querySelectorAll('.search-box input').forEach(i=>i.value='');renderAlojamentos()"><i class="ti ti-filter-x"></i> Limpar filtros</button></div>`;})()}
 
     <div class="table-container" style="padding:16px;margin-bottom:16px">
       <!-- Breakdown por obra -->
