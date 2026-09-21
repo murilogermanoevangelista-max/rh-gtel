@@ -423,8 +423,12 @@ async function fazerLogin(){
       btn.disabled=false;btn.innerHTML='<i class="ti ti-login"></i> Entrar';
       return;
     }
-    currentUser=data;
-    sessionStorage.setItem(SESSION_KEY,JSON.stringify(data));
+    // Guarda o acesso ANTERIOR (antes de sobrescrever) para mostrar "Último acesso" no banner do
+    // Dashboard, e só depois atualiza para agora.
+    const agoraISO=new Date().toISOString();
+    currentUser={...data,ultimo_acesso_anterior:data.ultimo_acesso||null};
+    sessionStorage.setItem(SESSION_KEY,JSON.stringify(currentUser));
+    sb.from('usuarios_acesso').update({ultimo_acesso:agoraISO}).eq('id',data.id).then(()=>{});
     entrarNoApp();
   }catch(e){
     erroEl.textContent='Erro ao conectar: '+e.message;
@@ -852,11 +856,13 @@ async function renderDashboard(){
   const hoje=new Date();hoje.setHours(0,0,0,0);
   // Aplicar filtro global de obra em todos os cálculos do dashboard
   const funcsFiltrados=globalObraFiltro?funcionarios.filter(f=>f.obra_id===globalObraFiltro):funcionarios;
-  // Transferidos: têm obra_transferencia_id (saíram de alguma obra) — separados dos ativos
+  // Transferidos: têm obra_transferencia_id (vieram de outra obra em algum momento) — contagem
+  // informativa de proveniência, à parte; NÃO exclui de Ativos/Inativos (ver decisão abaixo).
   const transferidos=funcsFiltrados.filter(f=>f.obra_transferencia_id).length;
-  // Ativos e inativos excluem os transferidos para não dupla-contagem
-  const ativos=funcsFiltrados.filter(f=>f.situacao==='ativo'&&!f.obra_transferencia_id).length;
-  const inativos=funcsFiltrados.filter(f=>f.situacao==='inativo'&&!f.obra_transferencia_id).length;
+  // Ativos/Inativos = todo mundo com essa situação na obra, JÁ INCLUINDO quem chegou por transferência
+  // (a pessoa está de fato trabalhando ali — obra_transferencia_id é só o histórico de onde veio).
+  const ativos=funcsFiltrados.filter(f=>f.situacao==='ativo').length;
+  const inativos=funcsFiltrados.filter(f=>f.situacao==='inativo').length;
   const admMes=funcsFiltrados.filter(f=>{
     if(!f.data_admissao||f.situacao==='transferido')return false;
     const d=new Date(f.data_admissao+'T12:00:00');
@@ -1194,12 +1200,17 @@ async function renderDashboard(){
   const obraFiltroLabel=globalObraFiltro?(obras.find(o=>o.id===globalObraFiltro)?.codigo||''):'';
   const primeiroNome=(currentUser?.nome||currentUser?.usuario||'').trim().split(' ')[0]||'';
   const agora=new Date();
+  const ultimoAcessoDate=currentUser?.ultimo_acesso_anterior?new Date(currentUser.ultimo_acesso_anterior):null;
+  const ultimoAcessoTxt=ultimoAcessoDate&&!isNaN(ultimoAcessoDate)
+    ?ultimoAcessoDate.toLocaleDateString('pt-BR')+' às '+ultimoAcessoDate.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})
+    :null;
   document.getElementById('main-content').innerHTML=`
     <div style="background:linear-gradient(100deg,#1E293B 0%,#26463B 55%,var(--primary) 145%);border-radius:var(--radius-lg);padding:20px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px">
       <div>
         <div style="font-size:18px;font-weight:700;color:#fff">Bem-vindo${primeiroNome?', '+primeiroNome.toUpperCase():''}!</div>
         <div style="font-size:12.5px;color:#CBD5E1;margin-top:4px">GTEL Obras${obraFiltroLabel?` · obra <strong style="color:#fff">${obraFiltroLabel}</strong>`:''}</div>
         <div style="font-size:12px;color:#9CA8B8;margin-top:2px">${agora.toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'})}</div>
+        ${ultimoAcessoTxt?`<div style="font-size:12px;color:#9CA8B8;margin-top:2px">Último acesso: <strong style="color:#D8DEE8">${ultimoAcessoTxt}</strong></div>`:''}
       </div>
       <button style="background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.28);border-radius:9px;padding:10px 16px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px" onclick="showPage('funcionarios')">
         <i class="ti ti-users"></i> Ver funcionários
@@ -1236,7 +1247,7 @@ async function renderDashboard(){
             <div onclick="dashPendDropdownAberto=null;dashPendNivelFiltro='${nivel}';renderDashboard();setTimeout(()=>document.getElementById('dash-pendencias')?.scrollIntoView({behavior:'smooth'}),50)" style="padding:10px 14px;font-size:12px;font-weight:600;color:var(--primary);cursor:pointer;text-align:center;background:var(--bg-subtle)" onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'">Ver agrupado por obra ↓</div>
           </div>`:'';
         return`
-      <div class="table-container" style="padding:12px 14px;cursor:pointer;position:relative;${dashPendNivelFiltro===nivel?'border-color:'+corNivel[nivel]:''}" onclick="dashPendDropdownAberto=dashPendDropdownAberto==='${nivel}'?null:'${nivel}';renderDashboard()">
+      <div class="table-container" style="padding:12px 14px;cursor:pointer;position:relative;overflow:visible;${dashPendNivelFiltro===nivel?'border-color:'+corNivel[nivel]:''}" onclick="dashPendDropdownAberto=dashPendDropdownAberto==='${nivel}'?null:'${nivel}';renderDashboard()">
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div style="display:flex;align-items:center;gap:6px;color:${corNivel[nivel]};font-size:11px;font-weight:600"><i class="ti ${iconNivel[nivel]}" style="font-size:14px"></i> ${labelNivel[nivel]}</div>
           <i class="ti ti-chevron-down" style="font-size:12px;color:var(--text-muted);transform:rotate(${aberto?'180deg':'0deg'});transition:transform .15s"></i>
@@ -2144,7 +2155,7 @@ function openModalFuncionario(func=null){
           <div class="form-section">Dados Profissionais</div>
           <div class="form-group"><label>Matrícula *</label><input id="f-matricula" value="${func?.matricula||''}" placeholder="072119"></div>
           <div class="form-group full"><label>Nome Completo *</label><input id="f-nome" value="${func?.nome_completo||''}" placeholder="Nome completo do funcionário"></div>
-          <div class="form-group"><label>Data de Admissão</label><input type="date" id="f-admissao" value="${func?.data_admissao||''}"></div>
+          <div class="form-group"><label>Data de Admissão *</label><input type="date" id="f-admissao" value="${func?.data_admissao||''}"></div>
           <div class="form-group"><label>Data de Integração</label><input type="date" id="f-integracao" value="${func?.data_mobilizacao||''}"><div id="f-integracao-hint" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div></div>
           <div class="form-group">
             <label>Situação</label>
@@ -2182,13 +2193,13 @@ function openModalFuncionario(func=null){
             </select>
           </div>
           <div class="form-group full">
-            <label>Função</label>
+            <label>Função *</label>
             <select id="f-funcao-select" style="display:${funcaoModoManual?'none':'block'}"><option value="">Selecione...</option>${funcaoOptions}</select>
             <input id="f-funcao-input" value="${func?.funcao_manual||''}" placeholder="Digite a função..." style="display:${funcaoModoManual?'block':'none'}">
             <span class="funcao-toggle" id="f-funcao-toggle" onclick="toggleFuncaoModo()">${funcaoModoManual?'← Escolher da lista':'✏️ Digitar manualmente'}</span>
           </div>
           <div class="form-group"><label>Empresa</label><select id="f-empresa"><option value="">Selecione...</option>${empresaOptions}</select></div>
-          <div class="form-group"><label>Obra / Contrato</label><select id="f-obra" onchange="atualizarAlojamentoPorObra()"><option value="">Selecione...</option>${obraOptions}</select></div>
+          <div class="form-group"><label>Obra / Contrato *</label><select id="f-obra" onchange="atualizarAlojamentoPorObra()"><option value="">Selecione...</option>${obraOptions}</select></div>
           <div class="form-group"><label>Alojamento</label>
             <select id="f-alojamento"></select>
             <div id="f-alojamento-hint" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div>
@@ -2292,6 +2303,14 @@ async function saveFuncionario(id){
   const mat=document.getElementById('f-matricula').value.trim();
   const nome=document.getElementById('f-nome').value.trim();
   if(!mat||!nome){showToast('Matrícula e nome são obrigatórios','error');return;}
+  const admissaoVal=document.getElementById('f-admissao').value;
+  if(!admissaoVal){showToast('Data de Admissão é obrigatória','error');return;}
+  const obraVal=document.getElementById('f-obra').value;
+  if(!obraVal){showToast('Obra / Contrato é obrigatória','error');return;}
+  const funcaoOk=funcaoModoManual
+    ?!!document.getElementById('f-funcao-input').value.trim()
+    :!!document.getElementById('f-funcao-select').value;
+  if(!funcaoOk){showToast('Função é obrigatória','error');return;}
   // Comparação normalizada (ignora zeros à esquerda e caixa) — pega duplicidade tipo "75793" vs "075793",
   // e cobre TODOS os funcionários (qualquer obra/situação), pois o array `funcionarios` é global.
   const matNorm=normMatricula(mat);
@@ -4031,7 +4050,9 @@ function renderFeriasLocal(){
     const estaEmFerias=matsEmFerias.has(f0.matricula);
     const rowStyle=estaEmFerias?'border-left:4px solid #2563EB;background:#EFF6FF':st==='vencida'?'border-left:4px solid var(--danger)':st==='vencendo'?'border-left:4px solid var(--warning)':'';
     const pendente=arr.find(f=>!f.programado&&!isEncerradoSemData(f));
-    const programados=arr.filter(f=>f.programado);
+    // Só mostra aqui o que ainda é relevante agora — uma vez Gozada (já confirmada e no passado),
+    // sai desta coluna e fica só no histórico (card Gozadas).
+    const programados=arr.filter(f=>f.programado&&!isGozada(f));
     const btnProg=`<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">
       ${programados.map(f=>`
         <div style="display:flex;align-items:center;gap:4px">
@@ -4072,7 +4093,7 @@ function renderFeriasLocal(){
   // Verificar ativos sem registro de férias
   const matsComFerias=new Set(feriasData.map(f=>String(f.matricula||'').trim().replace(/^0+/,'')));
   const ativosSemFerias=funcionarios.filter(f=>{
-    if(f.situacao!=='ativo'||f.obra_transferencia_id)return false;
+    if(f.situacao!=='ativo')return false;
     if(globalObraFiltro&&f.obra_id!==globalObraFiltro)return false;
     const mat=String(f.matricula||'').trim().replace(/^0+/,'');
     return mat&&!matsComFerias.has(mat);
@@ -4345,7 +4366,7 @@ async function toggleValidadoDP(id,checked){
 // Lançamento manual de período de férias (casos não cobertos pela planilha DP — ex: DP avisa verbalmente antes de constar na folha)
 function openModalFeriasManual(funcId=null){
   const f=funcId?funcionarios.find(x=>x.id===funcId):null;
-  const ativosLista=funcionarios.filter(x=>x.situacao==='ativo'&&!x.obra_transferencia_id).sort((a,b)=>(a.nome_completo||'').localeCompare(b.nome_completo||'','pt-BR'));
+  const ativosLista=funcionarios.filter(x=>x.situacao==='ativo').sort((a,b)=>(a.nome_completo||'').localeCompare(b.nome_completo||'','pt-BR'));
   const funcOptions=ativosLista.map(x=>`<option value="${x.id}" ${f&&f.id===x.id?'selected':''}>${x.nome_completo} — ${x.matricula||'s/mat'}</option>`).join('');
   document.body.insertAdjacentHTML('beforeend',`
     <div class="modal-overlay" id="modal-ferias-manual" onclick="if(event.target===this)closeModal('modal-ferias-manual')">
