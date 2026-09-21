@@ -370,6 +370,7 @@ let bannerNaoLancadasAberto=false;
 let bannerFiltroObra='';
 let bannerRelatoriosAberto=false;
 let bannerRelatoriosFiltroObra='';
+let bannerTitularAberto=false;
 let tabelaMesFiltro=0; // 0 = mês atual
 let tabelaAnoFiltro=0; // 0 = ano atual
 let globalObraFiltro=''; // filtro global de obra — propaga para todos os módulos
@@ -614,6 +615,11 @@ function parseDate(str){
   if(str instanceof Date)return str;
   const d=new Date(str+'T12:00:00');
   return isNaN(d.getTime())?null:d;
+}
+// Escapa texto vindo do banco antes de jogar direto num atributo/HTML — evita que um nome com
+// aspas, & ou < quebre a estrutura da página (o que pode deixar um card inteiro bugado/invisível).
+function escHtml(s){
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 // ── Checagem "conta no nome da GTEL" ────────────────────────────────────────
 // Lê o texto real embutido no PDF (a maioria das contas de concessionária é gerada
@@ -6690,19 +6696,18 @@ function renderAlojamentos(){
     // ── Lista da esquerda, agrupada por obra (só mostra o rótulo da obra quando há mais de uma) ──
     const multiObra=Object.keys(_byObra).length>1;
     const listaHtml=Object.entries(_byObra).map(([obraKey,lista])=>{
-      const grupo=multiObra?'<div style="padding:8px 4px 6px;font-size:11px;font-weight:700;color:#8B95A5;letter-spacing:.03em">'+obraKey.split(' — ')[0]+'</div>':'';
+      const grupo=multiObra?'<div style="padding:8px 4px 6px;font-size:11px;font-weight:700;color:#8B95A5;letter-spacing:.03em">'+escHtml(obraKey.split(' — ')[0])+'</div>':'';
       const itens=lista.map(a=>{
         const isSel=String(a.id)===String(sel.id);
         const moradores=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length
           +prestadores.filter(p=>String(p.alojamento_id)===String(a.id)&&p.situacao==='ativo').length;
         const total=a.vagas_total||0;
         const alerta=temAlerta(a);
-        return '<div class="item aloj-item" onclick="alojSelecionadoId=\''+a.id+'\';renderAlojamentos()" style="background:'+(isSel?'{{ACCENT}}':'#fff')+';border:1px solid '+(isSel?'{{ACCENT}}':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:6px">'
-          .replace(/\{\{ACCENT\}\}/g,'var(--primary)')
+        return '<div class="item aloj-item" onclick="alojSelecionadoId=\''+a.id+'\';renderAlojamentos()" style="background:'+(isSel?'#1D9E75':'#fff')+';border:1px solid '+(isSel?'#1D9E75':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:6px">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
           +'<div style="display:flex;align-items:center;gap:8px;min-width:0">'
           +'<i class="ti ti-'+(a.tipo_alojamento==='hotel'?'building-lighthouse':'home')+'" style="font-size:14px;color:'+(isSel?'#fff':'#8B95A5')+';flex-shrink:0"></i>'
-          +'<span style="font-size:13px;font-weight:600;color:'+(isSel?'#fff':'#1A1F29')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+a.nome+'</span>'
+          +'<span style="font-size:13px;font-weight:600;color:'+(isSel?'#fff':'#1A1F29')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">'+escHtml(a.nome)+'</span>'
           +'</div>'
           +'<div style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:'+(alerta?'#DC2626':'#16A34A')+'"></div>'
           +'</div>'
@@ -6798,7 +6803,7 @@ function renderAlojamentos(){
         +'<div style="background:#243244;padding:13px 18px;display:flex;align-items:center;justify-content:space-between;border-radius:4px 4px 0 0;flex-wrap:wrap;gap:8px">'
           +'<div style="display:flex;align-items:center;gap:10px;min-width:0">'
           +'<i class="ti ti-'+(isHotel?'building-lighthouse':'home')+'" style="color:var(--primary);flex-shrink:0"></i>'
-          +'<span style="color:#fff;font-size:14.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+sel.nome+'</span>'
+          +'<span style="color:#fff;font-size:14.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">'+escHtml(sel.nome)+'</span>'
           +'<span style="font-size:10px;font-weight:700;color:'+(sel.tipo_contratacao==='indireto'?'#FDE68A':'#BBF7D0')+';background:rgba(255,255,255,.12);padding:2px 8px;border-radius:20px;flex-shrink:0">'+(sel.tipo_contratacao==='indireto'?'INDIRETO':'DIRETO')+'</span>'
           +'</div>'
           +'<div style="display:flex;gap:6px;flex-shrink:0">'
@@ -6807,12 +6812,12 @@ function renderAlojamentos(){
           +'</div>'
         +'</div>'
         +'<div style="background:#fff;border:1px solid #E0E2E7;border-top:none;padding:9px 18px;font-size:12px;color:#6B7280">'
-          +(sel.imobiliaria||'—')+(sel.endereco?' · '+sel.endereco:'')
+          +escHtml(sel.imobiliaria||'—')+(sel.endereco?' · '+escHtml(sel.endereco):'')
         +'</div>'
         +(sel.observacoes?'<div style="background:#FEF3C7;border:1px solid #FCD34D;border-left:4px solid #D97706;padding:10px 14px;margin:10px 0;border-radius:4px;display:flex;gap:10px;align-items:flex-start">'
           +'<i class="ti ti-note" style="color:#92400E;font-size:16px;flex-shrink:0;margin-top:1px"></i>'
           +'<div><div style="font-size:11px;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:.03em;margin-bottom:2px">Observação / Lembrete</div>'
-          +'<div style="font-size:12.5px;color:#78350F">'+sel.observacoes+'</div></div>'
+          +'<div style="font-size:12.5px;color:#78350F">'+escHtml(sel.observacoes)+'</div></div>'
         +'</div>':'')
         +'<div style="background:#3A4658;display:grid;grid-template-columns:180px 1fr 150px;padding:9px 18px">'
           +'<span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">SEÇÃO</span>'
@@ -6852,17 +6857,8 @@ function renderAlojamentos(){
   const _obrasSemContas=[...new Set(_alojSemContas.map(a=>a.obra?.codigo?(a.obra.codigo+' — '+a.obra.nome):'Sem obra'))];
   const _listaFiltrada=bannerFiltroObra?_alojSemContas.filter(a=>(a.obra?.codigo?(a.obra.codigo+' — '+a.obra.nome):'Sem obra')===bannerFiltroObra):_alojSemContas;
 
-  const bannerSemContas=_alojSemContas.length>0?(()=>{
-    const headerHtml='<div onclick="bannerNaoLancadasAberto=!bannerNaoLancadasAberto;renderAlojamentos()" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#FFFBEB;border-bottom:'+(bannerNaoLancadasAberto?'1px solid #FDE68A':'none')+';cursor:pointer;user-select:none">'
-      +'<i class="ti ti-alert-circle" style="font-size:18px;color:#B45309;flex-shrink:0"></i>'
-      +'<strong style="color:#92400E;font-size:13px">'+_alojSemContas.length+' alojamento(s) com contas não lançadas em '+_bmLabel+'</strong>'
-      +'<div style="margin-left:auto;display:flex;align-items:center;gap:6px">'
-      +'<span style="font-size:11px;color:#92400E;opacity:.6">'+(bannerNaoLancadasAberto?'fechar':'ver detalhes')+'</span>'
-      +'<i class="ti ti-chevron-'+(bannerNaoLancadasAberto?'up':'down')+'" style="color:#B45309;font-size:15px"></i>'
-      +'</div></div>';
-
-    if(!bannerNaoLancadasAberto)return '<div style="background:#FFF7ED;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:8px;overflow:hidden">'+headerHtml+'</div>';
-
+  const bannerSemContas=(()=>{
+    if(!bannerNaoLancadasAberto)return '';
     const filtroObrasHtml='<div style="padding:8px 14px;border-bottom:1px solid #FDE68A;display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:#FFFBEB">'
       +'<span style="font-size:11px;font-weight:600;color:#92400E;margin-right:4px">Obra:</span>'
       +'<button onclick="event.stopPropagation();bannerFiltroObra=\'\';renderAlojamentos()" style="font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid '+(!bannerFiltroObra?'#B45309':'#FCD34D')+';background:'+(!bannerFiltroObra?'#B45309':'transparent')+';color:'+(!bannerFiltroObra?'#fff':'#92400E')+';cursor:pointer">Todas ('+_alojSemContas.length+')</button>'
@@ -6879,8 +6875,8 @@ function renderAlojamentos(){
       return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #FDE68A"><i class="ti ti-home" style="color:#B45309;flex-shrink:0;font-size:12px"></i><span style="font-size:11px;color:var(--text-muted);min-width:44px">'+obraLabel+'</span><span style="font-weight:600;color:#92400E;flex:1;font-size:12px;cursor:pointer;text-decoration:underline" onclick="event.stopPropagation();bannerNaoLancadasAberto=false;scrollToAlojamento(&apos;'+a.id+'&apos;)">'+ a.nome +'</span><div style="display:flex;gap:4px;flex-wrap:wrap">'+btnItems+'</div></div>';
     }).join('');
 
-    return '<div style="background:#FFF7ED;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:8px;overflow:hidden">'+headerHtml+filtroObrasHtml+'<div style="padding:6px 14px;max-height:300px;overflow-y:auto">'+linhas+'</div></div>';
-  })():'';
+    return '<div style="background:#FFF7ED;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:8px;overflow:hidden">'+filtroObrasHtml+'<div style="padding:6px 14px;max-height:300px;overflow-y:auto">'+linhas+'</div></div>';
+  })();
 
   // Calcular alojamentos sem Relatório ADM 31 enviado no mês para o banner
   const _alojSemRelatorio=alojsFiltrados.filter(a=>a.tipo_alojamento!=='hotel'&&!alojamentosRelatorios.some(r=>String(r.alojamento_id)===String(a.id)&&r.mes===_mesAtual&&r.ano===_anoAtual));
@@ -6890,7 +6886,8 @@ function renderAlojamentos(){
   // Contas possivelmente fora do nome da GTEL (checagem automática do texto do PDF anexado)
   const _idsAlojFiltradosSet=new Set(alojsFiltrados.map(a=>String(a.id)));
   const _contasTitularDivergente=alojamentosContas.filter(c=>c.titular_ok===false&&_idsAlojFiltradosSet.has(String(c.alojamento_id)));
-  const bannerTitularDivergente=_contasTitularDivergente.length>0?(()=>{
+  const bannerTitularDivergente=(()=>{
+    if(!bannerTitularAberto)return '';
     const linhas=_contasTitularDivergente.map(c=>{
       const aloj=alojamentos.find(a=>String(a.id)===String(c.alojamento_id));
       const tiposLabel={agua:'💧 Água',energia:'⚡ Energia',gas:'🔥 Gás',condominio:'🏢 Condomínio'};
@@ -6902,23 +6899,12 @@ function renderAlojamentos(){
         +'</div>';
     }).join('');
     return '<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:var(--radius);margin-bottom:8px;overflow:hidden">'
-      +'<div style="display:flex;align-items:center;gap:10px;padding:10px 14px"><i class="ti ti-file-alert" style="font-size:18px;color:#991B1B;flex-shrink:0"></i>'
-      +'<strong style="color:#991B1B;font-size:13px">'+_contasTitularDivergente.length+' conta(s) possivelmente fora do nome da GTEL</strong>'
-      +'<span style="font-size:11px;color:#991B1B;opacity:.7">— não encontramos "GTEL" no PDF anexado</span></div>'
+      +'<div style="padding:8px 14px 4px;font-size:11px;color:#991B1B;opacity:.8">Não encontramos "GTEL" no texto do PDF anexado nestas contas:</div>'
       +'<div style="padding:2px 14px 8px;max-height:200px;overflow-y:auto">'+linhas+'</div></div>';
-  })():'';
+  })();
 
-  const bannerSemRelatorio=_alojSemRelatorio.length>0?(()=>{
-    const headerHtml='<div onclick="bannerRelatoriosAberto=!bannerRelatoriosAberto;renderAlojamentos()" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#FEF2F2;border-bottom:'+(bannerRelatoriosAberto?'1px solid #FCA5A5':'none')+';cursor:pointer;user-select:none">'
-      +'<i class="ti ti-clipboard-x" style="font-size:18px;color:#991B1B;flex-shrink:0"></i>'
-      +'<strong style="color:#991B1B;font-size:13px">'+_alojSemRelatorio.length+' alojamento(s) sem Relatório ADM 31 (Check List) recebido em '+_bmLabel+'</strong>'
-      +'<div style="margin-left:auto;display:flex;align-items:center;gap:6px">'
-      +'<span style="font-size:11px;color:#991B1B;opacity:.6">'+(bannerRelatoriosAberto?'fechar':'ver detalhes')+'</span>'
-      +'<i class="ti ti-chevron-'+(bannerRelatoriosAberto?'up':'down')+'" style="color:#991B1B;font-size:15px"></i>'
-      +'</div></div>';
-
-    if(!bannerRelatoriosAberto)return '<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:var(--radius);margin-bottom:8px;overflow:hidden">'+headerHtml+'</div>';
-
+  const bannerSemRelatorio=(()=>{
+    if(!bannerRelatoriosAberto)return '';
     const filtroObrasHtml='<div style="padding:8px 14px;border-bottom:1px solid #FCA5A5;display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:#FEF2F2">'
       +'<span style="font-size:11px;font-weight:600;color:#991B1B;margin-right:4px">Obra:</span>'
       +'<button onclick="event.stopPropagation();bannerRelatoriosFiltroObra=\'\';renderAlojamentos()" style="font-size:11px;padding:2px 10px;border-radius:20px;border:1px solid '+(!bannerRelatoriosFiltroObra?'#991B1B':'#FCA5A5')+';background:'+(!bannerRelatoriosFiltroObra?'#991B1B':'transparent')+';color:'+(!bannerRelatoriosFiltroObra?'#fff':'#991B1B')+';cursor:pointer">Todas ('+_alojSemRelatorio.length+')</button>'
@@ -6934,8 +6920,36 @@ function renderAlojamentos(){
       return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #FCA5A5"><i class="ti ti-home" style="color:#991B1B;flex-shrink:0;font-size:12px"></i><span style="font-size:11px;color:var(--text-muted);min-width:44px">'+obraLabel+'</span><span style="font-weight:600;color:#991B1B;flex:1;font-size:12px;cursor:pointer;text-decoration:underline" onclick="event.stopPropagation();bannerRelatoriosAberto=false;scrollToAlojamento(&apos;'+a.id+'&apos;)">'+ a.nome +'</span><button class="btn btn-sm" style="font-size:11px;padding:2px 8px;border-color:#FCA5A5;color:#991B1B" onclick="event.stopPropagation();openModalRelatorios(&apos;'+a.id+'&apos;,'+_mesAtual+','+_anoAtual+')">📋 Lançar recebimento</button></div>';
     }).join('');
 
-    return '<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:var(--radius);margin-bottom:8px;overflow:hidden">'+headerHtml+filtroObrasHtml+'<div style="padding:6px 14px;max-height:300px;overflow-y:auto">'+linhasRel+'</div></div>';
-  })():'';
+    return '<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:var(--radius);margin-bottom:8px;overflow:hidden">'+filtroObrasHtml+'<div style="padding:6px 14px;max-height:300px;overflow-y:auto">'+linhasRel+'</div></div>';
+  })();
+
+  // ── Cards de alerta compactos (Contratos vencidos/vencendo, Contas não lançadas,
+  // Titular divergente, Relatório ADM 31) — clicar abre/fecha o detalhe logo abaixo dos cards.
+  const _alertCards=[
+    {show:vencidos>0,count:vencidos,label:'Contrato(s) vencido(s)',icon:'alert-triangle',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',
+      aberto:alojFiltroAtivo==='contratos_vencidos',toggle:"alojFiltroAtivo=alojFiltroAtivo==='contratos_vencidos'?null:'contratos_vencidos';renderAlojamentos()"},
+    {show:vencProx>0,count:vencProx,label:'Vencendo em 60 dias',icon:'clock',cor:'#92400E',bg:'#FEF3C7',border:'#FCD34D',
+      aberto:alojFiltroAtivo==='contratos_vencendo',toggle:"alojFiltroAtivo=alojFiltroAtivo==='contratos_vencendo'?null:'contratos_vencendo';renderAlojamentos()"},
+    {show:_alojSemContas.length>0,count:_alojSemContas.length,label:'Sem contas lançadas ('+_bmLabel+')',icon:'alert-circle',cor:'#92400E',bg:'#FEF3C7',border:'#FCD34D',
+      aberto:bannerNaoLancadasAberto,toggle:"bannerNaoLancadasAberto=!bannerNaoLancadasAberto;renderAlojamentos()"},
+    {show:_contasTitularDivergente.length>0,count:_contasTitularDivergente.length,label:'Titular fora do nome GTEL',icon:'file-alert',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',
+      aberto:bannerTitularAberto,toggle:"bannerTitularAberto=!bannerTitularAberto;renderAlojamentos()"},
+    {show:_alojSemRelatorio.length>0,count:_alojSemRelatorio.length,label:'Sem Relatório ADM 31',icon:'clipboard-x',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',
+      aberto:bannerRelatoriosAberto,toggle:"bannerRelatoriosAberto=!bannerRelatoriosAberto;renderAlojamentos()"},
+  ].filter(c=>c.show);
+
+  const alertCardsHtml=_alertCards.length?(
+    '<div style="display:grid;grid-template-columns:repeat('+_alertCards.length+',1fr);gap:10px;margin-bottom:8px">'
+    +_alertCards.map(c=>'<div onclick="'+c.toggle+'" style="background:'+c.bg+';border:1px solid '+c.border+';border-radius:8px;padding:12px 14px;cursor:pointer;'+(c.aberto?'box-shadow:0 0 0 2px '+c.cor:'')+'">'
+      +'<div style="display:flex;align-items:center;justify-content:space-between">'
+      +'<i class="ti ti-'+c.icon+'" style="font-size:16px;color:'+c.cor+'"></i>'
+      +'<i class="ti ti-chevron-'+(c.aberto?'up':'down')+'" style="font-size:12px;color:'+c.cor+';opacity:.6"></i>'
+      +'</div>'
+      +'<div style="font-size:22px;font-weight:700;color:'+c.cor+';margin-top:4px">'+c.count+'</div>'
+      +'<div style="font-size:11px;color:'+c.cor+';margin-top:1px">'+c.label+'</div>'
+      +'</div>').join('')
+    +'</div>'
+  ):'';
 
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
@@ -6947,11 +6961,13 @@ function renderAlojamentos(){
       </div>
     </div>
 
-    ${vencidos>0?`<div onclick="alojFiltroAtivo=alojFiltroAtivo==='contratos_vencidos'?null:'contratos_vencidos';renderAlojamentos()" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:var(--danger-light);border:1px solid #FCA5A5;color:#991B1B;cursor:pointer;transition:opacity .15s" ${alojFiltroAtivo==='contratos_vencidos'?'class="aloj-filtro-ativo"':''}><i class="ti ti-alert-triangle" style="font-size:18px"></i><strong>${vencidos} contrato(s) vencido(s) — providenciar renovação!</strong><i class="ti ti-${alojFiltroAtivo==='contratos_vencidos'?'x':'chevron-right'}" style="margin-left:auto"></i></div>`:''}
-    ${vencProx>0?`<div onclick="alojFiltroAtivo=alojFiltroAtivo==='contratos_vencendo'?null:'contratos_vencendo';renderAlojamentos()" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:var(--warning-light);border:1px solid #FCD34D;color:#92400E;cursor:pointer" ${alojFiltroAtivo==='contratos_vencendo'?'class="aloj-filtro-ativo"':''}><i class="ti ti-clock" style="font-size:18px"></i><strong>${vencProx} contrato(s) vencendo em 60 dias</strong><i class="ti ti-${alojFiltroAtivo==='contratos_vencendo'?'x':'chevron-right'}" style="margin-left:auto"></i></div>`:''}
+    ${alertCardsHtml}
+    ${vencidos>0&&alojFiltroAtivo==='contratos_vencidos'?`<div style="padding:8px 14px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:var(--radius);margin-bottom:8px;font-size:12px;color:#991B1B">Filtrando a lista abaixo pelos contratos vencidos.</div>`:''}
+    ${vencProx>0&&alojFiltroAtivo==='contratos_vencendo'?`<div style="padding:8px 14px;background:#FFFBEB;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:8px;font-size:12px;color:#92400E">Filtrando a lista abaixo pelos contratos vencendo em 60 dias.</div>`:''}
     ${bannerSemContas}
     ${bannerTitularDivergente}
     ${bannerSemRelatorio}
+
 
     <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:16px">
       <div class="table-container" style="padding:14px 16px;cursor:pointer" onclick="document.getElementById('aloj-tabela-secao')?.scrollIntoView({behavior:'smooth'})" title="Ver a lista de alojamentos">
