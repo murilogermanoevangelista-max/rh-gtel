@@ -621,6 +621,22 @@ function parseDate(str){
 function escHtml(s){
   return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
+// Fileira de cards de alerta compactos e coloridos (crítico/aviso/info), usada nas telas de
+// Alojamentos, Folgas de Campo, Experiência e Férias — no lugar das antigas faixas horizontais.
+function alertCardsRow(items){
+  const visiveis=items.filter(Boolean);
+  if(!visiveis.length)return '';
+  return '<div style="display:grid;grid-template-columns:repeat('+Math.min(visiveis.length,6)+',1fr);gap:10px;margin-bottom:16px">'
+    +visiveis.map(a=>'<div onclick="'+a.onclick+'" style="background:'+a.bg+';border:1px solid '+a.border+';border-radius:8px;padding:12px 14px;cursor:pointer;'+(a.aberto?'box-shadow:0 0 0 2px '+a.cor:'')+'">'
+      +'<div style="display:flex;align-items:center;justify-content:space-between">'
+      +'<i class="ti ti-'+a.icon+'" style="font-size:16px;color:'+a.cor+'"></i>'
+      +(a.aberto!==undefined?'<i class="ti ti-chevron-'+(a.aberto?'up':'down')+'" style="font-size:12px;color:'+a.cor+';opacity:.6"></i>':'')
+      +'</div>'
+      +'<div style="font-size:22px;font-weight:700;color:'+a.cor+';margin-top:4px">'+a.count+'</div>'
+      +'<div style="font-size:11px;color:'+a.cor+';margin-top:1px">'+a.label+'</div>'
+      +'</div>').join('')
+    +'</div>';
+}
 // ── Checagem "conta no nome da GTEL" ────────────────────────────────────────
 // Lê o texto real embutido no PDF (a maioria das contas de concessionária é gerada
 // digitalmente, com texto de verdade, não uma foto/scan) e procura por variações do
@@ -2798,9 +2814,9 @@ function renderExperiencia(){
     return(a._exp.restantes||0)-(b._exp.restantes||0);
   });
   const alertas=[];
-  if(counts.vencehoje>0)alertas.push(`<div class="exp-alert danger"><i class="ti ti-alarm" style="font-size:24px;flex-shrink:0"></i><div><strong>${counts.vencehoje} experiência(s) vence(m) HOJE</strong><div style="font-size:13px;margin-top:2px">Decisão precisa ser tomada ainda hoje — efetivar ou desligar</div></div></div>`);
-  if(counts.vencida>0)alertas.push(`<div class="exp-alert danger"><i class="ti ti-alert-triangle" style="font-size:24px;flex-shrink:0"></i><div><strong>${counts.vencida} experiência(s) vencida(s)</strong><div style="font-size:13px;margin-top:2px">Ação imediata necessária — efetivar ou desligar</div></div></div>`);
-  if(counts.vencendo>0)alertas.push(`<div class="exp-alert warning"><i class="ti ti-clock" style="font-size:24px;flex-shrink:0"></i><div><strong>${counts.vencendo} vencendo em 15 dias</strong><div style="font-size:13px;margin-top:2px">Planejar efetivação ou desligamento</div></div></div>`);
+  if(counts.vencehoje>0)alertas.push({count:counts.vencehoje,label:'Vence(m) HOJE — decidir hoje',icon:'alarm',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"expFiltro='vencehoje';renderExperiencia()"});
+  if(counts.vencida>0)alertas.push({count:counts.vencida,label:'Experiência(s) vencida(s)',icon:'alert-triangle',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"expFiltro='vencida';renderExperiencia()"});
+  if(counts.vencendo>0)alertas.push({count:counts.vencendo,label:'Vencendo em 15 dias',icon:'clock',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"expFiltro='vencendo';renderExperiencia()"});
   const cardsData=[
     {key:'emexp',label:'Em Exp.',value:emExpTotal,cls:'blue'},
     {key:'vencehoje',label:'Vence Hoje',value:counts.vencehoje||0,cls:'red'},
@@ -2853,7 +2869,7 @@ function renderExperiencia(){
         <button class="btn btn-sm btn-success" onclick="exportExpPDF()"><i class="ti ti-file-type-pdf"></i> PDF</button>
       </div>
     </div>
-    ${alertas.join('')}
+    ${alertCardsRow(alertas)}
     <div class="exp-cards">${cardsHtml}</div>
     <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:12px">
       <div style="display:flex;gap:8px">
@@ -3258,10 +3274,10 @@ function renderFolgasLocal(){
 
     cardsHtml=secTitle+'<div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">'+cardsCols+'</div>';
   }
-  const alertsHtml=[
-    totalVenc>0?`<div class="folga-alert-banner danger" style="cursor:pointer" onclick="folgasNomesFiltro=null;folgasFiltro='danger';renderFolgasLocal();setTimeout(()=>document.querySelector('.folga-row')?.scrollIntoView({behavior:'smooth',block:'center'}),50)"><i class="ti ti-alert-triangle" style="font-size:18px"></i><strong>${totalVenc} vencimento(s) em atraso</strong> — colaboradores sem folga realizada</div>`:'',
-    totalWarn>0?`<div class="folga-alert-banner warn" style="cursor:pointer" onclick="folgasNomesFiltro=null;folgasFiltro='warn';renderFolgasLocal();setTimeout(()=>document.querySelector('.folga-row')?.scrollIntoView({behavior:'smooth',block:'center'}),50)"><i class="ti ti-clock" style="font-size:18px"></i><strong>${totalWarn} vencimento(s) próximo(s)</strong> — planejar saídas</div>`:'',
-  ].join('');
+  const alertsHtmlFinal=alertCardsRow([
+    totalVenc>0?{count:totalVenc,label:'Vencimento(s) em atraso',icon:'alert-triangle',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"folgasNomesFiltro=null;folgasFiltro='danger';renderFolgasLocal();setTimeout(()=>document.querySelector('.folga-row')?.scrollIntoView({behavior:'smooth',block:'center'}),50)"}:null,
+    totalWarn>0?{count:totalWarn,label:'Vencimento(s) próximo(s)',icon:'clock',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"folgasNomesFiltro=null;folgasFiltro='warn';renderFolgasLocal();setTimeout(()=>document.querySelector('.folga-row')?.scrollIntoView({behavior:'smooth',block:'center'}),50)"}:null,
+  ]);
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div><div class="page-title">Folgas de Campo</div><div class="page-subtitle">${listaBase.length} registros ativos</div></div>
@@ -3275,7 +3291,7 @@ function renderFolgasLocal(){
       <div class="exp-tab" onclick="folgasAba='translados';renderFolgasLocal()">Translados</div>
     </div>
     ${cardsHtml}
-    ${alertsHtml}
+    ${alertsHtmlFinal}
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
       <div class="metric-card" style="cursor:pointer;border-color:${folgasFiltro==='todos'?'var(--primary)':'var(--border)'}" onclick="folgasNomesFiltro=null;folgasFiltro='todos';renderFolgasLocal()"><div class="metric-label">Total de registros</div><div class="metric-value">${listaBase.length}</div></div>
       <div class="metric-card amber" style="cursor:pointer;border-color:${folgasFiltro==='warn'?'var(--warning)':'var(--border)'}" onclick="folgasNomesFiltro=null;folgasFiltro='warn';renderFolgasLocal()"><div class="metric-label">🟡 Vencendo (30d / 10d p/ ciclo 30d)</div><div class="metric-value">${totalWarn}</div></div>
@@ -3924,8 +3940,8 @@ function renderFeriasLocal(){
 
   // Alertas — clicáveis para filtrar a tabela
   const alertas=[];
-  if(alertaVencidas>0)alertas.push(`<div onclick="feriasFiltro='vencidas';renderFerias()" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:6px;background:var(--danger-light);border:1px solid #FCA5A5;color:#991B1B;cursor:pointer"><i class="ti ti-alert-triangle" style="font-size:18px;flex-shrink:0"></i><strong>${alertaVencidas} funcionário(s) com férias vencidas — risco legal</strong><i class="ti ti-chevron-right" style="margin-left:auto;opacity:.5"></i></div>`);
-  if(alertaVencendo30>0)alertas.push(`<div onclick="feriasFiltro='vencendo60';renderFerias()" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:6px;background:var(--warning-light);border:1px solid #FCD34D;color:#92400E;cursor:pointer"><i class="ti ti-clock" style="font-size:18px;flex-shrink:0"></i><strong>${alertaVencendo30} vencendo em 60 dias — programar urgente</strong><i class="ti ti-chevron-right" style="margin-left:auto;opacity:.5"></i></div>`);
+  if(alertaVencidas>0)alertas.push({count:alertaVencidas,label:'Férias vencidas — risco legal',icon:'alert-triangle',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"feriasFiltro='vencidas';renderFerias()"});
+  if(alertaVencendo30>0)alertas.push({count:alertaVencendo30,label:'Vencendo em 60 dias',icon:'clock',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"feriasFiltro='vencendo60';renderFerias()"});
 
   // Obras
   // Opções do select local de obra — value=obra.id, label=codigo — nome
@@ -4186,7 +4202,7 @@ function renderFeriasLocal(){
         <button class="btn btn-primary" onclick="openImportFerias()"><i class="ti ti-upload"></i> Importar planilha DP</button>
       </div>
     </div>
-    ${alertas.length?`<div style="margin-bottom:16px">${alertas.join('')}</div>`:''}
+    ${alertCardsRow(alertas)}
 
     <!-- Cards linha 1: geral -->
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:10px">
@@ -6938,18 +6954,7 @@ function renderAlojamentos(){
       aberto:bannerRelatoriosAberto,toggle:"bannerRelatoriosAberto=!bannerRelatoriosAberto;renderAlojamentos()"},
   ].filter(c=>c.show);
 
-  const alertCardsHtml=_alertCards.length?(
-    '<div style="display:grid;grid-template-columns:repeat('+_alertCards.length+',1fr);gap:10px;margin-bottom:8px">'
-    +_alertCards.map(c=>'<div onclick="'+c.toggle+'" style="background:'+c.bg+';border:1px solid '+c.border+';border-radius:8px;padding:12px 14px;cursor:pointer;'+(c.aberto?'box-shadow:0 0 0 2px '+c.cor:'')+'">'
-      +'<div style="display:flex;align-items:center;justify-content:space-between">'
-      +'<i class="ti ti-'+c.icon+'" style="font-size:16px;color:'+c.cor+'"></i>'
-      +'<i class="ti ti-chevron-'+(c.aberto?'up':'down')+'" style="font-size:12px;color:'+c.cor+';opacity:.6"></i>'
-      +'</div>'
-      +'<div style="font-size:22px;font-weight:700;color:'+c.cor+';margin-top:4px">'+c.count+'</div>'
-      +'<div style="font-size:11px;color:'+c.cor+';margin-top:1px">'+c.label+'</div>'
-      +'</div>').join('')
-    +'</div>'
-  ):'';
+  const alertCardsHtml=alertCardsRow(_alertCards.map(c=>({count:c.count,label:c.label,icon:c.icon,cor:c.cor,bg:c.bg,border:c.border,onclick:c.toggle,aberto:c.aberto})));
 
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
