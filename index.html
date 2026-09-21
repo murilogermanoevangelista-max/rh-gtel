@@ -2997,7 +2997,9 @@ function renderFolgasLocal(){
         <option value="nao" ${!compradaAtual?'selected':''}>Não comprada</option>
         <option value="sim" ${compradaAtual?'selected':''}>Comprada</option>
       </select>
-    </div>${trAtual?.passagem_observacao?`<div style="font-size:10px;color:var(--text-muted);margin-top:2px;font-style:italic">💬 ${trAtual.passagem_observacao}</div>`:''}`;
+    </div>${trAtual?.passagem_observacao
+      ?`<div onclick="event.stopPropagation();editarObservacaoPassagem('${f.id}',${currentN},${JSON.stringify(trAtual.passagem_observacao)})" style="font-size:10px;color:var(--text-muted);margin-top:2px;font-style:italic;cursor:pointer" title="Clique para editar a observação">💬 ${trAtual.passagem_observacao} <span style="not-italic;color:var(--primary)">✎</span></div>`
+      :`<div onclick="event.stopPropagation();editarObservacaoPassagem('${f.id}',${currentN},'')" style="font-size:10px;color:var(--primary);margin-top:2px;cursor:pointer">+ observação</div>`}`;
 
     // ── Histórico (colapsado) ──
     // Pra quem já tem muitos ciclos (funcionários antigos), mostra só os últimos inline e
@@ -3368,6 +3370,29 @@ async function togglePassagemComprada(folgaId,numeroCiclo,valor){
   const{error}=await sb.from('folgas_translados').upsert(payload,{onConflict:'folga_id,numero_ciclo'});
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast(valor==='sim'?'Passagem marcada como comprada!':'Passagem marcada como não comprada.');
+  await loadFolgasTranslados();renderFolgasLocal();
+}
+// Atalho de edição rápida da observação da passagem direto na tela de Programação (sem precisar
+// abrir a aba Translados) — preserva os demais dados do translado já salvos.
+async function editarObservacaoPassagem(folgaId,numeroCiclo,textoAtual){
+  const novoTexto=prompt('Observação sobre a passagem (trecho, data de compra, pendência...):',textoAtual||'');
+  if(novoTexto===null)return; // cancelou
+  const existente=folgasTranslados.find(x=>String(x.folga_id)===String(folgaId)&&x.numero_ciclo===numeroCiclo)||{};
+  const payload={
+    folga_id:folgaId,
+    numero_ciclo:numeroCiclo,
+    passagem_comprada:existente.passagem_comprada||false,
+    passagem_observacao:novoTexto.trim()||null,
+    data_ida:existente.data_ida||null,
+    hora_ida:existente.hora_ida||null,
+    local_ida:existente.local_ida||null,
+    data_retorno:existente.data_retorno||null,
+    hora_retorno:existente.hora_retorno||null,
+    local_retorno:existente.local_retorno||null,
+  };
+  const{error}=await sb.from('folgas_translados').upsert(payload,{onConflict:'folga_id,numero_ciclo'});
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Observação salva!');
   await loadFolgasTranslados();renderFolgasLocal();
 }
 async function salvarTranslado(folgaId,numeroCiclo){
@@ -6633,14 +6658,14 @@ function renderAlojamentos(){
           :diasTerm<=60?'<span class="badge badge-amber" style="font-size:11px">'+formatDate(a.data_termino)+' ('+diasTerm+'d)</span>'
           :'<span style="font-size:12px;color:var(--text-muted)">'+formatDate(a.data_termino)+'</span>';
 
-        const vagasCell='<div style="display:flex;align-items:center;gap:6px">'
+        const vagasCell='<div onclick="event.stopPropagation();openModalMoradores(\''+a.id+'\')" title="Clique para ver os moradores" style="display:flex;align-items:center;gap:6px;cursor:pointer">'
           +'<span style="font-size:13px;font-weight:600;color:'+(disp===0?'var(--danger)':disp<=2?'var(--warning)':'var(--text)')+'">'+moradores+'<span style="font-weight:400;color:var(--text-muted)">/'+total+'</span></span>'
           +'<div style="width:44px;height:5px;background:var(--border);border-radius:3px"><div style="height:5px;border-radius:3px;background:'+(pct>=100?'var(--danger)':pct>=80?'var(--warning)':'var(--primary)')+';width:'+pct+'%"></div></div>'
           +'</div>';
 
         const custoCell=isHotel
           ?'<div style="font-size:13px;font-weight:500">R$ '+Number(a.valor_diaria||0).toLocaleString('pt-BR',{minimumFractionDigits:2})+'<span style="font-size:10px;color:var(--text-muted);font-weight:400"> /diária</span></div>'
-          :'<div style="font-size:13px;font-weight:500">R$ '+custoMes.toLocaleString('pt-BR',{minimumFractionDigits:2})+'</div>';
+          :'<div onclick="event.stopPropagation();abrirDetalheCusto(\''+a.id+'\','+_mesTabela+','+_anoTabela+')" title="Clique para ver o que compõe esse custo" style="font-size:13px;font-weight:500;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-decoration-color:var(--text-muted)">R$ '+custoMes.toLocaleString('pt-BR',{minimumFractionDigits:2})+'</div>';
 
         const acoesContasRel=isHotel?'':(
           '<button class="btn btn-sm" title="Contas" onclick="openModalContas(&apos;'+ a.id +'&apos;)"><i class="ti ti-receipt"></i></button> '
@@ -6678,7 +6703,7 @@ function renderAlojamentos(){
         +'<table><thead><tr>'
         +'<th>Alojamento</th>'
         +'<th>Vagas</th>'
-        +'<th style="min-width:120px">Contrato</th>'
+        +'<th style="min-width:120px">Vigência do Contrato</th>'
         +'<th>Custo '+_mesLabel+'</th>'
         +'<th>Contas '+_mesLabel+'</th>'
         +'<th>ADM 31 '+_mesLabel+'</th>'
@@ -6784,19 +6809,33 @@ function renderAlojamentos(){
     ${bannerSemContas}
     ${bannerSemRelatorio}
 
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:16px">
-      <!-- Totais gerais -->
-      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:14px">
-        <div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Total Vagas</div><div style="font-size:26px;font-weight:700">${totalVagas}</div></div>
-        <div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Ocupadas</div><div style="font-size:26px;font-weight:700;color:var(--primary-dark)">${totalOcup}</div></div>
-        <div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Disponíveis</div><div style="font-size:26px;font-weight:700;color:${totalDisp===0?'var(--danger)':totalDisp<=3?'var(--warning)':'var(--text)'}">${totalDisp}</div></div>
-        <div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Custo Mensal</div><div style="font-size:18px;font-weight:700">R$ ${(totalAluguel+totalContas).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div></div>
-        <div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Total Caução</div><div style="font-size:18px;font-weight:700">R$ ${totalCaucao.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div></div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px">
+      <div class="table-container" style="padding:14px 16px;cursor:pointer" onclick="document.getElementById('aloj-tabela-secao')?.scrollIntoView({behavior:'smooth'})" title="Ver detalhamento por alojamento">
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Total Vagas</div>
+        <div style="font-size:26px;font-weight:700">${totalVagas}</div>
       </div>
+      <div class="table-container" style="padding:14px 16px;cursor:pointer" onclick="document.getElementById('aloj-tabela-secao')?.scrollIntoView({behavior:'smooth'})" title="Ver quem ocupa cada alojamento">
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Ocupadas</div>
+        <div style="font-size:26px;font-weight:700;color:var(--primary-dark)">${totalOcup}</div>
+      </div>
+      <div class="table-container" style="padding:14px 16px;cursor:pointer" onclick="document.getElementById('aloj-tabela-secao')?.scrollIntoView({behavior:'smooth'})" title="Ver vagas disponíveis por alojamento">
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Disponíveis</div>
+        <div style="font-size:26px;font-weight:700;color:${totalDisp===0?'var(--danger)':totalDisp<=3?'var(--warning)':'var(--text)'}">${totalDisp}</div>
+      </div>
+      <div class="table-container" style="padding:14px 16px;cursor:pointer" onclick="document.getElementById('aloj-tabela-secao')?.scrollIntoView({behavior:'smooth'})" title="Ver o custo de cada alojamento">
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Custo Mensal</div>
+        <div style="font-size:18px;font-weight:700">R$ ${(totalAluguel+totalContas).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+      </div>
+      <div class="table-container" style="padding:14px 16px;cursor:pointer" onclick="document.getElementById('aloj-tabela-secao')?.scrollIntoView({behavior:'smooth'})" title="Ver detalhamento por alojamento">
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Total Caução</div>
+        <div style="font-size:18px;font-weight:700">R$ ${totalCaucao.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+      </div>
+    </div>
+
+    <div class="table-container" style="padding:16px;margin-bottom:16px">
       <!-- Breakdown por obra -->
-      <div style="border-top:1px solid var(--border);padding-top:14px">
-        <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Por Obra</div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
+      <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Por Obra</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
           ${(()=>{
             const _todas=globalObraFiltro?alojamentos.filter(a=>a.obra_id===globalObraFiltro):alojamentos;
             const _obrasMap={};
@@ -6832,7 +6871,6 @@ function renderAlojamentos(){
             }).join('');
           })()}
         </div>
-      </div>
     </div>
     <div style="margin-bottom:12px;display:flex;gap:8px">
       <div class="search-box" style="max-width:320px"><i class="ti ti-search"></i><input placeholder="Buscar por endereço ou nome..." value="${alojBusca}" oninput="alojBusca=this.value;if(!_buscaHandlers.aloj)_buscaHandlers.aloj=makeBuscaHandler(v=>alojBusca=v,renderAlojamentos,300);_buscaHandlers.aloj(this.value);this.focus()"></div>
@@ -6855,7 +6893,7 @@ function renderAlojamentos(){
       })()}
     </div>
 
-    ${tabelaAlojamentos}`;
+    <div id="aloj-tabela-secao">${tabelaAlojamentos}</div>`;
 }
 
 function openModalAlojamento(id){
@@ -7024,6 +7062,49 @@ async function deleteAlojamento(id,nome){
   showToast('Alojamento excluído.');await loadAlojamentos();renderAlojamentos();
 }
 
+// Mostra o que compõe o custo mensal de um alojamento: valores fixos (aluguel/condomínio/IPTU/seguro)
+// + as contas variáveis lançadas naquele mês (água, energia, gás etc.).
+function abrirDetalheCusto(alojId,mes,ano){
+  const a=alojamentos.find(x=>String(x.id)===String(alojId));
+  if(!a)return;
+  const mesesNomes=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const mesLabel=mesesNomes[mes-1]+'/'+ano;
+  const nomesConta={agua:'💧 Água',energia:'⚡ Energia',gas:'🔥 Gás',condominio:'🏢 Condomínio (conta variável)',internet:'📶 Internet',outro:'📄 Outro'};
+  const contasMes=alojamentosContas.filter(c=>String(c.alojamento_id)===String(alojId)&&c.mes===mes&&c.ano===ano);
+  const fixos=[
+    {label:'Aluguel',valor:Number(a.custo_mensal||0)},
+    {label:'Condomínio (fixo no contrato)',valor:Number(a.condominio||0)},
+    {label:'IPTU',valor:Number(a.iptu||0)},
+    {label:'Seguro incêndio',valor:Number(a.seguro||0)},
+  ].filter(f=>f.valor>0);
+  const total=fixos.reduce((s,f)=>s+f.valor,0)+contasMes.reduce((s,c)=>s+Number(c.valor||0),0);
+  const linhaHtml=(label,valor,sub)=>`
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div><div style="font-size:13px">${label}</div>${sub?`<div style="font-size:11px;color:var(--text-muted)">${sub}</div>`:''}</div>
+      <div style="font-size:13px;font-weight:600">R$ ${Number(valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+    </div>`;
+  insertModal('modal-detalhe-custo',`
+    <div class="modal" style="max-width:440px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-receipt-2"></i> Composição do custo — ${a.nome}</span>
+        <button class="btn btn-sm" onclick="closeModal('modal-detalhe-custo')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Referente a ${mesLabel}</div>
+        ${fixos.length?`<div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Valores fixos do contrato</div>${fixos.map(f=>linhaHtml(f.label,f.valor)).join('')}`:''}
+        ${contasMes.length?`<div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 2px">Contas lançadas em ${mesLabel}</div>${contasMes.map(c=>linhaHtml(nomesConta[c.tipo]||c.tipo,c.valor,c.status==='pendente'?'⏳ Pendente':'✓ Paga')).join('')}`:''}
+        ${!fixos.length&&!contasMes.length?'<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">Nenhum valor lançado para este mês.</div>':''}
+        <div style="display:flex;align-items:center;justify-content:space-between;padding-top:12px;margin-top:6px;border-top:2px solid var(--border)">
+          <strong style="font-size:14px">Total do mês</strong>
+          <strong style="font-size:16px;color:var(--primary-dark)">R$ ${total.toLocaleString('pt-BR',{minimumFractionDigits:2})}</strong>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal('modal-detalhe-custo');openModalContas('${alojId}',${mes},${ano})"><i class="ti ti-receipt"></i> Ver/editar contas</button>
+        <button class="btn" onclick="closeModal('modal-detalhe-custo')">Fechar</button>
+      </div>
+    </div>`);
+}
 function openModalMoradores(alojId){
   const a=alojamentos.find(x=>String(x.id)===String(alojId));
   const moradoresFunc=funcionarios.filter(f=>String(f.alojamento_id)===String(alojId)&&f.situacao!=='inativo').map(f=>({...f,_tipo:'funcionario'}));
