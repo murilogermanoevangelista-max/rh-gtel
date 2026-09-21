@@ -6797,6 +6797,7 @@ function renderAlojamentos(){
           +'<div style="display:flex;align-items:center;gap:10px;min-width:0">'
           +'<i class="ti ti-'+(isHotel?'building-lighthouse':'home')+'" style="color:var(--primary);flex-shrink:0"></i>'
           +'<span style="color:#fff;font-size:14.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+sel.nome+'</span>'
+          +'<span style="font-size:10px;font-weight:700;color:'+(sel.tipo_contratacao==='indireto'?'#FDE68A':'#BBF7D0')+';background:rgba(255,255,255,.12);padding:2px 8px;border-radius:20px;flex-shrink:0">'+(sel.tipo_contratacao==='indireto'?'INDIRETO':'DIRETO')+'</span>'
           +'</div>'
           +'<div style="display:flex;gap:6px;flex-shrink:0">'
           +'<button class="btn btn-sm" onclick="openModalAlojamento(\''+sel.id+'\')" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2)"><i class="ti ti-edit"></i> Editar</button>'
@@ -6806,6 +6807,11 @@ function renderAlojamentos(){
         +'<div style="background:#fff;border:1px solid #E0E2E7;border-top:none;padding:9px 18px;font-size:12px;color:#6B7280">'
           +(sel.imobiliaria||'—')+(sel.endereco?' · '+sel.endereco:'')
         +'</div>'
+        +(sel.observacoes?'<div style="background:#FEF3C7;border:1px solid #FCD34D;border-left:4px solid #D97706;padding:10px 14px;margin:10px 0;border-radius:4px;display:flex;gap:10px;align-items:flex-start">'
+          +'<i class="ti ti-note" style="color:#92400E;font-size:16px;flex-shrink:0;margin-top:1px"></i>'
+          +'<div><div style="font-size:11px;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:.03em;margin-bottom:2px">Observação / Lembrete</div>'
+          +'<div style="font-size:12.5px;color:#78350F">'+sel.observacoes+'</div></div>'
+        +'</div>':'')
         +'<div style="background:#3A4658;display:grid;grid-template-columns:180px 1fr 150px;padding:9px 18px">'
           +'<span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">SEÇÃO</span>'
           +'<span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">RESUMO</span>'
@@ -6936,7 +6942,11 @@ function renderAlojamentos(){
     ${bannerTitularDivergente}
     ${bannerSemRelatorio}
 
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px">
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:16px">
+      <div class="table-container" style="padding:14px 16px;cursor:pointer" onclick="document.getElementById('aloj-tabela-secao')?.scrollIntoView({behavior:'smooth'})" title="Ver a lista de alojamentos">
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Alojamentos</div>
+        <div style="font-size:26px;font-weight:700">${alojsFiltrados.length}</div>
+      </div>
       <div class="table-container" style="padding:14px 16px;cursor:pointer" onclick="document.getElementById('aloj-tabela-secao')?.scrollIntoView({behavior:'smooth'})" title="Ver detalhamento por alojamento">
         <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Total Vagas</div>
         <div style="font-size:26px;font-weight:700">${totalVagas}</div>
@@ -6958,6 +6968,7 @@ function renderAlojamentos(){
         <div style="font-size:18px;font-weight:700">R$ ${totalCaucao.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
       </div>
     </div>
+    ${(alojFiltroAtivo||alojBusca)?`<div style="margin-bottom:10px"><button class="btn btn-sm" onclick="alojFiltroAtivo=null;alojBusca='';document.querySelectorAll('.search-box input').forEach(i=>i.value='');renderAlojamentos()"><i class="ti ti-filter-x"></i> Limpar filtros</button></div>`:''}
 
     <div class="table-container" style="padding:16px;margin-bottom:16px">
       <!-- Breakdown por obra -->
@@ -7044,6 +7055,12 @@ function openModalAlojamento(id){
           </div>
           <div class="form-group"><label>Nome / Descrição *</label><input id="aloj-nome" value="${a?.nome||''}"></div>
           <div class="form-group"><label>Obra vinculada *</label><select id="aloj-obra"><option value="">— Selecione —</option>${obraOpts}</select></div>
+          <div class="form-group"><label>Contratação</label>
+            <select id="aloj-contratacao">
+              <option value="direto" ${(a?.tipo_contratacao||'direto')==='direto'?'selected':''}>Direto</option>
+              <option value="indireto" ${a?.tipo_contratacao==='indireto'?'selected':''}>Indireto</option>
+            </select>
+          </div>
           <div class="form-group full"><label>Endereço completo</label><input id="aloj-end" value="${a?.endereco||''}"></div>
           <div class="form-group"><label>Vagas totais</label><input id="aloj-vagas" type="number" min="1" value="${a?.vagas_total||''}"></div>
           <div class="form-group"><label>Imobiliária</label><input id="aloj-imob" value="${a?.imobiliaria||''}"></div>
@@ -7152,6 +7169,7 @@ async function saveAlojamento(id){
   const payload={
     nome,
     tipo_alojamento:tipoAloj,
+    tipo_contratacao:document.getElementById('aloj-contratacao').value,
     valor_diaria:isHotel?parseBRL(document.getElementById('aloj-diaria').value):null,
     obra_id:obraId,
     endereco:document.getElementById('aloj-end').value.trim()||null,
