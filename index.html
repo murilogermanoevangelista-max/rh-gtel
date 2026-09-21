@@ -12,6 +12,8 @@
 <script>window.XLSXStyle=window.XLSX;window.XLSX=window.__XLSXCore;</script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>if(window['pdfjs-dist/build/pdf'])window.pdfjsLib=window['pdfjs-dist/build/pdf'];if(window.pdfjsLib)window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -608,6 +610,41 @@ function parseDate(str){
   if(str instanceof Date)return str;
   const d=new Date(str+'T12:00:00');
   return isNaN(d.getTime())?null:d;
+}
+// ── Checagem "conta no nome da GTEL" ────────────────────────────────────────
+// Lê o texto real embutido no PDF (a maioria das contas de concessionária é gerada
+// digitalmente, com texto de verdade, não uma foto/scan) e procura por variações do
+// nome da empresa. É uma checagem best-effort: nunca bloqueia o lançamento, só avisa —
+// PDFs escaneados/fotos não têm texto extraível e nesse caso a checagem fica indefinida.
+const NOMES_ACEITOS_CONTA=['GTEL','GRUPO TECNICO DE ELETROMECANICA'];
+function normalizarTextoConta(s){
+  return(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+}
+async function extrairTextoPdf(file){
+  if(!window.pdfjsLib)return null;
+  try{
+    const buf=await file.arrayBuffer();
+    const pdf=await window.pdfjsLib.getDocument({data:buf}).promise;
+    let texto='';
+    const maxPaginas=Math.min(pdf.numPages,2); // titular normalmente aparece já na 1ª página
+    for(let i=1;i<=maxPaginas;i++){
+      const page=await pdf.getPage(i);
+      const content=await page.getTextContent();
+      texto+=content.items.map(it=>it.str).join(' ')+' ';
+    }
+    return texto;
+  }catch(e){
+    console.warn('Não foi possível ler o texto do PDF (provavelmente é uma imagem/scan):',e);
+    return null;
+  }
+}
+// Retorna true (achou o nome), false (não achou — sinal de alerta) ou null (não deu pra checar,
+// ex: PDF escaneado sem texto, ou biblioteca não carregada — nesses casos não afirma nada).
+async function checarTitularConta(file){
+  const texto=await extrairTextoPdf(file);
+  if(texto===null||!texto.trim())return null;
+  const t=normalizarTextoConta(texto);
+  return NOMES_ACEITOS_CONTA.some(n=>t.includes(normalizarTextoConta(n)));
 }
 // Parse Excel serial date (number) to JS Date
 function excelSerialToDate(serial){
@@ -6765,6 +6802,27 @@ function renderAlojamentos(){
   const _obrasSemRelatorio=[...new Set(_alojSemRelatorio.map(a=>a.obra?.codigo?(a.obra.codigo+' — '+a.obra.nome):'Sem obra'))];
   const _listaFiltradaRel=bannerRelatoriosFiltroObra?_alojSemRelatorio.filter(a=>(a.obra?.codigo?(a.obra.codigo+' — '+a.obra.nome):'Sem obra')===bannerRelatoriosFiltroObra):_alojSemRelatorio;
 
+  // Contas possivelmente fora do nome da GTEL (checagem automática do texto do PDF anexado)
+  const _idsAlojFiltradosSet=new Set(alojsFiltrados.map(a=>String(a.id)));
+  const _contasTitularDivergente=alojamentosContas.filter(c=>c.titular_ok===false&&_idsAlojFiltradosSet.has(String(c.alojamento_id)));
+  const bannerTitularDivergente=_contasTitularDivergente.length>0?(()=>{
+    const linhas=_contasTitularDivergente.map(c=>{
+      const aloj=alojamentos.find(a=>String(a.id)===String(c.alojamento_id));
+      const tiposLabel={agua:'💧 Água',energia:'⚡ Energia',gas:'🔥 Gás',condominio:'🏢 Condomínio'};
+      const mesLabel=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][c.mes-1]+'/'+c.ano;
+      return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #FCA5A5">'
+        +'<i class="ti ti-file-alert" style="color:#991B1B;flex-shrink:0;font-size:12px"></i>'
+        +'<span style="font-weight:600;color:#991B1B;font-size:12px;cursor:pointer;text-decoration:underline" onclick="openModalContas(\''+(aloj?.id||'')+'\','+c.mes+','+c.ano+',\''+c.tipo+'\')">'+(aloj?.nome||'—')+'</span>'
+        +'<span style="font-size:11px;color:#991B1B">'+(tiposLabel[c.tipo]||c.tipo)+' · '+mesLabel+'</span>'
+        +'</div>';
+    }).join('');
+    return '<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:var(--radius);margin-bottom:8px;overflow:hidden">'
+      +'<div style="display:flex;align-items:center;gap:10px;padding:10px 14px"><i class="ti ti-file-alert" style="font-size:18px;color:#991B1B;flex-shrink:0"></i>'
+      +'<strong style="color:#991B1B;font-size:13px">'+_contasTitularDivergente.length+' conta(s) possivelmente fora do nome da GTEL</strong>'
+      +'<span style="font-size:11px;color:#991B1B;opacity:.7">— não encontramos "GTEL" no PDF anexado</span></div>'
+      +'<div style="padding:2px 14px 8px;max-height:200px;overflow-y:auto">'+linhas+'</div></div>';
+  })():'';
+
   const bannerSemRelatorio=_alojSemRelatorio.length>0?(()=>{
     const headerHtml='<div onclick="bannerRelatoriosAberto=!bannerRelatoriosAberto;renderAlojamentos()" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#FEF2F2;border-bottom:'+(bannerRelatoriosAberto?'1px solid #FCA5A5':'none')+';cursor:pointer;user-select:none">'
       +'<i class="ti ti-clipboard-x" style="font-size:18px;color:#991B1B;flex-shrink:0"></i>'
@@ -6807,6 +6865,7 @@ function renderAlojamentos(){
     ${vencidos>0?`<div onclick="alojFiltroAtivo=alojFiltroAtivo==='contratos_vencidos'?null:'contratos_vencidos';renderAlojamentos()" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:var(--danger-light);border:1px solid #FCA5A5;color:#991B1B;cursor:pointer;transition:opacity .15s" ${alojFiltroAtivo==='contratos_vencidos'?'class="aloj-filtro-ativo"':''}><i class="ti ti-alert-triangle" style="font-size:18px"></i><strong>${vencidos} contrato(s) vencido(s) — providenciar renovação!</strong><i class="ti ti-${alojFiltroAtivo==='contratos_vencidos'?'x':'chevron-right'}" style="margin-left:auto"></i></div>`:''}
     ${vencProx>0?`<div onclick="alojFiltroAtivo=alojFiltroAtivo==='contratos_vencendo'?null:'contratos_vencendo';renderAlojamentos()" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;background:var(--warning-light);border:1px solid #FCD34D;color:#92400E;cursor:pointer" ${alojFiltroAtivo==='contratos_vencendo'?'class="aloj-filtro-ativo"':''}><i class="ti ti-clock" style="font-size:18px"></i><strong>${vencProx} contrato(s) vencendo em 60 dias</strong><i class="ti ti-${alojFiltroAtivo==='contratos_vencendo'?'x':'chevron-right'}" style="margin-left:auto"></i></div>`:''}
     ${bannerSemContas}
+    ${bannerTitularDivergente}
     ${bannerSemRelatorio}
 
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px">
@@ -7249,7 +7308,7 @@ function openModalContas(alojId,filtroMes,filtroAno,tipoPresel){
     const admBadge=enviado
       ?'<span style="font-size:11px;background:var(--success-light);color:var(--success);padding:2px 8px;border-radius:20px;font-weight:500">✓ ADM 35 nº '+c.adm35_numero+' · '+dataEnvioFmt+'</span>'
       :'<span style="font-size:11px;background:var(--danger-light);color:var(--danger);padding:2px 8px;border-radius:20px;font-weight:500">❗ Não enviado p/ pagamento</span>';
-    return '<div class="conta-row"><div style="display:flex;flex-direction:column;gap:1px"><span>'+tl+'</span><span style="font-size:11px;color:var(--text-muted)">'+mesLabel+'/'+c.ano+'</span></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:500">'+vl+'</span>'+admBadge+(c.anexo_url?'<a href="'+c.anexo_url+'" target="_blank" class="btn btn-sm btn-info" title="Ver anexo"><i class="ti ti-paperclip"></i></a>':'')+'<button class="btn btn-sm" onclick="openModalEditarConta(this)" data-id="'+c.id+'" data-alojid="'+alojId+'" data-mes="'+mesAtualN+'" data-ano="'+anoAtualN+'" data-cmes="'+c.mes+'" data-cano="'+c.ano+'" data-tipo="'+c.tipo+'" data-valor="'+(c.valor||0)+'" title="Editar conta"><i class="ti ti-pencil"></i></button><button class="btn btn-sm" onclick="editarAdm35Click(this)" data-id="'+c.id+'" data-alojid="'+alojId+'" data-mes="'+mesAtualN+'" data-ano="'+anoAtualN+'" data-num="'+(c.adm35_numero||'')+'" data-data="'+(c.adm35_envio||'')+'" title="Lançar/editar envio ADM 35"><i class="ti ti-send"></i></button><button class="btn btn-sm btn-danger" onclick="deleteConta(\''+c.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-trash"></i></button></div></div>';
+    return '<div class="conta-row"><div style="display:flex;flex-direction:column;gap:1px"><span>'+tl+'</span><span style="font-size:11px;color:var(--text-muted)">'+mesLabel+'/'+c.ano+'</span></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:500">'+vl+'</span>'+admBadge+(c.titular_ok===false?'<span onclick="confirmarTitularConta(\''+c.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')" title="Não encontramos &quot;GTEL&quot; no texto do PDF anexado — clique aqui se já conferiu e está correto" style="font-size:11px;font-weight:700;color:#991B1B;background:#FEE2E2;padding:2px 8px;border-radius:20px;cursor:pointer;white-space:nowrap">⚠ Não está no nome da GTEL?</span>':'')+(c.anexo_url?'<a href="'+c.anexo_url+'" target="_blank" class="btn btn-sm btn-info" title="Ver anexo"><i class="ti ti-paperclip"></i></a>':'')+'<button class="btn btn-sm" onclick="openModalEditarConta(this)" data-id="'+c.id+'" data-alojid="'+alojId+'" data-mes="'+mesAtualN+'" data-ano="'+anoAtualN+'" data-cmes="'+c.mes+'" data-cano="'+c.ano+'" data-tipo="'+c.tipo+'" data-valor="'+(c.valor||0)+'" title="Editar conta"><i class="ti ti-pencil"></i></button><button class="btn btn-sm" onclick="editarAdm35Click(this)" data-id="'+c.id+'" data-alojid="'+alojId+'" data-mes="'+mesAtualN+'" data-ano="'+anoAtualN+'" data-num="'+(c.adm35_numero||'')+'" data-data="'+(c.adm35_envio||'')+'" title="Lançar/editar envio ADM 35"><i class="ti ti-send"></i></button><button class="btn btn-sm btn-danger" onclick="deleteConta(\''+c.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-trash"></i></button></div></div>';
   }).join(''):'<div style="text-align:center;padding:16px;color:var(--text-muted);font-size:13px">Nenhuma conta lançada neste mês</div>';
 
   const filtroMesOpts=mesesDisp.map(m=>'<option value="'+m.mes+'" '+(m.mes===mesAtualN&&m.ano===anoAtualN?'selected':'')+'>'+meses[m.mes-1]+'/'+m.ano+'</option>').join('');
@@ -7331,15 +7390,17 @@ async function saveConta(alojId){
   if(!alojId||alojId==='undefined'||alojId==='null'){showToast('Erro: ID do alojamento inválido: '+alojId,'error');return;}
   if(!mes||!ano){showToast('Mês/ano inválido: mes='+mes+' ano='+ano,'error');return;}
   let anexoUrl=null;
+  let titularOk=null;
   const anexoFile=document.getElementById('c-anexo-file')?.files?.[0];
   if(anexoFile){
     showToast('Enviando anexo...');
+    titularOk=await checarTitularConta(anexoFile);
     const path='contas/'+Date.now()+'_'+anexoFile.name.replace(/[^a-zA-Z0-9._-]/g,'_');
     const{error:upErr}=await sb.storage.from('alojamentos').upload(path,anexoFile,{contentType:'application/pdf',upsert:true});
     if(upErr){showToast('Erro ao enviar anexo: '+upErr.message,'error');return;}
     anexoUrl=sb.storage.from('alojamentos').getPublicUrl(path).data.publicUrl;
   }
-  const payload={alojamento_id:alojId,mes,ano,tipo,valor:Number(valor),adm35_numero:adm35Num||null,adm35_envio:adm35Data,anexo_url:anexoUrl};
+  const payload={alojamento_id:alojId,mes,ano,tipo,valor:Number(valor),adm35_numero:adm35Num||null,adm35_envio:adm35Data,anexo_url:anexoUrl,titular_ok:titularOk};
   console.log('[saveConta] payload=',JSON.stringify(payload));
   const res=await sb.from('alojamentos_contas').insert(payload);
   console.log('[saveConta] res=',res);
@@ -7348,7 +7409,11 @@ async function saveConta(alojId){
     showToast('Erro: '+res.error.message+' | code: '+res.error.code,'error');
     return;
   }
-  showToast('Conta lançada! ✓');
+  if(titularOk===false){
+    showToast('Conta lançada — mas não encontramos "GTEL" no PDF anexado. Confira o titular! ⚠','error');
+  } else {
+    showToast('Conta lançada! ✓');
+  }
   await loadAlojamentos();
   closeModal('modal-contas');
   openModalContas(alojId,mes,ano,tipo);
@@ -7452,6 +7517,14 @@ async function saveEditConta(id,alojId,filtroMes,filtroAno){
 
 // toggleContaStatus removido — status único ao lançar
 
+async function confirmarTitularConta(id,alojId,mes,ano){
+  const{error}=await sb.from('alojamentos_contas').update({titular_ok:true}).eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Confirmado — alerta removido para esta conta.');
+  await loadAlojamentos();
+  openModalContas(alojId,mes,ano);
+  renderAlojamentos();
+}
 async function deleteConta(id,alojId,mes,ano){
   if(!confirm('Excluir este lançamento?'))return;
   await sb.from('alojamentos_contas').delete().eq('id',id);
