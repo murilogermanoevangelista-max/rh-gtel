@@ -7110,9 +7110,14 @@ function renderVeiculos(){
   // não em "última revisão + intervalo", pra não desviar da grade se uma revisão for feita um pouco
   // adiantada ou atrasada.
   const numeroProximaRevisao=(v)=>veiculosRevisoes.filter(r=>String(r.veiculo_id)===String(v.id)).length+1;
+  // Pega o KM real da última revisão feita (não a contagem) e projeta a próxima como o primeiro
+  // múltiplo do intervalo estritamente acima disso — ex: revisão feita aos 31.000km com intervalo de
+  // 10.000 → próxima prevista aos 40.000km (não 20.000km, que já teria passado há muito tempo).
   const proximaRevisaoKm=(v)=>{
     const intervalo=v.intervalo_revisao_km||10000;
-    return numeroProximaRevisao(v)*intervalo;
+    const revisoesVeic=veiculosRevisoes.filter(r=>String(r.veiculo_id)===String(v.id));
+    const ultimaKm=revisoesVeic.length?Math.max(...revisoesVeic.map(r=>r.km_revisao||0)):0;
+    return (Math.floor(ultimaKm/intervalo)+1)*intervalo;
   };
   const kmMesLancado=(veiculoId)=>veiculosKm.find(k=>String(k.veiculo_id)===String(veiculoId)&&k.mes===_mesTabela&&k.ano===_anoTabela);
   const abastecMesLancado=(veiculoId)=>veiculosAbastecimentos.find(a=>String(a.veiculo_id)===String(veiculoId)&&a.mes===_mesTabela&&a.ano===_anoTabela);
@@ -7239,17 +7244,22 @@ function renderVeiculos(){
         abastMes?'LANÇADO':'PENDENTE', abastMes?'#166534':'#92400E', abastMes?'#DCFCE7':'#FFFBEB',
         "abrirModalAbastecimento('"+sel.id+"',"+_mesTabela+","+_anoTabela+")"),
       secao('ticketlog','credit-card','Cartão TicketLog',
-        sel.ticketlog_numero_frota?('Frota '+escHtml(sel.ticketlog_numero_frota)+' · Controle '+escHtml(sel.ticketlog_numero_controle||'—')+(sel.tag_pedagio?' · Tag '+escHtml(sel.tag_pedagio):'')):'Não cadastrado',
+        sel.ticketlog_numero_frota?('Frota '+escHtml(sel.ticketlog_numero_frota)+' · Controle '+escHtml(sel.ticketlog_numero_controle||'—')):'Não cadastrado',
         sel.ticketlog_numero_frota?'CADASTRADO':'PENDENTE', sel.ticketlog_numero_frota?'#374151':'#92400E', sel.ticketlog_numero_frota?'#F3F4F6':'#FFFBEB',
         null),
+      secao('tag_pedagio','id','Tag Pedágio',
+        sel.tag_pedagio?('Nº '+escHtml(sel.tag_pedagio)):'Nenhuma tag cadastrada',
+        sel.tag_pedagio?'CADASTRADA':'PENDENTE', sel.tag_pedagio?'#374151':'#92400E', sel.tag_pedagio?'#F3F4F6':'#FFFBEB',
+        "openModalVeiculo('"+sel.id+"')"),
       ...(isLocado?[secao('contrato','file-text','Contrato de Locação',
         (sel.locadora||'—')+' · '+(formatDate(sel.contrato_inicio)||'—')+' → '+(formatDate(sel.contrato_fim)||'—'),
-        diasContrato===null?'—':diasContrato<0?'VENCIDO':diasContrato<=60?diasContrato+'D P/ VENCER':'VIGENTE',
-        diasContrato!==null&&diasContrato<0?'#991B1B':diasContrato!==null&&diasContrato<=60?'#92400E':'#374151',
-        diasContrato!==null&&diasContrato<0?'#FEE2E2':diasContrato!==null&&diasContrato<=60?'#FFFBEB':'#F3F4F6',
+        diasContrato!==null?(diasContrato<0?'VENCIDO':diasContrato<=60?diasContrato+'D P/ VENCER':'VIGENTE'):(sel.contrato_url?'ANEXADO':'SEM ANEXO'),
+        diasContrato!==null?(diasContrato<0?'#991B1B':diasContrato<=60?'#92400E':'#374151'):(sel.contrato_url?'#1D4ED8':'#991B1B'),
+        diasContrato!==null?(diasContrato<0?'#FEE2E2':diasContrato<=60?'#FFFBEB':'#F3F4F6'):(sel.contrato_url?'#DBEAFE':'#FEE2E2'),
         null)]:[]),
       secao('documentos','paperclip','Documentos',documentos.length+' arquivo(s) anexado(s)',
-        documentos.length+' ARQUIVO(S)','#1D4ED8','#DBEAFE', null),
+        documentos.length>0?documentos.length+' ARQUIVO(S)':'NENHUM ANEXO',
+        documentos.length>0?'#1D4ED8':'#991B1B', documentos.length>0?'#DBEAFE':'#FEE2E2', null),
     ];
 
     const secoesHtml=secoes.map(s=>{
@@ -7259,7 +7269,7 @@ function renderVeiculos(){
       if(s.aberto){
         if(s.key==='ticketlog'){
           expandido='<div style="padding:12px 18px 14px 42px;background:#FAFBFC;border-bottom:1px solid #EEF0F2;font-size:12.5px;color:#4B5563">'
-            +'Nº Controle: <strong>'+escHtml(sel.ticketlog_numero_controle||'—')+'</strong> · Nº Frota: <strong>'+escHtml(sel.ticketlog_numero_frota||'—')+'</strong> · Tag Pedágio: <strong>'+escHtml(sel.tag_pedagio||'—')+'</strong>'
+            +'Nº Controle: <strong>'+escHtml(sel.ticketlog_numero_controle||'—')+'</strong> · Nº Frota: <strong>'+escHtml(sel.ticketlog_numero_frota||'—')+'</strong>'
             +'<br>Senha: <span id="ticketlog-senha-'+sel.id+'" style="font-family:monospace">••••••</span> <span style="cursor:pointer;color:var(--primary);font-size:11px" onclick="document.getElementById(\'ticketlog-senha-'+sel.id+'\').textContent='+JSON.stringify(escHtml(sel.ticketlog_senha||'—'))+'">mostrar</span>'
             +'<div style="margin-top:6px"><button class="btn btn-sm" onclick="openModalVeiculo(\''+sel.id+'\')"><i class="ti ti-edit"></i> Editar cartão</button></div>'
             +'</div>';
