@@ -320,23 +320,24 @@ input:focus,select:focus{border-color:var(--primary)}
     <div class="global-obra-badge" id="global-obra-badge"></div>
     <div class="nav-section">Principal</div>
     <div class="nav-item active" onclick="showPage('dashboard')"><i class="ti ti-dashboard"></i> Dashboard</div>
-    <div class="nav-item" onclick="showPage('funcionarios')"><i class="ti ti-users"></i> Funcionários</div>
-    <div class="nav-item" onclick="showPage('transferencias-pendentes')"><i class="ti ti-transfer"></i> Transferências Pendentes <span id="nav-transf-badge" style="display:none;background:var(--danger);color:#fff;border-radius:20px;font-size:10px;padding:1px 7px;margin-left:4px"></span></div>
-    <div class="nav-item" onclick="showPage('experiencia')"><i class="ti ti-certificate"></i> Experiência</div>
-    <div class="nav-item" onclick="showPage('treinamentos')"><i class="ti ti-school"></i> Treinamentos</div>
-    <div class="nav-item" onclick="showPage('folgas')"><i class="ti ti-beach"></i> Folgas de Campo</div>
-    <div class="nav-item" onclick="showPage('ferias')"><i class="ti ti-sunglasses"></i> Férias</div>
     <div class="nav-item" onclick="showPage('alojamentos')"><i class="ti ti-home-2"></i> Alojamentos</div>
-    <div class="nav-item" onclick="showPage('veiculos')"><i class="ti ti-car"></i> Veículos</div>
-    <div class="nav-item" onclick="showPage('prestadores')"><i class="ti ti-id-badge"></i> Prestadores</div>
+    <div class="nav-item" onclick="showPage('ativos-imobilizados')"><i class="ti ti-package"></i> Ativo Imobilizado</div>
     <div class="nav-item" onclick="showPage('efetivo')"><i class="ti ti-users-group"></i> Efetivo</div>
+    <div class="nav-item" onclick="showPage('experiencia')"><i class="ti ti-certificate"></i> Experiência</div>
+    <div class="nav-item" onclick="showPage('ferias')"><i class="ti ti-sunglasses"></i> Férias</div>
+    <div class="nav-item" onclick="showPage('folgas')"><i class="ti ti-beach"></i> Folgas de Campo</div>
+    <div class="nav-item" onclick="showPage('funcionarios')"><i class="ti ti-users"></i> Funcionários</div>
     <div class="nav-item" onclick="showPage('matriz')"><i class="ti ti-map-2"></i> Matriz de Comunicação</div>
+    <div class="nav-item" onclick="showPage('prestadores')"><i class="ti ti-id-badge"></i> Prestadores</div>
+    <div class="nav-item" onclick="showPage('transferencias-pendentes')"><i class="ti ti-transfer"></i> Transferências Pendentes <span id="nav-transf-badge" style="display:none;background:var(--danger);color:#fff;border-radius:20px;font-size:10px;padding:1px 7px;margin-left:4px"></span></div>
+    <div class="nav-item" onclick="showPage('treinamentos')"><i class="ti ti-school"></i> Treinamentos</div>
+    <div class="nav-item" onclick="showPage('veiculos')"><i class="ti ti-car"></i> Veículos</div>
     <div class="nav-section">Cadastros</div>
     <div class="nav-item" id="nav-usuarios" onclick="showPage('usuarios')"><i class="ti ti-shield-lock"></i> Usuários</div>
-    <div class="nav-item" onclick="showPage('obras')"><i class="ti ti-building-skyscraper"></i> Obras / Contratos</div>
+    <div class="nav-item" onclick="showPage('contratacoes')"><i class="ti ti-user-plus"></i> Contratações</div>
     <div class="nav-item" onclick="showPage('empresas')"><i class="ti ti-briefcase"></i> Empresas</div>
     <div class="nav-item" onclick="showPage('fornecedores')"><i class="ti ti-truck-delivery"></i> Fornecedores</div>
-    <div class="nav-item" onclick="showPage('contratacoes')"><i class="ti ti-user-plus"></i> Contratações</div>
+    <div class="nav-item" onclick="showPage('obras')"><i class="ti ti-building-skyscraper"></i> Obras / Contratos</div>
   </nav>
   <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px">
     <div style="width:30px;height:30px;border-radius:50%;background:var(--primary-light);color:var(--primary-dark);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0" id="sidebar-user-avatar">—</div>
@@ -362,7 +363,7 @@ const SUPABASE_URL='https://lqggoshphakeuufibdno.supabase.co';
 const SUPABASE_KEY='sb_publishable_QlnJaa5xdUXePvXFV6QFwQ_AmMk639T';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-let funcionarios=[],obras=[],obrasTodas=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosTodos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[],contratacoes=[],contratacoesVagas=[],contratacoesProspeccoes=[],folgasTranslados=[],movimentacoesHistorico=[],folgasCiclos=[],veiculos=[],veiculosCondutores=[],veiculosKm=[],veiculosRevisoes=[],veiculosAbastecimentos=[];
+let funcionarios=[],obras=[],obrasTodas=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosTodos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[],contratacoes=[],contratacoesVagas=[],contratacoesProspeccoes=[],folgasTranslados=[],movimentacoesHistorico=[],folgasCiclos=[],veiculos=[],veiculosCondutores=[],veiculosKm=[],veiculosRevisoes=[],veiculosAbastecimentos=[],ativosImob=[],ativosImobResponsaveis=[];
 let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'nao_lancadas' | null
 let alojBusca='';
 let alojSelecionadoId=null; // alojamento selecionado no painel mestre-detalhe
@@ -371,6 +372,10 @@ let veiculoSelecionadoId=null;
 let veiculoSecoesAbertas={};
 let veiculoBusca='';
 let veiculoFiltroAtivo=null; // 'revisao_vencida'|'revisao_proxima'|'km_pendente'|'contrato_vencendo'|null
+let ativoImobSelecionadoId=null;
+let ativoImobSecoesAbertas={};
+let ativoImobBusca='';
+let ativoImobFiltroAtivo=null; // 'sem_responsavel'|'sem_termo'|'ressalva_pendente'|null
 let bannerNaoLancadasAberto=false;
 let bannerFiltroObra='';
 let bannerRelatoriosAberto=false;
@@ -802,6 +807,21 @@ async function loadVeiculos(){
   veiculos=listaVei;veiculosCondutores=listaCond;veiculosKm=listaKm;veiculosRevisoes=listaRev;veiculosAbastecimentos=listaAbast;
 }
 
+const CATEGORIAS_ATIVO_IMOB=['Instrumentos de Medição','Ferramentas','Equipamentos de TI','EPI','Máquinas e Equipamentos','Mobiliário','Outros'];
+async function loadAtivosImobilizados(){
+  const [a,r]=await Promise.all([
+    sb.from('ativos_imobilizados').select('*,obra:obras(nome,codigo)').order('descricao'),
+    sb.from('ativos_imob_responsaveis').select('*,funcionario:funcionarios(nome_completo,matricula),obra:obras(nome,codigo)').order('data_recebimento',{ascending:false}),
+  ]);
+  let listaAtivos=a.data||[],listaResp=r.data||[];
+  if(obrasPermitidasIds){
+    listaAtivos=listaAtivos.filter(x=>x.obra_id&&obrasPermitidasIds.has(String(x.obra_id)));
+    const idsPermitidos=new Set(listaAtivos.map(x=>String(x.id)));
+    listaResp=listaResp.filter(x=>idsPermitidos.has(String(x.ativo_id)));
+  }
+  ativosImob=listaAtivos;ativosImobResponsaveis=listaResp;
+}
+
 async function loadPrestadores(){
   const{data}=await sb.from('prestadores')
     .select('*,obra:obras(nome,codigo),alojamento:alojamentos(nome)')
@@ -898,6 +918,7 @@ async function showPage(page){
       (page==='ferias'&&t.includes('férias'))||
       (page==='alojamentos'&&t.includes('alojamento'))||
       (page==='veiculos'&&t.includes('veículo'))||
+      (page==='ativos-imobilizados'&&t.includes('ativo imobilizado'))||
       (page==='prestadores'&&t.includes('prestador'))||
       (page==='usuarios'&&t.includes('usuário'))||
       (page==='obras'&&t.includes('obra'))||
@@ -924,6 +945,7 @@ async function showPage(page){
     else if(page==='ferias')renderFerias();
     else if(page==='alojamentos'){if(!_vindoDeAlerta)alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';bannerRelatoriosAberto=false;bannerRelatoriosFiltroObra='';await loadAlojamentos();await loadPrestadores();renderAlojamentos();}
     else if(page==='veiculos'){await loadVeiculos();renderVeiculos();}
+    else if(page==='ativos-imobilizados'){await loadAtivosImobilizados();renderAtivosImobilizados();}
     else if(page==='prestadores'){await loadPrestadores();renderPrestadores();}
     else if(page==='efetivo'){efetivoSituacaoFiltro='';await loadEfetivo();renderEfetivo();}
     else if(page==='usuarios')renderUsuarios();
@@ -7135,7 +7157,11 @@ function renderVeiculos(){
     else if(veiculoFiltroAtivo==='sem_termo')lista=lista.filter(v=>condutoresAtuais(v.id).some(c=>!c.termo_url));
     if(veiculoBusca){
       const b=veiculoBusca.toLowerCase();
-      lista=lista.filter(v=>(v.placa||'').toLowerCase().includes(b)||(v.modelo||'').toLowerCase().includes(b));
+      lista=lista.filter(v=>
+        (v.placa||'').toLowerCase().includes(b)
+        ||(v.modelo||'').toLowerCase().includes(b)
+        ||condutoresAtuais(v.id).some(c=>(c.funcionario?.nome_completo||'').toLowerCase().includes(b))
+      );
     }
     return lista;
   })();
@@ -7359,7 +7385,7 @@ function renderVeiculos(){
     ${(()=>{const temFiltro=veiculoFiltroAtivo||veiculoBusca;return `<div style="margin-bottom:10px"><button class="btn btn-sm" ${temFiltro?'':'disabled style="opacity:.5;cursor:default"'} onclick="veiculoFiltroAtivo=null;veiculoBusca='';document.querySelectorAll('.search-box input').forEach(i=>i.value='');renderVeiculos()"><i class="ti ti-filter-x"></i> Limpar filtros</button></div>`;})()}
 
     <div style="margin-bottom:12px;display:flex;gap:8px">
-      <div class="search-box" style="max-width:320px"><i class="ti ti-search"></i><input placeholder="Buscar por placa ou modelo..." value="${veiculoBusca}" oninput="veiculoBusca=this.value;if(!_buscaHandlers.veic)_buscaHandlers.veic=makeBuscaHandler(v=>veiculoBusca=v,renderVeiculos,300);_buscaHandlers.veic(this.value);this.focus()"></div>
+      <div class="search-box" style="max-width:320px"><i class="ti ti-search"></i><input placeholder="Buscar por placa, modelo ou condutor..." value="${veiculoBusca}" oninput="veiculoBusca=this.value;if(!_buscaHandlers.veic)_buscaHandlers.veic=makeBuscaHandler(v=>veiculoBusca=v,renderVeiculos,300);_buscaHandlers.veic(this.value);this.focus()"></div>
     </div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
       <span style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Visualizar mês:</span>
@@ -7376,6 +7402,469 @@ function renderVeiculos(){
     </div>
 
     <div id="veic-tabela-secao">${masterDetailHtml}</div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ATIVO IMOBILIZADO
+// ═══════════════════════════════════════════════════════════════════
+function renderAtivosImobilizados(){
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+
+  const responsavelAtual=(ativoId)=>ativosImobResponsaveis.find(r=>String(r.ativo_id)===String(ativoId)&&!r.data_fim);
+  const historicoResponsaveis=(ativoId)=>ativosImobResponsaveis.filter(r=>String(r.ativo_id)===String(ativoId)&&r.data_fim).sort((a,b)=>(parseDate(b.data_fim)||0)-(parseDate(a.data_fim)||0));
+  const nomeResponsavel=(r)=>r?(r.eh_terceirizado?r.nome:(r.funcionario?.nome_completo||r.nome||'—')):null;
+
+  const ativosFiltrados=(()=>{
+    let lista=globalObraFiltro?ativosImob.filter(a=>String(a.obra_id)===String(globalObraFiltro)):ativosImob;
+    lista=lista.filter(a=>a.status!=='baixado'); // baixados saem do dia a dia, mas continuam no banco
+    if(ativoImobFiltroAtivo==='sem_responsavel')lista=lista.filter(a=>!responsavelAtual(a.id));
+    else if(ativoImobFiltroAtivo==='sem_termo')lista=lista.filter(a=>{const r=responsavelAtual(a.id);return r&&!r.termo_url;});
+    else if(ativoImobFiltroAtivo==='ressalva_pendente')lista=lista.filter(a=>{const r=responsavelAtual(a.id);return r&&r.condicao==='com_ressalva';});
+    if(ativoImobBusca){
+      const b=ativoImobBusca.toLowerCase();
+      lista=lista.filter(a=>{
+        const r=responsavelAtual(a.id);
+        const todasNfs=ativosImobResponsaveis.filter(x=>String(x.ativo_id)===String(a.id));
+        return (a.descricao||'').toLowerCase().includes(b)
+          ||(a.patrimonio_numero||'').toLowerCase().includes(b)
+          ||(a.serie_numero||'').toLowerCase().includes(b)
+          ||(nomeResponsavel(r)||'').toLowerCase().includes(b)
+          ||todasNfs.some(x=>(x.nota_fiscal_numero||'').toLowerCase().includes(b));
+      });
+    }
+    return lista;
+  })();
+
+  const temAlertaAtivo=(a)=>{
+    const r=responsavelAtual(a.id);
+    if(!r)return true;
+    if(!r.termo_url)return true;
+    if(r.condicao==='com_ressalva')return true;
+    return false;
+  };
+
+  const semResponsavel=ativosFiltrados.filter(a=>!responsavelAtual(a.id)).length;
+  const semTermo=ativosFiltrados.filter(a=>{const r=responsavelAtual(a.id);return r&&!r.termo_url;}).length;
+  const ressalvaPendente=ativosFiltrados.filter(a=>{const r=responsavelAtual(a.id);return r&&r.condicao==='com_ressalva';}).length;
+
+  const alertCardsHtml=alertCardsRow([
+    semResponsavel>0?{count:semResponsavel,label:'Sem responsável definido',icon:'user-x',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"ativoImobFiltroAtivo=ativoImobFiltroAtivo==='sem_responsavel'?null:'sem_responsavel';renderAtivosImobilizados()"}:null,
+    semTermo>0?{count:semTermo,label:'Termo sem anexo',icon:'file-alert',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"ativoImobFiltroAtivo=ativoImobFiltroAtivo==='sem_termo'?null:'sem_termo';renderAtivosImobilizados()"}:null,
+    ressalvaPendente>0?{count:ressalvaPendente,label:'Recebido com ressalva',icon:'alert-triangle',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"ativoImobFiltroAtivo=ativoImobFiltroAtivo==='ressalva_pendente'?null:'ressalva_pendente';renderAtivosImobilizados()"}:null,
+  ]);
+
+  const _byObra={};
+  ativosFiltrados.forEach(a=>{
+    const obraKey=a.obra?.codigo?(a.obra.codigo+' — '+a.obra.nome):'Sem obra vinculada';
+    if(!_byObra[obraKey])_byObra[obraKey]=[];
+    _byObra[obraKey].push(a);
+  });
+
+  const masterDetailHtml=(()=>{
+    try{
+    return (()=>{
+    if(!ativosFiltrados.length)return '<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-package-off" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum ativo cadastrado</div>';
+
+    let sel=ativosFiltrados.find(a=>String(a.id)===String(ativoImobSelecionadoId));
+    if(!sel){sel=ativosFiltrados[0];ativoImobSelecionadoId=sel.id;}
+
+    const multiObra=Object.keys(_byObra).length>1;
+    const listaHtml=Object.entries(_byObra).map(([obraKey,lista])=>{
+      const grupo=multiObra?'<div style="padding:8px 4px 6px;font-size:11px;font-weight:700;color:#8B95A5;letter-spacing:.03em">'+escHtml(obraKey.split(' — ')[0])+'</div>':'';
+      const itens=lista.map(a=>{
+        const isSel=String(a.id)===String(sel.id);
+        const alerta=temAlertaAtivo(a);
+        return '<div class="item aloj-item" onclick="ativoImobSelecionadoId=\''+a.id+'\';renderAtivosImobilizados()" style="background:'+(isSel?'#1D9E75':'#fff')+';border:1px solid '+(isSel?'#1D9E75':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:6px">'
+          +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
+          +'<div style="display:flex;align-items:center;gap:8px;min-width:0">'
+          +'<i class="ti ti-package" style="font-size:14px;color:'+(isSel?'#fff':'#8B95A5')+';flex-shrink:0"></i>'
+          +'<span style="font-size:13px;font-weight:600;color:'+(isSel?'#fff':'#1A1F29')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">'+escHtml(a.descricao)+'</span>'
+          +'</div>'
+          +'<div style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:'+(alerta?'#DC2626':'#16A34A')+'"></div>'
+          +'</div>'
+          +'<div style="font-size:10.5px;color:'+(isSel?'rgba(255,255,255,.85)':'#8B95A5')+';margin-top:2px;margin-left:22px">Pat. '+escHtml(a.patrimonio_numero||'—')+' · '+escHtml(a.categoria||'—')+'</div>'
+          +'</div>';
+      }).join('');
+      return grupo+itens;
+    }).join('');
+
+    const respAtual=responsavelAtual(sel.id);
+    const historico=historicoResponsaveis(sel.id);
+    const documentos=[
+      ...(respAtual&&respAtual.termo_url?[{nome:'Termo assinado — '+(nomeResponsavel(respAtual)||'atual'),url:respAtual.termo_url}]:[]),
+      ...historico.filter(h=>h.termo_url).map(h=>({nome:'Termo assinado — '+(nomeResponsavel(h)||'—')+' (histórico)',url:h.termo_url})),
+    ];
+
+    const secao=(key,icone,titulo,resumo,status,corStatus,bgStatus,onclickOuNull)=>{
+      const aberto=!onclickOuNull&&!!ativoImobSecoesAbertas[key];
+      const clickAttr=onclickOuNull?onclickOuNull:"ativoImobSecoesAbertas['"+key+"']=!ativoImobSecoesAbertas['"+key+"'];renderAtivosImobilizados()";
+      return{key,icone,titulo,resumo,status,corStatus,bgStatus,clickAttr,aberto,expandivel:!onclickOuNull};
+    };
+
+    const tipoMovLabel={remessa:'Remessa',transferencia:'Transferência'};
+    const estadoLabel={novo:'Novo',usado:'Usado em bom estado',ressalva:'Com ressalva'};
+
+    const secoes=[
+      secao('responsavel','user','Responsável Atual',
+        respAtual?(nomeResponsavel(respAtual)+(respAtual.cargo?' — '+escHtml(respAtual.cargo):'')+(respAtual.eh_terceirizado?' (terceirizado)':'')):'Nenhum responsável definido',
+        respAtual?(respAtual.termo_url?'TERMO OK':'SEM TERMO'):'PENDENTE',
+        respAtual&&respAtual.termo_url?'#166534':'#991B1B', respAtual&&respAtual.termo_url?'#DCFCE7':'#FEE2E2',
+        "abrirModalResponsavelAtivo('"+sel.id+"')"),
+      secao('termo','file-text','Dados do Termo',
+        respAtual?('NF '+(respAtual.nota_fiscal_numero||'—')+' · '+(tipoMovLabel[respAtual.tipo_movimentacao]||'—')+(respAtual.condicao==='com_ressalva'?' · Com ressalvas':' · Sem ressalvas')):'Sem termo ativo',
+        respAtual?(respAtual.condicao==='com_ressalva'?'RESSALVA':(tipoMovLabel[respAtual.tipo_movimentacao]||'—').toUpperCase()):'—',
+        respAtual&&respAtual.condicao==='com_ressalva'?'#92400E':'#374151',
+        respAtual&&respAtual.condicao==='com_ressalva'?'#FFFBEB':'#F3F4F6',
+        null),
+      secao('bem','box','Dados do Bem',
+        'R$ '+Number(sel.valor||0).toLocaleString('pt-BR',{minimumFractionDigits:2})+' · '+(sel.quantidade||1)+' un. · '+(estadoLabel[respAtual?.estado_recebimento]||'—'),
+        sel.categoria||'—','#374151','#F3F4F6',
+        "openModalAtivoImob('"+sel.id+"')"),
+      secao('documentos','paperclip','Documentos',documentos.length+' arquivo(s) anexado(s)',
+        documentos.length>0?documentos.length+' ARQUIVO(S)':'NENHUM ANEXO',
+        documentos.length>0?'#1D4ED8':'#991B1B', documentos.length>0?'#DBEAFE':'#FEE2E2', null),
+    ];
+
+    const secoesHtml=secoes.map(s=>{
+      const rot=s.expandivel?(s.aberto?'0deg':'-90deg'):'-90deg';
+      const chevronHtml=s.expandivel?'<i class="ti ti-chevron-down" style="font-size:12px;color:#8B95A5;transform:rotate('+rot+')"></i>':'<i class="ti ti-arrow-narrow-right" style="font-size:13px;color:#8B95A5"></i>';
+      let expandido='';
+      if(s.aberto){
+        if(s.key==='termo'&&respAtual){
+          expandido='<div style="padding:12px 18px 14px 42px;background:#FAFBFC;border-bottom:1px solid #EEF0F2;font-size:12.5px;color:#4B5563">'
+            +'Nota fiscal: <strong>'+escHtml(respAtual.nota_fiscal_numero||'—')+'</strong> · Emissão: <strong>'+(formatDate(respAtual.nota_fiscal_data)||'—')+'</strong> · Obra: <strong>'+escHtml(respAtual.obra?.codigo||'—')+'</strong>'
+            +'<br>Local/data do recebimento: <strong>'+escHtml(respAtual.local_recebimento||'—')+'</strong>, '+(formatDate(respAtual.data_recebimento)||'—')
+            +(respAtual.condicao==='com_ressalva'&&respAtual.ressalvas_texto?'<br><span style="color:#92400E">Ressalvas: '+escHtml(respAtual.ressalvas_texto)+'</span>':'')
+            +'</div>';
+        } else if(s.key==='documentos'){
+          expandido='<div style="padding:12px 18px 14px 42px;background:#FAFBFC;border-bottom:1px solid #EEF0F2">'
+            +(documentos.length?documentos.map(d=>'<div style="margin-bottom:6px"><a href="'+d.url+'" target="_blank" style="font-size:12.5px;color:#1D4ED8;display:flex;align-items:center;gap:6px"><i class="ti ti-file-text"></i>'+escHtml(d.nome)+'</a></div>').join('')
+              :'<div style="font-size:12.5px;color:var(--text-muted)">Nenhum documento anexado ainda.</div>')
+            +'</div>';
+        }
+      }
+      return '<div>'
+        +'<div class="aloj-secao-row" onclick="'+s.clickAttr+'" style="display:grid;grid-template-columns:180px 1fr 150px;align-items:center;padding:12px 18px;border-bottom:1px solid #EEF0F2;cursor:pointer;background:'+(s.aberto?'#FAFBFC':'#fff')+'">'
+        +'<span style="font-size:13px;font-weight:600;color:#1A1F29;display:flex;align-items:center;gap:8px">'+chevronHtml+'<i class="ti ti-'+s.icone+'" style="font-size:14px;color:#4B5160"></i>'+s.titulo+'</span>'
+        +'<span style="font-size:12.5px;color:#4B5563">'+s.resumo+'</span>'
+        +'<span style="font-size:11px;font-weight:700;color:'+s.corStatus+';background:'+s.bgStatus+';padding:3px 10px;border-radius:3px;display:inline-block;width:fit-content">'+s.status+'</span>'
+        +'</div>'
+        +expandido
+        +'</div>';
+    }).join('');
+
+    const statusBadge={em_uso:{t:'EM USO',c:'#166534',b:'#DCFCE7'},danificado:{t:'DANIFICADO',c:'#92400E',b:'#FFFBEB'},extraviado:{t:'EXTRAVIADO',c:'#991B1B',b:'#FEE2E2'}}[sel.status]||{t:'EM USO',c:'#166534',b:'#DCFCE7'};
+
+    return '<div style="display:flex;gap:16px;align-items:flex-start">'
+      +'<div style="width:280px;flex-shrink:0">'+listaHtml+'</div>'
+      +'<div style="flex:1;min-width:0">'
+        +'<div style="background:#243244;padding:13px 18px;display:flex;align-items:center;justify-content:space-between;border-radius:4px 4px 0 0;flex-wrap:wrap;gap:8px">'
+          +'<div style="display:flex;align-items:center;gap:10px;min-width:0">'
+          +'<i class="ti ti-package" style="color:var(--primary);flex-shrink:0"></i>'
+          +'<span style="color:#fff;font-size:14.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">'+escHtml(sel.descricao)+'</span>'
+          +'<span style="font-size:10px;font-weight:700;color:'+statusBadge.c+';background:'+statusBadge.b+';padding:2px 8px;border-radius:20px;flex-shrink:0">'+statusBadge.t+'</span>'
+          +'</div>'
+          +'<div style="display:flex;gap:6px;flex-shrink:0">'
+          +'<button class="btn btn-sm" onclick="openModalAtivoImob(\''+sel.id+'\')" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2)"><i class="ti ti-edit"></i> Editar</button>'
+          +'<button class="btn btn-sm btn-danger" onclick="deleteAtivoImob(\''+sel.id+'\',\''+escHtml(sel.descricao)+'\')"><i class="ti ti-trash"></i></button>'
+          +'</div>'
+        +'</div>'
+        +'<div style="background:#fff;border:1px solid #E0E2E7;border-top:none;padding:9px 18px;font-size:12px;color:#6B7280">'
+          +'Patrimônio '+escHtml(sel.patrimonio_numero||'—')+' · Série '+escHtml(sel.serie_numero||'—')+' · '+escHtml(sel.categoria||'—')
+        +'</div>'
+        +(sel.observacoes?'<div style="background:#FEF3C7;border:1px solid #FCD34D;border-left:4px solid #D97706;padding:10px 14px;margin:10px 0;border-radius:4px;display:flex;gap:10px;align-items:flex-start">'
+          +'<i class="ti ti-note" style="color:#92400E;font-size:16px;flex-shrink:0;margin-top:1px"></i>'
+          +'<div><div style="font-size:11px;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:.03em;margin-bottom:2px">Observação / Lembrete</div>'
+          +'<div style="font-size:12.5px;color:#78350F">'+escHtml(sel.observacoes)+'</div></div>'
+        +'</div>':'')
+        +'<div style="background:#3A4658;display:grid;grid-template-columns:180px 1fr 150px;padding:9px 18px">'
+          +'<span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">SEÇÃO</span>'
+          +'<span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">RESUMO</span>'
+          +'<span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">STATUS</span>'
+        +'</div>'
+        +'<div style="background:#fff;border:1px solid #E0E2E7;border-top:none;border-radius:0 0 4px 4px;overflow:hidden">'+secoesHtml+'</div>'
+      +'</div>'
+    +'</div>';
+    })();
+    }catch(e){
+      console.error('[Ativo Imobilizado] erro ao montar o painel:',e);
+      return '<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:16px;color:#991B1B">'
+        +'<strong>⚠ Erro ao montar o painel de ativos</strong>'
+        +'<div style="font-size:12px;margin-top:6px;font-family:monospace;white-space:pre-wrap">'+(e.message||e)+'</div>'
+        +'<div style="font-size:11px;margin-top:8px;color:#7F1D1D">Tire um print desta caixa e envie.</div>'
+        +'</div>';
+    }
+  })();
+
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title"><i class="ti ti-package"></i> Ativo Imobilizado</div>
+        <div class="page-subtitle">${ativosFiltrados.length} ativo(s)</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="openModalAtivoImob()"><i class="ti ti-plus"></i> Novo ativo</button>
+      </div>
+    </div>
+
+    ${alertCardsHtml}
+    ${(()=>{const temFiltro=ativoImobFiltroAtivo||ativoImobBusca;return `<div style="margin-bottom:10px"><button class="btn btn-sm" ${temFiltro?'':'disabled style="opacity:.5;cursor:default"'} onclick="ativoImobFiltroAtivo=null;ativoImobBusca='';document.querySelectorAll('.search-box input').forEach(i=>i.value='');renderAtivosImobilizados()"><i class="ti ti-filter-x"></i> Limpar filtros</button></div>`;})()}
+
+    <div style="margin-bottom:12px;display:flex;gap:8px">
+      <div class="search-box" style="max-width:340px"><i class="ti ti-search"></i><input placeholder="Buscar por equipamento, patrimônio, NF ou responsável..." value="${ativoImobBusca}" oninput="ativoImobBusca=this.value;if(!_buscaHandlers.ativoImob)_buscaHandlers.ativoImob=makeBuscaHandler(v=>ativoImobBusca=v,renderAtivosImobilizados,300);_buscaHandlers.ativoImob(this.value);this.focus()"></div>
+    </div>
+
+    <div id="ativoimob-tabela-secao">${masterDetailHtml}</div>`;
+}
+
+function openModalAtivoImob(id){
+  const a=id?ativosImob.find(x=>x.id===id):null;
+  const isEdit=!!a;
+  const obraOpts=obras.map(o=>`<option value="${o.id}" ${a?.obra_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
+  const catOpts=CATEGORIAS_ATIVO_IMOB.map(c=>`<option value="${c}" ${a?.categoria===c?'selected':''}>${c}</option>`).join('');
+  insertModal('modal-ativoimob',`
+    <div class="modal" style="max-width:640px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-package"></i> ${isEdit?'Editar Ativo':'Novo Ativo Imobilizado'}</span>
+        <button class="btn btn-sm" onclick="closeModal('modal-ativoimob')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group full"><label>Descrição do bem *</label><input id="ai-descricao" value="${a?.descricao||''}" placeholder="Ex: Analisador de Oxigênio Portátil - Oxímetro"></div>
+          <div class="form-group"><label>Nº Patrimônio *</label><input id="ai-patrimonio" value="${a?.patrimonio_numero||''}"></div>
+          <div class="form-group"><label>Nº de Série</label><input id="ai-serie" value="${a?.serie_numero||''}"></div>
+          <div class="form-group"><label>Categoria</label><select id="ai-categoria"><option value="">— Selecione —</option>${catOpts}</select></div>
+          <div class="form-group"><label>Obra de lotação *</label><select id="ai-obra"><option value="">— Selecione —</option>${obraOpts}</select></div>
+          <div class="form-group"><label>Status</label>
+            <select id="ai-status">
+              <option value="em_uso" ${(a?.status||'em_uso')==='em_uso'?'selected':''}>Em uso</option>
+              <option value="danificado" ${a?.status==='danificado'?'selected':''}>Danificado</option>
+              <option value="extraviado" ${a?.status==='extraviado'?'selected':''}>Extraviado</option>
+              <option value="baixado" ${a?.status==='baixado'?'selected':''}>Baixado</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Valor de compra (R$)</label><input id="ai-valor" type="text" inputmode="decimal" placeholder="0,00" value="${a?.valor?String(a.valor).replace('.',','):''}"></div>
+          <div class="form-group"><label>Quantidade</label><input id="ai-qtd" type="number" min="1" value="${a?.quantidade||1}"></div>
+          <div class="form-group full"><label>Observações</label><textarea id="ai-obs" rows="2">${a?.observacoes||''}</textarea></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal('modal-ativoimob')">Cancelar</button>
+        <button class="btn btn-primary" onclick="saveAtivoImob(${id?`'${id}'`:'null'})"><i class="ti ti-check"></i> Salvar</button>
+      </div>
+    </div>`);
+}
+async function saveAtivoImob(id){
+  const descricao=document.getElementById('ai-descricao').value.trim();
+  if(!descricao){showToast('Descrição é obrigatória','error');return;}
+  const patrimonio=document.getElementById('ai-patrimonio').value.trim();
+  if(!patrimonio){showToast('Nº Patrimônio é obrigatório','error');return;}
+  const obraId=document.getElementById('ai-obra').value;
+  if(!obraId){showToast('Obra de lotação é obrigatória','error');return;}
+  function parseBRL(v){if(!v&&v!==0)return null;const s=String(v).trim();if(s.includes(',')){return parseFloat(s.replace(/\./g,'').replace(',','.'))||null;}return parseFloat(s)||null;}
+  const payload={
+    descricao,
+    patrimonio_numero:patrimonio,
+    serie_numero:document.getElementById('ai-serie').value.trim()||null,
+    categoria:document.getElementById('ai-categoria').value||null,
+    obra_id:obraId,
+    status:document.getElementById('ai-status').value,
+    valor:parseBRL(document.getElementById('ai-valor').value),
+    quantidade:parseInt(document.getElementById('ai-qtd').value)||1,
+    observacoes:document.getElementById('ai-obs').value.trim()||null,
+  };
+  const res=id?await sb.from('ativos_imobilizados').update(payload).eq('id',id):await sb.from('ativos_imobilizados').insert(payload).select().single();
+  if(res.error){showToast('Erro: '+res.error.message,'error');return;}
+  showToast('Ativo salvo!');
+  closeModal('modal-ativoimob');
+  await loadAtivosImobilizados();
+  if(!id&&res.data)ativoImobSelecionadoId=res.data.id;
+  renderAtivosImobilizados();
+}
+async function deleteAtivoImob(id,descricao){
+  if(!confirm('Excluir o ativo "'+descricao+'"? Isso remove também todo o histórico de responsáveis. Prefira mudar o status para "Baixado" em vez de excluir, para manter o histórico.'))return;
+  await sb.from('ativos_imobilizados').delete().eq('id',id);
+  showToast('Ativo excluído.');
+  ativoImobSelecionadoId=null;
+  await loadAtivosImobilizados();
+  renderAtivosImobilizados();
+}
+
+// ── Responsável / Termo ──
+function abrirModalResponsavelAtivo(ativoId){
+  const a=ativosImob.find(x=>x.id===ativoId);
+  if(!a)return;
+  const atual=ativosImobResponsaveis.find(r=>String(r.ativo_id)===String(ativoId)&&!r.data_fim);
+  const historico=ativosImobResponsaveis.filter(r=>String(r.ativo_id)===String(ativoId)&&r.data_fim).sort((a,b)=>(parseDate(b.data_fim)||0)-(parseDate(a.data_fim)||0));
+  const funcOpts=funcionarios.filter(f=>f.situacao==='ativo').sort((a,b)=>(a.nome_completo||'').localeCompare(b.nome_completo||'','pt-BR')).map(f=>`<option value="${f.id}">${f.nome_completo} — ${f.matricula||''}</option>`).join('');
+  const nomeDe=(r)=>r.eh_terceirizado?r.nome:(r.funcionario?.nome_completo||r.nome||'—');
+
+  const linhaAtual=atual?`
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div>
+        <div style="font-size:13px;font-weight:600">${escHtml(nomeDe(atual))} ${atual.eh_terceirizado?'<span style="font-size:10px;font-weight:700;color:#92400E;background:#FFFBEB;padding:2px 8px;border-radius:20px;margin-left:6px">TERCEIRIZADO</span>':''}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${escHtml(atual.cargo||'—')}${atual.empresa_terceirizada?' · '+escHtml(atual.empresa_terceirizada):''} · Desde ${formatDate(atual.data_recebimento)||'—'}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        ${atual.termo_url?`<a href="${atual.termo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-file-text"></i> Ver termo</a>`:`<span style="font-size:11px;font-weight:700;color:#991B1B;background:#FEE2E2;padding:3px 9px;border-radius:20px">SEM TERMO</span>`}
+        <label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-upload"></i> ${atual.termo_url?'Trocar':'Anexar'} termo<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAtivo('${atual.id}',this)"></label>
+        <button class="btn btn-sm btn-danger" onclick="encerrarResponsavelAtivo('${atual.id}','${ativoId}')" title="Encerrar (o bem foi passado pra outra pessoa ou devolvido)"><i class="ti ti-x"></i></button>
+      </div>
+    </div>`:'<div style="color:var(--text-muted);font-size:13px;padding:10px 0">Nenhum responsável definido ainda.</div>';
+
+  insertModal('modal-resp-ativo',`
+    <div class="modal" style="max-width:640px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-user"></i> Responsável — ${escHtml(a.descricao)}</span>
+        <button class="btn btn-sm" onclick="closeModal('modal-resp-ativo')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Responsável atual</div>
+        ${linhaAtual}
+        <div style="margin-top:14px;padding-top:14px;border-top:2px solid var(--border)">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Novo responsável (${atual?'substitui o atual':'define o primeiro'})</div>
+          <div style="display:flex;gap:12px;margin-bottom:10px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="radio" name="resp-tipo" value="cadastrado" checked onchange="atualizarTipoResponsavelAtivo()"> Funcionário cadastrado</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="radio" name="resp-tipo" value="terceirizado" onchange="atualizarTipoResponsavelAtivo()"> Terceirizado / não cadastrado</label>
+          </div>
+          <div id="resp-bloco-cadastrado" class="form-grid">
+            <div class="form-group full"><label>Funcionário</label><select id="resp-func"><option value="">— Selecione —</option>${funcOpts}</select></div>
+          </div>
+          <div id="resp-bloco-terceirizado" class="form-grid" style="display:none">
+            <div class="form-group"><label>Nome completo</label><input id="resp-nome"></div>
+            <div class="form-group"><label>CPF</label><input id="resp-cpf"></div>
+            <div class="form-group"><label>Cargo/Função</label><input id="resp-cargo-terc"></div>
+            <div class="form-group"><label>Empresa</label><input id="resp-empresa-terc"></div>
+            <div class="form-group"><label>Telefone</label><input id="resp-telefone"></div>
+            <div class="form-group"><label>E-mail</label><input id="resp-email"></div>
+          </div>
+          <div class="form-grid" style="margin-top:8px">
+            <div class="form-group" id="resp-cargo-wrap"><label>Cargo/Função</label><input id="resp-cargo"></div>
+            <div class="form-group"><label>Nota fiscal (Remessa/Transferência) nº</label><input id="resp-nf-num"></div>
+            <div class="form-group"><label>Data de emissão da NF</label><input id="resp-nf-data" type="date"></div>
+            <div class="form-group"><label>Obra de utilização/lotação</label><select id="resp-obra">${obras.map(o=>`<option value="${o.id}" ${a.obra_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('')}</select></div>
+            <div class="form-group"><label>Tipo de movimentação</label>
+              <select id="resp-tipo-mov">
+                <option value="remessa">Remessa</option>
+                <option value="transferencia">Transferência</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Estado no recebimento</label>
+              <select id="resp-estado">
+                <option value="novo">Novo</option>
+                <option value="usado">Usado em bom estado</option>
+                <option value="ressalva">Com ressalva</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Condição de recebimento</label>
+              <select id="resp-condicao" onchange="document.getElementById('resp-ressalvas-wrap').style.display=this.value==='com_ressalva'?'block':'none'">
+                <option value="sem_ressalva">Sem ressalvas</option>
+                <option value="com_ressalva">Com ressalvas</option>
+              </select>
+            </div>
+            <div class="form-group full" id="resp-ressalvas-wrap" style="display:none"><label>Descreva as ressalvas</label><textarea id="resp-ressalvas" rows="2"></textarea></div>
+            <div class="form-group"><label>Local do recebimento</label><input id="resp-local"></div>
+            <div class="form-group"><label>Data do recebimento</label><input id="resp-data" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+            <div class="form-group full"><label>Termo assinado (PDF ou foto)</label><input type="file" id="resp-termo-file" accept=".pdf,.jpg,.jpeg,.png"></div>
+          </div>
+          <button class="btn btn-primary" style="margin-top:8px" onclick="adicionarResponsavelAtivo('${ativoId}')"><i class="ti ti-plus"></i> Definir responsável</button>
+        </div>
+        ${historico.length?`<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Histórico (${historico.length})</div>
+          ${historico.map(r=>`<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-muted)"><div style="display:flex;align-items:center;justify-content:space-between"><span>${escHtml(nomeDe(r))} · ${formatDate(r.data_recebimento)||'—'} → ${formatDate(r.data_fim)||'—'}</span>${r.termo_url?`<a href="${r.termo_url}" target="_blank" style="color:var(--primary)">Ver termo</a>`:''}</div><div style="font-size:11px;margin-top:1px">NF ${escHtml(r.nota_fiscal_numero||'—')}${r.obra?' · Obra '+escHtml(r.obra?.codigo||''):''}</div></div>`).join('')}
+        </div>`:''}
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeModal('modal-resp-ativo')">Fechar</button></div>
+    </div>`);
+}
+function atualizarTipoResponsavelAtivo(){
+  const tipo=document.querySelector('input[name="resp-tipo"]:checked').value;
+  document.getElementById('resp-bloco-cadastrado').style.display=tipo==='cadastrado'?'grid':'none';
+  document.getElementById('resp-bloco-terceirizado').style.display=tipo==='terceirizado'?'grid':'none';
+  document.getElementById('resp-cargo-wrap').style.display=tipo==='cadastrado'?'block':'none';
+}
+async function adicionarResponsavelAtivo(ativoId){
+  const tipo=document.querySelector('input[name="resp-tipo"]:checked').value;
+  const ehTerceirizado=tipo==='terceirizado';
+  let nome=null,cpf=null,cargo=null,empresaTerc=null,telefone=null,email=null,funcId=null;
+  if(ehTerceirizado){
+    nome=document.getElementById('resp-nome').value.trim();
+    if(!nome){showToast('Informe o nome do responsável terceirizado','error');return;}
+    cpf=document.getElementById('resp-cpf').value.trim()||null;
+    cargo=document.getElementById('resp-cargo-terc').value.trim()||null;
+    empresaTerc=document.getElementById('resp-empresa-terc').value.trim()||null;
+    telefone=document.getElementById('resp-telefone').value.trim()||null;
+    email=document.getElementById('resp-email').value.trim()||null;
+  }else{
+    funcId=document.getElementById('resp-func').value;
+    if(!funcId){showToast('Selecione um funcionário','error');return;}
+    cargo=document.getElementById('resp-cargo').value.trim()||null;
+  }
+  const dataRecebimento=document.getElementById('resp-data').value||new Date().toISOString().slice(0,10);
+
+  // Só pode haver 1 responsável atual por vez — encerra o anterior automaticamente
+  const atualAnterior=ativosImobResponsaveis.find(r=>String(r.ativo_id)===String(ativoId)&&!r.data_fim);
+  if(atualAnterior)await sb.from('ativos_imob_responsaveis').update({data_fim:dataRecebimento}).eq('id',atualAnterior.id);
+
+  let termoUrl=null;
+  const termoFile=document.getElementById('resp-termo-file')?.files?.[0];
+  if(termoFile){
+    showToast('Enviando termo...');
+    const path='termos/'+Date.now()+'_'+termoFile.name.replace(/\s/g,'_');
+    const{error:upErr}=await sb.storage.from('ativos-imobilizados').upload(path,termoFile,{upsert:true});
+    if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
+    termoUrl=sb.storage.from('ativos-imobilizados').getPublicUrl(path).data.publicUrl;
+  }
+
+  const condicao=document.getElementById('resp-condicao').value;
+  const obraMovimentacao=document.getElementById('resp-obra').value;
+  const{error}=await sb.from('ativos_imob_responsaveis').insert({
+    ativo_id:ativoId,
+    eh_terceirizado:ehTerceirizado,
+    funcionario_id:funcId,
+    nome,cpf,cargo,empresa_terceirizada:empresaTerc,telefone,email,
+    nota_fiscal_numero:document.getElementById('resp-nf-num').value.trim()||null,
+    nota_fiscal_data:document.getElementById('resp-nf-data').value||null,
+    obra_id:obraMovimentacao||null,
+    tipo_movimentacao:document.getElementById('resp-tipo-mov').value,
+    estado_recebimento:document.getElementById('resp-estado').value,
+    condicao,
+    ressalvas_texto:condicao==='com_ressalva'?(document.getElementById('resp-ressalvas').value.trim()||null):null,
+    local_recebimento:document.getElementById('resp-local').value.trim()||null,
+    data_recebimento:dataRecebimento,
+    termo_url:termoUrl,
+  });
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  // Mantém a "obra atual" do ativo sincronizada com a obra desta movimentação — é o que permite
+  // saber, olhando só o cadastro do ativo, onde ele está agora; o histórico de cada termo continua
+  // guardando em qual obra aquela NF específica foi emitida.
+  if(obraMovimentacao)await sb.from('ativos_imobilizados').update({obra_id:obraMovimentacao}).eq('id',ativoId);
+  showToast('Responsável definido!'+(termoUrl?'':' Não esqueça de anexar o termo assinado.'));
+  await loadAtivosImobilizados();
+  abrirModalResponsavelAtivo(ativoId);
+  renderAtivosImobilizados();
+}
+async function encerrarResponsavelAtivo(respId,ativoId){
+  if(!confirm('Encerrar esse responsável para este ativo?'))return;
+  await sb.from('ativos_imob_responsaveis').update({data_fim:new Date().toISOString().slice(0,10)}).eq('id',respId);
+  showToast('Responsável encerrado.');
+  await loadAtivosImobilizados();
+  abrirModalResponsavelAtivo(ativoId);
+  renderAtivosImobilizados();
+}
+async function uploadTermoAtivo(respId,input){
+  const file=input.files[0];
+  if(!file)return;
+  showToast('Enviando termo...');
+  const path='termos/'+Date.now()+'_'+file.name.replace(/\s/g,'_');
+  const{error:upErr}=await sb.storage.from('ativos-imobilizados').upload(path,file,{upsert:true});
+  if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
+  const url=sb.storage.from('ativos-imobilizados').getPublicUrl(path).data.publicUrl;
+  const resp=ativosImobResponsaveis.find(r=>r.id===respId);
+  const{error}=await sb.from('ativos_imob_responsaveis').update({termo_url:url}).eq('id',respId);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Termo anexado!');
+  await loadAtivosImobilizados();
+  if(resp)abrirModalResponsavelAtivo(resp.ativo_id);
+  renderAtivosImobilizados();
 }
 
 function openModalVeiculo(id){
