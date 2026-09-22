@@ -7106,11 +7106,13 @@ function renderVeiculos(){
   // Condutor principal de um veículo (o registro de condutores sem data_fim = atual)
   const condutorPrincipal=(veiculoId)=>veiculosCondutores.find(c=>String(c.veiculo_id)===String(veiculoId)&&!c.data_fim&&c.principal);
   const condutoresAtuais=(veiculoId)=>veiculosCondutores.filter(c=>String(c.veiculo_id)===String(veiculoId)&&!c.data_fim);
+  // Revisões seguem uma grade FIXA (10.000, 20.000, 30.000...) baseada em quantas já foram feitas —
+  // não em "última revisão + intervalo", pra não desviar da grade se uma revisão for feita um pouco
+  // adiantada ou atrasada.
+  const numeroProximaRevisao=(v)=>veiculosRevisoes.filter(r=>String(r.veiculo_id)===String(v.id)).length+1;
   const proximaRevisaoKm=(v)=>{
     const intervalo=v.intervalo_revisao_km||10000;
-    const revisoesVeic=veiculosRevisoes.filter(r=>String(r.veiculo_id)===String(v.id));
-    const ultimaKm=revisoesVeic.length?Math.max(...revisoesVeic.map(r=>r.km_revisao||0)):0;
-    return ultimaKm+intervalo;
+    return numeroProximaRevisao(v)*intervalo;
   };
   const kmMesLancado=(veiculoId)=>veiculosKm.find(k=>String(k.veiculo_id)===String(veiculoId)&&k.mes===_mesTabela&&k.ano===_anoTabela);
   const abastecMesLancado=(veiculoId)=>veiculosAbastecimentos.find(a=>String(a.veiculo_id)===String(veiculoId)&&a.mes===_mesTabela&&a.ano===_anoTabela);
@@ -7198,6 +7200,7 @@ function renderVeiculos(){
     const condPrinc=condutorPrincipal(sel.id);
     const condSecundarios=condutoresAtuais(sel.id).filter(c=>!c.principal);
     const proxRev=proximaRevisaoKm(sel);
+    const proxRevNumero=numeroProximaRevisao(sel);
     const faltamKm=proxRev-(sel.km_atual||0);
     const kmMes=kmMesLancado(sel.id);
     const abastMes=abastecMesLancado(sel.id);
@@ -7226,7 +7229,7 @@ function renderVeiculos(){
         kmMes?'LANÇADO':'PENDENTE', kmMes?'#166534':'#92400E', kmMes?'#DCFCE7':'#FFFBEB',
         "abrirModalKm('"+sel.id+"',"+_mesTabela+","+_anoTabela+")"),
       secao('revisao','engine','Revisões',
-        'Próxima prevista aos '+proxRev.toLocaleString('pt-BR')+'km (a cada '+(sel.intervalo_revisao_km||10000).toLocaleString('pt-BR')+'km)',
+        'Nº '+proxRevNumero+' prevista aos '+proxRev.toLocaleString('pt-BR')+'km (a cada '+(sel.intervalo_revisao_km||10000).toLocaleString('pt-BR')+'km)',
         faltamKm<=0?'VENCIDA':faltamKm<=1000?faltamKm+'KM P/ VENCER':'EM DIA',
         faltamKm<=0?'#991B1B':faltamKm<=1000?'#92400E':'#166534',
         faltamKm<=0?'#FEE2E2':faltamKm<=1000?'#FFFBEB':'#DCFCE7',
@@ -7236,7 +7239,7 @@ function renderVeiculos(){
         abastMes?'LANÇADO':'PENDENTE', abastMes?'#166534':'#92400E', abastMes?'#DCFCE7':'#FFFBEB',
         "abrirModalAbastecimento('"+sel.id+"',"+_mesTabela+","+_anoTabela+")"),
       secao('ticketlog','credit-card','Cartão TicketLog',
-        sel.ticketlog_numero_frota?('Frota '+escHtml(sel.ticketlog_numero_frota)+' · Controle '+escHtml(sel.ticketlog_numero_controle||'—')):'Não cadastrado',
+        sel.ticketlog_numero_frota?('Frota '+escHtml(sel.ticketlog_numero_frota)+' · Controle '+escHtml(sel.ticketlog_numero_controle||'—')+(sel.tag_pedagio?' · Tag '+escHtml(sel.tag_pedagio):'')):'Não cadastrado',
         sel.ticketlog_numero_frota?'CADASTRADO':'PENDENTE', sel.ticketlog_numero_frota?'#374151':'#92400E', sel.ticketlog_numero_frota?'#F3F4F6':'#FFFBEB',
         null),
       ...(isLocado?[secao('contrato','file-text','Contrato de Locação',
@@ -7256,7 +7259,7 @@ function renderVeiculos(){
       if(s.aberto){
         if(s.key==='ticketlog'){
           expandido='<div style="padding:12px 18px 14px 42px;background:#FAFBFC;border-bottom:1px solid #EEF0F2;font-size:12.5px;color:#4B5563">'
-            +'Nº Controle: <strong>'+escHtml(sel.ticketlog_numero_controle||'—')+'</strong> · Nº Frota: <strong>'+escHtml(sel.ticketlog_numero_frota||'—')+'</strong>'
+            +'Nº Controle: <strong>'+escHtml(sel.ticketlog_numero_controle||'—')+'</strong> · Nº Frota: <strong>'+escHtml(sel.ticketlog_numero_frota||'—')+'</strong> · Tag Pedágio: <strong>'+escHtml(sel.tag_pedagio||'—')+'</strong>'
             +'<br>Senha: <span id="ticketlog-senha-'+sel.id+'" style="font-family:monospace">••••••</span> <span style="cursor:pointer;color:var(--primary);font-size:11px" onclick="document.getElementById(\'ticketlog-senha-'+sel.id+'\').textContent='+JSON.stringify(escHtml(sel.ticketlog_senha||'—'))+'">mostrar</span>'
             +'<div style="margin-top:6px"><button class="btn btn-sm" onclick="openModalVeiculo(\''+sel.id+'\')"><i class="ti ti-edit"></i> Editar cartão</button></div>'
             +'</div>';
@@ -7416,6 +7419,7 @@ function openModalVeiculo(id){
               <div class="form-group"><label>Senha</label><input id="veic-ticketlog-senha" value="${v?.ticketlog_senha||''}"></div>
             </div>
           </div>
+          <div class="form-group"><label>Tag Pedágio (número)</label><input id="veic-tag-pedagio" value="${v?.tag_pedagio||''}"></div>
           <div class="form-group full"><label>Observações</label><textarea id="veic-obs" rows="2">${v?.observacoes||''}</textarea></div>
         </div>
       </div>
@@ -7467,6 +7471,7 @@ async function saveVeiculo(id){
     ticketlog_numero_controle:document.getElementById('veic-ticketlog-controle').value.trim()||null,
     ticketlog_numero_frota:document.getElementById('veic-ticketlog-frota').value.trim()||null,
     ticketlog_senha:document.getElementById('veic-ticketlog-senha').value.trim()||null,
+    tag_pedagio:document.getElementById('veic-tag-pedagio').value.trim()||null,
     observacoes:document.getElementById('veic-obs').value.trim()||null,
   };
   const res=id?await sb.from('veiculos').update(payload).eq('id',id):await sb.from('veiculos').insert(payload).select().single();
@@ -7590,20 +7595,22 @@ function abrirModalKm(veiculoId,mes,ano){
         <div class="form-grid">
           <div class="form-group"><label>Mês/Ano de referência</label><input id="km-mes-ano" value="${mesesNomes[mes-1]}/${ano}" disabled></div>
           <div class="form-group"><label>KM registrada *</label><input id="km-valor" type="number" placeholder="Ex: 45230"></div>
+          <div class="form-group full"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400"><input type="checkbox" id="km-isento" style="width:16px;height:16px" onchange="document.getElementById('km-valor').disabled=this.checked;document.getElementById('km-valor').value='';"> Isento este mês (veículo parado / fora de uso — não precisa de KM)</label></div>
           <div class="form-group full"><label>Comprovante (foto do painel, PDF ou imagem)</label><input type="file" id="km-anexo-file" accept=".pdf,.jpg,.jpeg,.png"></div>
         </div>
         <button class="btn btn-primary" style="margin-top:8px" onclick="salvarKm('${veiculoId}',${mes},${ano})"><i class="ti ti-check"></i> Lançar KM</button>
         ${registros.length?`<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
           <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Últimos lançamentos</div>
-          ${registros.map(k=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px"><span>${mesesNomes[k.mes-1]}/${k.ano}</span><strong>${Number(k.km_registrado).toLocaleString('pt-BR')}km</strong>${k.anexo_url?`<a href="${k.anexo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-paperclip"></i></a>`:'<span></span>'}</div>`).join('')}
+          ${registros.map(k=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px"><span>${mesesNomes[k.mes-1]}/${k.ano}</span><strong>${k.isento?'Isento':Number(k.km_registrado).toLocaleString('pt-BR')+'km'}</strong>${k.anexo_url?`<a href="${k.anexo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-paperclip"></i></a>`:'<span></span>'}</div>`).join('')}
         </div>`:''}
       </div>
       <div class="modal-footer"><button class="btn" onclick="closeModal('modal-km')">Fechar</button></div>
     </div>`);
 }
 async function salvarKm(veiculoId,mes,ano){
-  const kmValor=parseInt(document.getElementById('km-valor').value);
-  if(!kmValor){showToast('Informe a KM registrada','error');return;}
+  const isento=document.getElementById('km-isento').checked;
+  const kmValor=isento?null:parseInt(document.getElementById('km-valor').value);
+  if(!isento&&!kmValor){showToast('Informe a KM registrada (ou marque Isento)','error');return;}
   let anexoUrl=null;
   const anexoFile=document.getElementById('km-anexo-file')?.files?.[0];
   if(anexoFile){
@@ -7613,12 +7620,12 @@ async function salvarKm(veiculoId,mes,ano){
     if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
     anexoUrl=sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl;
   }
-  const{error}=await sb.from('veiculos_km').insert({veiculo_id:veiculoId,mes,ano,km_registrado:kmValor,anexo_url:anexoUrl,data_registro:new Date().toISOString().slice(0,10)});
+  const{error}=await sb.from('veiculos_km').insert({veiculo_id:veiculoId,mes,ano,km_registrado:kmValor,isento,anexo_url:anexoUrl,data_registro:new Date().toISOString().slice(0,10)});
   if(error){showToast('Erro: '+error.message,'error');return;}
   // Atualiza a KM atual do veículo também, se o valor lançado for maior que o atual
   const v=veiculos.find(x=>x.id===veiculoId);
-  if(v&&kmValor>(v.km_atual||0))await sb.from('veiculos').update({km_atual:kmValor}).eq('id',veiculoId);
-  showToast('KM lançada!');
+  if(v&&kmValor&&kmValor>(v.km_atual||0))await sb.from('veiculos').update({km_atual:kmValor}).eq('id',veiculoId);
+  showToast(isento?'Mês marcado como isento!':'KM lançada!');
   closeModal('modal-km');
   await loadVeiculos();
   renderVeiculos();
@@ -7628,7 +7635,11 @@ async function salvarKm(veiculoId,mes,ano){
 function abrirModalRevisoes(veiculoId){
   const v=veiculos.find(x=>x.id===veiculoId);
   if(!v)return;
-  const registros=veiculosRevisoes.filter(r=>String(r.veiculo_id)===String(veiculoId)).sort((a,b)=>b.km_revisao-a.km_revisao);
+  const registros=veiculosRevisoes.filter(r=>String(r.veiculo_id)===String(veiculoId)).sort((a,b)=>(b.numero_revisao||b.km_revisao)-(a.numero_revisao||a.km_revisao));
+  const intervalo=v.intervalo_revisao_km||10000;
+  const proximoNumero=registros.length+1;
+  const proximoKm=proximoNumero*intervalo;
+  const faltam=proximoKm-(v.km_atual||0);
   insertModal('modal-revisoes',`
     <div class="modal" style="max-width:560px">
       <div class="modal-header">
@@ -7636,6 +7647,10 @@ function abrirModalRevisoes(veiculoId){
         <button class="btn btn-sm" onclick="closeModal('modal-revisoes')"><i class="ti ti-x"></i></button>
       </div>
       <div class="modal-body">
+        <div style="background:${faltam<=0?'#FEE2E2':faltam<=1000?'#FFFBEB':'#F3F4F6'};border:1px solid ${faltam<=0?'#FCA5A5':faltam<=1000?'#FCD34D':'#E5E7EB'};border-radius:8px;padding:10px 14px;margin-bottom:14px">
+          <div style="font-size:12px;font-weight:700;color:${faltam<=0?'#991B1B':faltam<=1000?'#92400E':'#374151'}">Revisão nº ${proximoNumero} — prevista aos ${proximoKm.toLocaleString('pt-BR')}km</div>
+          <div style="font-size:11px;color:${faltam<=0?'#991B1B':faltam<=1000?'#92400E':'#6B7280'};margin-top:2px">${faltam<=0?'Já venceu há '+Math.abs(faltam).toLocaleString('pt-BR')+'km — em aberto até você lançar':faltam<=1000?'Faltam '+faltam.toLocaleString('pt-BR')+'km'+' — fica em aberto até ser feita':'Ainda não chegou perto (grade: a cada '+intervalo.toLocaleString('pt-BR')+'km)'}</div>
+        </div>
         <div class="form-grid">
           <div class="form-group"><label>Data da revisão *</label><input id="rev-data" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
           <div class="form-group"><label>KM na revisão *</label><input id="rev-km" type="number" value="${v.km_atual||''}"></div>
@@ -7644,16 +7659,16 @@ function abrirModalRevisoes(veiculoId){
           <div class="form-group"><label>Valor (R$)</label><input id="rev-valor" type="text" inputmode="decimal" placeholder="0,00"></div>
           <div class="form-group full"><label>Nota fiscal (PDF)</label><input type="file" id="rev-anexo-file" accept=".pdf,.jpg,.jpeg,.png"></div>
         </div>
-        <button class="btn btn-primary" style="margin-top:8px" onclick="salvarRevisao('${veiculoId}')"><i class="ti ti-check"></i> Lançar revisão</button>
+        <button class="btn btn-primary" style="margin-top:8px" onclick="salvarRevisao('${veiculoId}',${proximoNumero})"><i class="ti ti-check"></i> Lançar revisão nº ${proximoNumero}</button>
         ${registros.length?`<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
           <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Histórico</div>
-          ${registros.map(r=>`<div style="padding:8px 0;border-bottom:1px solid var(--border)"><div style="display:flex;justify-content:space-between;font-size:12.5px"><strong>${formatDate(r.data_revisao)||'—'} · ${Number(r.km_revisao).toLocaleString('pt-BR')}km</strong>${r.anexo_url?`<a href="${r.anexo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-paperclip"></i></a>`:''}</div><div style="font-size:11px;color:var(--text-muted)">${escHtml(r.tipo||'—')}${r.oficina?' · '+escHtml(r.oficina):''}${r.valor?' · R$ '+Number(r.valor).toLocaleString('pt-BR',{minimumFractionDigits:2}):''}</div></div>`).join('')}
+          ${registros.map(r=>`<div style="padding:8px 0;border-bottom:1px solid var(--border)"><div style="display:flex;justify-content:space-between;font-size:12.5px"><strong>Nº${r.numero_revisao||'?'} · ${formatDate(r.data_revisao)||'—'} · ${Number(r.km_revisao).toLocaleString('pt-BR')}km</strong>${r.anexo_url?`<a href="${r.anexo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-paperclip"></i></a>`:''}</div><div style="font-size:11px;color:var(--text-muted)">${escHtml(r.tipo||'—')}${r.oficina?' · '+escHtml(r.oficina):''}${r.valor?' · R$ '+Number(r.valor).toLocaleString('pt-BR',{minimumFractionDigits:2}):''}</div></div>`).join('')}
         </div>`:''}
       </div>
       <div class="modal-footer"><button class="btn" onclick="closeModal('modal-revisoes')">Fechar</button></div>
     </div>`);
 }
-async function salvarRevisao(veiculoId){
+async function salvarRevisao(veiculoId,numeroRevisao){
   const data=document.getElementById('rev-data').value;
   const km=parseInt(document.getElementById('rev-km').value);
   if(!data||!km){showToast('Data e KM são obrigatórios','error');return;}
@@ -7668,7 +7683,7 @@ async function salvarRevisao(veiculoId){
     anexoUrl=sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl;
   }
   const{error}=await sb.from('veiculos_revisoes').insert({
-    veiculo_id:veiculoId,data_revisao:data,km_revisao:km,
+    veiculo_id:veiculoId,data_revisao:data,km_revisao:km,numero_revisao:numeroRevisao,
     tipo:document.getElementById('rev-tipo').value.trim()||null,
     oficina:document.getElementById('rev-oficina').value.trim()||null,
     valor:parseBRL(document.getElementById('rev-valor').value),
