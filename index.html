@@ -7519,7 +7519,7 @@ function renderAtivosImobilizados(){
         respAtual&&respAtual.condicao==='com_ressalva'?'#FFFBEB':'#F3F4F6',
         null),
       secao('bem','box','Dados do Bem',
-        'R$ '+Number(sel.valor||0).toLocaleString('pt-BR',{minimumFractionDigits:2})+' · '+(sel.quantidade||1)+' un. · '+(estadoLabel[respAtual?.estado_recebimento]||'—')+' · Fornecedor: '+(sel.nf_venda_na?'N/A':(sel.fornecedor?.razao_social||'—')),
+        'R$ '+Number(sel.valor||0).toLocaleString('pt-BR',{minimumFractionDigits:2})+' · '+(sel.quantidade||1)+' un. · '+(estadoLabel[respAtual?.estado_recebimento]||'—')+' · Fornecedor: '+(sel.nf_venda_na?'N/A':escHtml(sel.fornecedor?.razao_social||sel.fornecedor_nome_manual||'—')),
         sel.categoria||'—','#374151','#F3F4F6',
         "openModalAtivoImob('"+sel.id+"')"),
       secao('documentos','paperclip','Documentos',documentos.length+' arquivo(s) anexado(s)',
@@ -7658,14 +7658,27 @@ function openModalAtivoImob(id){
         </div>
 
         <div style="background:var(--bg);border-radius:var(--radius);padding:12px;border:1px solid var(--border);margin-top:10px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-            <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px">🧾 Nota Fiscal de Venda (compra do fornecedor)</div>
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:400"><input type="checkbox" id="ai-nf-venda-na" ${semNfVenda?'checked':''} style="width:15px;height:15px" onchange="document.getElementById('ai-bloco-nf-venda').style.display=this.checked?'none':'grid'"> Não tenho essa nota (N/A)</label>
-          </div>
-          <div class="form-grid" id="ai-bloco-nf-venda" style="display:${semNfVenda?'none':'grid'}">
-            <div class="form-group"><label>Fornecedor</label><select id="ai-fornecedor"><option value="">— Selecione —</option>${fornecedorOpts}</select></div>
-            <div class="form-group"><label>Número da NF</label><input id="ai-nf-venda-num" value="${a?.nf_venda_numero||''}"></div>
-            <div class="form-group full"><label>Anexo (PDF)</label><input type="file" id="ai-nf-venda-file" accept=".pdf,.jpg,.jpeg,.png">${a?.nf_venda_url?`<div style="margin-top:4px"><a href="${a.nf_venda_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-eye"></i> Ver atual</a></div>`:''}</div>
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">🧾 Fornecedor / Nota Fiscal de Venda (compra)</div>
+          <div class="form-grid">
+            <div class="form-group full">
+              <label>Fornecedor</label>
+              <div style="display:flex;gap:12px;margin-bottom:6px">
+                <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:400;cursor:pointer"><input type="radio" name="ai-forn-tipo" value="cadastrado" ${!a?.fornecedor_nome_manual?'checked':''} onchange="atualizarTipoFornecedorAtivo()"> Cadastrado</label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:400;cursor:pointer"><input type="radio" name="ai-forn-tipo" value="manual" ${a?.fornecedor_nome_manual?'checked':''} onchange="atualizarTipoFornecedorAtivo()"> Digitar manualmente</label>
+              </div>
+              <select id="ai-fornecedor" style="display:${a?.fornecedor_nome_manual?'none':'block'}"><option value="">— Selecione —</option>${fornecedorOpts}</select>
+              <div id="ai-forn-manual-bloco" class="form-grid" style="display:${a?.fornecedor_nome_manual?'grid':'none'};margin-top:6px">
+                <div class="form-group"><label>Razão Social</label><input id="ai-forn-razao" value="${a?.fornecedor_nome_manual||''}"></div>
+                <div class="form-group"><label>CNPJ</label><input id="ai-forn-cnpj" value="${a?.fornecedor_cnpj_manual||''}" placeholder="00.000.000/0000-00"></div>
+              </div>
+            </div>
+            <div class="form-group full" style="border-top:1px dashed var(--border);padding-top:10px;margin-top:2px">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400"><input type="checkbox" id="ai-nf-venda-na" ${semNfVenda?'checked':''} style="width:15px;height:15px" onchange="document.getElementById('ai-bloco-nf-venda-dados').style.display=this.checked?'none':'grid'"> Não tenho a nota fiscal de venda (N/A) — mas sei o fornecedor</label>
+            </div>
+            <div class="form-grid" id="ai-bloco-nf-venda-dados" style="display:${semNfVenda?'none':'grid'}">
+              <div class="form-group"><label>Número da NF</label><input id="ai-nf-venda-num" value="${a?.nf_venda_numero||''}"></div>
+              <div class="form-group"><label>Anexo (PDF)</label><input type="file" id="ai-nf-venda-file" accept=".pdf,.jpg,.jpeg,.png">${a?.nf_venda_url?`<div style="margin-top:4px"><a href="${a.nf_venda_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-eye"></i> Ver atual</a></div>`:''}</div>
+            </div>
           </div>
         </div>
 
@@ -7678,6 +7691,11 @@ function openModalAtivoImob(id){
         <button class="btn btn-primary" onclick="saveAtivoImob(${id?`'${id}'`:'null'})"><i class="ti ti-check"></i> Salvar</button>
       </div>
     </div>`);
+}
+function atualizarTipoFornecedorAtivo(){
+  const tipo=document.querySelector('input[name="ai-forn-tipo"]:checked').value;
+  document.getElementById('ai-fornecedor').style.display=tipo==='cadastrado'?'block':'none';
+  document.getElementById('ai-forn-manual-bloco').style.display=tipo==='manual'?'grid':'none';
 }
 async function saveAtivoImob(id){
   const descricao=document.getElementById('ai-descricao').value.trim();
@@ -7699,6 +7717,7 @@ async function saveAtivoImob(id){
   const existente=id?ativosImob.find(x=>x.id===id):null;
   const nfRemessaUrl=await uploadArquivo('ai-nf-remessa-file','nf-remessa')||existente?.nf_remessa_url||null;
   const semNfVenda=document.getElementById('ai-nf-venda-na').checked;
+  const fornecedorManual=document.querySelector('input[name="ai-forn-tipo"]:checked')?.value==='manual';
   const nfVendaUrl=semNfVenda?null:(await uploadArquivo('ai-nf-venda-file','nf-venda')||existente?.nf_venda_url||null);
   const payload={
     descricao,
@@ -7712,7 +7731,9 @@ async function saveAtivoImob(id){
     nf_remessa_numero:document.getElementById('ai-nf-remessa-num').value.trim()||null,
     nf_remessa_url:nfRemessaUrl,
     nf_venda_na:semNfVenda,
-    fornecedor_id:semNfVenda?null:(document.getElementById('ai-fornecedor').value||null),
+    fornecedor_id:fornecedorManual?null:(document.getElementById('ai-fornecedor').value||null),
+    fornecedor_nome_manual:fornecedorManual?(document.getElementById('ai-forn-razao').value.trim()||null):null,
+    fornecedor_cnpj_manual:fornecedorManual?(document.getElementById('ai-forn-cnpj').value.trim()||null):null,
     nf_venda_numero:semNfVenda?null:(document.getElementById('ai-nf-venda-num').value.trim()||null),
     nf_venda_url:nfVendaUrl,
     observacoes:document.getElementById('ai-obs').value.trim()||null,
