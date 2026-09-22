@@ -7414,8 +7414,10 @@ function renderAtivosImobilizados(){
   const historicoResponsaveis=(ativoId)=>ativosImobResponsaveis.filter(r=>String(r.ativo_id)===String(ativoId)&&r.data_fim).sort((a,b)=>(parseDate(b.data_fim)||0)-(parseDate(a.data_fim)||0));
   const nomeResponsavel=(r)=>r?(r.eh_terceirizado?r.nome:(r.funcionario?.nome_completo||r.nome||'—')):null;
 
+  const obraAtualDoAtivo=(a)=>{const r=responsavelAtual(a.id);return(r&&r.obra_id)?r.obra_id:a.obra_id;};
+
   const ativosFiltrados=(()=>{
-    let lista=globalObraFiltro?ativosImob.filter(a=>String(a.obra_id)===String(globalObraFiltro)):ativosImob;
+    let lista=globalObraFiltro?ativosImob.filter(a=>String(obraAtualDoAtivo(a))===String(globalObraFiltro)):ativosImob;
     lista=lista.filter(a=>a.status!=='baixado'); // baixados saem do dia a dia, mas continuam no banco
     if(ativoImobFiltroAtivo==='sem_responsavel')lista=lista.filter(a=>!responsavelAtual(a.id));
     else if(ativoImobFiltroAtivo==='sem_termo')lista=lista.filter(a=>{const r=responsavelAtual(a.id);return r&&!r.termo_url;});
@@ -7489,6 +7491,8 @@ function renderAtivosImobilizados(){
     }).join('');
 
     const respAtual=responsavelAtual(sel.id);
+    const obraAtualIdSel=obraAtualDoAtivo(sel);
+    const obraAtualSel=obras.find(o=>String(o.id)===String(obraAtualIdSel));
     const historico=historicoResponsaveis(sel.id);
     const documentos=[
       ...(sel.nf_remessa_url?[{nome:'NF de Remessa — '+(sel.nf_remessa_numero||'s/nº'),url:sel.nf_remessa_url}]:[]),
@@ -7520,7 +7524,8 @@ function renderAtivosImobilizados(){
         null),
       secao('bem','box','Dados do Bem',
         'R$ '+Number(sel.valor||0).toLocaleString('pt-BR',{minimumFractionDigits:2})+' · '+(sel.quantidade||1)+' un. · '+(estadoLabel[respAtual?.estado_recebimento]||'—')+' · Fornecedor: '+(sel.nf_venda_na?'N/A':escHtml(sel.fornecedor?.razao_social||sel.fornecedor_nome_manual||'—')),
-        sel.categoria||'—','#374151','#F3F4F6',
+        sel.nf_remessa_url?'REMESSA OK':'REMESSA PENDENTE',
+        sel.nf_remessa_url?'#166534':'#991B1B', sel.nf_remessa_url?'#DCFCE7':'#FEE2E2',
         "openModalAtivoImob('"+sel.id+"')"),
       secao('documentos','paperclip','Documentos',documentos.length+' arquivo(s) anexado(s)',
         documentos.length>0?documentos.length+' ARQUIVO(S)':'NENHUM ANEXO',
@@ -7572,7 +7577,7 @@ function renderAtivosImobilizados(){
           +'</div>'
         +'</div>'
         +'<div style="background:#fff;border:1px solid #E0E2E7;border-top:none;padding:9px 18px;font-size:12px;color:#6B7280">'
-          +'Patrimônio '+escHtml(sel.patrimonio_numero||'—')+' · Série '+escHtml(sel.serie_numero||'—')+' · '+escHtml(sel.categoria||'—')
+          +'Patrimônio '+escHtml(sel.patrimonio_numero||'—')+' · Série '+escHtml(sel.serie_numero||'—')+' · '+escHtml(sel.categoria||'—')+' · Obra: '+escHtml(obraAtualSel?.codigo||'—')
         +'</div>'
         +(sel.observacoes?'<div style="background:#FEF3C7;border:1px solid #FCD34D;border-left:4px solid #D97706;padding:10px 14px;margin:10px 0;border-radius:4px;display:flex;gap:10px;align-items:flex-start">'
           +'<i class="ti ti-note" style="color:#92400E;font-size:16px;flex-shrink:0;margin-top:1px"></i>'
@@ -7761,7 +7766,7 @@ function abrirModalResponsavelAtivo(ativoId){
   if(!a)return;
   const atual=ativosImobResponsaveis.find(r=>String(r.ativo_id)===String(ativoId)&&!r.data_fim);
   const historico=ativosImobResponsaveis.filter(r=>String(r.ativo_id)===String(ativoId)&&r.data_fim).sort((a,b)=>(parseDate(b.data_fim)||0)-(parseDate(a.data_fim)||0));
-  const funcOpts=funcionarios.filter(f=>f.situacao==='ativo').sort((a,b)=>(a.nome_completo||'').localeCompare(b.nome_completo||'','pt-BR')).map(f=>`<option value="${f.id}">${f.nome_completo} — ${f.matricula||''}</option>`).join('');
+  const funcOpts=funcionarios.filter(f=>f.situacao==='ativo').sort((a,b)=>(a.nome_completo||'').localeCompare(b.nome_completo||'','pt-BR')).map(f=>`<option value="${f.id}" data-funcao="${escHtml(f.funcao?.nome||'')}">${f.nome_completo} — ${f.matricula||''}</option>`).join('');
   const nomeDe=(r)=>r.eh_terceirizado?r.nome:(r.funcionario?.nome_completo||r.nome||'—');
 
   const linhaAtual=atual?`
@@ -7793,7 +7798,7 @@ function abrirModalResponsavelAtivo(ativoId){
             <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="radio" name="resp-tipo" value="terceirizado" onchange="atualizarTipoResponsavelAtivo()"> Terceirizado / não cadastrado</label>
           </div>
           <div id="resp-bloco-cadastrado" class="form-grid">
-            <div class="form-group full"><label>Funcionário</label><select id="resp-func"><option value="">— Selecione —</option>${funcOpts}</select></div>
+            <div class="form-group full"><label>Funcionário</label><select id="resp-func" onchange="document.getElementById('resp-cargo').value=this.options[this.selectedIndex].getAttribute('data-funcao')||''"><option value="">— Selecione —</option>${funcOpts}</select></div>
           </div>
           <div id="resp-bloco-terceirizado" class="form-grid" style="display:none">
             <div class="form-group"><label>Nome completo</label><input id="resp-nome"></div>
@@ -7828,7 +7833,12 @@ function abrirModalResponsavelAtivo(ativoId){
               </select>
             </div>
             <div class="form-group full" id="resp-ressalvas-wrap" style="display:none"><label>Descreva as ressalvas</label><textarea id="resp-ressalvas" rows="2"></textarea></div>
-            <div class="form-group"><label>Local do recebimento</label><input id="resp-local"></div>
+            <div class="form-group"><label>Local do recebimento</label>
+              <select id="resp-local">
+                <option value="Obra">Obra</option>
+                <option value="Almoxarifado">Almoxarifado</option>
+              </select>
+            </div>
             <div class="form-group"><label>Data do recebimento</label><input id="resp-data" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
             <div class="form-group full"><label>Termo assinado (PDF ou foto)</label><input type="file" id="resp-termo-file" accept=".pdf,.jpg,.jpeg,.png"></div>
           </div>
