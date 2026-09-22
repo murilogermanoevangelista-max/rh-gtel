@@ -327,6 +327,7 @@ input:focus,select:focus{border-color:var(--primary)}
     <div class="nav-item" onclick="showPage('folgas')"><i class="ti ti-beach"></i> Folgas de Campo</div>
     <div class="nav-item" onclick="showPage('ferias')"><i class="ti ti-sunglasses"></i> Férias</div>
     <div class="nav-item" onclick="showPage('alojamentos')"><i class="ti ti-home-2"></i> Alojamentos</div>
+    <div class="nav-item" onclick="showPage('veiculos')"><i class="ti ti-car"></i> Veículos</div>
     <div class="nav-item" onclick="showPage('prestadores')"><i class="ti ti-id-badge"></i> Prestadores</div>
     <div class="nav-item" onclick="showPage('efetivo')"><i class="ti ti-users-group"></i> Efetivo</div>
     <div class="nav-item" onclick="showPage('matriz')"><i class="ti ti-map-2"></i> Matriz de Comunicação</div>
@@ -361,11 +362,15 @@ const SUPABASE_URL='https://lqggoshphakeuufibdno.supabase.co';
 const SUPABASE_KEY='sb_publishable_QlnJaa5xdUXePvXFV6QFwQ_AmMk639T';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-let funcionarios=[],obras=[],obrasTodas=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosTodos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[],contratacoes=[],contratacoesVagas=[],contratacoesProspeccoes=[],folgasTranslados=[],movimentacoesHistorico=[],folgasCiclos=[];
+let funcionarios=[],obras=[],obrasTodas=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosTodos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[],contratacoes=[],contratacoesVagas=[],contratacoesProspeccoes=[],folgasTranslados=[],movimentacoesHistorico=[],folgasCiclos=[],veiculos=[],veiculosCondutores=[],veiculosKm=[],veiculosRevisoes=[],veiculosAbastecimentos=[];
 let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'nao_lancadas' | null
 let alojBusca='';
 let alojSelecionadoId=null; // alojamento selecionado no painel mestre-detalhe
 let alojSecoesAbertas={}; // {contrato:true, documentos:true} — quais seções estão expandidas no painel direito
+let veiculoSelecionadoId=null;
+let veiculoSecoesAbertas={};
+let veiculoBusca='';
+let veiculoFiltroAtivo=null; // 'revisao_vencida'|'revisao_proxima'|'km_pendente'|'contrato_vencendo'|null
 let bannerNaoLancadasAberto=false;
 let bannerFiltroObra='';
 let bannerRelatoriosAberto=false;
@@ -777,6 +782,26 @@ async function loadAlojamentos(){
   alojamentos=listaAloj;alojamentosContas=listaContas;alojamentosRelatorios=listaRel;
 }
 
+async function loadVeiculos(){
+  const [v,cd,km,rv,ab]=await Promise.all([
+    sb.from('veiculos').select('*,obra:obras(nome,codigo)').order('placa'),
+    sb.from('veiculos_condutores').select('*,funcionario:funcionarios(nome_completo,matricula)').order('data_inicio',{ascending:false}),
+    sb.from('veiculos_km').select('*').order('ano',{ascending:false}).order('mes',{ascending:false}),
+    sb.from('veiculos_revisoes').select('*').order('km_revisao',{ascending:false}),
+    sb.from('veiculos_abastecimentos').select('*').order('ano',{ascending:false}).order('mes',{ascending:false}),
+  ]);
+  let listaVei=v.data||[],listaCond=cd.data||[],listaKm=km.data||[],listaRev=rv.data||[],listaAbast=ab.data||[];
+  if(obrasPermitidasIds){
+    listaVei=listaVei.filter(x=>x.obra_id&&obrasPermitidasIds.has(String(x.obra_id)));
+    const idsVeiPermitidos=new Set(listaVei.map(x=>String(x.id)));
+    listaCond=listaCond.filter(x=>idsVeiPermitidos.has(String(x.veiculo_id)));
+    listaKm=listaKm.filter(x=>idsVeiPermitidos.has(String(x.veiculo_id)));
+    listaRev=listaRev.filter(x=>idsVeiPermitidos.has(String(x.veiculo_id)));
+    listaAbast=listaAbast.filter(x=>idsVeiPermitidos.has(String(x.veiculo_id)));
+  }
+  veiculos=listaVei;veiculosCondutores=listaCond;veiculosKm=listaKm;veiculosRevisoes=listaRev;veiculosAbastecimentos=listaAbast;
+}
+
 async function loadPrestadores(){
   const{data}=await sb.from('prestadores')
     .select('*,obra:obras(nome,codigo),alojamento:alojamentos(nome)')
@@ -872,6 +897,7 @@ async function showPage(page){
       (page==='folgas'&&t.includes('folga'))||
       (page==='ferias'&&t.includes('férias'))||
       (page==='alojamentos'&&t.includes('alojamento'))||
+      (page==='veiculos'&&t.includes('veículo'))||
       (page==='prestadores'&&t.includes('prestador'))||
       (page==='usuarios'&&t.includes('usuário'))||
       (page==='obras'&&t.includes('obra'))||
@@ -897,6 +923,7 @@ async function showPage(page){
     else if(page==='folgas')renderFolgas();
     else if(page==='ferias')renderFerias();
     else if(page==='alojamentos'){if(!_vindoDeAlerta)alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';bannerRelatoriosAberto=false;bannerRelatoriosFiltroObra='';await loadAlojamentos();await loadPrestadores();renderAlojamentos();}
+    else if(page==='veiculos'){await loadVeiculos();renderVeiculos();}
     else if(page==='prestadores'){await loadPrestadores();renderPrestadores();}
     else if(page==='efetivo'){efetivoSituacaoFiltro='';await loadEfetivo();renderEfetivo();}
     else if(page==='usuarios')renderUsuarios();
@@ -7064,6 +7091,648 @@ function renderAlojamentos(){
     </div>
 
     <div id="aloj-tabela-secao">${masterDetailHtml}</div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// VEÍCULOS
+// ═══════════════════════════════════════════════════════════════════
+function renderVeiculos(){
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  const _mesesNomes=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const _mesTabela=tabelaMesFiltro||hoje.getMonth()+1;
+  const _anoTabela=tabelaAnoFiltro||hoje.getFullYear();
+  const _mesLabel=_mesesNomes[_mesTabela-1]+'/'+_anoTabela;
+
+  // Condutor principal de um veículo (o registro de condutores sem data_fim = atual)
+  const condutorPrincipal=(veiculoId)=>veiculosCondutores.find(c=>String(c.veiculo_id)===String(veiculoId)&&!c.data_fim&&c.principal);
+  const condutoresAtuais=(veiculoId)=>veiculosCondutores.filter(c=>String(c.veiculo_id)===String(veiculoId)&&!c.data_fim);
+  const proximaRevisaoKm=(v)=>{
+    const intervalo=v.intervalo_revisao_km||10000;
+    const revisoesVeic=veiculosRevisoes.filter(r=>String(r.veiculo_id)===String(v.id));
+    const ultimaKm=revisoesVeic.length?Math.max(...revisoesVeic.map(r=>r.km_revisao||0)):0;
+    return ultimaKm+intervalo;
+  };
+  const kmMesLancado=(veiculoId)=>veiculosKm.find(k=>String(k.veiculo_id)===String(veiculoId)&&k.mes===_mesTabela&&k.ano===_anoTabela);
+  const abastecMesLancado=(veiculoId)=>veiculosAbastecimentos.find(a=>String(a.veiculo_id)===String(veiculoId)&&a.mes===_mesTabela&&a.ano===_anoTabela);
+
+  const veiculosFiltrados=(()=>{
+    let lista=globalObraFiltro?veiculos.filter(v=>String(v.obra_id)===String(globalObraFiltro)):veiculos;
+    lista=lista.filter(v=>v.status!=='devolvido'&&v.status!=='vendido'); // sumiram do dia a dia — histórico continua no banco
+    if(veiculoFiltroAtivo==='revisao_vencida')lista=lista.filter(v=>(v.km_atual||0)>=proximaRevisaoKm(v));
+    else if(veiculoFiltroAtivo==='revisao_proxima')lista=lista.filter(v=>{const f=proximaRevisaoKm(v)-(v.km_atual||0);return f>0&&f<=1000;});
+    else if(veiculoFiltroAtivo==='km_pendente')lista=lista.filter(v=>!kmMesLancado(v.id));
+    else if(veiculoFiltroAtivo==='contrato_vencendo')lista=lista.filter(v=>{if(v.tipo!=='locado')return false;const d=parseDate(v.contrato_fim);if(!d)return false;const dias=Math.floor((d-hoje)/86400000);return dias>=0&&dias<=60;});
+    else if(veiculoFiltroAtivo==='sem_termo')lista=lista.filter(v=>condutoresAtuais(v.id).some(c=>!c.termo_url));
+    if(veiculoBusca){
+      const b=veiculoBusca.toLowerCase();
+      lista=lista.filter(v=>(v.placa||'').toLowerCase().includes(b)||(v.modelo||'').toLowerCase().includes(b));
+    }
+    return lista;
+  })();
+
+  const temAlertaVeiculo=(v)=>{
+    const revVencida=(v.km_atual||0)>=proximaRevisaoKm(v);
+    const semKmMes=!kmMesLancado(v.id);
+    const semTermo=condutoresAtuais(v.id).some(c=>!c.termo_url);
+    let contratoVenc=false;
+    if(v.tipo==='locado'){const d=parseDate(v.contrato_fim);if(d)contratoVenc=d<hoje;}
+    return revVencida||semKmMes||semTermo||contratoVenc;
+  };
+
+  // Contadores para os cards de alerta
+  const revVencidas=veiculosFiltrados.filter(v=>(v.km_atual||0)>=proximaRevisaoKm(v)).length;
+  const revProximas=veiculosFiltrados.filter(v=>{const f=proximaRevisaoKm(v)-(v.km_atual||0);return f>0&&f<=1000;}).length;
+  const kmPendentes=veiculosFiltrados.filter(v=>!kmMesLancado(v.id)).length;
+  const contratosVenc=veiculosFiltrados.filter(v=>{if(v.tipo!=='locado')return false;const d=parseDate(v.contrato_fim);if(!d)return false;const dias=Math.floor((d-hoje)/86400000);return dias>=0&&dias<=60;}).length;
+  const semTermoCount=veiculosFiltrados.filter(v=>condutoresAtuais(v.id).some(c=>!c.termo_url)).length;
+
+  const alertCardsHtml=alertCardsRow([
+    revVencidas>0?{count:revVencidas,label:'Revisão vencida',icon:'engine',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"veiculoFiltroAtivo=veiculoFiltroAtivo==='revisao_vencida'?null:'revisao_vencida';renderVeiculos()"}:null,
+    revProximas>0?{count:revProximas,label:'Revisão próxima (≤1.000km)',icon:'gauge',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"veiculoFiltroAtivo=veiculoFiltroAtivo==='revisao_proxima'?null:'revisao_proxima';renderVeiculos()"}:null,
+    kmPendentes>0?{count:kmPendentes,label:'KM não lançada em '+_mesLabel,icon:'road',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"veiculoFiltroAtivo=veiculoFiltroAtivo==='km_pendente'?null:'km_pendente';renderVeiculos()"}:null,
+    contratosVenc>0?{count:contratosVenc,label:'Contrato locação vencendo',icon:'file-clock',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"veiculoFiltroAtivo=veiculoFiltroAtivo==='contrato_vencendo'?null:'contrato_vencendo';renderVeiculos()"}:null,
+    semTermoCount>0?{count:semTermoCount,label:'Condutor sem Termo assinado',icon:'file-alert',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"veiculoFiltroAtivo=veiculoFiltroAtivo==='sem_termo'?null:'sem_termo';renderVeiculos()"}:null,
+  ]);
+
+  const totalProprios=veiculosFiltrados.filter(v=>v.tipo==='proprio').length;
+  const totalLocados=veiculosFiltrados.filter(v=>v.tipo==='locado').length;
+
+  // ── Painel mestre-detalhe ──
+  const _byObra={};
+  veiculosFiltrados.forEach(v=>{
+    const obraKey=v.obra?.codigo?(v.obra.codigo+' — '+v.obra.nome):'Sem obra vinculada';
+    if(!_byObra[obraKey])_byObra[obraKey]=[];
+    _byObra[obraKey].push(v);
+  });
+
+  const masterDetailHtml=(()=>{
+    try{
+    return (()=>{
+    if(!veiculosFiltrados.length)return '<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-car-off" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum veículo cadastrado</div>';
+
+    let sel=veiculosFiltrados.find(v=>String(v.id)===String(veiculoSelecionadoId));
+    if(!sel){sel=veiculosFiltrados[0];veiculoSelecionadoId=sel.id;}
+
+    const multiObra=Object.keys(_byObra).length>1;
+    const listaHtml=Object.entries(_byObra).map(([obraKey,lista])=>{
+      const grupo=multiObra?'<div style="padding:8px 4px 6px;font-size:11px;font-weight:700;color:#8B95A5;letter-spacing:.03em">'+escHtml(obraKey.split(' — ')[0])+'</div>':'';
+      const itens=lista.map(v=>{
+        const isSel=String(v.id)===String(sel.id);
+        const alerta=temAlertaVeiculo(v);
+        return '<div class="item veic-item" onclick="veiculoSelecionadoId=\''+v.id+'\';renderVeiculos()" style="background:'+(isSel?'#1D9E75':'#fff')+';border:1px solid '+(isSel?'#1D9E75':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:6px">'
+          +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
+          +'<div style="display:flex;align-items:center;gap:8px;min-width:0">'
+          +'<i class="ti ti-car" style="font-size:14px;color:'+(isSel?'#fff':'#8B95A5')+';flex-shrink:0"></i>'
+          +'<span style="font-size:13px;font-weight:600;color:'+(isSel?'#fff':'#1A1F29')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">'+escHtml(v.placa)+'</span>'
+          +'</div>'
+          +'<div style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:'+(alerta?'#DC2626':'#16A34A')+'"></div>'
+          +'</div>'
+          +'<div style="font-size:10.5px;color:'+(isSel?'rgba(255,255,255,.85)':'#8B95A5')+';margin-top:2px;margin-left:22px">'+escHtml(v.modelo||'—')+' · '+(v.km_atual?Number(v.km_atual).toLocaleString('pt-BR'):'—')+'km</div>'
+          +'</div>';
+      }).join('');
+      return grupo+itens;
+    }).join('');
+
+    // ── Painel direito ──
+    const isLocado=sel.tipo==='locado';
+    const condPrinc=condutorPrincipal(sel.id);
+    const condSecundarios=condutoresAtuais(sel.id).filter(c=>!c.principal);
+    const proxRev=proximaRevisaoKm(sel);
+    const faltamKm=proxRev-(sel.km_atual||0);
+    const kmMes=kmMesLancado(sel.id);
+    const abastMes=abastecMesLancado(sel.id);
+    const contratoFim=parseDate(sel.contrato_fim);
+    const diasContrato=contratoFim?Math.floor((contratoFim-hoje)/86400000):null;
+    const documentos=[
+      ...(sel.contrato_url?[{nome:'Contrato de locação',url:sel.contrato_url}]:[]),
+      ...(sel.crlv_url?[{nome:'CRLV',url:sel.crlv_url}]:[]),
+      ...condutoresAtuais(sel.id).filter(c=>c.termo_url).map(c=>({nome:'Termo de Responsabilidade — '+(c.funcionario?.nome_completo||'—'),url:c.termo_url})),
+    ];
+
+    const secao=(key,icone,titulo,resumo,status,corStatus,bgStatus,onclickOuNull)=>{
+      const aberto=!onclickOuNull&&!!veiculoSecoesAbertas[key];
+      const clickAttr=onclickOuNull?onclickOuNull:"veiculoSecoesAbertas['"+key+"']=!veiculoSecoesAbertas['"+key+"'];renderVeiculos()";
+      return{key,icone,titulo,resumo,status,corStatus,bgStatus,clickAttr,aberto,expandivel:!onclickOuNull};
+    };
+
+    const secoes=[
+      secao('condutor','users','Condutor Atual',
+        condPrinc?(escHtml(condPrinc.funcionario?.nome_completo||'—'))+(condSecundarios.length?' + '+condSecundarios.length+' secundário(s)':''):'Nenhum condutor definido',
+        condPrinc?(condPrinc.termo_url?'TERMO OK':'SEM TERMO'):'PENDENTE',
+        condPrinc&&condPrinc.termo_url?'#166534':'#991B1B', condPrinc&&condPrinc.termo_url?'#DCFCE7':'#FEE2E2',
+        "abrirModalCondutores('"+sel.id+"')"),
+      secao('km','road','Controle de KM',
+        'Atual: '+(sel.km_atual?Number(sel.km_atual).toLocaleString('pt-BR'):'—')+'km'+(kmMes?' · lançado em '+_mesLabel:''),
+        kmMes?'LANÇADO':'PENDENTE', kmMes?'#166534':'#92400E', kmMes?'#DCFCE7':'#FFFBEB',
+        "abrirModalKm('"+sel.id+"',"+_mesTabela+","+_anoTabela+")"),
+      secao('revisao','engine','Revisões',
+        'Próxima prevista aos '+proxRev.toLocaleString('pt-BR')+'km (a cada '+(sel.intervalo_revisao_km||10000).toLocaleString('pt-BR')+'km)',
+        faltamKm<=0?'VENCIDA':faltamKm<=1000?faltamKm+'KM P/ VENCER':'EM DIA',
+        faltamKm<=0?'#991B1B':faltamKm<=1000?'#92400E':'#166534',
+        faltamKm<=0?'#FEE2E2':faltamKm<=1000?'#FFFBEB':'#DCFCE7',
+        "abrirModalRevisoes('"+sel.id+"')"),
+      secao('abastecimento','gas-station','Abastecimentos',
+        abastMes?(abastMes.litros?abastMes.litros+'L':'')+(abastMes.valor_total?' · R$ '+Number(abastMes.valor_total).toLocaleString('pt-BR',{minimumFractionDigits:2}):'')+' em '+_mesLabel:'Nenhum lançamento em '+_mesLabel,
+        abastMes?'LANÇADO':'PENDENTE', abastMes?'#166534':'#92400E', abastMes?'#DCFCE7':'#FFFBEB',
+        "abrirModalAbastecimento('"+sel.id+"',"+_mesTabela+","+_anoTabela+")"),
+      secao('ticketlog','credit-card','Cartão TicketLog',
+        sel.ticketlog_numero_frota?('Frota '+escHtml(sel.ticketlog_numero_frota)+' · Controle '+escHtml(sel.ticketlog_numero_controle||'—')):'Não cadastrado',
+        sel.ticketlog_numero_frota?'CADASTRADO':'PENDENTE', sel.ticketlog_numero_frota?'#374151':'#92400E', sel.ticketlog_numero_frota?'#F3F4F6':'#FFFBEB',
+        null),
+      ...(isLocado?[secao('contrato','file-text','Contrato de Locação',
+        (sel.locadora||'—')+' · '+(formatDate(sel.contrato_inicio)||'—')+' → '+(formatDate(sel.contrato_fim)||'—'),
+        diasContrato===null?'—':diasContrato<0?'VENCIDO':diasContrato<=60?diasContrato+'D P/ VENCER':'VIGENTE',
+        diasContrato!==null&&diasContrato<0?'#991B1B':diasContrato!==null&&diasContrato<=60?'#92400E':'#374151',
+        diasContrato!==null&&diasContrato<0?'#FEE2E2':diasContrato!==null&&diasContrato<=60?'#FFFBEB':'#F3F4F6',
+        null)]:[]),
+      secao('documentos','paperclip','Documentos',documentos.length+' arquivo(s) anexado(s)',
+        documentos.length+' ARQUIVO(S)','#1D4ED8','#DBEAFE', null),
+    ];
+
+    const secoesHtml=secoes.map(s=>{
+      const rot=s.expandivel?(s.aberto?'0deg':'-90deg'):'-90deg';
+      const chevronHtml=s.expandivel?'<i class="ti ti-chevron-down" style="font-size:12px;color:#8B95A5;transform:rotate('+rot+')"></i>':'<i class="ti ti-arrow-narrow-right" style="font-size:13px;color:#8B95A5"></i>';
+      let expandido='';
+      if(s.aberto){
+        if(s.key==='ticketlog'){
+          expandido='<div style="padding:12px 18px 14px 42px;background:#FAFBFC;border-bottom:1px solid #EEF0F2;font-size:12.5px;color:#4B5563">'
+            +'Nº Controle: <strong>'+escHtml(sel.ticketlog_numero_controle||'—')+'</strong> · Nº Frota: <strong>'+escHtml(sel.ticketlog_numero_frota||'—')+'</strong>'
+            +'<br>Senha: <span id="ticketlog-senha-'+sel.id+'" style="font-family:monospace">••••••</span> <span style="cursor:pointer;color:var(--primary);font-size:11px" onclick="document.getElementById(\'ticketlog-senha-'+sel.id+'\').textContent='+JSON.stringify(escHtml(sel.ticketlog_senha||'—'))+'">mostrar</span>'
+            +'<div style="margin-top:6px"><button class="btn btn-sm" onclick="openModalVeiculo(\''+sel.id+'\')"><i class="ti ti-edit"></i> Editar cartão</button></div>'
+            +'</div>';
+        } else if(s.key==='contrato'){
+          expandido='<div style="padding:12px 18px 14px 42px;background:#FAFBFC;border-bottom:1px solid #EEF0F2;font-size:12.5px;color:#4B5563">'
+            +'Locadora: <strong>'+escHtml(sel.locadora||'—')+'</strong> · Valor mensal: <strong>R$ '+Number(sel.contrato_valor_mensal||0).toLocaleString('pt-BR',{minimumFractionDigits:2})+'</strong>'
+            +(sel.contrato_franquia_km?' · Franquia: <strong>'+Number(sel.contrato_franquia_km).toLocaleString('pt-BR')+'km/mês</strong>':'')
+            +(sel.contrato_url?' · <a href="'+sel.contrato_url+'" target="_blank" style="color:var(--primary)">Ver PDF do contrato</a>':'')
+            +'<div style="margin-top:6px"><button class="btn btn-sm" onclick="openModalVeiculo(\''+sel.id+'\')"><i class="ti ti-edit"></i> Editar contrato</button></div>'
+            +'</div>';
+        } else if(s.key==='documentos'){
+          expandido='<div style="padding:12px 18px 14px 42px;background:#FAFBFC;border-bottom:1px solid #EEF0F2">'
+            +(documentos.length?documentos.map(d=>'<div style="margin-bottom:6px"><a href="'+d.url+'" target="_blank" style="font-size:12.5px;color:#1D4ED8;display:flex;align-items:center;gap:6px"><i class="ti ti-file-text"></i>'+escHtml(d.nome)+'</a></div>').join('')
+              :'<div style="font-size:12.5px;color:var(--text-muted)">Nenhum documento anexado ainda.</div>')
+            +'</div>';
+        }
+      }
+      return '<div>'
+        +'<div class="aloj-secao-row" onclick="'+s.clickAttr+'" style="display:grid;grid-template-columns:180px 1fr 150px;align-items:center;padding:12px 18px;border-bottom:1px solid #EEF0F2;cursor:pointer;background:'+(s.aberto?'#FAFBFC':'#fff')+'">'
+        +'<span style="font-size:13px;font-weight:600;color:#1A1F29;display:flex;align-items:center;gap:8px">'+chevronHtml+'<i class="ti ti-'+s.icone+'" style="font-size:14px;color:#4B5160"></i>'+s.titulo+'</span>'
+        +'<span style="font-size:12.5px;color:#4B5563">'+s.resumo+'</span>'
+        +'<span style="font-size:11px;font-weight:700;color:'+s.corStatus+';background:'+s.bgStatus+';padding:3px 10px;border-radius:3px;display:inline-block;width:fit-content">'+s.status+'</span>'
+        +'</div>'
+        +expandido
+        +'</div>';
+    }).join('');
+
+    const statusBadge=sel.status==='transferido'?{t:'TRANSFERIDO',c:'#92400E',b:'#FFFBEB'}:{t:'ATIVO',c:'#166534',b:'#DCFCE7'};
+
+    return '<div style="display:flex;gap:16px;align-items:flex-start">'
+      +'<div style="width:280px;flex-shrink:0">'+listaHtml+'</div>'
+      +'<div style="flex:1;min-width:0">'
+        +'<div style="background:#243244;padding:13px 18px;display:flex;align-items:center;justify-content:space-between;border-radius:4px 4px 0 0;flex-wrap:wrap;gap:8px">'
+          +'<div style="display:flex;align-items:center;gap:10px;min-width:0">'
+          +'<i class="ti ti-car" style="color:var(--primary);flex-shrink:0"></i>'
+          +'<span style="color:#fff;font-size:14.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">'+escHtml(sel.placa)+'</span>'
+          +'<span style="font-size:10px;font-weight:700;color:'+(isLocado?'#FDE68A':'#BBF7D0')+';background:rgba(255,255,255,.12);padding:2px 8px;border-radius:20px;flex-shrink:0">'+(isLocado?'LOCADO':'PRÓPRIO')+'</span>'
+          +'<span style="font-size:10px;font-weight:700;color:'+statusBadge.c+';background:'+statusBadge.b+';padding:2px 8px;border-radius:20px;flex-shrink:0">'+statusBadge.t+'</span>'
+          +'</div>'
+          +'<div style="display:flex;gap:6px;flex-shrink:0">'
+          +'<button class="btn btn-sm" onclick="openModalVeiculo(\''+sel.id+'\')" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2)"><i class="ti ti-edit"></i> Editar</button>'
+          +'<button class="btn btn-sm btn-danger" onclick="deleteVeiculo(\''+sel.id+'\',\''+escHtml(sel.placa)+'\')"><i class="ti ti-trash"></i></button>'
+          +'</div>'
+        +'</div>'
+        +'<div style="background:#fff;border:1px solid #E0E2E7;border-top:none;padding:9px 18px;font-size:12px;color:#6B7280">'
+          +escHtml(sel.modelo||'—')+(sel.ano?' · '+sel.ano:'')+(isLocado&&sel.locadora?' · '+escHtml(sel.locadora):'')
+        +'</div>'
+        +(sel.observacoes?'<div style="background:#FEF3C7;border:1px solid #FCD34D;border-left:4px solid #D97706;padding:10px 14px;margin:10px 0;border-radius:4px;display:flex;gap:10px;align-items:flex-start">'
+          +'<i class="ti ti-note" style="color:#92400E;font-size:16px;flex-shrink:0;margin-top:1px"></i>'
+          +'<div><div style="font-size:11px;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:.03em;margin-bottom:2px">Observação / Lembrete</div>'
+          +'<div style="font-size:12.5px;color:#78350F">'+escHtml(sel.observacoes)+'</div></div>'
+        +'</div>':'')
+        +'<div style="background:#3A4658;display:grid;grid-template-columns:180px 1fr 150px;padding:9px 18px">'
+          +'<span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">SEÇÃO</span>'
+          +'<span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">RESUMO</span>'
+          +'<span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">STATUS</span>'
+        +'</div>'
+        +'<div style="background:#fff;border:1px solid #E0E2E7;border-top:none;border-radius:0 0 4px 4px;overflow:hidden">'+secoesHtml+'</div>'
+      +'</div>'
+    +'</div>';
+    })();
+    }catch(e){
+      console.error('[Veículos] erro ao montar o painel:',e);
+      return '<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:16px;color:#991B1B">'
+        +'<strong>⚠ Erro ao montar o painel de veículos</strong>'
+        +'<div style="font-size:12px;margin-top:6px;font-family:monospace;white-space:pre-wrap">'+(e.message||e)+'</div>'
+        +'<div style="font-size:11px;margin-top:8px;color:#7F1D1D">Tire um print desta caixa e envie.</div>'
+        +'</div>';
+    }
+  })();
+
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title"><i class="ti ti-car"></i> Veículos</div>
+        <div class="page-subtitle">${veiculosFiltrados.length} veículo(s) · ${totalProprios} próprio(s) · ${totalLocados} locado(s)</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="openModalVeiculo()"><i class="ti ti-plus"></i> Novo veículo</button>
+      </div>
+    </div>
+
+    ${alertCardsHtml}
+    ${(()=>{const temFiltro=veiculoFiltroAtivo||veiculoBusca;return `<div style="margin-bottom:10px"><button class="btn btn-sm" ${temFiltro?'':'disabled style="opacity:.5;cursor:default"'} onclick="veiculoFiltroAtivo=null;veiculoBusca='';document.querySelectorAll('.search-box input').forEach(i=>i.value='');renderVeiculos()"><i class="ti ti-filter-x"></i> Limpar filtros</button></div>`;})()}
+
+    <div style="margin-bottom:12px;display:flex;gap:8px">
+      <div class="search-box" style="max-width:320px"><i class="ti ti-search"></i><input placeholder="Buscar por placa ou modelo..." value="${veiculoBusca}" oninput="veiculoBusca=this.value;if(!_buscaHandlers.veic)_buscaHandlers.veic=makeBuscaHandler(v=>veiculoBusca=v,renderVeiculos,300);_buscaHandlers.veic(this.value);this.focus()"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <span style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Visualizar mês:</span>
+      ${(()=>{
+        const opts=[];
+        for(let i=5;i>=-1;i--){
+          const d=new Date(hoje.getFullYear(),hoje.getMonth()-i,1);
+          const m=d.getMonth()+1;const y=d.getFullYear();
+          const s=(tabelaMesFiltro||hoje.getMonth()+1)===m&&(tabelaAnoFiltro||hoje.getFullYear())===y;
+          opts.push('<button onclick="tabelaMesFiltro='+m+';tabelaAnoFiltro='+y+';renderVeiculos()" style="font-size:12px;padding:4px 12px;border-radius:20px;border:1px solid '+(s?'var(--primary)':'var(--border)')+';background:'+(s?'var(--primary)':'var(--surface)')+';color:'+(s?'#fff':'var(--text-muted)')+';cursor:pointer;font-weight:'+(s?'600':'400')+'">'+_mesesNomes[m-1]+'/'+y+'</button>');
+        }
+        return opts.join('');
+      })()}
+    </div>
+
+    <div id="veic-tabela-secao">${masterDetailHtml}</div>`;
+}
+
+function openModalVeiculo(id){
+  const v=id?veiculos.find(x=>x.id===id):null;
+  const isEdit=!!v;
+  const tipo=v?.tipo||'proprio';
+  const obraOpts=obras.map(o=>`<option value="${o.id}" ${v?.obra_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
+  const locadoras=['Localiza','Arval','Movida','Outra'];
+  insertModal('modal-veic',`
+    <div class="modal" style="max-width:760px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-car"></i> ${isEdit?'Editar Veículo':'Novo Veículo'}</span>
+        <button class="btn btn-sm" onclick="closeModal('modal-veic')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group"><label>Placa *</label><input id="veic-placa" value="${v?.placa||''}" style="text-transform:uppercase" maxlength="8"></div>
+          <div class="form-group"><label>Tipo *</label>
+            <select id="veic-tipo" onchange="atualizarCamposVeiculo()">
+              <option value="proprio" ${tipo==='proprio'?'selected':''}>Próprio</option>
+              <option value="locado" ${tipo==='locado'?'selected':''}>Locado</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Modelo / Marca</label><input id="veic-modelo" value="${v?.modelo||''}"></div>
+          <div class="form-group"><label>Ano</label><input id="veic-ano" type="number" value="${v?.ano||''}"></div>
+          <div class="form-group"><label>Obra vinculada *</label><select id="veic-obra"><option value="">— Selecione —</option>${obraOpts}</select></div>
+          <div class="form-group"><label>Status</label>
+            <select id="veic-status">
+              <option value="ativo" ${(v?.status||'ativo')==='ativo'?'selected':''}>Ativo</option>
+              <option value="transferido" ${v?.status==='transferido'?'selected':''}>Transferido</option>
+              <option value="devolvido" ${v?.status==='devolvido'?'selected':''}>Devolvido</option>
+              <option value="vendido" ${v?.status==='vendido'?'selected':''}>Vendido</option>
+              <option value="sinistrado" ${v?.status==='sinistrado'?'selected':''}>Sinistrado</option>
+            </select>
+          </div>
+          <div class="form-group"><label>KM atual</label><input id="veic-km" type="number" value="${v?.km_atual||''}"></div>
+          <div class="form-group"><label>Intervalo de revisão (km)</label><input id="veic-intervalo-rev" type="number" value="${v?.intervalo_revisao_km||10000}"></div>
+          <div class="form-group"><label>CRLV (PDF)</label><input type="file" id="veic-crlv-file" accept=".pdf">${v?.crlv_url?`<div style="margin-top:4px"><a href="${v.crlv_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-eye"></i> Ver atual</a></div>`:''}</div>
+
+          <div id="veic-bloco-locado" style="display:${tipo==='locado'?'contents':'none'}">
+          <div class="form-group"><label>Locadora</label>
+            <select id="veic-locadora">${locadoras.map(l=>`<option value="${l}" ${v?.locadora===l?'selected':''}>${l}</option>`).join('')}</select>
+          </div>
+          <div class="form-group"><label>Início do contrato</label><input id="veic-contrato-inicio" type="date" value="${v?.contrato_inicio||''}"></div>
+          <div class="form-group"><label>Término do contrato</label><input id="veic-contrato-fim" type="date" value="${v?.contrato_fim||''}"></div>
+          <div class="form-group"><label>Valor mensal (R$)</label><input id="veic-contrato-valor" type="text" inputmode="decimal" placeholder="0,00" value="${v?.contrato_valor_mensal?String(v.contrato_valor_mensal).replace('.',','):''}"></div>
+          <div class="form-group"><label>Franquia (km/mês)</label><input id="veic-contrato-franquia" type="number" value="${v?.contrato_franquia_km||''}"></div>
+          <div class="form-group"><label>Contrato de locação (PDF)</label><input type="file" id="veic-contrato-file" accept=".pdf">${v?.contrato_url?`<div style="margin-top:4px"><a href="${v.contrato_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-eye"></i> Ver atual</a></div>`:''}</div>
+          </div>
+
+          <div class="form-group full" style="background:var(--bg);border-radius:var(--radius);padding:12px;border:1px solid var(--border)">
+            <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">🎫 Cartão TicketLog</div>
+            <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr">
+              <div class="form-group"><label>Nº de Controle</label><input id="veic-ticketlog-controle" value="${v?.ticketlog_numero_controle||''}"></div>
+              <div class="form-group"><label>Nº de Frota</label><input id="veic-ticketlog-frota" value="${v?.ticketlog_numero_frota||''}"></div>
+              <div class="form-group"><label>Senha</label><input id="veic-ticketlog-senha" value="${v?.ticketlog_senha||''}"></div>
+            </div>
+          </div>
+          <div class="form-group full"><label>Observações</label><textarea id="veic-obs" rows="2">${v?.observacoes||''}</textarea></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal('modal-veic')">Cancelar</button>
+        <button class="btn btn-primary" onclick="saveVeiculo(${id?`'${id}'`:'null'})"><i class="ti ti-check"></i> Salvar</button>
+      </div>
+    </div>`);
+}
+function atualizarCamposVeiculo(){
+  const tipo=document.getElementById('veic-tipo').value;
+  document.getElementById('veic-bloco-locado').style.display=tipo==='locado'?'contents':'none';
+}
+async function saveVeiculo(id){
+  const placa=document.getElementById('veic-placa').value.trim().toUpperCase();
+  if(!placa){showToast('Placa é obrigatória','error');return;}
+  const obraId=document.getElementById('veic-obra').value;
+  if(!obraId){showToast('Obra vinculada é obrigatória','error');return;}
+  function parseBRL(v){if(!v&&v!==0)return null;const s=String(v).trim();if(s.includes(',')){return parseFloat(s.replace(/\./g,'').replace(',','.'))||null;}return parseFloat(s)||null;}
+  async function uploadPDF(inputId,folder){
+    const input=document.getElementById(inputId);
+    if(!input||!input.files||!input.files[0])return null;
+    const file=input.files[0];
+    const path=`${folder}/${Date.now()}_${file.name.replace(/\s/g,'_')}`;
+    const{error}=await sb.storage.from('veiculos').upload(path,file,{contentType:'application/pdf',upsert:true});
+    if(error){showToast('Erro no upload: '+error.message,'error');return null;}
+    return sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl;
+  }
+  const existente=id?veiculos.find(x=>x.id===id):null;
+  const crlvUrl=await uploadPDF('veic-crlv-file','crlv')||existente?.crlv_url||null;
+  const tipo=document.getElementById('veic-tipo').value;
+  const isLocado=tipo==='locado';
+  const contratoUrl=isLocado?(await uploadPDF('veic-contrato-file','contratos')||existente?.contrato_url||null):null;
+  const payload={
+    placa,tipo,
+    modelo:document.getElementById('veic-modelo').value.trim()||null,
+    ano:parseInt(document.getElementById('veic-ano').value)||null,
+    obra_id:obraId,
+    status:document.getElementById('veic-status').value,
+    km_atual:parseInt(document.getElementById('veic-km').value)||0,
+    intervalo_revisao_km:parseInt(document.getElementById('veic-intervalo-rev').value)||10000,
+    crlv_url:crlvUrl,
+    locadora:isLocado?document.getElementById('veic-locadora').value:null,
+    contrato_inicio:isLocado?(document.getElementById('veic-contrato-inicio').value||null):null,
+    contrato_fim:isLocado?(document.getElementById('veic-contrato-fim').value||null):null,
+    contrato_valor_mensal:isLocado?parseBRL(document.getElementById('veic-contrato-valor').value):null,
+    contrato_franquia_km:isLocado?(parseInt(document.getElementById('veic-contrato-franquia').value)||null):null,
+    contrato_url:contratoUrl,
+    ticketlog_numero_controle:document.getElementById('veic-ticketlog-controle').value.trim()||null,
+    ticketlog_numero_frota:document.getElementById('veic-ticketlog-frota').value.trim()||null,
+    ticketlog_senha:document.getElementById('veic-ticketlog-senha').value.trim()||null,
+    observacoes:document.getElementById('veic-obs').value.trim()||null,
+  };
+  const res=id?await sb.from('veiculos').update(payload).eq('id',id):await sb.from('veiculos').insert(payload).select().single();
+  if(res.error){showToast('Erro: '+res.error.message,'error');return;}
+  showToast('Veículo salvo!');
+  closeModal('modal-veic');
+  await loadVeiculos();
+  if(!id&&res.data)veiculoSelecionadoId=res.data.id;
+  renderVeiculos();
+}
+async function deleteVeiculo(id,placa){
+  if(!confirm('Excluir o veículo '+placa+'? Isso remove também o histórico de condutores, KM, revisões e abastecimentos. Prefira mudar o status para "Devolvido" ou "Vendido" em vez de excluir, para manter o histórico.'))return;
+  await sb.from('veiculos').delete().eq('id',id);
+  showToast('Veículo excluído.');
+  veiculoSelecionadoId=null;
+  await loadVeiculos();
+  renderVeiculos();
+}
+
+// ── Condutores ──
+function abrirModalCondutores(veiculoId){
+  const v=veiculos.find(x=>x.id===veiculoId);
+  if(!v)return;
+  const atuais=veiculosCondutores.filter(c=>String(c.veiculo_id)===String(veiculoId)&&!c.data_fim);
+  const historico=veiculosCondutores.filter(c=>String(c.veiculo_id)===String(veiculoId)&&c.data_fim).sort((a,b)=>(parseDate(b.data_fim)||0)-(parseDate(a.data_fim)||0));
+  const funcOpts=funcionarios.filter(f=>f.situacao==='ativo').sort((a,b)=>(a.nome_completo||'').localeCompare(b.nome_completo||'','pt-BR')).map(f=>`<option value="${f.id}">${f.nome_completo} — ${f.matricula||''}</option>`).join('');
+  const linhaCondutor=(c)=>`
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div>
+        <div style="font-size:13px;font-weight:600">${escHtml(c.funcionario?.nome_completo||'—')} ${c.principal?'<span style="font-size:10px;font-weight:700;color:var(--primary-dark);background:var(--primary-light);padding:2px 8px;border-radius:20px;margin-left:6px">PRINCIPAL</span>':''}</div>
+        <div style="font-size:11px;color:var(--text-muted)">Desde ${formatDate(c.data_inicio)||'—'}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        ${c.termo_url?`<a href="${c.termo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-file-text"></i> Ver termo</a>`:`<span style="font-size:11px;font-weight:700;color:#991B1B;background:#FEE2E2;padding:3px 9px;border-radius:20px">SEM TERMO</span>`}
+        <label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-upload"></i> ${c.termo_url?'Trocar':'Anexar'} termo<input type="file" accept=".pdf" style="display:none" onchange="uploadTermoCondutor('${c.id}',this)"></label>
+        <button class="btn btn-sm btn-danger" onclick="encerrarCondutor('${c.id}','${veiculoId}')" title="Encerrar (o veículo foi passado pra outra pessoa)"><i class="ti ti-x"></i></button>
+      </div>
+    </div>`;
+  insertModal('modal-condutores',`
+    <div class="modal" style="max-width:600px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-users"></i> Condutores — ${escHtml(v.placa)}</span>
+        <button class="btn btn-sm" onclick="closeModal('modal-condutores')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Condutores atuais</div>
+        ${atuais.length?atuais.map(linhaCondutor).join(''):'<div style="color:var(--text-muted);font-size:13px;padding:10px 0">Nenhum condutor definido ainda.</div>'}
+        <div style="margin-top:14px;padding-top:14px;border-top:2px solid var(--border)">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Adicionar condutor</div>
+          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+            <div class="form-group" style="flex:1;min-width:220px"><label>Funcionário</label><select id="novo-condutor-func"><option value="">— Selecione —</option>${funcOpts}</select></div>
+            <div class="form-group"><label>Data de início</label><input id="novo-condutor-data" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:14px"><input type="checkbox" id="novo-condutor-principal" style="width:16px;height:16px" ${!atuais.length?'checked':''}> Principal</label>
+            <button class="btn btn-primary" style="margin-bottom:10px" onclick="adicionarCondutor('${veiculoId}')"><i class="ti ti-plus"></i> Adicionar</button>
+          </div>
+        </div>
+        ${historico.length?`<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Histórico (${historico.length})</div>
+          ${historico.map(c=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-muted)"><span>${escHtml(c.funcionario?.nome_completo||'—')} · ${formatDate(c.data_inicio)||'—'} → ${formatDate(c.data_fim)||'—'}</span>${c.termo_url?`<a href="${c.termo_url}" target="_blank" style="color:var(--primary)">Ver termo</a>`:''}</div>`).join('')}
+        </div>`:''}
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeModal('modal-condutores')">Fechar</button></div>
+    </div>`);
+}
+async function adicionarCondutor(veiculoId){
+  const funcId=document.getElementById('novo-condutor-func').value;
+  if(!funcId){showToast('Selecione um funcionário','error');return;}
+  const dataInicio=document.getElementById('novo-condutor-data').value||new Date().toISOString().slice(0,10);
+  const principal=document.getElementById('novo-condutor-principal').checked;
+  if(principal){
+    // Só pode haver 1 condutor principal ativo por vez — encerra o anterior automaticamente
+    const atualPrincipal=veiculosCondutores.find(c=>String(c.veiculo_id)===String(veiculoId)&&!c.data_fim&&c.principal);
+    if(atualPrincipal)await sb.from('veiculos_condutores').update({data_fim:dataInicio}).eq('id',atualPrincipal.id);
+  }
+  const{error}=await sb.from('veiculos_condutores').insert({veiculo_id:veiculoId,funcionario_id:funcId,data_inicio:dataInicio,principal});
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Condutor adicionado! Não esqueça de anexar o Termo de Responsabilidade.');
+  await loadVeiculos();
+  abrirModalCondutores(veiculoId);
+  renderVeiculos();
+}
+async function encerrarCondutor(condutorId,veiculoId){
+  if(!confirm('Encerrar esse condutor para este veículo?'))return;
+  await sb.from('veiculos_condutores').update({data_fim:new Date().toISOString().slice(0,10)}).eq('id',condutorId);
+  showToast('Condutor encerrado.');
+  await loadVeiculos();
+  abrirModalCondutores(veiculoId);
+  renderVeiculos();
+}
+async function uploadTermoCondutor(condutorId,input){
+  const file=input.files[0];
+  if(!file)return;
+  showToast('Enviando termo...');
+  const path='termos/'+Date.now()+'_'+file.name.replace(/\s/g,'_');
+  const{error:upErr}=await sb.storage.from('veiculos').upload(path,file,{contentType:'application/pdf',upsert:true});
+  if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
+  const url=sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl;
+  const cond=veiculosCondutores.find(c=>c.id===condutorId);
+  const{error}=await sb.from('veiculos_condutores').update({termo_url:url}).eq('id',condutorId);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Termo anexado!');
+  await loadVeiculos();
+  if(cond)abrirModalCondutores(cond.veiculo_id);
+  renderVeiculos();
+}
+
+// ── Controle de KM ──
+function abrirModalKm(veiculoId,mes,ano){
+  const v=veiculos.find(x=>x.id===veiculoId);
+  if(!v)return;
+  const registros=veiculosKm.filter(k=>String(k.veiculo_id)===String(veiculoId)).sort((a,b)=>(b.ano-a.ano)||(b.mes-a.mes)).slice(0,6);
+  const mesesNomes=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  insertModal('modal-km',`
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-road"></i> Controle de KM — ${escHtml(v.placa)}</span>
+        <button class="btn btn-sm" onclick="closeModal('modal-km')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">KM atual cadastrado: <strong>${v.km_atual?Number(v.km_atual).toLocaleString('pt-BR'):'—'}km</strong></div>
+        <div class="form-grid">
+          <div class="form-group"><label>Mês/Ano de referência</label><input id="km-mes-ano" value="${mesesNomes[mes-1]}/${ano}" disabled></div>
+          <div class="form-group"><label>KM registrada *</label><input id="km-valor" type="number" placeholder="Ex: 45230"></div>
+          <div class="form-group full"><label>Comprovante (foto do painel, PDF ou imagem)</label><input type="file" id="km-anexo-file" accept=".pdf,.jpg,.jpeg,.png"></div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:8px" onclick="salvarKm('${veiculoId}',${mes},${ano})"><i class="ti ti-check"></i> Lançar KM</button>
+        ${registros.length?`<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Últimos lançamentos</div>
+          ${registros.map(k=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px"><span>${mesesNomes[k.mes-1]}/${k.ano}</span><strong>${Number(k.km_registrado).toLocaleString('pt-BR')}km</strong>${k.anexo_url?`<a href="${k.anexo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-paperclip"></i></a>`:'<span></span>'}</div>`).join('')}
+        </div>`:''}
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeModal('modal-km')">Fechar</button></div>
+    </div>`);
+}
+async function salvarKm(veiculoId,mes,ano){
+  const kmValor=parseInt(document.getElementById('km-valor').value);
+  if(!kmValor){showToast('Informe a KM registrada','error');return;}
+  let anexoUrl=null;
+  const anexoFile=document.getElementById('km-anexo-file')?.files?.[0];
+  if(anexoFile){
+    showToast('Enviando comprovante...');
+    const path='km/'+Date.now()+'_'+anexoFile.name.replace(/\s/g,'_');
+    const{error:upErr}=await sb.storage.from('veiculos').upload(path,anexoFile,{upsert:true});
+    if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
+    anexoUrl=sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl;
+  }
+  const{error}=await sb.from('veiculos_km').insert({veiculo_id:veiculoId,mes,ano,km_registrado:kmValor,anexo_url:anexoUrl,data_registro:new Date().toISOString().slice(0,10)});
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  // Atualiza a KM atual do veículo também, se o valor lançado for maior que o atual
+  const v=veiculos.find(x=>x.id===veiculoId);
+  if(v&&kmValor>(v.km_atual||0))await sb.from('veiculos').update({km_atual:kmValor}).eq('id',veiculoId);
+  showToast('KM lançada!');
+  closeModal('modal-km');
+  await loadVeiculos();
+  renderVeiculos();
+}
+
+// ── Revisões ──
+function abrirModalRevisoes(veiculoId){
+  const v=veiculos.find(x=>x.id===veiculoId);
+  if(!v)return;
+  const registros=veiculosRevisoes.filter(r=>String(r.veiculo_id)===String(veiculoId)).sort((a,b)=>b.km_revisao-a.km_revisao);
+  insertModal('modal-revisoes',`
+    <div class="modal" style="max-width:560px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-engine"></i> Revisões — ${escHtml(v.placa)}</span>
+        <button class="btn btn-sm" onclick="closeModal('modal-revisoes')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group"><label>Data da revisão *</label><input id="rev-data" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+          <div class="form-group"><label>KM na revisão *</label><input id="rev-km" type="number" value="${v.km_atual||''}"></div>
+          <div class="form-group"><label>Tipo de serviço</label><input id="rev-tipo" placeholder="Ex: Revisão preventiva, troca de óleo"></div>
+          <div class="form-group"><label>Oficina</label><input id="rev-oficina"></div>
+          <div class="form-group"><label>Valor (R$)</label><input id="rev-valor" type="text" inputmode="decimal" placeholder="0,00"></div>
+          <div class="form-group full"><label>Nota fiscal (PDF)</label><input type="file" id="rev-anexo-file" accept=".pdf,.jpg,.jpeg,.png"></div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:8px" onclick="salvarRevisao('${veiculoId}')"><i class="ti ti-check"></i> Lançar revisão</button>
+        ${registros.length?`<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Histórico</div>
+          ${registros.map(r=>`<div style="padding:8px 0;border-bottom:1px solid var(--border)"><div style="display:flex;justify-content:space-between;font-size:12.5px"><strong>${formatDate(r.data_revisao)||'—'} · ${Number(r.km_revisao).toLocaleString('pt-BR')}km</strong>${r.anexo_url?`<a href="${r.anexo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-paperclip"></i></a>`:''}</div><div style="font-size:11px;color:var(--text-muted)">${escHtml(r.tipo||'—')}${r.oficina?' · '+escHtml(r.oficina):''}${r.valor?' · R$ '+Number(r.valor).toLocaleString('pt-BR',{minimumFractionDigits:2}):''}</div></div>`).join('')}
+        </div>`:''}
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeModal('modal-revisoes')">Fechar</button></div>
+    </div>`);
+}
+async function salvarRevisao(veiculoId){
+  const data=document.getElementById('rev-data').value;
+  const km=parseInt(document.getElementById('rev-km').value);
+  if(!data||!km){showToast('Data e KM são obrigatórios','error');return;}
+  function parseBRL(v){if(!v&&v!==0)return null;const s=String(v).trim();if(s.includes(',')){return parseFloat(s.replace(/\./g,'').replace(',','.'))||null;}return parseFloat(s)||null;}
+  let anexoUrl=null;
+  const anexoFile=document.getElementById('rev-anexo-file')?.files?.[0];
+  if(anexoFile){
+    showToast('Enviando nota fiscal...');
+    const path='revisoes/'+Date.now()+'_'+anexoFile.name.replace(/\s/g,'_');
+    const{error:upErr}=await sb.storage.from('veiculos').upload(path,anexoFile,{upsert:true});
+    if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
+    anexoUrl=sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl;
+  }
+  const{error}=await sb.from('veiculos_revisoes').insert({
+    veiculo_id:veiculoId,data_revisao:data,km_revisao:km,
+    tipo:document.getElementById('rev-tipo').value.trim()||null,
+    oficina:document.getElementById('rev-oficina').value.trim()||null,
+    valor:parseBRL(document.getElementById('rev-valor').value),
+    anexo_url:anexoUrl,
+  });
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  const v=veiculos.find(x=>x.id===veiculoId);
+  if(v&&km>(v.km_atual||0))await sb.from('veiculos').update({km_atual:km}).eq('id',veiculoId);
+  showToast('Revisão registrada!');
+  closeModal('modal-revisoes');
+  await loadVeiculos();
+  renderVeiculos();
+}
+
+// ── Abastecimentos ──
+function abrirModalAbastecimento(veiculoId,mes,ano){
+  const v=veiculos.find(x=>x.id===veiculoId);
+  if(!v)return;
+  const registros=veiculosAbastecimentos.filter(a=>String(a.veiculo_id)===String(veiculoId)).sort((a,b)=>(b.ano-a.ano)||(b.mes-a.mes)).slice(0,6);
+  const mesesNomes=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  insertModal('modal-abastecimento',`
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-gas-station"></i> Abastecimentos — ${escHtml(v.placa)}</span>
+        <button class="btn btn-sm" onclick="closeModal('modal-abastecimento')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group"><label>Mês/Ano de referência</label><input value="${mesesNomes[mes-1]}/${ano}" disabled></div>
+          <div class="form-group"><label>Litros</label><input id="abast-litros" type="text" inputmode="decimal" placeholder="Ex: 350,5"></div>
+          <div class="form-group"><label>Valor total (R$)</label><input id="abast-valor" type="text" inputmode="decimal" placeholder="0,00"></div>
+          <div class="form-group full"><label>Formulário de abastecimento (PDF)</label><input type="file" id="abast-anexo-file" accept=".pdf,.jpg,.jpeg,.png"></div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:8px" onclick="salvarAbastecimento('${veiculoId}',${mes},${ano})"><i class="ti ti-check"></i> Lançar abastecimento</button>
+        ${registros.length?`<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Últimos lançamentos</div>
+          ${registros.map(a=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px"><span>${mesesNomes[a.mes-1]}/${a.ano}</span><span>${a.litros?a.litros+'L':''}${a.valor_total?' · R$ '+Number(a.valor_total).toLocaleString('pt-BR',{minimumFractionDigits:2}):''}</span>${a.anexo_url?`<a href="${a.anexo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-paperclip"></i></a>`:'<span></span>'}</div>`).join('')}
+        </div>`:''}
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeModal('modal-abastecimento')">Fechar</button></div>
+    </div>`);
+}
+async function salvarAbastecimento(veiculoId,mes,ano){
+  function parseBRL(v){if(!v&&v!==0)return null;const s=String(v).trim();if(s.includes(',')){return parseFloat(s.replace(/\./g,'').replace(',','.'))||null;}return parseFloat(s)||null;}
+  let anexoUrl=null;
+  const anexoFile=document.getElementById('abast-anexo-file')?.files?.[0];
+  if(anexoFile){
+    showToast('Enviando formulário...');
+    const path='abastecimentos/'+Date.now()+'_'+anexoFile.name.replace(/\s/g,'_');
+    const{error:upErr}=await sb.storage.from('veiculos').upload(path,anexoFile,{upsert:true});
+    if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
+    anexoUrl=sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl;
+  }
+  const{error}=await sb.from('veiculos_abastecimentos').insert({
+    veiculo_id:veiculoId,mes,ano,
+    litros:parseBRL(document.getElementById('abast-litros').value),
+    valor_total:parseBRL(document.getElementById('abast-valor').value),
+    anexo_url:anexoUrl,
+  });
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Abastecimento lançado!');
+  closeModal('modal-abastecimento');
+  await loadVeiculos();
+  renderVeiculos();
 }
 
 function openModalAlojamento(id){
