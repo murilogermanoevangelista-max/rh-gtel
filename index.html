@@ -7120,6 +7120,9 @@ function renderVeiculos(){
     return (Math.floor(ultimaKm/intervalo)+1)*intervalo;
   };
   const kmMesLancado=(veiculoId)=>veiculosKm.find(k=>String(k.veiculo_id)===String(veiculoId)&&k.mes===_mesTabela&&k.ano===_anoTabela);
+  // Só considera "resolvido" se tiver comprovante anexado OU foi marcado como isento — um lançamento
+  // sem anexo continua contando como pendência, pra não deixar passar sem comprovar.
+  const kmMesOk=(veiculoId)=>{const k=kmMesLancado(veiculoId);return!!(k&&(k.isento||k.anexo_url));};
   const abastecMesLancado=(veiculoId)=>veiculosAbastecimentos.find(a=>String(a.veiculo_id)===String(veiculoId)&&a.mes===_mesTabela&&a.ano===_anoTabela);
 
   const veiculosFiltrados=(()=>{
@@ -7127,7 +7130,7 @@ function renderVeiculos(){
     lista=lista.filter(v=>v.status!=='devolvido'&&v.status!=='vendido'); // sumiram do dia a dia — histórico continua no banco
     if(veiculoFiltroAtivo==='revisao_vencida')lista=lista.filter(v=>(v.km_atual||0)>=proximaRevisaoKm(v));
     else if(veiculoFiltroAtivo==='revisao_proxima')lista=lista.filter(v=>{const f=proximaRevisaoKm(v)-(v.km_atual||0);return f>0&&f<=1000;});
-    else if(veiculoFiltroAtivo==='km_pendente')lista=lista.filter(v=>!kmMesLancado(v.id));
+    else if(veiculoFiltroAtivo==='km_pendente')lista=lista.filter(v=>!kmMesOk(v.id));
     else if(veiculoFiltroAtivo==='contrato_vencendo')lista=lista.filter(v=>{if(v.tipo!=='locado')return false;const d=parseDate(v.contrato_fim);if(!d)return false;const dias=Math.floor((d-hoje)/86400000);return dias>=0&&dias<=60;});
     else if(veiculoFiltroAtivo==='sem_termo')lista=lista.filter(v=>condutoresAtuais(v.id).some(c=>!c.termo_url));
     if(veiculoBusca){
@@ -7139,7 +7142,7 @@ function renderVeiculos(){
 
   const temAlertaVeiculo=(v)=>{
     const revVencida=(v.km_atual||0)>=proximaRevisaoKm(v);
-    const semKmMes=!kmMesLancado(v.id);
+    const semKmMes=!kmMesOk(v.id);
     const semTermo=condutoresAtuais(v.id).some(c=>!c.termo_url);
     let contratoVenc=false;
     if(v.tipo==='locado'){const d=parseDate(v.contrato_fim);if(d)contratoVenc=d<hoje;}
@@ -7149,7 +7152,7 @@ function renderVeiculos(){
   // Contadores para os cards de alerta
   const revVencidas=veiculosFiltrados.filter(v=>(v.km_atual||0)>=proximaRevisaoKm(v)).length;
   const revProximas=veiculosFiltrados.filter(v=>{const f=proximaRevisaoKm(v)-(v.km_atual||0);return f>0&&f<=1000;}).length;
-  const kmPendentes=veiculosFiltrados.filter(v=>!kmMesLancado(v.id)).length;
+  const kmPendentes=veiculosFiltrados.filter(v=>!kmMesOk(v.id)).length;
   const contratosVenc=veiculosFiltrados.filter(v=>{if(v.tipo!=='locado')return false;const d=parseDate(v.contrato_fim);if(!d)return false;const dias=Math.floor((d-hoje)/86400000);return dias>=0&&dias<=60;}).length;
   const semTermoCount=veiculosFiltrados.filter(v=>condutoresAtuais(v.id).some(c=>!c.termo_url)).length;
 
@@ -7230,8 +7233,10 @@ function renderVeiculos(){
         condPrinc&&condPrinc.termo_url?'#166534':'#991B1B', condPrinc&&condPrinc.termo_url?'#DCFCE7':'#FEE2E2',
         "abrirModalCondutores('"+sel.id+"')"),
       secao('km','road','Controle de KM',
-        'Atual: '+(sel.km_atual?Number(sel.km_atual).toLocaleString('pt-BR'):'—')+'km'+(kmMes?' · lançado em '+_mesLabel:''),
-        kmMes?'LANÇADO':'PENDENTE', kmMes?'#166534':'#92400E', kmMes?'#DCFCE7':'#FFFBEB',
+        'Atual: '+(sel.km_atual?Number(sel.km_atual).toLocaleString('pt-BR'):'—')+'km'+(kmMes?(kmMes.isento?' · isento em '+_mesLabel:kmMes.anexo_url?' · lançado em '+_mesLabel:' · lançado sem comprovante em '+_mesLabel):''),
+        kmMes?(kmMes.isento||kmMes.anexo_url?'LANÇADO':'SEM COMPROVANTE'):'PENDENTE',
+        kmMes?(kmMes.isento||kmMes.anexo_url?'#166534':'#92400E'):'#92400E',
+        kmMes?(kmMes.isento||kmMes.anexo_url?'#DCFCE7':'#FFFBEB'):'#FFFBEB',
         "abrirModalKm('"+sel.id+"',"+_mesTabela+","+_anoTabela+")"),
       secao('revisao','engine','Revisões',
         'Nº '+proxRevNumero+' prevista aos '+proxRev.toLocaleString('pt-BR')+'km (a cada '+(sel.intervalo_revisao_km||10000).toLocaleString('pt-BR')+'km)',
@@ -7611,11 +7616,31 @@ function abrirModalKm(veiculoId,mes,ano){
         <button class="btn btn-primary" style="margin-top:8px" onclick="salvarKm('${veiculoId}',${mes},${ano})"><i class="ti ti-check"></i> Lançar KM</button>
         ${registros.length?`<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
           <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Últimos lançamentos</div>
-          ${registros.map(k=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px"><span>${mesesNomes[k.mes-1]}/${k.ano}</span><strong>${k.isento?'Isento':Number(k.km_registrado).toLocaleString('pt-BR')+'km'}</strong>${k.anexo_url?`<a href="${k.anexo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-paperclip"></i></a>`:'<span></span>'}</div>`).join('')}
+          ${registros.map(k=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px"><span>${mesesNomes[k.mes-1]}/${k.ano}</span><strong>${k.isento?'Isento':Number(k.km_registrado).toLocaleString('pt-BR')+'km'}</strong><span style="display:flex;gap:6px">${k.anexo_url?`<a href="${k.anexo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-paperclip"></i></a>`:''}<button class="btn btn-sm btn-danger" onclick="excluirKm('${k.id}','${veiculoId}',${mes},${ano})" title="Excluir este lançamento"><i class="ti ti-trash"></i></button></span></div>`).join('')}
         </div>`:''}
       </div>
       <div class="modal-footer"><button class="btn" onclick="closeModal('modal-km')">Fechar</button></div>
     </div>`);
+}
+async function excluirKm(id,veiculoId,mes,ano){
+  if(!confirm('Excluir este lançamento de KM?'))return;
+  const{error}=await sb.from('veiculos_km').delete().eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  await loadVeiculos(); // recarrega antes de recalcular, pra não usar o registro já excluído
+  await recalcularKmAtual(veiculoId);
+  showToast('Lançamento excluído.');
+  await loadVeiculos();
+  abrirModalKm(veiculoId,mes,ano);
+  renderVeiculos();
+}
+// Depois de excluir um lançamento errado, recalcula a KM atual do veículo com base no que sobrou
+// (KMs mensais + revisões) — evita que um número digitado errado continue "inflando" a KM atual
+// mesmo depois de apagado.
+async function recalcularKmAtual(veiculoId){
+  const kms=veiculosKm.filter(k=>String(k.veiculo_id)===String(veiculoId)&&k.km_registrado).map(k=>k.km_registrado);
+  const revs=veiculosRevisoes.filter(r=>String(r.veiculo_id)===String(veiculoId)).map(r=>r.km_revisao);
+  const maior=Math.max(0,...kms,...revs);
+  await sb.from('veiculos').update({km_atual:maior}).eq('id',veiculoId);
 }
 async function salvarKm(veiculoId,mes,ano){
   const isento=document.getElementById('km-isento').checked;
@@ -7672,11 +7697,22 @@ function abrirModalRevisoes(veiculoId){
         <button class="btn btn-primary" style="margin-top:8px" onclick="salvarRevisao('${veiculoId}',${proximoNumero})"><i class="ti ti-check"></i> Lançar revisão nº ${proximoNumero}</button>
         ${registros.length?`<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
           <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Histórico</div>
-          ${registros.map(r=>`<div style="padding:8px 0;border-bottom:1px solid var(--border)"><div style="display:flex;justify-content:space-between;font-size:12.5px"><strong>Nº${r.numero_revisao||'?'} · ${formatDate(r.data_revisao)||'—'} · ${Number(r.km_revisao).toLocaleString('pt-BR')}km</strong>${r.anexo_url?`<a href="${r.anexo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-paperclip"></i></a>`:''}</div><div style="font-size:11px;color:var(--text-muted)">${escHtml(r.tipo||'—')}${r.oficina?' · '+escHtml(r.oficina):''}${r.valor?' · R$ '+Number(r.valor).toLocaleString('pt-BR',{minimumFractionDigits:2}):''}</div></div>`).join('')}
+          ${registros.map(r=>`<div style="padding:8px 0;border-bottom:1px solid var(--border)"><div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px"><strong>Nº${r.numero_revisao||'?'} · ${formatDate(r.data_revisao)||'—'} · ${Number(r.km_revisao).toLocaleString('pt-BR')}km</strong><span style="display:flex;gap:6px">${r.anexo_url?`<a href="${r.anexo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-paperclip"></i></a>`:''}<button class="btn btn-sm btn-danger" onclick="excluirRevisao('${r.id}','${veiculoId}')" title="Excluir esta revisão"><i class="ti ti-trash"></i></button></span></div><div style="font-size:11px;color:var(--text-muted)">${escHtml(r.tipo||'—')}${r.oficina?' · '+escHtml(r.oficina):''}${r.valor?' · R$ '+Number(r.valor).toLocaleString('pt-BR',{minimumFractionDigits:2}):''}</div></div>`).join('')}
         </div>`:''}
       </div>
       <div class="modal-footer"><button class="btn" onclick="closeModal('modal-revisoes')">Fechar</button></div>
     </div>`);
+}
+async function excluirRevisao(id,veiculoId){
+  if(!confirm('Excluir esta revisão?'))return;
+  const{error}=await sb.from('veiculos_revisoes').delete().eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  await loadVeiculos();
+  await recalcularKmAtual(veiculoId);
+  showToast('Revisão excluída.');
+  await loadVeiculos();
+  abrirModalRevisoes(veiculoId);
+  renderVeiculos();
 }
 async function salvarRevisao(veiculoId,numeroRevisao){
   const data=document.getElementById('rev-data').value;
@@ -7730,11 +7766,20 @@ function abrirModalAbastecimento(veiculoId,mes,ano){
         <button class="btn btn-primary" style="margin-top:8px" onclick="salvarAbastecimento('${veiculoId}',${mes},${ano})"><i class="ti ti-check"></i> Lançar abastecimento</button>
         ${registros.length?`<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
           <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Últimos lançamentos</div>
-          ${registros.map(a=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px"><span>${mesesNomes[a.mes-1]}/${a.ano}</span><span>${a.litros?a.litros+'L':''}${a.valor_total?' · R$ '+Number(a.valor_total).toLocaleString('pt-BR',{minimumFractionDigits:2}):''}</span>${a.anexo_url?`<a href="${a.anexo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-paperclip"></i></a>`:'<span></span>'}</div>`).join('')}
+          ${registros.map(a=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px"><span>${mesesNomes[a.mes-1]}/${a.ano}</span><span>${a.litros?a.litros+'L':''}${a.valor_total?' · R$ '+Number(a.valor_total).toLocaleString('pt-BR',{minimumFractionDigits:2}):''}</span><span style="display:flex;gap:6px">${a.anexo_url?`<a href="${a.anexo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-paperclip"></i></a>`:''}<button class="btn btn-sm btn-danger" onclick="excluirAbastecimento('${a.id}','${veiculoId}',${mes},${ano})" title="Excluir este lançamento"><i class="ti ti-trash"></i></button></span></div>`).join('')}
         </div>`:''}
       </div>
       <div class="modal-footer"><button class="btn" onclick="closeModal('modal-abastecimento')">Fechar</button></div>
     </div>`);
+}
+async function excluirAbastecimento(id,veiculoId,mes,ano){
+  if(!confirm('Excluir este lançamento de abastecimento?'))return;
+  const{error}=await sb.from('veiculos_abastecimentos').delete().eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Lançamento excluído.');
+  await loadVeiculos();
+  abrirModalAbastecimento(veiculoId,mes,ano);
+  renderVeiculos();
 }
 async function salvarAbastecimento(veiculoId,mes,ano){
   function parseBRL(v){if(!v&&v!==0)return null;const s=String(v).trim();if(s.includes(',')){return parseFloat(s.replace(/\./g,'').replace(',','.'))||null;}return parseFloat(s)||null;}
