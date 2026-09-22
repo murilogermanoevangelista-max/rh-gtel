@@ -810,7 +810,7 @@ async function loadVeiculos(){
 const CATEGORIAS_ATIVO_IMOB=['Instrumentos de Medição','Ferramentas','Equipamentos de TI','EPI','Máquinas e Equipamentos','Mobiliário','Outros'];
 async function loadAtivosImobilizados(){
   const [a,r]=await Promise.all([
-    sb.from('ativos_imobilizados').select('*,obra:obras(nome,codigo)').order('descricao'),
+    sb.from('ativos_imobilizados').select('*,obra:obras(nome,codigo),fornecedor:fornecedores(razao_social)').order('descricao'),
     sb.from('ativos_imob_responsaveis').select('*,funcionario:funcionarios(nome_completo,matricula),obra:obras(nome,codigo)').order('data_recebimento',{ascending:false}),
   ]);
   let listaAtivos=a.data||[],listaResp=r.data||[];
@@ -945,7 +945,7 @@ async function showPage(page){
     else if(page==='ferias')renderFerias();
     else if(page==='alojamentos'){if(!_vindoDeAlerta)alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';bannerRelatoriosAberto=false;bannerRelatoriosFiltroObra='';await loadAlojamentos();await loadPrestadores();renderAlojamentos();}
     else if(page==='veiculos'){await loadVeiculos();renderVeiculos();}
-    else if(page==='ativos-imobilizados'){await loadAtivosImobilizados();renderAtivosImobilizados();}
+    else if(page==='ativos-imobilizados'){await loadAtivosImobilizados();await loadFornecedores();renderAtivosImobilizados();}
     else if(page==='prestadores'){await loadPrestadores();renderPrestadores();}
     else if(page==='efetivo'){efetivoSituacaoFiltro='';await loadEfetivo();renderEfetivo();}
     else if(page==='usuarios')renderUsuarios();
@@ -7491,6 +7491,8 @@ function renderAtivosImobilizados(){
     const respAtual=responsavelAtual(sel.id);
     const historico=historicoResponsaveis(sel.id);
     const documentos=[
+      ...(sel.nf_remessa_url?[{nome:'NF de Remessa — '+(sel.nf_remessa_numero||'s/nº'),url:sel.nf_remessa_url}]:[]),
+      ...(sel.nf_venda_url?[{nome:'NF de Venda — '+(sel.nf_venda_numero||'s/nº'),url:sel.nf_venda_url}]:[]),
       ...(respAtual&&respAtual.termo_url?[{nome:'Termo assinado — '+(nomeResponsavel(respAtual)||'atual'),url:respAtual.termo_url}]:[]),
       ...historico.filter(h=>h.termo_url).map(h=>({nome:'Termo assinado — '+(nomeResponsavel(h)||'—')+' (histórico)',url:h.termo_url})),
     ];
@@ -7517,7 +7519,7 @@ function renderAtivosImobilizados(){
         respAtual&&respAtual.condicao==='com_ressalva'?'#FFFBEB':'#F3F4F6',
         null),
       secao('bem','box','Dados do Bem',
-        'R$ '+Number(sel.valor||0).toLocaleString('pt-BR',{minimumFractionDigits:2})+' · '+(sel.quantidade||1)+' un. · '+(estadoLabel[respAtual?.estado_recebimento]||'—'),
+        'R$ '+Number(sel.valor||0).toLocaleString('pt-BR',{minimumFractionDigits:2})+' · '+(sel.quantidade||1)+' un. · '+(estadoLabel[respAtual?.estado_recebimento]||'—')+' · Fornecedor: '+(sel.nf_venda_na?'N/A':(sel.fornecedor?.razao_social||'—')),
         sel.categoria||'—','#374151','#F3F4F6',
         "openModalAtivoImob('"+sel.id+"')"),
       secao('documentos','paperclip','Documentos',documentos.length+' arquivo(s) anexado(s)',
@@ -7620,6 +7622,8 @@ function openModalAtivoImob(id){
   const isEdit=!!a;
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${a?.obra_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
   const catOpts=CATEGORIAS_ATIVO_IMOB.map(c=>`<option value="${c}" ${a?.categoria===c?'selected':''}>${c}</option>`).join('');
+  const fornecedorOpts=fornecedores.map(f=>`<option value="${f.id}" ${a?.fornecedor_id===f.id?'selected':''}>${f.razao_social}</option>`).join('');
+  const semNfVenda=a?.nf_venda_na||false;
   insertModal('modal-ativoimob',`
     <div class="modal" style="max-width:640px">
       <div class="modal-header">
@@ -7643,6 +7647,29 @@ function openModalAtivoImob(id){
           </div>
           <div class="form-group"><label>Valor de compra (R$)</label><input id="ai-valor" type="text" inputmode="decimal" placeholder="0,00" value="${a?.valor?String(a.valor).replace('.',','):''}"></div>
           <div class="form-group"><label>Quantidade</label><input id="ai-qtd" type="number" min="1" value="${a?.quantidade||1}"></div>
+        </div>
+
+        <div style="background:var(--bg);border-radius:var(--radius);padding:12px;border:1px solid var(--border);margin-top:14px">
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">📦 Nota Fiscal de Remessa</div>
+          <div class="form-grid">
+            <div class="form-group"><label>Número da NF</label><input id="ai-nf-remessa-num" value="${a?.nf_remessa_numero||''}"></div>
+            <div class="form-group"><label>Anexo (PDF)</label><input type="file" id="ai-nf-remessa-file" accept=".pdf,.jpg,.jpeg,.png">${a?.nf_remessa_url?`<div style="margin-top:4px"><a href="${a.nf_remessa_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-eye"></i> Ver atual</a></div>`:''}</div>
+          </div>
+        </div>
+
+        <div style="background:var(--bg);border-radius:var(--radius);padding:12px;border:1px solid var(--border);margin-top:10px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px">🧾 Nota Fiscal de Venda (compra do fornecedor)</div>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:400"><input type="checkbox" id="ai-nf-venda-na" ${semNfVenda?'checked':''} style="width:15px;height:15px" onchange="document.getElementById('ai-bloco-nf-venda').style.display=this.checked?'none':'grid'"> Não tenho essa nota (N/A)</label>
+          </div>
+          <div class="form-grid" id="ai-bloco-nf-venda" style="display:${semNfVenda?'none':'grid'}">
+            <div class="form-group"><label>Fornecedor</label><select id="ai-fornecedor"><option value="">— Selecione —</option>${fornecedorOpts}</select></div>
+            <div class="form-group"><label>Número da NF</label><input id="ai-nf-venda-num" value="${a?.nf_venda_numero||''}"></div>
+            <div class="form-group full"><label>Anexo (PDF)</label><input type="file" id="ai-nf-venda-file" accept=".pdf,.jpg,.jpeg,.png">${a?.nf_venda_url?`<div style="margin-top:4px"><a href="${a.nf_venda_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-eye"></i> Ver atual</a></div>`:''}</div>
+          </div>
+        </div>
+
+        <div class="form-grid" style="margin-top:14px">
           <div class="form-group full"><label>Observações</label><textarea id="ai-obs" rows="2">${a?.observacoes||''}</textarea></div>
         </div>
       </div>
@@ -7660,6 +7687,19 @@ async function saveAtivoImob(id){
   const obraId=document.getElementById('ai-obra').value;
   if(!obraId){showToast('Obra de lotação é obrigatória','error');return;}
   function parseBRL(v){if(!v&&v!==0)return null;const s=String(v).trim();if(s.includes(',')){return parseFloat(s.replace(/\./g,'').replace(',','.'))||null;}return parseFloat(s)||null;}
+  async function uploadArquivo(inputId,folder){
+    const input=document.getElementById(inputId);
+    if(!input||!input.files||!input.files[0])return null;
+    const file=input.files[0];
+    const path=folder+'/'+Date.now()+'_'+file.name.replace(/\s/g,'_');
+    const{error}=await sb.storage.from('ativos-imobilizados').upload(path,file,{upsert:true});
+    if(error){showToast('Erro no upload: '+error.message,'error');return null;}
+    return sb.storage.from('ativos-imobilizados').getPublicUrl(path).data.publicUrl;
+  }
+  const existente=id?ativosImob.find(x=>x.id===id):null;
+  const nfRemessaUrl=await uploadArquivo('ai-nf-remessa-file','nf-remessa')||existente?.nf_remessa_url||null;
+  const semNfVenda=document.getElementById('ai-nf-venda-na').checked;
+  const nfVendaUrl=semNfVenda?null:(await uploadArquivo('ai-nf-venda-file','nf-venda')||existente?.nf_venda_url||null);
   const payload={
     descricao,
     patrimonio_numero:patrimonio,
@@ -7669,6 +7709,12 @@ async function saveAtivoImob(id){
     status:document.getElementById('ai-status').value,
     valor:parseBRL(document.getElementById('ai-valor').value),
     quantidade:parseInt(document.getElementById('ai-qtd').value)||1,
+    nf_remessa_numero:document.getElementById('ai-nf-remessa-num').value.trim()||null,
+    nf_remessa_url:nfRemessaUrl,
+    nf_venda_na:semNfVenda,
+    fornecedor_id:semNfVenda?null:(document.getElementById('ai-fornecedor').value||null),
+    nf_venda_numero:semNfVenda?null:(document.getElementById('ai-nf-venda-num').value.trim()||null),
+    nf_venda_url:nfVendaUrl,
     observacoes:document.getElementById('ai-obs').value.trim()||null,
   };
   const res=id?await sb.from('ativos_imobilizados').update(payload).eq('id',id):await sb.from('ativos_imobilizados').insert(payload).select().single();
