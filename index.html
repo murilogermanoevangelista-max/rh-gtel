@@ -321,7 +321,7 @@ input:focus,select:focus{border-color:var(--primary)}
     <div class="nav-section">Principal</div>
     <div class="nav-item active" onclick="showPage('dashboard')"><i class="ti ti-dashboard"></i> Dashboard</div>
     <div class="nav-item" onclick="showPage('alojamentos')"><i class="ti ti-home-2"></i> Alojamentos</div>
-    <div class="nav-item" onclick="showPage('ativos-imobilizados')"><i class="ti ti-package"></i> Ativo Imobilizado</div>
+    <div class="nav-item" onclick="showPage('ativos-imobilizados')"><i class="ti ti-package"></i> Ativo GTEL</div>
     <div class="nav-item" onclick="showPage('efetivo')"><i class="ti ti-users-group"></i> Efetivo</div>
     <div class="nav-item" onclick="showPage('experiencia')"><i class="ti ti-certificate"></i> Experiência</div>
     <div class="nav-item" onclick="showPage('ferias')"><i class="ti ti-sunglasses"></i> Férias</div>
@@ -1746,6 +1746,26 @@ async function verFicha(id,historico=false){
   await loadTreinamentos();
   const funcaoNome=f.funcao?.nome||f.funcao_manual||'—';
 
+  // ── Ativos GTEL e Veículos no nome do funcionário (consulta direta — não depende de já ter
+  // visitado essas telas antes) — importante checar isso antes de desligar ou transferir alguém.
+  let responsavelSection='';
+  try{
+    const[respAtivosRes,respVeicRes]=await Promise.all([
+      sb.from('ativos_imob_responsaveis').select('*,ativo:ativos_imobilizados(descricao,patrimonio_numero)').eq('funcionario_id',id).is('data_fim',null),
+      sb.from('veiculos_condutores').select('*,veiculo:veiculos(placa,modelo)').eq('funcionario_id',id).is('data_fim',null),
+    ]);
+    const itensAtivos=(respAtivosRes.data||[]).map(r=>({tipo:'Ativo GTEL',nome:(r.ativo?.descricao||'—')+' (Pat. '+(r.ativo?.patrimonio_numero||'—')+')',termoOk:!!r.termo_url}));
+    const itensVeic=(respVeicRes.data||[]).map(r=>({tipo:'Veículo',nome:(r.veiculo?.placa||'—')+' — '+(r.veiculo?.modelo||'—'),termoOk:!!r.termo_url}));
+    const todosItens=[...itensAtivos,...itensVeic];
+    if(todosItens.length){
+      responsavelSection='<div style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:16px">'
+        +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#92400E;margin-bottom:8px">⚠️ '+todosItens.length+' ativo(s)/veículo(s) no nome deste funcionário</div>'
+        +'<div style="font-size:12px;color:#78350F;margin-bottom:8px">Antes de desligar ou transferir, transfira a responsabilidade destes itens pra outra pessoa:</div>'
+        +todosItens.map(it=>'<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12.5px;color:#78350F"><span style="font-size:10px;font-weight:700;background:#FDE68A;padding:1px 7px;border-radius:20px">'+it.tipo+'</span>'+it.nome+(it.termoOk?'':' <span style="color:#991B1B;font-size:11px">(sem termo assinado)</span>')+'</div>').join('')
+        +'</div>';
+    }
+  }catch(e){console.warn('Não foi possível checar ativos/veículos do funcionário:',e);}
+
   // ── Demissão ──
   let demissaoSection='';
   if(f.situacao==='inativo'){
@@ -2003,6 +2023,7 @@ async function verFicha(id,historico=false){
               <div class="ficha-field"><div class="ficha-field-label">Tipo de Pagamento</div><div class="ficha-field-value">${f.tipo_pagamento?(f.tipo_pagamento==='horista'?'Horista':'Mensalista'):'—'}</div></div>
             </div>
           </div>
+          ${responsavelSection}
           ${demissaoSection}
           ${transfPendenteSection}
           ${transferSection}
@@ -2449,6 +2470,27 @@ async function saveFuncionario(id){
   const situacao=document.getElementById('f-situacao').value;
   const isTransf=situacao==='transferido';
   const isDemitido=situacao==='inativo';
+  // Antes de confirmar a demissão pela primeira vez, checa se o funcionário ainda está com algum
+  // Ativo GTEL ou Veículo no nome dele — evita "esquecer" de transferir a responsabilidade antes de desligar.
+  if(id&&isDemitido){
+    const funcOriginal=funcionarios.find(x=>x.id===id);
+    if(funcOriginal&&funcOriginal.situacao!=='inativo'){
+      try{
+        const[respAtivosRes,respVeicRes]=await Promise.all([
+          sb.from('ativos_imob_responsaveis').select('*,ativo:ativos_imobilizados(descricao,patrimonio_numero)').eq('funcionario_id',id).is('data_fim',null),
+          sb.from('veiculos_condutores').select('*,veiculo:veiculos(placa,modelo)').eq('funcionario_id',id).is('data_fim',null),
+        ]);
+        const nomesItens=[
+          ...(respAtivosRes.data||[]).map(r=>'Ativo GTEL: '+(r.ativo?.descricao||'—')+' (Pat. '+(r.ativo?.patrimonio_numero||'—')+')'),
+          ...(respVeicRes.data||[]).map(r=>'Veículo: '+(r.veiculo?.placa||'—')+' — '+(r.veiculo?.modelo||'—')),
+        ];
+        if(nomesItens.length){
+          const confirmar=confirm('⚠️ Este funcionário ainda está no nome de:\n\n'+nomesItens.join('\n')+'\n\nTransfira a responsabilidade desses itens pra outra pessoa antes de desligar.\n\nSalvar mesmo assim?');
+          if(!confirmar)return;
+        }
+      }catch(e){console.warn('Não foi possível checar ativos/veículos antes da demissão:',e);}
+    }
+  }
   const tipoTransf=isTransf?tipoTransferencia:'';
   const isEnvio=isTransf&&tipoTransf==='envio';
   const isRecebimento=isTransf&&tipoTransf==='recebimento';
@@ -6761,7 +6803,7 @@ function renderAlojamentos(){
     // ── Lista da esquerda, agrupada por obra (só mostra o rótulo da obra quando há mais de uma) ──
     const multiObra=Object.keys(_byObra).length>1;
     const listaHtml=Object.entries(_byObra).map(([obraKey,lista])=>{
-      const grupo=multiObra?'<div style="padding:8px 4px 6px;font-size:11px;font-weight:700;color:#8B95A5;letter-spacing:.03em">'+escHtml(obraKey.split(' — ')[0])+'</div>':'';
+      const grupo=multiObra?'<div style="padding:8px 4px 6px;font-size:11px;font-weight:700;color:#8B95A5;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(obraKey)+'</div>':'';
       const itens=lista.map(a=>{
         const isSel=String(a.id)===String(sel.id);
         const moradores=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length
@@ -7211,7 +7253,7 @@ function renderVeiculos(){
 
     const multiObra=Object.keys(_byObra).length>1;
     const listaHtml=Object.entries(_byObra).map(([obraKey,lista])=>{
-      const grupo=multiObra?'<div style="padding:8px 4px 6px;font-size:11px;font-weight:700;color:#8B95A5;letter-spacing:.03em">'+escHtml(obraKey.split(' — ')[0])+'</div>':'';
+      const grupo=multiObra?'<div style="padding:8px 4px 6px;font-size:11px;font-weight:700;color:#8B95A5;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(obraKey)+'</div>':'';
       const itens=lista.map(v=>{
         const isSel=String(v.id)===String(sel.id);
         const alerta=temAlertaVeiculo(v);
@@ -7472,7 +7514,7 @@ function renderAtivosImobilizados(){
 
     const multiObra=Object.keys(_byObra).length>1;
     const listaHtml=Object.entries(_byObra).map(([obraKey,lista])=>{
-      const grupo=multiObra?'<div style="padding:8px 4px 6px;font-size:11px;font-weight:700;color:#8B95A5;letter-spacing:.03em">'+escHtml(obraKey.split(' — ')[0])+'</div>':'';
+      const grupo=multiObra?'<div style="padding:8px 4px 6px;font-size:11px;font-weight:700;color:#8B95A5;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(obraKey)+'</div>':'';
       const itens=lista.map(a=>{
         const isSel=String(a.id)===String(sel.id);
         const alerta=temAlertaAtivo(a);
@@ -7594,7 +7636,7 @@ function renderAtivosImobilizados(){
     +'</div>';
     })();
     }catch(e){
-      console.error('[Ativo Imobilizado] erro ao montar o painel:',e);
+      console.error('[Ativo GTEL] erro ao montar o painel:',e);
       return '<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:16px;color:#991B1B">'
         +'<strong>⚠ Erro ao montar o painel de ativos</strong>'
         +'<div style="font-size:12px;margin-top:6px;font-family:monospace;white-space:pre-wrap">'+(e.message||e)+'</div>'
@@ -7605,7 +7647,7 @@ function renderAtivosImobilizados(){
 
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
-      <div><div class="page-title"><i class="ti ti-package"></i> Ativo Imobilizado</div>
+      <div><div class="page-title"><i class="ti ti-package"></i> Ativo GTEL</div>
         <div class="page-subtitle">${ativosFiltrados.length} ativo(s)</div></div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-primary" onclick="openModalAtivoImob()"><i class="ti ti-plus"></i> Novo ativo</button>
@@ -7632,7 +7674,7 @@ function openModalAtivoImob(id){
   insertModal('modal-ativoimob',`
     <div class="modal" style="max-width:640px">
       <div class="modal-header">
-        <span class="modal-title"><i class="ti ti-package"></i> ${isEdit?'Editar Ativo':'Novo Ativo Imobilizado'}</span>
+        <span class="modal-title"><i class="ti ti-package"></i> ${isEdit?'Editar Ativo':'Novo Ativo GTEL'}</span>
         <button class="btn btn-sm" onclick="closeModal('modal-ativoimob')"><i class="ti ti-x"></i></button>
       </div>
       <div class="modal-body">
