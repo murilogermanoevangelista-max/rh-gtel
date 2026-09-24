@@ -815,19 +815,23 @@ async function loadVeiculos(){
 }
 
 const CATEGORIAS_ATIVO_IMOB=['Instrumentos de Medição','Ferramentas','Equipamentos de TI','EPI','Máquinas e Equipamentos','Mobiliário','Outros'];
+let ativosImobFotos=[];
 async function loadAtivosImobilizados(){
-  const [a,r]=await Promise.all([
+  const [a,r,f]=await Promise.all([
     sb.from('ativos_imobilizados').select('*,obra:obras(nome,codigo),fornecedor:fornecedores(razao_social)').order('descricao'),
     sb.from('ativos_imob_responsaveis').select('*,funcionario:funcionarios(nome_completo,matricula),obra:obras(nome,codigo)').order('data_recebimento',{ascending:false}),
+    sb.from('ativos_imob_fotos').select('*').order('ordem'),
   ]);
-  let listaAtivos=a.data||[],listaResp=r.data||[];
+  let listaAtivos=a.data||[],listaResp=r.data||[],listaFotos=f.data||[];
   if(obrasPermitidasIds){
     listaAtivos=listaAtivos.filter(x=>x.obra_id&&obrasPermitidasIds.has(String(x.obra_id)));
     const idsPermitidos=new Set(listaAtivos.map(x=>String(x.id)));
     listaResp=listaResp.filter(x=>idsPermitidos.has(String(x.ativo_id)));
+    listaFotos=listaFotos.filter(x=>idsPermitidos.has(String(x.ativo_id)));
   }
-  ativosImob=listaAtivos;ativosImobResponsaveis=listaResp;
+  ativosImob=listaAtivos;ativosImobResponsaveis=listaResp;ativosImobFotos=listaFotos;
 }
+function fotosDoAtivo(ativoId){return ativosImobFotos.filter(f=>String(f.ativo_id)===String(ativoId)).sort((a,b)=>(a.ordem||0)-(b.ordem||0));}
 
 // Procedimentos e Formulários são gerais da empresa — não filtram por obra, todo mundo vê tudo.
 async function loadProcedimentos(){
@@ -7614,6 +7618,7 @@ function renderAtivosImobilizados(){
     if(ativoImobFiltroAtivo==='sem_responsavel')lista=lista.filter(a=>!responsavelAtual(a.id));
     else if(ativoImobFiltroAtivo==='sem_termo')lista=lista.filter(a=>{const r=responsavelAtual(a.id);return r&&!r.termo_url;});
     else if(ativoImobFiltroAtivo==='ressalva_pendente')lista=lista.filter(a=>{const r=responsavelAtual(a.id);return r&&r.condicao==='com_ressalva';});
+    else if(ativoImobFiltroAtivo==='sem_fotos')lista=lista.filter(a=>fotosDoAtivo(a.id).length<5);
     if(ativoImobBusca){
       const b=ativoImobBusca.toLowerCase();
       lista=lista.filter(a=>{
@@ -7640,11 +7645,13 @@ function renderAtivosImobilizados(){
   const semResponsavel=ativosFiltrados.filter(a=>!responsavelAtual(a.id)).length;
   const semTermo=ativosFiltrados.filter(a=>{const r=responsavelAtual(a.id);return r&&!r.termo_url;}).length;
   const ressalvaPendente=ativosFiltrados.filter(a=>{const r=responsavelAtual(a.id);return r&&r.condicao==='com_ressalva';}).length;
+  const menosDe5Fotos=ativosFiltrados.filter(a=>fotosDoAtivo(a.id).length<5).length;
 
   const alertCardsHtml=alertCardsRow([
     semResponsavel>0?{count:semResponsavel,label:'Sem responsável definido',icon:'user-x',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"ativoImobFiltroAtivo=ativoImobFiltroAtivo==='sem_responsavel'?null:'sem_responsavel';renderAtivosImobilizados()"}:null,
     semTermo>0?{count:semTermo,label:'Termo sem anexo',icon:'file-alert',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"ativoImobFiltroAtivo=ativoImobFiltroAtivo==='sem_termo'?null:'sem_termo';renderAtivosImobilizados()"}:null,
     ressalvaPendente>0?{count:ressalvaPendente,label:'Recebido com ressalva',icon:'alert-triangle',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"ativoImobFiltroAtivo=ativoImobFiltroAtivo==='ressalva_pendente'?null:'ressalva_pendente';renderAtivosImobilizados()"}:null,
+    menosDe5Fotos>0?{count:menosDe5Fotos,label:'Com menos de 5 fotos',icon:'photo-off',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"ativoImobFiltroAtivo=ativoImobFiltroAtivo==='sem_fotos'?null:'sem_fotos';renderAtivosImobilizados()"}:null,
   ]);
 
   const _byObra={};
@@ -7671,8 +7678,8 @@ function renderAtivosImobilizados(){
         return '<div class="item aloj-item" onclick="ativoImobSelecionadoId=\''+a.id+'\';renderAtivosImobilizados()" style="background:'+(isSel?'#1D9E75':'#fff')+';border:1px solid '+(isSel?'#1D9E75':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:6px">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
           +'<div style="display:flex;align-items:center;gap:8px;min-width:0">'
-          +'<i class="ti ti-package" style="font-size:14px;color:'+(isSel?'#fff':'#8B95A5')+';flex-shrink:0;'+(a.foto_url?'display:none':'')+'"></i>'
-          +(a.foto_url?'<img src="'+a.foto_url+'" style="width:22px;height:22px;border-radius:4px;object-fit:cover;flex-shrink:0;border:1px solid '+(isSel?'rgba(255,255,255,.4)':'#D8DAE0')+'">':'')
+          +'<i class="ti ti-package" style="font-size:14px;color:'+(isSel?'#fff':'#8B95A5')+';flex-shrink:0;'+(fotosDoAtivo(a.id)[0]?'display:none':'')+'"></i>'
+          +(fotosDoAtivo(a.id)[0]?'<img src="'+fotosDoAtivo(a.id)[0].foto_url+'" style="width:22px;height:22px;border-radius:4px;object-fit:cover;flex-shrink:0;border:1px solid '+(isSel?'rgba(255,255,255,.4)':'#D8DAE0')+'">':'')
           +'<span style="font-size:13px;font-weight:600;color:'+(isSel?'#fff':'#1A1F29')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">'+escHtml(a.descricao)+'</span>'
           +'</div>'
           +'<div style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:'+(alerta?'#DC2626':'#16A34A')+'"></div>'
@@ -7769,9 +7776,14 @@ function renderAtivosImobilizados(){
           +'<button class="btn btn-sm btn-danger" onclick="deleteAtivoImob(\''+sel.id+'\',\''+escHtml(sel.descricao)+'\')"><i class="ti ti-trash"></i></button>'
           +'</div>'
         +'</div>'
-        +'<div style="background:#fff;border:1px solid #E0E2E7;border-top:none;padding:12px 18px;font-size:12px;color:#6B7280;display:flex;align-items:center;gap:12px">'
-          +(sel.foto_url?'<img src="'+sel.foto_url+'" style="width:56px;height:56px;border-radius:6px;object-fit:cover;border:1px solid #E0E2E7;flex-shrink:0">':'<div style="width:56px;height:56px;border-radius:6px;background:var(--bg);border:1px solid #E0E2E7;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#C9CCD3"><i class="ti ti-photo" style="font-size:22px"></i></div>')
+        +'<div style="background:#fff;border:1px solid #E0E2E7;border-top:none;padding:12px 18px;font-size:12px;color:#6B7280">'
+          +'<div style="display:flex;align-items:center;gap:12px">'
+          +(fotosDoAtivo(sel.id).length
+            ?'<div style="display:flex;gap:6px">'+fotosDoAtivo(sel.id).slice(0,5).map(f=>'<a href="'+f.foto_url+'" target="_blank"><img src="'+f.foto_url+'" style="width:56px;height:56px;border-radius:6px;object-fit:cover;border:1px solid #E0E2E7"></a>').join('')+(fotosDoAtivo(sel.id).length>5?'<div style="width:56px;height:56px;border-radius:6px;background:var(--bg);border:1px solid #E0E2E7;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--text-muted)">+'+(fotosDoAtivo(sel.id).length-5)+'</div>':'')+'</div>'
+            :'<div style="width:56px;height:56px;border-radius:6px;background:var(--bg);border:1px solid #E0E2E7;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#C9CCD3"><i class="ti ti-photo" style="font-size:22px"></i></div>')
           +'<div>Patrimônio '+escHtml(sel.patrimonio_numero||'—')+' · Série '+escHtml(sel.serie_numero||'—')+' · '+escHtml(sel.categoria||'—')+' · Obra: '+escHtml(obraAtualSel?.codigo||'—')+'</div>'
+          +'</div>'
+          +(fotosDoAtivo(sel.id).length<5?'<div style="margin-top:6px;font-size:11px;font-weight:600;color:#92400E">⚠ '+fotosDoAtivo(sel.id).length+'/5 fotos — clique em Editar pra completar</div>':'')
         +'</div>'
         +(sel.observacoes?'<div style="background:#FEF3C7;border:1px solid #FCD34D;border-left:4px solid #D97706;padding:10px 14px;margin:10px 0;border-radius:4px;display:flex;gap:10px;align-items:flex-start">'
           +'<i class="ti ti-note" style="color:#92400E;font-size:16px;flex-shrink:0;margin-top:1px"></i>'
@@ -7830,13 +7842,20 @@ function openModalAtivoImob(id){
         <button class="btn btn-sm" onclick="closeModal('modal-ativoimob')"><i class="ti ti-x"></i></button>
       </div>
       <div class="modal-body">
-        <div style="display:flex;gap:14px;margin-bottom:14px">
-          <div id="ai-foto-preview" style="width:88px;height:88px;border-radius:8px;background:${a?.foto_url?`url('${a.foto_url}') center/cover`:'var(--bg)'};border:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--text-muted)">${a?.foto_url?'':'<i class="ti ti-photo" style="font-size:28px"></i>'}</div>
-          <div>
-            <label>Foto do equipamento</label>
-            <input type="file" id="ai-foto-file" accept="image/*" onchange="const r=new FileReader();r.onload=()=>document.getElementById('ai-foto-preview').style.background='url(\\''+r.result+'\\') center/cover';r.readAsDataURL(this.files[0])">
-            ${a?.foto_url?`<div style="margin-top:4px"><span onclick="document.getElementById('ai-foto-preview').style.background='var(--bg)';document.getElementById('ai-foto-preview').innerHTML='<i class=&quot;ti ti-photo&quot; style=&quot;font-size:28px&quot;></i>';document.getElementById('ai-foto-remover').value='1'" style="font-size:11px;color:var(--danger);cursor:pointer">Remover foto</span><input type="hidden" id="ai-foto-remover" value=""></div>`:'<input type="hidden" id="ai-foto-remover" value="">'}
+        <div style="margin-bottom:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <label style="margin:0">📷 Fotos do equipamento</label>
+            <span style="font-size:11px;font-weight:700;color:${(a?fotosDoAtivo(a.id).length:0)>=5?'#166534':'#92400E'}">${a?fotosDoAtivo(a.id).length:0} foto(s) — mínimo recomendado: 5</span>
           </div>
+          <div id="ai-fotos-existentes" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+            ${a?fotosDoAtivo(a.id).map(f=>`
+              <div style="position:relative;width:72px;height:72px">
+                <img src="${f.foto_url}" style="width:72px;height:72px;border-radius:6px;object-fit:cover;border:1px solid var(--border)">
+                <span onclick="excluirFotoAtivo('${f.id}','${a.id}')" title="Remover foto" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--danger);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;cursor:pointer;line-height:1">✕</span>
+              </div>`).join(''):''}
+          </div>
+          <input type="file" id="ai-foto-file" accept="image/*" multiple onchange="previewFotosAtivo(this)">
+          <div id="ai-fotos-preview" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"></div>
         </div>
         <div class="form-grid">
           <div class="form-group full"><label>Descrição do bem *</label><input id="ai-descricao" value="${a?.descricao||''}" placeholder="Ex: Analisador de Oxigênio Portátil - Oxímetro"></div>
@@ -7899,6 +7918,23 @@ function openModalAtivoImob(id){
       </div>
     </div>`);
 }
+function previewFotosAtivo(input){
+  const prev=document.getElementById('ai-fotos-preview');
+  prev.innerHTML='';
+  [...input.files].forEach(file=>{
+    const r=new FileReader();
+    r.onload=()=>{prev.insertAdjacentHTML('beforeend','<img src="'+r.result+'" style="width:72px;height:72px;border-radius:6px;object-fit:cover;border:2px solid var(--primary)">');};
+    r.readAsDataURL(file);
+  });
+}
+async function excluirFotoAtivo(fotoId,ativoId){
+  if(!confirm('Remover esta foto?'))return;
+  await sb.from('ativos_imob_fotos').delete().eq('id',fotoId);
+  showToast('Foto removida.');
+  await loadAtivosImobilizados();
+  openModalAtivoImob(ativoId);
+  renderAtivosImobilizados();
+}
 function atualizarTipoFornecedorAtivo(){
   const tipo=document.querySelector('input[name="ai-forn-tipo"]:checked').value;
   document.getElementById('ai-fornecedor').style.display=tipo==='cadastrado'?'block':'none';
@@ -7923,8 +7959,6 @@ async function saveAtivoImob(id){
   }
   const existente=id?ativosImob.find(x=>x.id===id):null;
   const nfRemessaUrl=await uploadArquivo('ai-nf-remessa-file','nf-remessa')||existente?.nf_remessa_url||null;
-  const fotoRemovida=document.getElementById('ai-foto-remover')?.value==='1';
-  const fotoUrl=fotoRemovida?null:(await uploadArquivo('ai-foto-file','fotos')||existente?.foto_url||null);
   const semNfVenda=document.getElementById('ai-nf-venda-na').checked;
   const fornecedorManual=document.querySelector('input[name="ai-forn-tipo"]:checked')?.value==='manual';
   const nfVendaUrl=semNfVenda?null:(await uploadArquivo('ai-nf-venda-file','nf-venda')||existente?.nf_venda_url||null);
@@ -7939,7 +7973,6 @@ async function saveAtivoImob(id){
     quantidade:parseInt(document.getElementById('ai-qtd').value)||1,
     nf_remessa_numero:document.getElementById('ai-nf-remessa-num').value.trim()||null,
     nf_remessa_url:nfRemessaUrl,
-    foto_url:fotoUrl,
     nf_venda_na:semNfVenda,
     fornecedor_id:fornecedorManual?null:(document.getElementById('ai-fornecedor').value||null),
     fornecedor_nome_manual:fornecedorManual?(document.getElementById('ai-forn-razao').value.trim()||null):null,
@@ -7950,10 +7983,27 @@ async function saveAtivoImob(id){
   };
   const res=id?await sb.from('ativos_imobilizados').update(payload).eq('id',id):await sb.from('ativos_imobilizados').insert(payload).select().single();
   if(res.error){showToast('Erro: '+res.error.message,'error');return;}
+  const ativoIdFinal=id||res.data?.id;
+
+  // Envia as fotos novas selecionadas (além das que já estavam salvas, que continuam intactas)
+  const fotosFiles=document.getElementById('ai-foto-file')?.files;
+  if(fotosFiles&&fotosFiles.length&&ativoIdFinal){
+    showToast('Enviando '+fotosFiles.length+' foto(s)...');
+    const jaTem=fotosDoAtivo(ativoIdFinal).length;
+    for(let i=0;i<fotosFiles.length;i++){
+      const file=fotosFiles[i];
+      const path='fotos/'+Date.now()+'_'+i+'_'+file.name.replace(/\s/g,'_');
+      const{error:upErr}=await sb.storage.from('ativos-imobilizados').upload(path,file,{contentType:file.type});
+      if(upErr){showToast('Erro no upload de uma foto: '+upErr.message,'error');continue;}
+      const url=sb.storage.from('ativos-imobilizados').getPublicUrl(path).data.publicUrl;
+      await sb.from('ativos_imob_fotos').insert({ativo_id:ativoIdFinal,foto_url:url,ordem:jaTem+i});
+    }
+  }
+
   showToast('Ativo salvo!');
   closeModal('modal-ativoimob');
   await loadAtivosImobilizados();
-  if(!id&&res.data)ativoImobSelecionadoId=res.data.id;
+  if(!id&&ativoIdFinal)ativoImobSelecionadoId=ativoIdFinal;
   renderAtivosImobilizados();
 }
 async function deleteAtivoImob(id,descricao){
