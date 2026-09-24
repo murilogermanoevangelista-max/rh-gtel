@@ -3153,7 +3153,13 @@ function renderFolgasLocal(){
       </select>
     </div>${trAtual?.passagem_observacao
       ?`<div onclick="event.stopPropagation();editarObservacaoPassagem('${f.id}',${currentN},${JSON.stringify(trAtual.passagem_observacao)})" style="font-size:10px;color:var(--text-muted);margin-top:2px;font-style:italic;cursor:pointer" title="Clique para editar a observação">💬 ${trAtual.passagem_observacao} <span style="not-italic;color:var(--primary)">✎</span></div>`
-      :`<div onclick="event.stopPropagation();editarObservacaoPassagem('${f.id}',${currentN},'')" style="font-size:10px;color:var(--primary);margin-top:2px;cursor:pointer">+ observação</div>`}`;
+      :`<div onclick="event.stopPropagation();editarObservacaoPassagem('${f.id}',${currentN},'')" style="font-size:10px;color:var(--primary);margin-top:2px;cursor:pointer">+ observação</div>`}
+    ${trAtual?.termo_adm15_url
+      ?`<div style="margin-top:2px;display:flex;align-items:center;gap:6px" onclick="event.stopPropagation()">
+          <a href="${trAtual.termo_adm15_url}" target="_blank" style="font-size:10px;color:var(--success);font-weight:600;text-decoration:underline">📄 ADM 15 anexado</a>
+          <label style="font-size:10px;color:var(--primary);cursor:pointer">trocar<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${currentN},this)"></label>
+        </div>`
+      :`<label onclick="event.stopPropagation()" style="font-size:10px;color:var(--danger);margin-top:2px;cursor:pointer;display:inline-block">+ anexar Termo ADM 15<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${currentN},this)"></label>`}`;
 
     // ── Histórico (colapsado) ──
     // Pra quem já tem muitos ciclos (funcionários antigos), mostra só os últimos inline e
@@ -3464,6 +3470,11 @@ function renderFolgasTranslados(){
         <div class="form-group full"><label>Observação</label>
           <textarea id="tr-obs-${f.id}" rows="1" placeholder="Alguma particularidade sobre a passagem (trecho, data de compra, pendência...)">${t.passagem_observacao||''}</textarea>
         </div>
+        <div class="form-group full"><label>Termo ADM 15 (ciência de desconto por extravio da passagem)</label>
+          ${t.termo_adm15_url
+            ?`<div style="display:flex;align-items:center;gap:8px"><a href="${t.termo_adm15_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-file-text"></i> Ver termo anexado</a><label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-upload"></i> Trocar<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${n},this)"></label></div>`
+            :`<label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-upload"></i> Anexar termo assinado<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${n},this)"></label>`}
+        </div>
         <div class="form-section" style="margin:0">Ida (saída até o ponto de embarque)</div>
         <div></div>
         <div class="form-group"><label>Data</label><input type="date" id="tr-ida-data-${f.id}" value="${t.data_ida||''}"></div>
@@ -3507,13 +3518,14 @@ function renderFolgasTranslados(){
 
 async function togglePassagemComprada(folgaId,numeroCiclo,valor){
   // Atalho usado na tela de Programação: atualiza só o status da passagem,
-  // preservando os demais dados do translado (observação, datas/locais de ida e volta) já salvos.
+  // preservando os demais dados do translado (observação, termo ADM 15, datas/locais de ida e volta).
   const existente=folgasTranslados.find(x=>String(x.folga_id)===String(folgaId)&&x.numero_ciclo===numeroCiclo)||{};
   const payload={
     folga_id:folgaId,
     numero_ciclo:numeroCiclo,
     passagem_comprada:valor==='sim',
     passagem_observacao:existente.passagem_observacao||null,
+    termo_adm15_url:existente.termo_adm15_url||null,
     data_ida:existente.data_ida||null,
     hora_ida:existente.hora_ida||null,
     local_ida:existente.local_ida||null,
@@ -3537,6 +3549,7 @@ async function editarObservacaoPassagem(folgaId,numeroCiclo,textoAtual){
     numero_ciclo:numeroCiclo,
     passagem_comprada:existente.passagem_comprada||false,
     passagem_observacao:novoTexto.trim()||null,
+    termo_adm15_url:existente.termo_adm15_url||null,
     data_ida:existente.data_ida||null,
     hora_ida:existente.hora_ida||null,
     local_ida:existente.local_ida||null,
@@ -3549,12 +3562,43 @@ async function editarObservacaoPassagem(folgaId,numeroCiclo,textoAtual){
   showToast('Observação salva!');
   await loadFolgasTranslados();renderFolgasLocal();
 }
+// Anexa (ou substitui) o Termo ADM 15 assinado (ciência de desconto em caso de extravio da passagem)
+// deste ciclo específico — fica salvo como histórico junto com os demais dados do translado.
+async function uploadTermoAdm15(folgaId,numeroCiclo,input){
+  const file=input.files[0];
+  if(!file)return;
+  showToast('Enviando Termo ADM 15...');
+  const path='adm15/'+Date.now()+'_'+file.name.replace(/\s/g,'_');
+  const{error:upErr}=await sb.storage.from('funcionarios').upload(path,file,{contentType:file.type});
+  if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
+  const url=sb.storage.from('funcionarios').getPublicUrl(path).data.publicUrl;
+  const existente=folgasTranslados.find(x=>String(x.folga_id)===String(folgaId)&&x.numero_ciclo===numeroCiclo)||{};
+  const payload={
+    folga_id:folgaId,
+    numero_ciclo:numeroCiclo,
+    passagem_comprada:existente.passagem_comprada||false,
+    passagem_observacao:existente.passagem_observacao||null,
+    termo_adm15_url:url,
+    data_ida:existente.data_ida||null,
+    hora_ida:existente.hora_ida||null,
+    local_ida:existente.local_ida||null,
+    data_retorno:existente.data_retorno||null,
+    hora_retorno:existente.hora_retorno||null,
+    local_retorno:existente.local_retorno||null,
+  };
+  const{error}=await sb.from('folgas_translados').upsert(payload,{onConflict:'folga_id,numero_ciclo'});
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Termo ADM 15 anexado!');
+  await loadFolgasTranslados();renderFolgasLocal();
+}
 async function salvarTranslado(folgaId,numeroCiclo){
+  const existenteTr=folgasTranslados.find(x=>String(x.folga_id)===String(folgaId)&&x.numero_ciclo===numeroCiclo)||{};
   const payload={
     folga_id:folgaId,
     numero_ciclo:numeroCiclo,
     passagem_comprada:document.getElementById(`tr-comprada-${folgaId}`).value==='sim',
     passagem_observacao:document.getElementById(`tr-obs-${folgaId}`).value.trim()||null,
+    termo_adm15_url:existenteTr.termo_adm15_url||null,
     data_ida:document.getElementById(`tr-ida-data-${folgaId}`).value||null,
     hora_ida:document.getElementById(`tr-ida-hora-${folgaId}`).value||null,
     local_ida:document.getElementById(`tr-ida-local-${folgaId}`).value.trim()||null,
