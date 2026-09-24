@@ -7671,7 +7671,8 @@ function renderAtivosImobilizados(){
         return '<div class="item aloj-item" onclick="ativoImobSelecionadoId=\''+a.id+'\';renderAtivosImobilizados()" style="background:'+(isSel?'#1D9E75':'#fff')+';border:1px solid '+(isSel?'#1D9E75':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:6px">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
           +'<div style="display:flex;align-items:center;gap:8px;min-width:0">'
-          +'<i class="ti ti-package" style="font-size:14px;color:'+(isSel?'#fff':'#8B95A5')+';flex-shrink:0"></i>'
+          +'<i class="ti ti-package" style="font-size:14px;color:'+(isSel?'#fff':'#8B95A5')+';flex-shrink:0;'+(a.foto_url?'display:none':'')+'"></i>'
+          +(a.foto_url?'<img src="'+a.foto_url+'" style="width:22px;height:22px;border-radius:4px;object-fit:cover;flex-shrink:0;border:1px solid '+(isSel?'rgba(255,255,255,.4)':'#D8DAE0')+'">':'')
           +'<span style="font-size:13px;font-weight:600;color:'+(isSel?'#fff':'#1A1F29')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">'+escHtml(a.descricao)+'</span>'
           +'</div>'
           +'<div style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:'+(alerta?'#DC2626':'#16A34A')+'"></div>'
@@ -7768,8 +7769,9 @@ function renderAtivosImobilizados(){
           +'<button class="btn btn-sm btn-danger" onclick="deleteAtivoImob(\''+sel.id+'\',\''+escHtml(sel.descricao)+'\')"><i class="ti ti-trash"></i></button>'
           +'</div>'
         +'</div>'
-        +'<div style="background:#fff;border:1px solid #E0E2E7;border-top:none;padding:9px 18px;font-size:12px;color:#6B7280">'
-          +'Patrimônio '+escHtml(sel.patrimonio_numero||'—')+' · Série '+escHtml(sel.serie_numero||'—')+' · '+escHtml(sel.categoria||'—')+' · Obra: '+escHtml(obraAtualSel?.codigo||'—')
+        +'<div style="background:#fff;border:1px solid #E0E2E7;border-top:none;padding:12px 18px;font-size:12px;color:#6B7280;display:flex;align-items:center;gap:12px">'
+          +(sel.foto_url?'<img src="'+sel.foto_url+'" style="width:56px;height:56px;border-radius:6px;object-fit:cover;border:1px solid #E0E2E7;flex-shrink:0">':'<div style="width:56px;height:56px;border-radius:6px;background:var(--bg);border:1px solid #E0E2E7;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#C9CCD3"><i class="ti ti-photo" style="font-size:22px"></i></div>')
+          +'<div>Patrimônio '+escHtml(sel.patrimonio_numero||'—')+' · Série '+escHtml(sel.serie_numero||'—')+' · '+escHtml(sel.categoria||'—')+' · Obra: '+escHtml(obraAtualSel?.codigo||'—')+'</div>'
         +'</div>'
         +(sel.observacoes?'<div style="background:#FEF3C7;border:1px solid #FCD34D;border-left:4px solid #D97706;padding:10px 14px;margin:10px 0;border-radius:4px;display:flex;gap:10px;align-items:flex-start">'
           +'<i class="ti ti-note" style="color:#92400E;font-size:16px;flex-shrink:0;margin-top:1px"></i>'
@@ -7828,6 +7830,14 @@ function openModalAtivoImob(id){
         <button class="btn btn-sm" onclick="closeModal('modal-ativoimob')"><i class="ti ti-x"></i></button>
       </div>
       <div class="modal-body">
+        <div style="display:flex;gap:14px;margin-bottom:14px">
+          <div id="ai-foto-preview" style="width:88px;height:88px;border-radius:8px;background:${a?.foto_url?`url('${a.foto_url}') center/cover`:'var(--bg)'};border:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--text-muted)">${a?.foto_url?'':'<i class="ti ti-photo" style="font-size:28px"></i>'}</div>
+          <div>
+            <label>Foto do equipamento</label>
+            <input type="file" id="ai-foto-file" accept="image/*" onchange="const r=new FileReader();r.onload=()=>document.getElementById('ai-foto-preview').style.background='url(\\''+r.result+'\\') center/cover';r.readAsDataURL(this.files[0])">
+            ${a?.foto_url?`<div style="margin-top:4px"><span onclick="document.getElementById('ai-foto-preview').style.background='var(--bg)';document.getElementById('ai-foto-preview').innerHTML='<i class=&quot;ti ti-photo&quot; style=&quot;font-size:28px&quot;></i>';document.getElementById('ai-foto-remover').value='1'" style="font-size:11px;color:var(--danger);cursor:pointer">Remover foto</span><input type="hidden" id="ai-foto-remover" value=""></div>`:'<input type="hidden" id="ai-foto-remover" value="">'}
+          </div>
+        </div>
         <div class="form-grid">
           <div class="form-group full"><label>Descrição do bem *</label><input id="ai-descricao" value="${a?.descricao||''}" placeholder="Ex: Analisador de Oxigênio Portátil - Oxímetro"></div>
           <div class="form-group"><label>Nº Patrimônio *</label><input id="ai-patrimonio" value="${a?.patrimonio_numero||''}"></div>
@@ -7913,6 +7923,8 @@ async function saveAtivoImob(id){
   }
   const existente=id?ativosImob.find(x=>x.id===id):null;
   const nfRemessaUrl=await uploadArquivo('ai-nf-remessa-file','nf-remessa')||existente?.nf_remessa_url||null;
+  const fotoRemovida=document.getElementById('ai-foto-remover')?.value==='1';
+  const fotoUrl=fotoRemovida?null:(await uploadArquivo('ai-foto-file','fotos')||existente?.foto_url||null);
   const semNfVenda=document.getElementById('ai-nf-venda-na').checked;
   const fornecedorManual=document.querySelector('input[name="ai-forn-tipo"]:checked')?.value==='manual';
   const nfVendaUrl=semNfVenda?null:(await uploadArquivo('ai-nf-venda-file','nf-venda')||existente?.nf_venda_url||null);
@@ -7927,6 +7939,7 @@ async function saveAtivoImob(id){
     quantidade:parseInt(document.getElementById('ai-qtd').value)||1,
     nf_remessa_numero:document.getElementById('ai-nf-remessa-num').value.trim()||null,
     nf_remessa_url:nfRemessaUrl,
+    foto_url:fotoUrl,
     nf_venda_na:semNfVenda,
     fornecedor_id:fornecedorManual?null:(document.getElementById('ai-fornecedor').value||null),
     fornecedor_nome_manual:fornecedorManual?(document.getElementById('ai-forn-razao').value.trim()||null):null,
@@ -8335,6 +8348,14 @@ function openModalProcedimento(id){
           <div class="form-group full"><label>Título *</label><input id="proc-titulo" value="${escHtml(p?.titulo||'')}" placeholder="Ex: Processo de Admissão"></div>
           <div class="form-group full"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400"><input type="checkbox" id="proc-obsoleto" ${p?.obsoleto?'checked':''} style="width:16px;height:16px"> Marcar como obsoleto (fica visível no histórico, sai da numeração ativa)</label></div>
           <div class="form-group full"><label>Observações</label><textarea id="proc-obs" rows="2">${escHtml(p?.observacoes||'')}</textarea></div>
+          ${!isEdit?`
+          <div class="form-group full" style="background:var(--bg);border-radius:var(--radius);padding:12px;border:1px solid var(--border)">
+            <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">📎 Documento (opcional — dá pra anexar depois também)</div>
+            <div class="form-grid">
+              <div class="form-group"><label>Data da revisão</label><input type="date" id="proc-doc-data" value="${new Date().toISOString().slice(0,10)}"></div>
+              <div class="form-group"><label>Arquivo (PDF, Word, Excel...)</label><input type="file" id="proc-doc-file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"></div>
+            </div>
+          </div>`:''}
         </div>
       </div>
       <div class="modal-footer">
@@ -8356,10 +8377,29 @@ async function saveProcedimento(id){
   };
   const res=id?await sb.from('procedimentos').update(payload).eq('id',id):await sb.from('procedimentos').insert(payload).select().single();
   if(res.error){showToast('Erro: '+res.error.message,'error');return;}
+  const novoId=id||res.data?.id;
+
+  // Se veio arquivo já na criação, grava como a Revisão 0 (documento original) direto.
+  const docFile=document.getElementById('proc-doc-file')?.files?.[0];
+  if(!id&&docFile&&novoId){
+    showToast('Enviando arquivo...');
+    const path='procedimentos/'+Date.now()+'_'+docFile.name.replace(/\s/g,'_');
+    const{error:upErr}=await sb.storage.from('funcionarios').upload(path,docFile,{contentType:docFile.type});
+    if(upErr){showToast('Procedimento salvo, mas houve erro no upload do arquivo: '+upErr.message,'error');}
+    else{
+      const arquivoUrl=sb.storage.from('funcionarios').getPublicUrl(path).data.publicUrl;
+      const{error:vErr}=await sb.from('procedimentos_versoes').insert({
+        procedimento_id:novoId,revisao:0,arquivo_url:arquivoUrl,
+        data_revisao:document.getElementById('proc-doc-data').value||null,
+      });
+      if(vErr)showToast('Procedimento salvo, mas houve erro ao salvar o documento: '+vErr.message,'error');
+    }
+  }
+
   showToast('Salvo!');
   closeModal('modal-proc');
   await loadProcedimentos();
-  if(!id&&res.data)procSelecionadoId=res.data.id;
+  if(!id&&novoId)procSelecionadoId=novoId;
   renderProcedimentos();
 }
 async function deleteProcedimento(id,codigo){
