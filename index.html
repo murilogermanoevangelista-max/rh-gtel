@@ -329,6 +329,7 @@ input:focus,select:focus{border-color:var(--primary)}
     <div class="nav-item" onclick="showPage('funcionarios')"><i class="ti ti-users"></i> Funcionários</div>
     <div class="nav-item" onclick="showPage('matriz')"><i class="ti ti-map-2"></i> Matriz de Comunicação</div>
     <div class="nav-item" onclick="showPage('prestadores')"><i class="ti ti-id-badge"></i> Prestadores</div>
+    <div class="nav-item" onclick="showPage('procedimentos')"><i class="ti ti-file-text"></i> Procedimentos</div>
     <div class="nav-item" onclick="showPage('transferencias-pendentes')"><i class="ti ti-transfer"></i> Transferências Pendentes <span id="nav-transf-badge" style="display:none;background:var(--danger);color:#fff;border-radius:20px;font-size:10px;padding:1px 7px;margin-left:4px"></span></div>
     <div class="nav-item" onclick="showPage('treinamentos')"><i class="ti ti-school"></i> Treinamentos</div>
     <div class="nav-item" onclick="showPage('veiculos')"><i class="ti ti-car"></i> Veículos</div>
@@ -363,7 +364,7 @@ const SUPABASE_URL='https://lqggoshphakeuufibdno.supabase.co';
 const SUPABASE_KEY='sb_publishable_QlnJaa5xdUXePvXFV6QFwQ_AmMk639T';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-let funcionarios=[],obras=[],obrasTodas=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosTodos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[],contratacoes=[],contratacoesVagas=[],contratacoesProspeccoes=[],folgasTranslados=[],movimentacoesHistorico=[],folgasCiclos=[],veiculos=[],veiculosCondutores=[],veiculosKm=[],veiculosRevisoes=[],veiculosAbastecimentos=[],ativosImob=[],ativosImobResponsaveis=[];
+let funcionarios=[],obras=[],obrasTodas=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosTodos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[],contratacoes=[],contratacoesVagas=[],contratacoesProspeccoes=[],folgasTranslados=[],movimentacoesHistorico=[],folgasCiclos=[],veiculos=[],veiculosCondutores=[],veiculosKm=[],veiculosRevisoes=[],veiculosAbastecimentos=[],ativosImob=[],ativosImobResponsaveis=[],procedimentos=[],procedimentosVersoes=[];
 let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'nao_lancadas' | null
 let alojBusca='';
 let alojSelecionadoId=null; // alojamento selecionado no painel mestre-detalhe
@@ -376,6 +377,12 @@ let ativoImobSelecionadoId=null;
 let ativoImobSecoesAbertas={};
 let ativoImobBusca='';
 let ativoImobFiltroAtivo=null; // 'sem_responsavel'|'sem_termo'|'ressalva_pendente'|null
+let procSelecionadoId=null;
+let procSecoesAbertas={};
+let procBusca='';
+let procFiltroTipo=''; // ''|'procedimento'|'formulario'
+let procMostrarObsoletos=true;
+let procFiltroSemArquivo=false;
 let bannerNaoLancadasAberto=false;
 let bannerFiltroObra='';
 let bannerRelatoriosAberto=false;
@@ -822,6 +829,16 @@ async function loadAtivosImobilizados(){
   ativosImob=listaAtivos;ativosImobResponsaveis=listaResp;
 }
 
+// Procedimentos e Formulários são gerais da empresa — não filtram por obra, todo mundo vê tudo.
+async function loadProcedimentos(){
+  const[p,v]=await Promise.all([
+    sb.from('procedimentos').select('*').order('tipo').order('numero'),
+    sb.from('procedimentos_versoes').select('*').order('revisao',{ascending:false}),
+  ]);
+  procedimentos=p.data||[];
+  procedimentosVersoes=v.data||[];
+}
+
 async function loadPrestadores(){
   const{data}=await sb.from('prestadores')
     .select('*,obra:obras(nome,codigo),alojamento:alojamentos(nome)')
@@ -919,6 +936,7 @@ async function showPage(page){
       (page==='alojamentos'&&t.includes('alojamento'))||
       (page==='veiculos'&&t.includes('veículo'))||
       (page==='ativos-imobilizados'&&t.includes('ativo imobilizado'))||
+      (page==='procedimentos'&&t.includes('procedimento'))||
       (page==='prestadores'&&t.includes('prestador'))||
       (page==='usuarios'&&t.includes('usuário'))||
       (page==='obras'&&t.includes('obra'))||
@@ -946,6 +964,7 @@ async function showPage(page){
     else if(page==='alojamentos'){if(!_vindoDeAlerta)alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';bannerRelatoriosAberto=false;bannerRelatoriosFiltroObra='';await loadAlojamentos();await loadPrestadores();renderAlojamentos();}
     else if(page==='veiculos'){await loadVeiculos();renderVeiculos();}
     else if(page==='ativos-imobilizados'){await loadAtivosImobilizados();await loadFornecedores();renderAtivosImobilizados();}
+    else if(page==='procedimentos'){await loadProcedimentos();renderProcedimentos();}
     else if(page==='prestadores'){await loadPrestadores();renderPrestadores();}
     else if(page==='efetivo'){efetivoSituacaoFiltro='';await loadEfetivo();renderEfetivo();}
     else if(page==='usuarios')renderUsuarios();
@@ -8115,6 +8134,291 @@ async function uploadTermoAtivo(respId,input){
   await loadAtivosImobilizados();
   if(resp)abrirModalResponsavelAtivo(resp.ativo_id);
   renderAtivosImobilizados();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PROCEDIMENTOS E FORMULÁRIOS
+// ═══════════════════════════════════════════════════════════════════
+const TIPOS_PROC={procedimento:{label:'Procedimento',plural:'PROCEDIMENTOS',prefixo:'ADM',digitos:3},formulario:{label:'Formulário',plural:'FORMULÁRIOS',prefixo:'ADM',digitos:2}};
+function codigoProc(p){
+  const cfg=TIPOS_PROC[p.tipo]||TIPOS_PROC.procedimento;
+  return cfg.prefixo+' '+String(p.numero).padStart(cfg.digitos,'0');
+}
+function versaoAtualProc(procId){
+  const versoes=procedimentosVersoes.filter(v=>String(v.procedimento_id)===String(procId));
+  if(!versoes.length)return null;
+  return versoes.reduce((max,v)=>(v.revisao>(max?.revisao??-1)?v:max),null);
+}
+function historicoVersoesProc(procId){
+  const atual=versaoAtualProc(procId);
+  return procedimentosVersoes.filter(v=>String(v.procedimento_id)===String(procId)&&v.id!==atual?.id).sort((a,b)=>b.revisao-a.revisao);
+}
+
+function renderProcedimentos(){
+  const procsFiltrados=(()=>{
+    let lista=procedimentos.slice();
+    if(!procMostrarObsoletos)lista=lista.filter(p=>!p.obsoleto);
+    if(procFiltroTipo)lista=lista.filter(p=>p.tipo===procFiltroTipo);
+    if(procFiltroSemArquivo)lista=lista.filter(p=>!versaoAtualProc(p.id)?.arquivo_url);
+    if(procBusca){
+      const b=procBusca.toLowerCase();
+      lista=lista.filter(p=>(p.titulo||'').toLowerCase().includes(b)||codigoProc(p).toLowerCase().includes(b));
+    }
+    return lista;
+  })();
+
+  const semArquivo=procsFiltrados.filter(p=>!versaoAtualProc(p.id)?.arquivo_url).length;
+  const totalObsoletos=procedimentos.filter(p=>p.obsoleto).length;
+  const alertCardsProcHtml=alertCardsRow([
+    semArquivo>0?{count:semArquivo,label:'Sem arquivo anexado',icon:'file-off',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"procFiltroSemArquivo=!procFiltroSemArquivo;renderProcedimentos()"}:null,
+  ]);
+
+  const masterDetailHtml=(()=>{
+    try{
+    return (()=>{
+    if(!procsFiltrados.length)return '<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-file-off" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum procedimento/formulário cadastrado</div>';
+
+    let sel=procsFiltrados.find(p=>String(p.id)===String(procSelecionadoId));
+    if(!sel){sel=procsFiltrados[0];procSelecionadoId=sel.id;}
+
+    const grupos={};
+    procsFiltrados.forEach(p=>{
+      const g=TIPOS_PROC[p.tipo]?.plural||'OUTROS';
+      if(!grupos[g])grupos[g]=[];
+      grupos[g].push(p);
+    });
+
+    const listaHtml=Object.entries(grupos).map(([grupoNome,lista])=>{
+      const grupoLabel='<div style="padding:8px 4px 6px;font-size:11px;font-weight:700;color:#8B95A5;letter-spacing:.03em">'+grupoNome+' ('+lista.length+')</div>';
+      const itens=lista.map(p=>{
+        const isSel=String(p.id)===String(sel.id);
+        const vAtual=versaoAtualProc(p.id);
+        const alerta=!vAtual||!vAtual.arquivo_url;
+        return '<div class="item aloj-item" onclick="procSelecionadoId=\''+p.id+'\';renderProcedimentos()" style="background:'+(isSel?'#1D9E75':'#fff')+';border:1px solid '+(isSel?'#1D9E75':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:6px;'+(p.obsoleto?'opacity:.6':'')+'">'
+          +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
+          +'<div style="display:flex;align-items:center;gap:8px;min-width:0">'
+          +'<i class="ti ti-file-text" style="font-size:14px;color:'+(isSel?'#fff':'#8B95A5')+';flex-shrink:0"></i>'
+          +'<span style="font-size:13px;font-weight:600;color:'+(isSel?'#fff':'#1A1F29')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">'+escHtml(codigoProc(p))+' - '+escHtml(p.titulo)+'</span>'
+          +'</div>'
+          +'<div style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:'+(alerta?'#DC2626':'#16A34A')+'"></div>'
+          +'</div>'
+          +(p.obsoleto?'<div style="font-size:10px;color:#92400E;margin-top:2px;margin-left:22px;font-weight:700">OBSOLETO</div>':'')
+          +'</div>';
+      }).join('');
+      return grupoLabel+itens;
+    }).join('');
+
+    const vAtualSel=versaoAtualProc(sel.id);
+    const historicoSel=historicoVersoesProc(sel.id);
+
+    const secao=(key,icone,titulo,resumo,status,corStatus,bgStatus,onclickOuNull)=>{
+      const aberto=!onclickOuNull&&!!procSecoesAbertas[key];
+      const clickAttr=onclickOuNull?onclickOuNull:"procSecoesAbertas['"+key+"']=!procSecoesAbertas['"+key+"'];renderProcedimentos()";
+      return{key,icone,titulo,resumo,status,corStatus,bgStatus,clickAttr,aberto,expandivel:!onclickOuNull};
+    };
+
+    const secoes=[
+      secao('atual','file-check','Documento Atual',
+        vAtualSel?('Revisão '+vAtualSel.revisao+(vAtualSel.data_revisao?' · '+(formatDate(vAtualSel.data_revisao)||'—'):'')):'Nenhuma versão cadastrada ainda',
+        vAtualSel&&vAtualSel.arquivo_url?'ANEXADO':'SEM ARQUIVO',
+        vAtualSel&&vAtualSel.arquivo_url?'#166534':'#991B1B', vAtualSel&&vAtualSel.arquivo_url?'#DCFCE7':'#FEE2E2',
+        "abrirModalVersaoProc('"+sel.id+"')"),
+      secao('historico','history','Histórico de Revisões',historicoSel.length+' revisão(ões) anterior(es)',
+        historicoSel.length+' REVISÃO(ÕES)','#374151','#F3F4F6',null),
+      secao('dados','info-circle','Dados',
+        (sel.observacoes?escHtml(sel.observacoes):'Sem observações'),
+        sel.obsoleto?'OBSOLETO':'ATIVO', sel.obsoleto?'#92400E':'#166534', sel.obsoleto?'#FFFBEB':'#DCFCE7',
+        "openModalProcedimento('"+sel.id+"')"),
+    ];
+
+    const secoesHtml=secoes.map(s=>{
+      const rot=s.expandivel?(s.aberto?'0deg':'-90deg'):'-90deg';
+      const chevronHtml=s.expandivel?'<i class="ti ti-chevron-down" style="font-size:12px;color:#8B95A5;transform:rotate('+rot+')"></i>':'<i class="ti ti-arrow-narrow-right" style="font-size:13px;color:#8B95A5"></i>';
+      let expandido='';
+      if(s.aberto&&s.key==='historico'){
+        expandido='<div style="padding:12px 18px 14px 42px;background:#FAFBFC;border-bottom:1px solid #EEF0F2">'
+          +(historicoSel.length?historicoSel.map(v=>'<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:#fff;border:1px solid #EEF0F2;border-radius:3px;margin-bottom:6px"><span style="font-size:12.5px">Revisão '+v.revisao+' · '+(formatDate(v.data_revisao)||'—')+(v.observacao?' · '+escHtml(v.observacao):'')+'</span>'+(v.arquivo_url?'<a href="'+v.arquivo_url+'" target="_blank" style="font-size:11px;color:#1D4ED8">Ver arquivo</a>':'<span style="font-size:11px;color:var(--text-muted)">Sem arquivo</span>')+'</div>').join('')
+            :'<div style="font-size:12.5px;color:var(--text-muted)">Ainda não há revisões anteriores — este é o primeiro registro.</div>')
+          +'</div>';
+      }
+      return '<div>'
+        +'<div class="aloj-secao-row" onclick="'+s.clickAttr+'" style="display:grid;grid-template-columns:180px 1fr 150px;align-items:center;padding:12px 18px;border-bottom:1px solid #EEF0F2;cursor:pointer;background:'+(s.aberto?'#FAFBFC':'#fff')+'">'
+        +'<span style="font-size:13px;font-weight:600;color:#1A1F29;display:flex;align-items:center;gap:8px">'+chevronHtml+'<i class="ti ti-'+s.icone+'" style="font-size:14px;color:#4B5160"></i>'+s.titulo+'</span>'
+        +'<span style="font-size:12.5px;color:#4B5563">'+s.resumo+'</span>'
+        +'<span style="font-size:11px;font-weight:700;color:'+s.corStatus+';background:'+s.bgStatus+';padding:3px 10px;border-radius:3px;display:inline-block;width:fit-content">'+s.status+'</span>'
+        +'</div>'
+        +expandido
+        +'</div>';
+    }).join('');
+
+    return '<div style="display:flex;gap:16px;align-items:flex-start">'
+      +'<div style="width:320px;flex-shrink:0">'+listaHtml+'</div>'
+      +'<div style="flex:1;min-width:0">'
+        +'<div style="background:#243244;padding:13px 18px;display:flex;align-items:center;justify-content:space-between;border-radius:4px 4px 0 0;flex-wrap:wrap;gap:8px">'
+          +'<div style="display:flex;align-items:center;gap:10px;min-width:0">'
+          +'<i class="ti ti-file-text" style="color:var(--primary);flex-shrink:0"></i>'
+          +'<span style="color:#fff;font-size:14.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">'+escHtml(codigoProc(sel))+' - '+escHtml(sel.titulo)+'</span>'
+          +(sel.obsoleto?'<span style="font-size:10px;font-weight:700;color:#FDE68A;background:rgba(255,255,255,.12);padding:2px 8px;border-radius:20px;flex-shrink:0">OBSOLETO</span>':'')
+          +'</div>'
+          +'<div style="display:flex;gap:6px;flex-shrink:0">'
+          +'<button class="btn btn-sm" onclick="openModalProcedimento(\''+sel.id+'\')" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2)"><i class="ti ti-edit"></i> Editar</button>'
+          +'<button class="btn btn-sm btn-danger" onclick="deleteProcedimento(\''+sel.id+'\',\''+escHtml(codigoProc(sel))+'\')"><i class="ti ti-trash"></i></button>'
+          +'</div>'
+        +'</div>'
+        +'<div style="background:#3A4658;display:grid;grid-template-columns:180px 1fr 150px;padding:9px 18px">'
+          +'<span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">SEÇÃO</span>'
+          +'<span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">RESUMO</span>'
+          +'<span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">STATUS</span>'
+        +'</div>'
+        +'<div style="background:#fff;border:1px solid #E0E2E7;border-top:none;border-radius:0 0 4px 4px;overflow:hidden">'+secoesHtml+'</div>'
+      +'</div>'
+    +'</div>';
+    })();
+    }catch(e){
+      console.error('[Procedimentos] erro ao montar o painel:',e);
+      return '<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:16px;color:#991B1B">'
+        +'<strong>⚠ Erro ao montar o painel</strong>'
+        +'<div style="font-size:12px;margin-top:6px;font-family:monospace;white-space:pre-wrap">'+(e.message||e)+'</div>'
+        +'<div style="font-size:11px;margin-top:8px;color:#7F1D1D">Tire um print desta caixa e envie.</div>'
+        +'</div>';
+    }
+  })();
+
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title"><i class="ti ti-file-text"></i> Procedimentos</div>
+        <div class="page-subtitle">${procedimentos.length} documento(s)${totalObsoletos?' · '+totalObsoletos+' obsoleto(s)':''}</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="openModalProcedimento()"><i class="ti ti-plus"></i> Novo</button>
+      </div>
+    </div>
+
+    ${alertCardsProcHtml}
+
+    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <div class="search-box" style="max-width:320px"><i class="ti ti-search"></i><input placeholder="Buscar por título ou código..." value="${procBusca}" oninput="procBusca=this.value;if(!_buscaHandlers.proc)_buscaHandlers.proc=makeBuscaHandler(v=>procBusca=v,renderProcedimentos,300);_buscaHandlers.proc(this.value);this.focus()"></div>
+      <select onchange="procFiltroTipo=this.value;renderProcedimentos()" style="padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
+        <option value="">Todos os tipos</option>
+        <option value="procedimento" ${procFiltroTipo==='procedimento'?'selected':''}>Só Procedimentos</option>
+        <option value="formulario" ${procFiltroTipo==='formulario'?'selected':''}>Só Formulários</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" ${procMostrarObsoletos?'checked':''} onchange="procMostrarObsoletos=this.checked;renderProcedimentos()"> Mostrar obsoletos</label>
+      <button class="btn btn-sm" onclick="procBusca='';procFiltroTipo='';procFiltroSemArquivo=false;document.querySelectorAll('.search-box input').forEach(i=>i.value='');renderProcedimentos()"><i class="ti ti-filter-x"></i> Limpar filtros</button>
+    </div>
+
+    <div id="proc-tabela-secao">${masterDetailHtml}</div>`;
+}
+
+function openModalProcedimento(id){
+  const p=id?procedimentos.find(x=>x.id===id):null;
+  const isEdit=!!p;
+  const tipoDefault=p?.tipo||'procedimento';
+  const proximoNumero=(tipo)=>{
+    const doTipo=procedimentos.filter(x=>x.tipo===tipo);
+    return doTipo.length?Math.max(...doTipo.map(x=>x.numero))+1:1;
+  };
+  insertModal('modal-proc',`
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-file-text"></i> ${isEdit?'Editar':'Novo'} Procedimento/Formulário</span>
+        <button class="btn btn-sm" onclick="closeModal('modal-proc')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group"><label>Tipo *</label>
+            <select id="proc-tipo" onchange="if(!document.getElementById('proc-numero').dataset.editado)document.getElementById('proc-numero').value=({'procedimento':${proximoNumero('procedimento')},'formulario':${proximoNumero('formulario')}})[this.value]">
+              <option value="procedimento" ${tipoDefault==='procedimento'?'selected':''}>Procedimento (ADM 0XX)</option>
+              <option value="formulario" ${tipoDefault==='formulario'?'selected':''}>Formulário (ADM 0X)</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Número *</label><input id="proc-numero" type="number" min="1" value="${p?.numero||proximoNumero(tipoDefault)}" oninput="this.dataset.editado='1'"></div>
+          <div class="form-group full"><label>Título *</label><input id="proc-titulo" value="${escHtml(p?.titulo||'')}" placeholder="Ex: Processo de Admissão"></div>
+          <div class="form-group full"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400"><input type="checkbox" id="proc-obsoleto" ${p?.obsoleto?'checked':''} style="width:16px;height:16px"> Marcar como obsoleto (fica visível no histórico, sai da numeração ativa)</label></div>
+          <div class="form-group full"><label>Observações</label><textarea id="proc-obs" rows="2">${escHtml(p?.observacoes||'')}</textarea></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal('modal-proc')">Cancelar</button>
+        <button class="btn btn-primary" onclick="saveProcedimento(${id?`'${id}'`:'null'})"><i class="ti ti-check"></i> Salvar</button>
+      </div>
+    </div>`);
+}
+async function saveProcedimento(id){
+  const titulo=document.getElementById('proc-titulo').value.trim();
+  if(!titulo){showToast('Título é obrigatório','error');return;}
+  const numero=parseInt(document.getElementById('proc-numero').value);
+  if(!numero){showToast('Número é obrigatório','error');return;}
+  const tipo=document.getElementById('proc-tipo').value;
+  const payload={
+    tipo,numero,titulo,
+    obsoleto:document.getElementById('proc-obsoleto').checked,
+    observacoes:document.getElementById('proc-obs').value.trim()||null,
+  };
+  const res=id?await sb.from('procedimentos').update(payload).eq('id',id):await sb.from('procedimentos').insert(payload).select().single();
+  if(res.error){showToast('Erro: '+res.error.message,'error');return;}
+  showToast('Salvo!');
+  closeModal('modal-proc');
+  await loadProcedimentos();
+  if(!id&&res.data)procSelecionadoId=res.data.id;
+  renderProcedimentos();
+}
+async function deleteProcedimento(id,codigo){
+  if(!confirm('Excluir '+codigo+'? Isso remove também todo o histórico de revisões. Prefira marcar como "Obsoleto" em vez de excluir, pra manter o registro.'))return;
+  await sb.from('procedimentos').delete().eq('id',id);
+  showToast('Excluído.');
+  procSelecionadoId=null;
+  await loadProcedimentos();
+  renderProcedimentos();
+}
+
+function abrirModalVersaoProc(procId){
+  const p=procedimentos.find(x=>x.id===procId);
+  if(!p)return;
+  const vAtual=versaoAtualProc(procId);
+  const proximaRevisao=vAtual?vAtual.revisao+1:0;
+  insertModal('modal-versao-proc',`
+    <div class="modal" style="max-width:480px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-file-upload"></i> Nova Revisão — ${escHtml(codigoProc(p))}</span>
+        <button class="btn btn-sm" onclick="closeModal('modal-versao-proc')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">${vAtual?'Revisão atual: '+vAtual.revisao+(vAtual.data_revisao?' · '+(formatDate(vAtual.data_revisao)||''):''):'Ainda não há nenhuma versão cadastrada — este será o documento original (Revisão 0).'}</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Nº da Revisão</label><input id="ver-revisao" type="number" value="${proximaRevisao}"></div>
+          <div class="form-group"><label>Data da revisão</label><input id="ver-data" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+          <div class="form-group full"><label>Arquivo (PDF, Word, Excel...)</label><input type="file" id="ver-arquivo-file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"></div>
+          <div class="form-group full"><label>O que mudou nessa revisão (opcional)</label><textarea id="ver-obs" rows="2"></textarea></div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:8px" onclick="salvarVersaoProc('${procId}')"><i class="ti ti-check"></i> Salvar revisão</button>
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeModal('modal-versao-proc')">Fechar</button></div>
+    </div>`);
+}
+async function salvarVersaoProc(procId){
+  const revisao=parseInt(document.getElementById('ver-revisao').value);
+  if(revisao===null||isNaN(revisao)){showToast('Informe o número da revisão','error');return;}
+  const file=document.getElementById('ver-arquivo-file')?.files?.[0];
+  let arquivoUrl=null;
+  if(file){
+    showToast('Enviando arquivo...');
+    const path='procedimentos/'+Date.now()+'_'+file.name.replace(/\s/g,'_');
+    const{error:upErr}=await sb.storage.from('funcionarios').upload(path,file,{contentType:file.type});
+    if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
+    arquivoUrl=sb.storage.from('funcionarios').getPublicUrl(path).data.publicUrl;
+  }
+  const{error}=await sb.from('procedimentos_versoes').insert({
+    procedimento_id:procId,
+    revisao,
+    arquivo_url:arquivoUrl,
+    data_revisao:document.getElementById('ver-data').value||null,
+    observacao:document.getElementById('ver-obs').value.trim()||null,
+  });
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Revisão salva!');
+  closeModal('modal-versao-proc');
+  await loadProcedimentos();
+  renderProcedimentos();
 }
 
 function openModalVeiculo(id){
