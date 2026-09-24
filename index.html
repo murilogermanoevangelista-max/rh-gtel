@@ -5202,7 +5202,7 @@ function exportFeriasPDF(){
 }
 
 // ─── PRESTADORES ──────────────────────────────────────────────────────────────
-let prestadoresBusca='',prestadoresFiltroSit='ativo',prestadoresFiltroObra='',prestadoresFiltroEmpresa='',prestadoresFiltroPessoa='',prestadoresFiltroObraTocado=false;
+let prestadoresBusca='',prestadoresFiltroSit='ativo',prestadoresFiltroObra='',prestadoresFiltroEmpresa='',prestadoresFiltroPessoa='',prestadoresFiltroObraTocado=false,prestadoresFiltroContrato='',prestadoresFiltroAso='';
 
 async function renderPrestadores(){
   await loadPrestadores();
@@ -5210,12 +5210,19 @@ async function renderPrestadores(){
   renderPrestadoresLocal();
 }
 function renderPrestadoresLocal(){
+  const hojePrest=new Date();hojePrest.setHours(0,0,0,0);
+  const contratoDias=(p)=>{const d=parseDate(p.contrato_vencimento);return d?Math.floor((d-hojePrest)/86400000):null;};
+  const asoDias=(p)=>{const d=parseDate(p.aso_vencimento);return d?Math.floor((d-hojePrest)/86400000):null;};
   const obraEfetiva=prestadoresFiltroObraTocado?prestadoresFiltroObra:(prestadoresFiltroObra||globalObraFiltro);
   const lista=prestadores.filter(p=>{
     if(prestadoresFiltroSit&&p.situacao!==prestadoresFiltroSit)return false;
     if(obraEfetiva&&String(p.obra_id)!==String(obraEfetiva))return false;
     if(prestadoresFiltroEmpresa&&(p.razao_social||'')!==prestadoresFiltroEmpresa)return false;
     if(prestadoresFiltroPessoa&&(p.nome_completo||'')!==prestadoresFiltroPessoa)return false;
+    if(prestadoresFiltroContrato==='vencido'&&!(contratoDias(p)!==null&&contratoDias(p)<0))return false;
+    if(prestadoresFiltroContrato==='vencendo'&&!(contratoDias(p)!==null&&contratoDias(p)>=0&&contratoDias(p)<=60))return false;
+    if(prestadoresFiltroAso==='vencido'&&!(asoDias(p)!==null&&asoDias(p)<0))return false;
+    if(prestadoresFiltroAso==='vencendo'&&!(asoDias(p)!==null&&asoDias(p)>=0&&asoDias(p)<=30))return false;
     if(prestadoresBusca){
       const b=prestadoresBusca.toLowerCase();
       return(p.nome_completo||'').toLowerCase().includes(b)||(p.razao_social||'').toLowerCase().includes(b)||(p.cnpj||'').includes(b)||(p.funcao||'').toLowerCase().includes(b);
@@ -5226,6 +5233,17 @@ function renderPrestadoresLocal(){
   const total=prestadores.length;
   const ativos=prestadores.filter(p=>p.situacao==='ativo').length;
   const inativos=prestadores.filter(p=>p.situacao==='inativo').length;
+
+  const contratosVencidos=lista.filter(p=>{const d=contratoDias(p);return d!==null&&d<0;}).length;
+  const contratosVencendo=lista.filter(p=>{const d=contratoDias(p);return d!==null&&d>=0&&d<=60;}).length;
+  const asoVencidos=lista.filter(p=>{const d=asoDias(p);return d!==null&&d<0;}).length;
+  const asoVencendo=lista.filter(p=>{const d=asoDias(p);return d!==null&&d>=0&&d<=30;}).length;
+  const alertCardsPrestHtml=alertCardsRow([
+    contratosVencidos>0?{count:contratosVencidos,label:'Contrato GTEL vencido',icon:'file-x',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"prestadoresFiltroContrato=prestadoresFiltroContrato==='vencido'?'':'vencido';renderPrestadoresLocal()"}:null,
+    contratosVencendo>0?{count:contratosVencendo,label:'Contrato GTEL vencendo (60d)',icon:'file-clock',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"prestadoresFiltroContrato=prestadoresFiltroContrato==='vencendo'?'':'vencendo';renderPrestadoresLocal()"}:null,
+    asoVencidos>0?{count:asoVencidos,label:'ASO vencido',icon:'first-aid-kit',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"prestadoresFiltroAso=prestadoresFiltroAso==='vencido'?'':'vencido';renderPrestadoresLocal()"}:null,
+    asoVencendo>0?{count:asoVencendo,label:'ASO vencendo (30d)',icon:'first-aid-kit',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"prestadoresFiltroAso=prestadoresFiltroAso==='vencendo'?'':'vencendo';renderPrestadoresLocal()"}:null,
+  ]);
 
   const obrasOpts=obras.map(o=>`<option value="${o.id}" ${obraEfetiva===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''} ${o.nome||''}</option>`).join('');
   const empresasUnicas=[...new Set(prestadores.map(p=>p.razao_social).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
@@ -5257,6 +5275,19 @@ function renderPrestadoresLocal(){
       <td style="font-size:12px">${p.alojamento?.nome||'<span style="color:var(--text-muted)">—</span>'}</td>
       <td style="font-size:12px">${formatDate(p.data_mobilizacao)||'—'}</td>
       <td style="font-size:12px">${formatDate(p.data_integracao)||'—'}</td>
+      <td style="font-size:11px">
+        ${(()=>{
+          const docs=[p.anexo_cnpj_url,p.anexo_contrato_url,p.anexo_pedido_compra_url,p.anexo_aso_url].filter(Boolean).length;
+          const cd=contratoDias(p),ad=asoDias(p);
+          const alerta=(cd!==null&&cd<0)||(ad!==null&&ad<0);
+          const atencao=!alerta&&((cd!==null&&cd<=60)||(ad!==null&&ad<=30));
+          const cor=alerta?'#991B1B':atencao?'#92400E':'var(--text-muted)';
+          const bg=alerta?'#FEE2E2':atencao?'#FFFBEB':'var(--bg)';
+          return `<span onclick="openModalPrestador('${p.id}')" style="cursor:pointer;font-weight:600;color:${cor};background:${bg};padding:2px 8px;border-radius:20px" title="Clique para ver/anexar documentos">📎 ${docs}/4</span>`
+            +(cd!==null&&cd<0?'<div style="color:#991B1B;margin-top:2px">Contrato vencido</div>':cd!==null&&cd<=60?'<div style="color:#92400E;margin-top:2px">Contrato '+cd+'d</div>':'')
+            +(ad!==null&&ad<0?'<div style="color:#991B1B;margin-top:2px">ASO vencido</div>':ad!==null&&ad<=30?'<div style="color:#92400E;margin-top:2px">ASO '+ad+'d</div>':'');
+        })()}
+      </td>
       <td>${sitBadge}</td>
       <td>
         <div style="display:flex;gap:6px">
@@ -5265,13 +5296,14 @@ function renderPrestadoresLocal(){
         </div>
       </td>
     </tr>`;
-  }).join('')||'<tr><td colspan="8"><div class="empty-state"><i class="ti ti-id-badge"></i><div>Nenhum prestador encontrado</div></div></td></tr>';
+  }).join('')||'<tr><td colspan="9"><div class="empty-state"><i class="ti ti-id-badge"></i><div>Nenhum prestador encontrado</div></div></td></tr>';
 
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div><div class="page-title">Prestadores de Serviço</div><div class="page-subtitle">${ativos} ativos · ${inativos} inativos</div></div>
       <button class="btn btn-primary" onclick="openModalPrestador()"><i class="ti ti-plus"></i> Novo prestador</button>
     </div>
+    ${alertCardsPrestHtml}
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
       <div class="metric-card" onclick="prestadoresFiltroSit='';renderPrestadores()" style="cursor:pointer;border-color:${!prestadoresFiltroSit?'var(--primary)':'var(--border)'}">
         <div class="metric-label">Total</div><div class="metric-value">${total}</div>
@@ -5297,12 +5329,12 @@ function renderPrestadoresLocal(){
       <select class="filter-select" onchange="prestadoresFiltroPessoa=this.value;renderPrestadoresLocal()">
         <option value="">Todas as pessoas</option>${pessoaOpts}
       </select>
-      <button class="btn btn-sm" onclick="prestadoresBusca='';prestadoresFiltroSit='ativo';prestadoresFiltroObra='';prestadoresFiltroObraTocado=false;prestadoresFiltroEmpresa='';prestadoresFiltroPessoa='';renderPrestadores()"><i class="ti ti-x"></i> Limpar</button>
+      <button class="btn btn-sm" onclick="prestadoresBusca='';prestadoresFiltroSit='ativo';prestadoresFiltroObra='';prestadoresFiltroObraTocado=false;prestadoresFiltroEmpresa='';prestadoresFiltroPessoa='';prestadoresFiltroContrato='';prestadoresFiltroAso='';renderPrestadores()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div class="table-container"><table>
       <thead><tr>
         <th>Nome / Função</th><th>Empresa</th><th>Obra</th><th>Alojamento</th>
-        <th>Mobilização</th><th>Integração</th><th>Status</th><th>Ações</th>
+        <th>Mobilização</th><th>Integração</th><th>Documentos</th><th>Status</th><th>Ações</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
@@ -5391,6 +5423,39 @@ function openModalPrestador(id){
               <textarea id="prest-obs" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;resize:vertical">${p?.observacao||''}</textarea>
             </div>
           </div>
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin:16px 0 10px">📎 Documentos e Contrato</div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Vencimento do Contrato GTEL</label>
+              <input type="date" id="prest-contrato-venc" value="${p?.contrato_vencimento||''}">
+            </div>
+            <div class="form-group">
+              <label>Vencimento do ASO</label>
+              <input type="date" id="prest-aso-venc" value="${p?.aso_vencimento||''}">
+            </div>
+          </div>
+          <div class="form-grid" style="margin-top:8px">
+            <div class="form-group">
+              <label>Documento CNPJ (PDF)</label>
+              <input type="file" id="prest-anexo-cnpj-file" accept=".pdf,.jpg,.jpeg,.png">
+              ${p?.anexo_cnpj_url?`<div style="margin-top:4px"><a href="${p.anexo_cnpj_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-eye"></i> Ver atual</a></div>`:''}
+            </div>
+            <div class="form-group">
+              <label>Contrato GTEL (PDF)</label>
+              <input type="file" id="prest-anexo-contrato-file" accept=".pdf,.jpg,.jpeg,.png">
+              ${p?.anexo_contrato_url?`<div style="margin-top:4px"><a href="${p.anexo_contrato_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-eye"></i> Ver atual</a></div>`:''}
+            </div>
+            <div class="form-group">
+              <label>Pedido de Compras (PDF)</label>
+              <input type="file" id="prest-anexo-pedido-file" accept=".pdf,.jpg,.jpeg,.png">
+              ${p?.anexo_pedido_compra_url?`<div style="margin-top:4px"><a href="${p.anexo_pedido_compra_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-eye"></i> Ver atual</a></div>`:''}
+            </div>
+            <div class="form-group">
+              <label>ASO — Atestado de Saúde Ocupacional (PDF)</label>
+              <input type="file" id="prest-anexo-aso-file" accept=".pdf,.jpg,.jpeg,.png">
+              ${p?.anexo_aso_url?`<div style="margin-top:4px"><a href="${p.anexo_aso_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-eye"></i> Ver atual</a></div>`:''}
+            </div>
+          </div>
         </div>
         <div class="modal-footer">
           <button class="btn" onclick="closeModal('modal-prestador')">Cancelar</button>
@@ -5427,6 +5492,22 @@ async function salvarPrestador(id){
     fotoUrl=null;
   }
 
+  // Upload dos documentos (CNPJ, Contrato GTEL, Pedido de Compras)
+  const existente=id?prestadores.find(x=>x.id===id):null;
+  async function uploadDocPrestador(inputId,folder){
+    const input=document.getElementById(inputId);
+    if(!input||!input.files||!input.files[0])return null;
+    const file=input.files[0];
+    const path=`prestadores-docs/${folder}/${Date.now()}_${file.name.replace(/\s/g,'_')}`;
+    const{error}=await sb.storage.from('funcionarios').upload(path,file,{contentType:file.type});
+    if(error){showToast('Erro no upload de '+folder+': '+error.message,'error');return null;}
+    return sb.storage.from('funcionarios').getPublicUrl(path).data.publicUrl;
+  }
+  const anexoCnpjUrl=await uploadDocPrestador('prest-anexo-cnpj-file','cnpj')||existente?.anexo_cnpj_url||null;
+  const anexoContratoUrl=await uploadDocPrestador('prest-anexo-contrato-file','contrato')||existente?.anexo_contrato_url||null;
+  const anexoPedidoUrl=await uploadDocPrestador('prest-anexo-pedido-file','pedido-compras')||existente?.anexo_pedido_compra_url||null;
+  const anexoAsoUrl=await uploadDocPrestador('prest-anexo-aso-file','aso')||existente?.anexo_aso_url||null;
+
   const payload={
     razao_social:document.getElementById('prest-razao').value.trim()||null,
     cnpj:document.getElementById('prest-cnpj').value.trim()||null,
@@ -5440,6 +5521,12 @@ async function salvarPrestador(id){
     situacao:document.getElementById('prest-sit').value,
     observacao:document.getElementById('prest-obs').value.trim()||null,
     foto_url:fotoUrl,
+    contrato_vencimento:document.getElementById('prest-contrato-venc').value||null,
+    aso_vencimento:document.getElementById('prest-aso-venc').value||null,
+    anexo_cnpj_url:anexoCnpjUrl,
+    anexo_contrato_url:anexoContratoUrl,
+    anexo_pedido_compra_url:anexoPedidoUrl,
+    anexo_aso_url:anexoAsoUrl,
   };
   let error;
   if(id){({error}=await sb.from('prestadores').update(payload).eq('id',id));}
