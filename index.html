@@ -7855,7 +7855,7 @@ function openModalAtivoImob(id){
         <div style="margin-bottom:14px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <label style="margin:0">📷 Fotos do equipamento</label>
-            <span style="font-size:11px;font-weight:700;color:${(a?fotosDoAtivo(a.id).length:0)>=5?'#166534':'#92400E'}">${a?fotosDoAtivo(a.id).length:0} foto(s) — mínimo recomendado: 5</span>
+            <span style="font-size:11px;font-weight:700;color:var(--text-muted)">${a?fotosDoAtivo(a.id).length:0} foto(s) anexada(s)</span>
           </div>
           <div id="ai-fotos-existentes" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
             ${a?fotosDoAtivo(a.id).map(f=>`
@@ -7921,12 +7921,65 @@ function openModalAtivoImob(id){
         <div class="form-grid" style="margin-top:14px">
           <div class="form-group full"><label>Observações</label><textarea id="ai-obs" rows="2">${a?.observacoes||''}</textarea></div>
         </div>
+
+        ${!isEdit?`
+        <div style="background:var(--bg);border-radius:var(--radius);padding:12px;border:1px solid var(--border);margin-top:10px">
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">👤 Responsável pelo equipamento (opcional)</div>
+          <div style="display:flex;gap:12px;margin-bottom:10px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="radio" name="ai-resp-tipo" value="cadastrado" checked onchange="atualizarTipoRespNovoAtivo()"> Funcionário cadastrado</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="radio" name="ai-resp-tipo" value="terceirizado" onchange="atualizarTipoRespNovoAtivo()"> Terceirizado / não cadastrado</label>
+          </div>
+          <div id="ai-resp-bloco-cadastrado" class="form-grid">
+            <div class="form-group full"><label>Funcionário</label><select id="ai-resp-func" onchange="document.getElementById('ai-resp-cargo').value=this.options[this.selectedIndex].getAttribute('data-funcao')||''"><option value="">— Selecione —</option>${funcionarios.filter(f=>f.situacao==='ativo').sort((x,y)=>(x.nome_completo||'').localeCompare(y.nome_completo||'','pt-BR')).map(f=>`<option value="${f.id}" data-funcao="${escHtml(f.funcao?.nome||'')}">${f.nome_completo} — ${f.matricula||''}</option>`).join('')}</select></div>
+          </div>
+          <div id="ai-resp-bloco-terceirizado" class="form-grid" style="display:none">
+            <div class="form-group"><label>Nome completo</label><input id="ai-resp-nome"></div>
+            <div class="form-group"><label>CPF</label><input id="ai-resp-cpf"></div>
+            <div class="form-group"><label>Cargo/Função</label><input id="ai-resp-cargo-terc"></div>
+            <div class="form-group"><label>Empresa</label><input id="ai-resp-empresa-terc"></div>
+            <div class="form-group"><label>Telefone</label><input id="ai-resp-telefone"></div>
+            <div class="form-group"><label>E-mail</label><input id="ai-resp-email"></div>
+          </div>
+          <div class="form-grid" style="margin-top:8px">
+            <div class="form-group" id="ai-resp-cargo-wrap"><label>Cargo/Função</label><input id="ai-resp-cargo"></div>
+            <div class="form-group"><label>Nota fiscal (Remessa) nº</label><input id="ai-resp-nf-num"></div>
+            <div class="form-group"><label>Data de emissão da NF</label><input id="ai-resp-nf-data" type="date"></div>
+            <div class="form-group"><label>Estado no recebimento</label>
+              <select id="ai-resp-estado">
+                <option value="novo">Novo</option>
+                <option value="usado">Usado em bom estado</option>
+                <option value="ressalva">Com ressalva</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Condição de recebimento</label>
+              <select id="ai-resp-condicao" onchange="document.getElementById('ai-resp-ressalvas-wrap').style.display=this.value==='com_ressalva'?'block':'none'">
+                <option value="sem_ressalva">Sem ressalvas</option>
+                <option value="com_ressalva">Com ressalvas</option>
+              </select>
+            </div>
+            <div class="form-group full" id="ai-resp-ressalvas-wrap" style="display:none"><label>Descreva as ressalvas</label><textarea id="ai-resp-ressalvas" rows="2"></textarea></div>
+            <div class="form-group"><label>Local do recebimento</label>
+              <select id="ai-resp-local">
+                <option value="Obra">Obra</option>
+                <option value="Almoxarifado">Almoxarifado</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Data do recebimento</label><input id="ai-resp-data" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+            <div class="form-group full"><label>Termo assinado (PDF ou foto)</label><input type="file" id="ai-resp-termo-file" accept=".pdf,.jpg,.jpeg,.png"></div>
+          </div>
+        </div>`:''}
       </div>
       <div class="modal-footer">
         <button class="btn" onclick="closeModal('modal-ativoimob')">Cancelar</button>
         <button class="btn btn-primary" onclick="saveAtivoImob(${id?`'${id}'`:'null'})"><i class="ti ti-check"></i> Salvar</button>
       </div>
     </div>`);
+}
+function atualizarTipoRespNovoAtivo(){
+  const tipo=document.querySelector('input[name="ai-resp-tipo"]:checked').value;
+  document.getElementById('ai-resp-bloco-cadastrado').style.display=tipo==='cadastrado'?'grid':'none';
+  document.getElementById('ai-resp-bloco-terceirizado').style.display=tipo==='terceirizado'?'grid':'none';
+  document.getElementById('ai-resp-cargo-wrap').style.display=tipo==='cadastrado'?'block':'none';
 }
 function previewFotosAtivo(input){
   const prev=document.getElementById('ai-fotos-preview');
@@ -8007,6 +8060,53 @@ async function saveAtivoImob(id){
       if(upErr){showToast('Erro no upload de uma foto: '+upErr.message,'error');continue;}
       const url=sb.storage.from('ativos-imobilizados').getPublicUrl(path).data.publicUrl;
       await sb.from('ativos_imob_fotos').insert({ativo_id:ativoIdFinal,foto_url:url,ordem:jaTem+i});
+    }
+  }
+
+  // Se for cadastro novo e o bloco de responsável foi preenchido, define o responsável já nesta mesma gravação
+  if(!id&&ativoIdFinal&&document.querySelector('input[name="ai-resp-tipo"]')){
+    const tipoResp=document.querySelector('input[name="ai-resp-tipo"]:checked')?.value;
+    const ehTercResp=tipoResp==='terceirizado';
+    let nomeResp=null,cpfResp=null,cargoResp=null,empresaTercResp=null,telefoneResp=null,emailResp=null,funcIdResp=null;
+    if(ehTercResp){
+      nomeResp=document.getElementById('ai-resp-nome').value.trim()||null;
+      cpfResp=document.getElementById('ai-resp-cpf').value.trim()||null;
+      cargoResp=document.getElementById('ai-resp-cargo-terc').value.trim()||null;
+      empresaTercResp=document.getElementById('ai-resp-empresa-terc').value.trim()||null;
+      telefoneResp=document.getElementById('ai-resp-telefone').value.trim()||null;
+      emailResp=document.getElementById('ai-resp-email').value.trim()||null;
+    }else{
+      funcIdResp=document.getElementById('ai-resp-func').value||null;
+      cargoResp=document.getElementById('ai-resp-cargo').value.trim()||null;
+    }
+    // Só grava o responsável se algo relevante foi preenchido (funcionário selecionado ou nome do terceirizado)
+    if(funcIdResp||nomeResp){
+      let termoUrlResp=null;
+      const termoFileResp=document.getElementById('ai-resp-termo-file')?.files?.[0];
+      if(termoFileResp){
+        const path='termos/'+Date.now()+'_'+sanitizeFilename(termoFileResp.name);
+        const{error:upErrResp}=await sb.storage.from('ativos-imobilizados').upload(path,termoFileResp,{upsert:true});
+        if(upErrResp){showToast('Erro no upload do termo: '+upErrResp.message,'error');}
+        else termoUrlResp=sb.storage.from('ativos-imobilizados').getPublicUrl(path).data.publicUrl;
+      }
+      const condicaoResp=document.getElementById('ai-resp-condicao').value;
+      const{error:errResp}=await sb.from('ativos_imob_responsaveis').insert({
+        ativo_id:ativoIdFinal,
+        eh_terceirizado:ehTercResp,
+        funcionario_id:funcIdResp,
+        nome:nomeResp,cpf:cpfResp,cargo:cargoResp,empresa_terceirizada:empresaTercResp,telefone:telefoneResp,email:emailResp,
+        nota_fiscal_numero:document.getElementById('ai-resp-nf-num').value.trim()||null,
+        nota_fiscal_data:document.getElementById('ai-resp-nf-data').value||null,
+        obra_id:obraId||null,
+        tipo_movimentacao:'remessa',
+        estado_recebimento:document.getElementById('ai-resp-estado').value,
+        condicao:condicaoResp,
+        ressalvas_texto:condicaoResp==='com_ressalva'?(document.getElementById('ai-resp-ressalvas').value.trim()||null):null,
+        local_recebimento:document.getElementById('ai-resp-local').value.trim()||null,
+        data_recebimento:document.getElementById('ai-resp-data').value||new Date().toISOString().slice(0,10),
+        termo_url:termoUrlResp,
+      });
+      if(errResp)showToast('Ativo salvo, mas houve erro ao definir o responsável: '+errResp.message,'error');
     }
   }
 
