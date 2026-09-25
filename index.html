@@ -8059,7 +8059,8 @@ async function saveAtivoImob(id){
       const{error:upErr}=await sb.storage.from('ativos-imobilizados').upload(path,file,{contentType:file.type});
       if(upErr){showToast('Erro no upload de uma foto: '+upErr.message,'error');continue;}
       const url=sb.storage.from('ativos-imobilizados').getPublicUrl(path).data.publicUrl;
-      await sb.from('ativos_imob_fotos').insert({ativo_id:ativoIdFinal,foto_url:url,ordem:jaTem+i});
+      const{error:errFoto}=await sb.from('ativos_imob_fotos').insert({ativo_id:ativoIdFinal,foto_url:url,ordem:jaTem+i});
+      if(errFoto){showToast('Erro ao salvar foto no banco: '+errFoto.message,'error');console.error('[Ativo GTEL foto]',errFoto);}
     }
   }
 
