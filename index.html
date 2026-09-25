@@ -638,6 +638,12 @@ function parseDate(str){
 function escHtml(s){
   return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
+// Nomes de arquivo com acento (comuns em português) quebram a chave do Storage do Supabase
+// ("Invalid key"). Remove acentuação e troca qualquer caractere fora de a-z/0-9/./-/_ por "_".
+function sanitizeFilename(name){
+  const semAcento=String(name||'arquivo').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  return semAcento.replace(/[^a-zA-Z0-9._-]/g,'_');
+}
 // Fileira de cards de alerta compactos e coloridos (crítico/aviso/info), usada nas telas de
 // Alojamentos, Folgas de Campo, Experiência e Férias — no lugar das antigas faixas horizontais.
 function alertCardsRow(items){
@@ -834,14 +840,18 @@ async function loadAtivosImobilizados(){
 function fotosDoAtivo(ativoId){return ativosImobFotos.filter(f=>String(f.ativo_id)===String(ativoId)).sort((a,b)=>(a.ordem||0)-(b.ordem||0));}
 
 // Procedimentos e Formulários são gerais da empresa — não filtram por obra, todo mundo vê tudo.
+let procedimentosAnexos=[];
 async function loadProcedimentos(){
-  const[p,v]=await Promise.all([
+  const[p,v,x]=await Promise.all([
     sb.from('procedimentos').select('*').order('tipo').order('numero'),
     sb.from('procedimentos_versoes').select('*').order('revisao',{ascending:false}),
+    sb.from('procedimentos_anexos').select('*').order('created_at'),
   ]);
   procedimentos=p.data||[];
   procedimentosVersoes=v.data||[];
+  procedimentosAnexos=x.data||[];
 }
+function anexosDoProc(procId){return procedimentosAnexos.filter(x=>String(x.procedimento_id)===String(procId));}
 
 async function loadPrestadores(){
   const{data}=await sb.from('prestadores')
@@ -3591,7 +3601,7 @@ async function uploadTermoAdm15(folgaId,numeroCiclo,input){
   const file=input.files[0];
   if(!file)return;
   showToast('Enviando Termo ADM 15...');
-  const path='adm15/'+Date.now()+'_'+file.name.replace(/\s/g,'_');
+  const path='adm15/'+Date.now()+'_'+sanitizeFilename(file.name);
   const{error:upErr}=await sb.storage.from('funcionarios').upload(path,file,{contentType:file.type});
   if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
   const url=sb.storage.from('funcionarios').getPublicUrl(path).data.publicUrl;
@@ -5565,7 +5575,7 @@ async function salvarPrestador(id){
     const input=document.getElementById(inputId);
     if(!input||!input.files||!input.files[0])return null;
     const file=input.files[0];
-    const path=`prestadores-docs/${folder}/${Date.now()}_${file.name.replace(/\s/g,'_')}`;
+    const path=`prestadores-docs/${folder}/${Date.now()}_${sanitizeFilename(file.name)}`;
     const{error}=await sb.storage.from('funcionarios').upload(path,file,{contentType:file.type});
     if(error){showToast('Erro no upload de '+folder+': '+error.message,'error');return null;}
     return sb.storage.from('funcionarios').getPublicUrl(path).data.publicUrl;
@@ -7952,7 +7962,7 @@ async function saveAtivoImob(id){
     const input=document.getElementById(inputId);
     if(!input||!input.files||!input.files[0])return null;
     const file=input.files[0];
-    const path=folder+'/'+Date.now()+'_'+file.name.replace(/\s/g,'_');
+    const path=folder+'/'+Date.now()+'_'+sanitizeFilename(file.name);
     const{error}=await sb.storage.from('ativos-imobilizados').upload(path,file,{upsert:true});
     if(error){showToast('Erro no upload: '+error.message,'error');return null;}
     return sb.storage.from('ativos-imobilizados').getPublicUrl(path).data.publicUrl;
@@ -7992,7 +8002,7 @@ async function saveAtivoImob(id){
     const jaTem=fotosDoAtivo(ativoIdFinal).length;
     for(let i=0;i<fotosFiles.length;i++){
       const file=fotosFiles[i];
-      const path='fotos/'+Date.now()+'_'+i+'_'+file.name.replace(/\s/g,'_');
+      const path='fotos/'+Date.now()+'_'+i+'_'+sanitizeFilename(file.name);
       const{error:upErr}=await sb.storage.from('ativos-imobilizados').upload(path,file,{contentType:file.type});
       if(upErr){showToast('Erro no upload de uma foto: '+upErr.message,'error');continue;}
       const url=sb.storage.from('ativos-imobilizados').getPublicUrl(path).data.publicUrl;
@@ -8140,7 +8150,7 @@ async function adicionarResponsavelAtivo(ativoId){
   const termoFile=document.getElementById('resp-termo-file')?.files?.[0];
   if(termoFile){
     showToast('Enviando termo...');
-    const path='termos/'+Date.now()+'_'+termoFile.name.replace(/\s/g,'_');
+    const path='termos/'+Date.now()+'_'+sanitizeFilename(termoFile.name);
     const{error:upErr}=await sb.storage.from('ativos-imobilizados').upload(path,termoFile,{upsert:true});
     if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
     termoUrl=sb.storage.from('ativos-imobilizados').getPublicUrl(path).data.publicUrl;
@@ -8186,7 +8196,7 @@ async function uploadTermoAtivo(respId,input){
   const file=input.files[0];
   if(!file)return;
   showToast('Enviando termo...');
-  const path='termos/'+Date.now()+'_'+file.name.replace(/\s/g,'_');
+  const path='termos/'+Date.now()+'_'+sanitizeFilename(file.name);
   const{error:upErr}=await sb.storage.from('ativos-imobilizados').upload(path,file,{upsert:true});
   if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
   const url=sb.storage.from('ativos-imobilizados').getPublicUrl(path).data.publicUrl;
@@ -8280,12 +8290,16 @@ function renderProcedimentos(){
       return{key,icone,titulo,resumo,status,corStatus,bgStatus,clickAttr,aberto,expandivel:!onclickOuNull};
     };
 
+    const anexosSel=anexosDoProc(sel.id);
     const secoes=[
       secao('atual','file-check','Documento Atual',
         vAtualSel?('Revisão '+vAtualSel.revisao+(vAtualSel.data_revisao?' · '+(formatDate(vAtualSel.data_revisao)||'—'):'')):'Nenhuma versão cadastrada ainda',
         vAtualSel&&vAtualSel.arquivo_url?'ANEXADO':'SEM ARQUIVO',
         vAtualSel&&vAtualSel.arquivo_url?'#166534':'#991B1B', vAtualSel&&vAtualSel.arquivo_url?'#DCFCE7':'#FEE2E2',
         "abrirModalVersaoProc('"+sel.id+"')"),
+      secao('anexos','paperclip','Anexos',
+        anexosSel.length?anexosSel.length+' documento(s) extra anexado(s)':'Nenhum anexo extra ainda (modelos, instruções, etc.)',
+        anexosSel.length+' ANEXO(S)','#1D4ED8','#DBEAFE', null),
       secao('historico','history','Histórico de Revisões',historicoSel.length+' revisão(ões) anterior(es)',
         historicoSel.length+' REVISÃO(ÕES)','#374151','#F3F4F6',null),
       secao('dados','info-circle','Dados',
@@ -8298,6 +8312,13 @@ function renderProcedimentos(){
       const rot=s.expandivel?(s.aberto?'0deg':'-90deg'):'-90deg';
       const chevronHtml=s.expandivel?'<i class="ti ti-chevron-down" style="font-size:12px;color:#8B95A5;transform:rotate('+rot+')"></i>':'<i class="ti ti-arrow-narrow-right" style="font-size:13px;color:#8B95A5"></i>';
       let expandido='';
+      if(s.aberto&&s.key==='anexos'){
+        expandido='<div style="padding:12px 18px 14px 42px;background:#FAFBFC;border-bottom:1px solid #EEF0F2">'
+          +(anexosSel.length?anexosSel.map(x=>'<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:#fff;border:1px solid #EEF0F2;border-radius:3px;margin-bottom:6px"><a href="'+x.arquivo_url+'" target="_blank" style="font-size:12.5px;color:#1D4ED8;display:flex;align-items:center;gap:6px"><i class="ti ti-file-text"></i>'+escHtml(x.nome)+'</a><button class="btn btn-sm btn-danger" onclick="excluirAnexoProc(\''+x.id+'\',\''+sel.id+'\')"><i class="ti ti-trash"></i></button></div>').join('')
+            :'<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:8px">Nenhum anexo extra ainda.</div>')
+          +'<button class="btn btn-sm" style="margin-top:6px" onclick="abrirModalAnexoProc(\''+sel.id+'\')"><i class="ti ti-plus"></i> Adicionar anexo</button>'
+          +'</div>';
+      }
       if(s.aberto&&s.key==='historico'){
         expandido='<div style="padding:12px 18px 14px 42px;background:#FAFBFC;border-bottom:1px solid #EEF0F2">'
           +(historicoSel.length?historicoSel.map(v=>'<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:#fff;border:1px solid #EEF0F2;border-radius:3px;margin-bottom:6px"><span style="font-size:12.5px">Revisão '+v.revisao+' · '+(formatDate(v.data_revisao)||'—')+(v.observacao?' · '+escHtml(v.observacao):'')+'</span>'+(v.arquivo_url?'<a href="'+v.arquivo_url+'" target="_blank" style="font-size:11px;color:#1D4ED8">Ver arquivo</a>':'<span style="font-size:11px;color:var(--text-muted)">Sem arquivo</span>')+'</div>').join('')
@@ -8433,7 +8454,7 @@ async function saveProcedimento(id){
   const docFile=document.getElementById('proc-doc-file')?.files?.[0];
   if(!id&&docFile&&novoId){
     showToast('Enviando arquivo...');
-    const path='procedimentos/'+Date.now()+'_'+docFile.name.replace(/\s/g,'_');
+    const path='procedimentos/'+Date.now()+'_'+sanitizeFilename(docFile.name);
     const{error:upErr}=await sb.storage.from('funcionarios').upload(path,docFile,{contentType:docFile.type});
     if(upErr){showToast('Procedimento salvo, mas houve erro no upload do arquivo: '+upErr.message,'error');}
     else{
@@ -8492,7 +8513,7 @@ async function salvarVersaoProc(procId){
   let arquivoUrl=null;
   if(file){
     showToast('Enviando arquivo...');
-    const path='procedimentos/'+Date.now()+'_'+file.name.replace(/\s/g,'_');
+    const path='procedimentos/'+Date.now()+'_'+sanitizeFilename(file.name);
     const{error:upErr}=await sb.storage.from('funcionarios').upload(path,file,{contentType:file.type});
     if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
     arquivoUrl=sb.storage.from('funcionarios').getPublicUrl(path).data.publicUrl;
@@ -8507,6 +8528,50 @@ async function salvarVersaoProc(procId){
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast('Revisão salva!');
   closeModal('modal-versao-proc');
+  await loadProcedimentos();
+  renderProcedimentos();
+}
+
+function abrirModalAnexoProc(procId){
+  const p=procedimentos.find(x=>x.id===procId);
+  if(!p)return;
+  insertModal('modal-anexo-proc',`
+    <div class="modal" style="max-width:460px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-paperclip"></i> Adicionar Anexo — ${escHtml(codigoProc(p))}</span>
+        <button class="btn btn-sm" onclick="closeModal('modal-anexo-proc')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group full"><label>Nome do anexo *</label><input id="anexo-proc-nome" placeholder="Ex: Anexo 1 - Modelo de formulário"></div>
+          <div class="form-group full"><label>Arquivo *</label><input type="file" id="anexo-proc-file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"></div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:8px" onclick="salvarAnexoProc('${procId}')"><i class="ti ti-check"></i> Salvar anexo</button>
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeModal('modal-anexo-proc')">Fechar</button></div>
+    </div>`);
+}
+async function salvarAnexoProc(procId){
+  const nome=document.getElementById('anexo-proc-nome').value.trim();
+  const file=document.getElementById('anexo-proc-file')?.files?.[0];
+  if(!nome){showToast('Informe o nome do anexo','error');return;}
+  if(!file){showToast('Selecione um arquivo','error');return;}
+  showToast('Enviando anexo...');
+  const path='procedimentos-anexos/'+Date.now()+'_'+sanitizeFilename(file.name);
+  const{error:upErr}=await sb.storage.from('funcionarios').upload(path,file,{contentType:file.type});
+  if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
+  const arquivoUrl=sb.storage.from('funcionarios').getPublicUrl(path).data.publicUrl;
+  const{error}=await sb.from('procedimentos_anexos').insert({procedimento_id:procId,nome,arquivo_url:arquivoUrl});
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Anexo adicionado!');
+  closeModal('modal-anexo-proc');
+  await loadProcedimentos();
+  renderProcedimentos();
+}
+async function excluirAnexoProc(anexoId,procId){
+  if(!confirm('Excluir este anexo?'))return;
+  await sb.from('procedimentos_anexos').delete().eq('id',anexoId);
+  showToast('Anexo excluído.');
   await loadProcedimentos();
   renderProcedimentos();
 }
@@ -8591,7 +8656,7 @@ async function saveVeiculo(id){
     const input=document.getElementById(inputId);
     if(!input||!input.files||!input.files[0])return null;
     const file=input.files[0];
-    const path=`${folder}/${Date.now()}_${file.name.replace(/\s/g,'_')}`;
+    const path=`${folder}/${Date.now()}_${sanitizeFilename(file.name)}`;
     const{error}=await sb.storage.from('veiculos').upload(path,file,{contentType:'application/pdf',upsert:true});
     if(error){showToast('Erro no upload: '+error.message,'error');return null;}
     return sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl;
@@ -8713,7 +8778,7 @@ async function uploadTermoCondutor(condutorId,input){
   const file=input.files[0];
   if(!file)return;
   showToast('Enviando termo...');
-  const path='termos/'+Date.now()+'_'+file.name.replace(/\s/g,'_');
+  const path='termos/'+Date.now()+'_'+sanitizeFilename(file.name);
   const{error:upErr}=await sb.storage.from('veiculos').upload(path,file,{contentType:'application/pdf',upsert:true});
   if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
   const url=sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl;
@@ -8783,7 +8848,7 @@ async function salvarKm(veiculoId,mes,ano){
   const anexoFile=document.getElementById('km-anexo-file')?.files?.[0];
   if(anexoFile){
     showToast('Enviando comprovante...');
-    const path='km/'+Date.now()+'_'+anexoFile.name.replace(/\s/g,'_');
+    const path='km/'+Date.now()+'_'+sanitizeFilename(anexoFile.name);
     const{error:upErr}=await sb.storage.from('veiculos').upload(path,anexoFile,{upsert:true});
     if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
     anexoUrl=sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl;
@@ -8856,7 +8921,7 @@ async function salvarRevisao(veiculoId,numeroRevisao){
   const anexoFile=document.getElementById('rev-anexo-file')?.files?.[0];
   if(anexoFile){
     showToast('Enviando nota fiscal...');
-    const path='revisoes/'+Date.now()+'_'+anexoFile.name.replace(/\s/g,'_');
+    const path='revisoes/'+Date.now()+'_'+sanitizeFilename(anexoFile.name);
     const{error:upErr}=await sb.storage.from('veiculos').upload(path,anexoFile,{upsert:true});
     if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
     anexoUrl=sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl;
@@ -8920,7 +8985,7 @@ async function salvarAbastecimento(veiculoId,mes,ano){
   const anexoFile=document.getElementById('abast-anexo-file')?.files?.[0];
   if(anexoFile){
     showToast('Enviando formulário...');
-    const path='abastecimentos/'+Date.now()+'_'+anexoFile.name.replace(/\s/g,'_');
+    const path='abastecimentos/'+Date.now()+'_'+sanitizeFilename(anexoFile.name);
     const{error:upErr}=await sb.storage.from('veiculos').upload(path,anexoFile,{upsert:true});
     if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
     anexoUrl=sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl;
@@ -9056,7 +9121,7 @@ async function saveAlojamento(id){
     const input=document.getElementById(inputId);
     if(!input||!input.files||!input.files[0])return null;
     const file=input.files[0];
-    const path=`${folder}/${Date.now()}_${file.name.replace(/\s/g,'_')}`;
+    const path=`${folder}/${Date.now()}_${sanitizeFilename(file.name)}`;
     const{error}=await sb.storage.from('alojamentos').upload(path,file,{contentType:'application/pdf',upsert:true});
     if(error){showToast('Erro no upload: '+error.message,'error');return null;}
     return sb.storage.from('alojamentos').getPublicUrl(path).data.publicUrl;
