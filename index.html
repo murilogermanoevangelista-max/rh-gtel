@@ -10007,14 +10007,14 @@ async function importarHE(file){
 
     if(!regs.length){showToast('Nenhum registro de H.E. encontrado','error');return;}
 
-    // Deletar registros de TODAS as datas presentes no arquivo
-    // (não só por periodo_ini, para evitar duplicatas entre imports com datas de referência diferentes)
+    // Deletar apenas os registros das matrículas que aparecem neste arquivo, nas datas
+    // presentes nele — evita apagar/misturar dados de outras obras ou funcionários
+    // que caiam nas mesmas datas em importações separadas.
     const datasNoArquivo=[...new Set(regs.map(r=>r.data))];
-    for(const d of datasNoArquivo){
-      await sb.from('efetivo_he').delete().eq('data',d);
-    }
-    // Também limpar por periodo_ini por segurança (imports antigos)
-    await sb.from('efetivo_he').delete().eq('periodo_ini',dataISO);
+    const matriculasNoArquivo=[...new Set(regs.map(r=>r.matricula))];
+    await sb.from('efetivo_he').delete().in('data',datasNoArquivo).in('matricula',matriculasNoArquivo);
+    // Também limpar por periodo_ini por segurança (imports antigos), mesma restrição de matrícula
+    await sb.from('efetivo_he').delete().eq('periodo_ini',dataISO).in('matricula',matriculasNoArquivo);
 
     for(let i=0;i<regs.length;i+=500){
       const{error}=await sb.from('efetivo_he').insert(regs.slice(i,i+500));
@@ -10638,12 +10638,13 @@ function renderEfetivoLocal(){
       if(horasFiltroPeriodo==='acumulado')return true;
       if(horasFiltroPeriodo==='dia')return h.data===(window._horasDiaSel||datasHoras[0]||ds);
       return h.data>=horasFiltroDe&&h.data<=horasFiltroAte;
-    }).forEach(h=>{
-      if(!horasPerMap[h.matricula])horasPerMap[h.matricula]={matricula:h.matricula,nome:h.nome,minsTrab:0,minsJust:0,minsATrabalhar:0,dias:0};
-      horasPerMap[h.matricula].minsTrab+=h.mins_trabalhadas||0;
-      horasPerMap[h.matricula].minsJust+=h.mins_justificadas||0;
-      horasPerMap[h.matricula].minsATrabalhar+=h.mins_a_trabalhar||0;
-      if(h.mins_trabalhadas>0||h.mins_justificadas>0)horasPerMap[h.matricula].dias++;
+    }).filter(h=>!_busca||(h.nome||'').toLowerCase().includes(_busca)||normMat(h.matricula).includes(_busca)).forEach(h=>{
+      const matKey=normMat(h.matricula)||h.matricula;
+      if(!horasPerMap[matKey])horasPerMap[matKey]={matricula:h.matricula,nome:h.nome,minsTrab:0,minsJust:0,minsATrabalhar:0,dias:0};
+      horasPerMap[matKey].minsTrab+=h.mins_trabalhadas||0;
+      horasPerMap[matKey].minsJust+=h.mins_justificadas||0;
+      horasPerMap[matKey].minsATrabalhar+=h.mins_a_trabalhar||0;
+      if(h.mins_trabalhadas>0||h.mins_justificadas>0)horasPerMap[matKey].dias++;
     });
     const listaHoras=Object.values(horasPerMap).sort((a,b)=>b.minsTrab-a.minsTrab);
     const totalMinsTrab=listaHoras.reduce((s,h)=>s+h.minsTrab,0);
@@ -10681,21 +10682,22 @@ function renderEfetivoLocal(){
       +(heFiltroPeriodo==='periodo'?'<input type="date" value="'+heFiltroDe+'" onchange="window._heFiltroDe=this.value;renderEfetivo()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px"> <span style="font-size:12px">até</span> <input type="date" value="'+heFiltroAte+'" onchange="window._heFiltroAte=this.value;renderEfetivo()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">':'')
       +'</div>';
 
-    // Filtrar por período
+    // Filtrar por período e por busca (nome ou matrícula)
     const hePerFiltradas=heFiltradas.filter(h=>{
       if(heFiltroPeriodo==='acumulado')return true;
       return h.data>=heFiltroDe&&h.data<=heFiltroAte;
-    });
+    }).filter(h=>!_busca||(h.nome||'').toLowerCase().includes(_busca)||normMat(h.matricula).includes(_busca));
 
-    // Agrupar por funcionário e tipo — ignorar registros com horas zeradas
+    // Agrupar por funcionário (matrícula normalizada) e tipo — ignorar registros com horas zeradas
     function fmtMins(m){if(!m)return'000:00';const h=Math.floor(m/60);const mn=m%60;return String(h).padStart(3,'0')+':'+String(mn).padStart(2,'0');}
     const heMap={};
     hePerFiltradas.filter(h=>(h.mins||0)>0).forEach(h=>{
-      if(!heMap[h.matricula])heMap[h.matricula]={matricula:h.matricula,nome:h.nome,tipos:{},total:0};
+      const matKey=normMat(h.matricula)||h.matricula;
+      if(!heMap[matKey])heMap[matKey]={matricula:h.matricula,nome:h.nome,tipos:{},total:0};
       const tipo=h.tipo||'Outros';
-      if(!heMap[h.matricula].tipos[tipo])heMap[h.matricula].tipos[tipo]=0;
-      heMap[h.matricula].tipos[tipo]+=h.mins||0;
-      heMap[h.matricula].total+=h.mins||0;
+      if(!heMap[matKey].tipos[tipo])heMap[matKey].tipos[tipo]=0;
+      heMap[matKey].tipos[tipo]+=h.mins||0;
+      heMap[matKey].total+=h.mins||0;
     });
 
     // Todos os tipos únicos
@@ -10888,9 +10890,13 @@ function renderEfetivoLocal(){
     </div>
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
       <div style="display:flex;gap:8px;flex-wrap:wrap">${tabHtml}</div>
-      <div style="margin-left:auto;position:relative">
-        <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:14px"></i>
-        <input type="text" placeholder="Buscar funcionário..." value="${efetivoBusca}" oninput="efetivoBusca=this.value;if(!_buscaHandlers.efetivo)_buscaHandlers.efetivo=makeBuscaHandler(v=>efetivoBusca=v,renderEfetivoLocal,300);_buscaHandlers.efetivo(this.value);this.focus()" style="padding:6px 12px 6px 32px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;width:220px;background:var(--surface)">
+      <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+        <div style="position:relative">
+          <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:14px"></i>
+          <input type="text" placeholder="Buscar funcionário..." value="${efetivoBusca}" oninput="efetivoBusca=this.value;if(!_buscaHandlers.efetivo)_buscaHandlers.efetivo=makeBuscaHandler(v=>efetivoBusca=v,renderEfetivoLocal,300);_buscaHandlers.efetivo(this.value);this.focus()" style="padding:6px 32px 6px 32px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;width:220px;background:var(--surface)">
+          ${efetivoBusca?'<i class="ti ti-x" onclick="efetivoBusca=\'\';renderEfetivoLocal()" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:14px;cursor:pointer"></i>':''}
+        </div>
+        ${efetivoBusca?'<button onclick="efetivoBusca=\'\';renderEfetivoLocal()" class="btn btn-sm" style="font-size:12px">Limpar</button>':''}
       </div>
     </div>
     ${view}`}
