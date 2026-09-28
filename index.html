@@ -855,6 +855,7 @@ async function loadProcedimentos(){
   ]);
   procedimentos=p.data||[];
   procedimentosVersoes=v.data||[];
+  if(x.error){console.error('[Procedimentos] erro ao carregar anexos:',x.error);showToast('Erro ao carregar anexos: '+x.error.message,'error');}
   procedimentosAnexos=x.data||[];
 }
 function anexosDoProc(procId){return procedimentosAnexos.filter(x=>String(x.procedimento_id)===String(procId));}
@@ -8732,10 +8733,12 @@ async function salvarAnexoProc(procId){
   const{error:upErr}=await sb.storage.from('funcionarios').upload(path,file,{contentType:file.type});
   if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
   const arquivoUrl=sb.storage.from('funcionarios').getPublicUrl(path).data.publicUrl;
-  const{error}=await sb.from('procedimentos_anexos').insert({procedimento_id:procId,nome,arquivo_url:arquivoUrl});
-  if(error){showToast('Erro: '+error.message,'error');return;}
+  const{data:novoAnexo,error}=await sb.from('procedimentos_anexos').insert({procedimento_id:procId,nome,arquivo_url:arquivoUrl}).select().single();
+  if(error){console.error('[Procedimentos] erro ao salvar anexo:',error);showToast('Erro ao salvar anexo: '+error.message,'error');return;}
+  if(!novoAnexo){showToast('O anexo foi enviado, mas o banco não confirmou o registro (verifique as permissões da tabela).','error');return;}
   showToast('Anexo adicionado!');
   closeModal('modal-anexo-proc');
+  procSecoesAbertas['anexos']=true; // já deixa a seção de anexos aberta pra mostrar o arquivo salvo
   await loadProcedimentos();
   renderProcedimentos();
 }
