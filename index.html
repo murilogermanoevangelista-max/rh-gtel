@@ -8463,15 +8463,17 @@ function renderProcedimentos(){
     };
 
     const anexosSel=anexosDoProc(sel.id);
+    const docAtualComArquivo=!!(vAtualSel&&vAtualSel.arquivo_url);
+    const totalAnexosSel=anexosSel.length+(docAtualComArquivo?1:0);
     const secoes=[
       secao('atual','file-check','Documento Atual',
         vAtualSel?('Revisão '+vAtualSel.revisao+(vAtualSel.data_revisao?' · '+(formatDate(vAtualSel.data_revisao)||'—'):'')):'Nenhuma versão cadastrada ainda',
         vAtualSel&&vAtualSel.arquivo_url?'ANEXADO':'SEM ARQUIVO',
         vAtualSel&&vAtualSel.arquivo_url?'#166534':'#991B1B', vAtualSel&&vAtualSel.arquivo_url?'#DCFCE7':'#FEE2E2',
-        "abrirModalVersaoProc('"+sel.id+"')"),
+        null),
       secao('anexos','paperclip','Anexos',
-        anexosSel.length?anexosSel.length+' documento(s) extra anexado(s)':'Nenhum anexo extra ainda (modelos, instruções, etc.)',
-        anexosSel.length+' ANEXO(S)','#1D4ED8','#DBEAFE', null),
+        totalAnexosSel?(totalAnexosSel+' arquivo(s) anexado(s)'):'Nenhum anexo ainda (modelos, instruções, etc.)',
+        totalAnexosSel+' ANEXO(S)','#1D4ED8','#DBEAFE', null),
       secao('historico','history','Histórico de Revisões',historicoSel.length+' revisão(ões) anterior(es)',
         historicoSel.length+' REVISÃO(ÕES)','#374151','#F3F4F6',null),
       secao('dados','info-circle','Dados',
@@ -8484,16 +8486,24 @@ function renderProcedimentos(){
       const rot=s.expandivel?(s.aberto?'0deg':'-90deg'):'-90deg';
       const chevronHtml=s.expandivel?'<i class="ti ti-chevron-down" style="font-size:12px;color:#8B95A5;transform:rotate('+rot+')"></i>':'<i class="ti ti-arrow-narrow-right" style="font-size:13px;color:#8B95A5"></i>';
       let expandido='';
-      if(s.aberto&&s.key==='anexos'){
+      if(s.aberto&&s.key==='atual'){
         expandido='<div style="padding:12px 18px 14px 42px;background:#FAFBFC;border-bottom:1px solid #EEF0F2">'
+          +(docAtualComArquivo
+            ?'<div style="margin-bottom:8px"><a href="'+vAtualSel.arquivo_url+'" target="_blank" style="font-size:12.5px;color:#1D4ED8;display:inline-flex;align-items:center;gap:6px"><i class="ti ti-file-text"></i>Abrir documento — Revisão '+vAtualSel.revisao+'</a></div>'
+            :'<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:8px">Nenhum arquivo anexado à revisão atual.</div>')
+          +'<button class="btn btn-sm" onclick="abrirModalVersaoProc(\''+sel.id+'\')"><i class="ti ti-file-upload"></i> Nova revisão</button>'
+          +'</div>';
+      } else if(s.aberto&&s.key==='anexos'){
+        expandido='<div style="padding:12px 18px 14px 42px;background:#FAFBFC;border-bottom:1px solid #EEF0F2">'
+          +(docAtualComArquivo?'<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:3px;margin-bottom:6px"><a href="'+vAtualSel.arquivo_url+'" target="_blank" style="font-size:12.5px;color:#1D4ED8;display:flex;align-items:center;gap:6px"><i class="ti ti-file-check"></i>Documento atual — Revisão '+vAtualSel.revisao+'</a><span style="font-size:10px;font-weight:700;color:#166534">DOCUMENTO ATUAL</span></div>':'')
           +(anexosSel.length?anexosSel.map(x=>'<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:#fff;border:1px solid #EEF0F2;border-radius:3px;margin-bottom:6px"><a href="'+x.arquivo_url+'" target="_blank" style="font-size:12.5px;color:#1D4ED8;display:flex;align-items:center;gap:6px"><i class="ti ti-file-text"></i>'+escHtml(x.nome)+'</a><button class="btn btn-sm btn-danger" onclick="excluirAnexoProc(\''+x.id+'\',\''+sel.id+'\')"><i class="ti ti-trash"></i></button></div>').join('')
-            :'<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:8px">Nenhum anexo extra ainda.</div>')
+            :(docAtualComArquivo?'':'<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:8px">Nenhum anexo ainda.</div>'))
           +'<button class="btn btn-sm" style="margin-top:6px" onclick="abrirModalAnexoProc(\''+sel.id+'\')"><i class="ti ti-plus"></i> Adicionar anexo</button>'
           +'</div>';
       }
       if(s.aberto&&s.key==='historico'){
         expandido='<div style="padding:12px 18px 14px 42px;background:#FAFBFC;border-bottom:1px solid #EEF0F2">'
-          +(historicoSel.length?historicoSel.map(v=>'<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:#fff;border:1px solid #EEF0F2;border-radius:3px;margin-bottom:6px"><span style="font-size:12.5px">Revisão '+v.revisao+' · '+(formatDate(v.data_revisao)||'—')+(v.observacao?' · '+escHtml(v.observacao):'')+'</span>'+(v.arquivo_url?'<a href="'+v.arquivo_url+'" target="_blank" style="font-size:11px;color:#1D4ED8">Ver arquivo</a>':'<span style="font-size:11px;color:var(--text-muted)">Sem arquivo</span>')+'</div>').join('')
+          +(historicoSel.length?historicoSel.map(v=>'<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:#fff;border:1px solid #EEF0F2;border-radius:3px;margin-bottom:6px"><span style="font-size:12.5px">Revisão '+v.revisao+' · '+(formatDate(v.data_revisao)||'—')+(v.observacao?' · '+escHtml(v.observacao):'')+'</span><div style="display:flex;align-items:center;gap:10px">'+(v.arquivo_url?'<a href="'+v.arquivo_url+'" target="_blank" style="font-size:11px;color:#1D4ED8">Ver arquivo</a>':'<span style="font-size:11px;color:var(--text-muted)">Sem arquivo</span>')+'<button class="btn btn-sm btn-danger" title="Excluir revisão" onclick="excluirVersaoProc(\''+v.id+'\',\''+sel.id+'\')"><i class="ti ti-trash"></i></button></div></div>').join('')
             :'<div style="font-size:12.5px;color:var(--text-muted)">Ainda não há revisões anteriores — este é o primeiro registro.</div>')
           +'</div>';
       }
@@ -8739,6 +8749,23 @@ async function salvarAnexoProc(procId){
   showToast('Anexo adicionado!');
   closeModal('modal-anexo-proc');
   procSecoesAbertas['anexos']=true; // já deixa a seção de anexos aberta pra mostrar o arquivo salvo
+  await loadProcedimentos();
+  renderProcedimentos();
+}
+async function excluirVersaoProc(versaoId,procId){
+  const v=procedimentosVersoes.find(x=>String(x.id)===String(versaoId));
+  if(!v)return;
+  if(!confirm('Excluir a Revisão '+v.revisao+' do histórico? O arquivo dessa revisão também será removido. Esta ação não pode ser desfeita.'))return;
+  const{data,error}=await sb.from('procedimentos_versoes').delete().eq('id',versaoId).select();
+  if(error){showToast('Erro ao excluir: '+error.message,'error');return;}
+  if(!data||!data.length){showToast('Não foi possível excluir (verifique as permissões da tabela).','error');return;}
+  // remove também o arquivo do storage (melhor esforço; não impede a exclusão se falhar)
+  try{
+    const marca='/funcionarios/';
+    const idx=(v.arquivo_url||'').indexOf(marca);
+    if(idx>=0)await sb.storage.from('funcionarios').remove([decodeURIComponent(v.arquivo_url.slice(idx+marca.length).split('?')[0])]);
+  }catch(e){console.warn('[Procedimentos] arquivo da revisão não removido do storage:',e);}
+  showToast('Revisão excluída.');
   await loadProcedimentos();
   renderProcedimentos();
 }
