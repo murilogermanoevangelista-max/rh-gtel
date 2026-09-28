@@ -375,6 +375,7 @@ let veiculoBusca='';
 let veiculoFiltroAtivo=null; // 'revisao_vencida'|'revisao_proxima'|'km_pendente'|'contrato_vencendo'|null
 let ativoImobSelecionadoId=null;
 let ativoImobSecoesAbertas={};
+let ativoImobCategoriasAbertas={}; // {categoria(encoded):true|false} — acordeão da lista de ativos por categoria
 let ativoImobBusca='';
 let ativoImobFiltroAtivo=null; // 'sem_responsavel'|'sem_termo'|'ressalva_pendente'|null
 let procSelecionadoId=null;
@@ -7705,11 +7706,15 @@ function renderAtivosImobilizados(){
     menosDe5Fotos>0?{count:menosDe5Fotos,label:'Com menos de 5 fotos',icon:'photo-off',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"ativoImobFiltroAtivo=ativoImobFiltroAtivo==='sem_fotos'?null:'sem_fotos';renderAtivosImobilizados()"}:null,
   ]);
 
-  const _byObra={};
+  // Agrupa por categoria (ordem: categorias padrão, depois outras, por fim "Sem categoria")
+  const _byCategoria={};
   ativosFiltrados.forEach(a=>{
-    const obraKey=a.obra?.codigo?(a.obra.codigo+' — '+a.obra.nome):'Sem obra vinculada';
-    if(!_byObra[obraKey])_byObra[obraKey]=[];
-    _byObra[obraKey].push(a);
+    const cat=a.categoria||'Sem categoria';
+    (_byCategoria[cat]=_byCategoria[cat]||[]).push(a);
+  });
+  const categoriasOrdenadas=Object.keys(_byCategoria).sort((x,y)=>{
+    const rank=c=>{const i=CATEGORIAS_ATIVO_IMOB.indexOf(c);return i>=0?i:(c==='Sem categoria'?999:500);};
+    return rank(x)-rank(y)||x.localeCompare(y,'pt-BR');
   });
 
   const masterDetailHtml=(()=>{
@@ -7718,27 +7723,51 @@ function renderAtivosImobilizados(){
     if(!ativosFiltrados.length)return '<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-package-off" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum ativo cadastrado</div>';
 
     let sel=ativosFiltrados.find(a=>String(a.id)===String(ativoImobSelecionadoId));
-    if(!sel){sel=ativosFiltrados[0];ativoImobSelecionadoId=sel.id;}
+    if(!sel){sel=_byCategoria[categoriasOrdenadas[0]][0];ativoImobSelecionadoId=sel.id;}
 
-    const multiObra=Object.keys(_byObra).length>1;
-    const listaHtml=Object.entries(_byObra).map(([obraKey,lista])=>{
-      const grupo=multiObra?'<div style="padding:8px 4px 6px;font-size:11px;font-weight:700;color:#8B95A5;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(obraKey)+'</div>':'';
-      const itens=lista.map(a=>{
+    const multiObra=new Set(ativosFiltrados.map(a=>String(obraAtualDoAtivo(a)))).size>1;
+    const buscando=!!(ativoImobBusca||ativoImobFiltroAtivo); // com busca/filtro, abre tudo por padrão
+    const catSel=sel.categoria||'Sem categoria';
+    const iconeCat={'Instrumentos de Medição':'ruler-measure','Ferramentas':'tool','Equipamentos de TI':'device-laptop','EPI':'helmet','Máquinas e Equipamentos':'building-factory-2','Mobiliário':'armchair','Outros':'box','Sem categoria':'package'};
+
+    const listaHtml=categoriasOrdenadas.map(cat=>{
+      const lista=_byCategoria[cat];
+      const chave=encodeURIComponent(cat).replace(/'/g,'%27');
+      const aberto=(chave in ativoImobCategoriasAbertas)?!!ativoImobCategoriasAbertas[chave]:(buscando||cat===catSel);
+      const qtdAlerta=lista.filter(temAlertaAtivo).length;
+      const contemSel=cat===catSel;
+
+      const header='<div class="aloj-secao-row" onclick="ativoImobCategoriasAbertas[\''+chave+'\']='+(!aberto)+';renderAtivosImobilizados()" style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:#fff;border:1px solid '+(contemSel?'#1D9E75':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:'+(aberto?'6':'6')+'px">'
+        +'<div style="display:flex;align-items:center;gap:8px;min-width:0">'
+        +'<i class="ti ti-chevron-down" style="font-size:12px;color:#8B95A5;flex-shrink:0;transform:rotate('+(aberto?'0deg':'-90deg')+')"></i>'
+        +'<i class="ti ti-'+(iconeCat[cat]||'package')+'" style="font-size:15px;color:#4B5160;flex-shrink:0"></i>'
+        +'<span style="font-size:13px;font-weight:700;color:#1A1F29;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(cat)+'</span>'
+        +'</div>'
+        +'<div style="display:flex;align-items:center;gap:5px;flex-shrink:0">'
+        +(qtdAlerta?'<span title="'+qtdAlerta+' com pendência" style="font-size:10px;font-weight:700;color:#991B1B;background:#FEE2E2;border-radius:20px;padding:1px 7px">'+qtdAlerta+' !</span>':'')
+        +'<span style="font-size:10.5px;font-weight:700;color:#fff;background:var(--primary);border-radius:20px;padding:1px 8px">'+lista.length+'</span>'
+        +'</div>'
+        +'</div>';
+
+      const itens=!aberto?'':'<div style="margin:0 0 8px 10px;padding-left:8px;border-left:2px solid #E0E2E7">'+lista.map(a=>{
         const isSel=String(a.id)===String(sel.id);
         const alerta=temAlertaAtivo(a);
-        return '<div class="item aloj-item" onclick="ativoImobSelecionadoId=\''+a.id+'\';renderAtivosImobilizados()" style="background:'+(isSel?'#1D9E75':'#fff')+';border:1px solid '+(isSel?'#1D9E75':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:6px">'
+        const obraCod=multiObra?(obras.find(o=>String(o.id)===String(obraAtualDoAtivo(a)))?.codigo||'—'):'';
+        return '<div class="item aloj-item" onclick="ativoImobSelecionadoId=\''+a.id+'\';renderAtivosImobilizados()" style="background:'+(isSel?'#1D9E75':'#fff')+';border:1px solid '+(isSel?'#1D9E75':'#D8DAE0')+';border-radius:4px;padding:9px 12px;cursor:pointer;margin-bottom:6px">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
           +'<div style="display:flex;align-items:center;gap:8px;min-width:0">'
-          +'<i class="ti ti-package" style="font-size:14px;color:'+(isSel?'#fff':'#8B95A5')+';flex-shrink:0;'+(fotosDoAtivo(a.id)[0]?'display:none':'')+'"></i>'
-          +(fotosDoAtivo(a.id)[0]?'<img src="'+fotosDoAtivo(a.id)[0].foto_url+'" style="width:22px;height:22px;border-radius:4px;object-fit:cover;flex-shrink:0;border:1px solid '+(isSel?'rgba(255,255,255,.4)':'#D8DAE0')+'">':'')
+          +(fotosDoAtivo(a.id)[0]
+            ?'<img src="'+fotosDoAtivo(a.id)[0].foto_url+'" style="width:22px;height:22px;border-radius:4px;object-fit:cover;flex-shrink:0;border:1px solid '+(isSel?'rgba(255,255,255,.4)':'#D8DAE0')+'">'
+            :'<i class="ti ti-package" style="font-size:14px;color:'+(isSel?'#fff':'#8B95A5')+';flex-shrink:0"></i>')
           +'<span style="font-size:13px;font-weight:600;color:'+(isSel?'#fff':'#1A1F29')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">'+escHtml(a.descricao)+'</span>'
           +'</div>'
           +'<div style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:'+(alerta?'#DC2626':'#16A34A')+'"></div>'
           +'</div>'
-          +'<div style="font-size:10.5px;color:'+(isSel?'rgba(255,255,255,.85)':'#8B95A5')+';margin-top:2px;margin-left:22px">Pat. '+escHtml(a.patrimonio_numero||'—')+' · '+escHtml(a.categoria||'—')+'</div>'
+          +'<div style="font-size:10.5px;color:'+(isSel?'rgba(255,255,255,.85)':'#8B95A5')+';margin-top:2px;margin-left:30px">Pat. '+escHtml(a.patrimonio_numero||'—')+(obraCod?' · '+escHtml(obraCod):'')+'</div>'
           +'</div>';
-      }).join('');
-      return grupo+itens;
+      }).join('')+'</div>';
+
+      return header+itens;
     }).join('');
 
     const respAtual=responsavelAtual(sel.id);
