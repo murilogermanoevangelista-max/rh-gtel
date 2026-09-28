@@ -3190,12 +3190,15 @@ function renderFolgasLocal(){
         <option value="sim" ${compradaAtual?'selected':''}>Comprada</option>
       </select>
     </div>${trAtual?.passagem_observacao
-      ?`<div onclick="event.stopPropagation();editarObservacaoPassagem('${f.id}',${currentN},${JSON.stringify(trAtual.passagem_observacao)})" style="font-size:10px;color:var(--text-muted);margin-top:2px;font-style:italic;cursor:pointer" title="Clique para editar a observação">💬 ${trAtual.passagem_observacao} <span style="not-italic;color:var(--primary)">✎</span></div>`
+      ?`<div onclick="event.stopPropagation()" style="font-size:10px;color:var(--text-muted);margin-top:2px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-style:italic">💬 ${escHtml(trAtual.passagem_observacao)}</span>
+          <a style="color:var(--primary);cursor:pointer;font-weight:600" onclick="editarObservacaoPassagem('${f.id}',${currentN},${escHtml(JSON.stringify(trAtual.passagem_observacao))})">✎ editar</a>
+          <a style="color:var(--danger);cursor:pointer;font-weight:600" onclick="excluirObservacaoPassagem('${f.id}',${currentN})">🗑 excluir</a></div>`
       :`<div onclick="event.stopPropagation();editarObservacaoPassagem('${f.id}',${currentN},'')" style="font-size:10px;color:var(--primary);margin-top:2px;cursor:pointer">+ observação</div>`}
     ${trAtual?.termo_adm15_url
       ?`<div style="margin-top:4px;display:flex;align-items:center;gap:6px" onclick="event.stopPropagation()">
           <a href="${trAtual.termo_adm15_url}" target="_blank" style="font-size:10px;color:var(--success);font-weight:600;text-decoration:underline">✅ ADM 15 anexado</a>
           <label style="font-size:10px;color:var(--primary);cursor:pointer">trocar<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${currentN},this)"></label>
+          <a style="font-size:10px;color:var(--danger);cursor:pointer;font-weight:600" onclick="removerTermoAdm15('${f.id}',${currentN})">🗑 excluir</a>
         </div>`
       :`<label onclick="event.stopPropagation()" title="O Termo ADM 15 assinado é obrigatório para a compra da passagem" style="margin-top:4px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;border:1px solid ${compradaAtual?'#DC2626':'#FCA5A5'};background:${compradaAtual?'#DC2626':'#FEE2E2'};color:${compradaAtual?'#fff':'#991B1B'}">⚠ ADM 15 OBRIGATÓRIO${compradaAtual?' — passagem comprada sem termo!':' — pendente'} · anexar<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${currentN},this)"></label>`}`;
 
@@ -3511,7 +3514,7 @@ function renderFolgasTranslados(){
         <div class="form-group full"><label>Termo ADM 15 (ciência de desconto por extravio da passagem) <span style="color:var(--danger);font-weight:700">* obrigatório</span></label>
           ${t.termo_adm15_url?'':`<div style="font-size:11px;color:#991B1B;background:#FEE2E2;border-radius:6px;padding:6px 10px;margin-bottom:6px">⚠ Termo ADM 15 pendente — anexe o termo assinado antes/na compra da passagem.</div>`}
           ${t.termo_adm15_url
-            ?`<div style="display:flex;align-items:center;gap:8px"><a href="${t.termo_adm15_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-file-text"></i> Ver termo anexado</a><label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-upload"></i> Trocar<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${n},this)"></label></div>`
+            ?`<div style="display:flex;align-items:center;gap:8px"><a href="${t.termo_adm15_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-file-text"></i> Ver termo anexado</a><label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-upload"></i> Trocar<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${n},this)"></label><button class="btn btn-sm btn-danger" onclick="removerTermoAdm15('${f.id}',${n})"><i class="ti ti-trash"></i> Excluir</button></div>`
             :`<label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-upload"></i> Anexar termo assinado<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${n},this)"></label>`}
         </div>
         <div class="form-section" style="margin:0">Ida (saída até o ponto de embarque)</div>
@@ -3605,6 +3608,31 @@ async function editarObservacaoPassagem(folgaId,numeroCiclo,textoAtual){
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast('Observação salva!');
   await loadFolgasTranslados();renderFolgasLocal();
+}
+async function excluirObservacaoPassagem(folgaId,numeroCiclo){
+  if(!confirm('Excluir a observação desta passagem?'))return;
+  const ex=folgasTranslados.find(x=>String(x.folga_id)===String(folgaId)&&x.numero_ciclo===numeroCiclo);
+  if(!ex)return;
+  const{error}=await sb.from('folgas_translados').update({passagem_observacao:null}).eq('folga_id',folgaId).eq('numero_ciclo',numeroCiclo);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Observação excluída.');
+  await loadFolgasTranslados();renderFolgasLocal();
+}
+async function removerTermoAdm15(folgaId,numeroCiclo){
+  if(!confirm('Excluir o Termo ADM 15 anexado? O alerta de obrigatoriedade voltará a aparecer até um novo termo ser anexado.'))return;
+  const ex=folgasTranslados.find(x=>String(x.folga_id)===String(folgaId)&&x.numero_ciclo===numeroCiclo);
+  if(!ex)return;
+  const{error}=await sb.from('folgas_translados').update({termo_adm15_url:null}).eq('folga_id',folgaId).eq('numero_ciclo',numeroCiclo);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  // remove também o arquivo do storage (melhor esforço; não impede a exclusão se falhar)
+  try{
+    const marca='/funcionarios/';
+    const idx=(ex.termo_adm15_url||'').indexOf(marca);
+    if(idx>=0)await sb.storage.from('funcionarios').remove([decodeURIComponent(ex.termo_adm15_url.slice(idx+marca.length).split('?')[0])]);
+  }catch(e){console.warn('[ADM15] arquivo não removido do storage:',e);}
+  showToast('Termo ADM 15 excluído.');
+  await loadFolgasTranslados();
+  if(typeof folgasAba!=='undefined'&&folgasAba==='translados')renderFolgasTranslados();else renderFolgasLocal();
 }
 // Anexa (ou substitui) o Termo ADM 15 assinado (ciência de desconto em caso de extravio da passagem)
 // deste ciclo específico — fica salvo como histórico junto com os demais dados do translado.
