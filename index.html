@@ -531,6 +531,11 @@ function populateGlobalObraSelect(){
   sel.value=globalObraFiltro;
 }
 
+// Obras marcadas como "bloqueada_cadastro" não aparecem para novos cadastros (funcionário, candidato, vaga, prestador),
+// exceto quando o registro em edição já pertence a ela (para não perder o vínculo atual).
+function obrasParaCadastro(obraAtualId){
+  return obras.filter(o=>!o.bloqueada_cadastro||(obraAtualId!=null&&obraAtualId!==''&&String(o.id)===String(obraAtualId)));
+}
 function showToast(msg,type='success'){
   const t=document.getElementById('toast');
   t.textContent=msg;t.className='toast show '+type;
@@ -2293,7 +2298,7 @@ function openModalFuncionario(func=null){
   funcaoModoManual=!!(func&&func.funcao_manual&&!func.funcao_id&&!func.funcao);
   tipoTransferencia='';fotoFile=null;
   const isEdit=!!(func&&func.id);
-  const obraOptions=obras.map(o=>`<option value="${o.id}" ${func?.obra_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
+  const obraOptions=obrasParaCadastro(func?.obra_id).map(o=>`<option value="${o.id}" ${func?.obra_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
   const obraTransfOptions=obrasTodas.map(o=>`<option value="${o.id}" ${func?.obra_transferencia_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
   const empresaOptions=empresas.map(e=>`<option value="${e.id}" ${func?.empresa_id===e.id?'selected':''}>${e.nome}</option>`).join('');
   const funcoesUnicas=[...new Map(funcoes.map(f=>[f.nome?.trim().toUpperCase(),f])).values()].sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR'));
@@ -3188,11 +3193,11 @@ function renderFolgasLocal(){
       ?`<div onclick="event.stopPropagation();editarObservacaoPassagem('${f.id}',${currentN},${JSON.stringify(trAtual.passagem_observacao)})" style="font-size:10px;color:var(--text-muted);margin-top:2px;font-style:italic;cursor:pointer" title="Clique para editar a observação">💬 ${trAtual.passagem_observacao} <span style="not-italic;color:var(--primary)">✎</span></div>`
       :`<div onclick="event.stopPropagation();editarObservacaoPassagem('${f.id}',${currentN},'')" style="font-size:10px;color:var(--primary);margin-top:2px;cursor:pointer">+ observação</div>`}
     ${trAtual?.termo_adm15_url
-      ?`<div style="margin-top:2px;display:flex;align-items:center;gap:6px" onclick="event.stopPropagation()">
-          <a href="${trAtual.termo_adm15_url}" target="_blank" style="font-size:10px;color:var(--success);font-weight:600;text-decoration:underline">📄 ADM 15 anexado</a>
+      ?`<div style="margin-top:4px;display:flex;align-items:center;gap:6px" onclick="event.stopPropagation()">
+          <a href="${trAtual.termo_adm15_url}" target="_blank" style="font-size:10px;color:var(--success);font-weight:600;text-decoration:underline">✅ ADM 15 anexado</a>
           <label style="font-size:10px;color:var(--primary);cursor:pointer">trocar<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${currentN},this)"></label>
         </div>`
-      :`<label onclick="event.stopPropagation()" style="font-size:10px;color:var(--danger);margin-top:2px;cursor:pointer;display:inline-block">+ anexar Termo ADM 15<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${currentN},this)"></label>`}`;
+      :`<label onclick="event.stopPropagation()" title="O Termo ADM 15 assinado é obrigatório para a compra da passagem" style="margin-top:4px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;border:1px solid ${compradaAtual?'#DC2626':'#FCA5A5'};background:${compradaAtual?'#DC2626':'#FEE2E2'};color:${compradaAtual?'#fff':'#991B1B'}">⚠ ADM 15 OBRIGATÓRIO${compradaAtual?' — passagem comprada sem termo!':' — pendente'} · anexar<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${currentN},this)"></label>`}`;
 
     // ── Histórico (colapsado) ──
     // Pra quem já tem muitos ciclos (funcionários antigos), mostra só os últimos inline e
@@ -3503,7 +3508,8 @@ function renderFolgasTranslados(){
         <div class="form-group full"><label>Observação</label>
           <textarea id="tr-obs-${f.id}" rows="1" placeholder="Alguma particularidade sobre a passagem (trecho, data de compra, pendência...)">${t.passagem_observacao||''}</textarea>
         </div>
-        <div class="form-group full"><label>Termo ADM 15 (ciência de desconto por extravio da passagem)</label>
+        <div class="form-group full"><label>Termo ADM 15 (ciência de desconto por extravio da passagem) <span style="color:var(--danger);font-weight:700">* obrigatório</span></label>
+          ${t.termo_adm15_url?'':`<div style="font-size:11px;color:#991B1B;background:#FEE2E2;border-radius:6px;padding:6px 10px;margin-bottom:6px">⚠ Termo ADM 15 pendente — anexe o termo assinado antes/na compra da passagem.</div>`}
           ${t.termo_adm15_url
             ?`<div style="display:flex;align-items:center;gap:8px"><a href="${t.termo_adm15_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-file-text"></i> Ver termo anexado</a><label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-upload"></i> Trocar<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${n},this)"></label></div>`
             :`<label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-upload"></i> Anexar termo assinado<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${n},this)"></label>`}
@@ -3526,7 +3532,7 @@ function renderFolgasTranslados(){
   }).join('')||'<div style="color:var(--text-muted);font-size:13px;padding:24px 0;text-align:center">Nenhum funcionário com saída pendente no momento.</div>';
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
-      <div><div class="page-title">Folgas de Campo</div><div class="page-subtitle">${lista.length} translado(s) a organizar</div></div>
+      <div><div class="page-title">Folgas de Campo</div><div class="page-subtitle">${lista.length} translado(s) a organizar${(()=>{const pend=lista.filter(f=>!(folgasTranslados.find(x=>String(x.folga_id)===String(f.id)&&x.numero_ciclo===ctrCicloAtualFolga(f))||{}).termo_adm15_url).length;return pend?` · <span style="color:#991B1B;font-weight:700">⚠ ${pend} sem Termo ADM 15</span>`:''})()}</div></div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-sm" onclick="exportFolgasExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
         <button class="btn btn-primary" onclick="openModalFolga()"><i class="ti ti-plus"></i> Nova folga</button>
@@ -3553,6 +3559,11 @@ async function togglePassagemComprada(folgaId,numeroCiclo,valor){
   // Atalho usado na tela de Programação: atualiza só o status da passagem,
   // preservando os demais dados do translado (observação, termo ADM 15, datas/locais de ida e volta).
   const existente=folgasTranslados.find(x=>String(x.folga_id)===String(folgaId)&&x.numero_ciclo===numeroCiclo)||{};
+  if(valor==='sim'&&!existente.termo_adm15_url){
+    if(!confirm('⚠ O Termo ADM 15 é OBRIGATÓRIO e ainda não foi anexado para este funcionário.\n\nMarcar a passagem como comprada mesmo assim? (o alerta vermelho continuará até o termo ser anexado)')){
+      await loadFolgasTranslados();renderFolgasLocal();return;
+    }
+  }
   const payload={
     folga_id:folgaId,
     numero_ciclo:numeroCiclo,
@@ -5419,7 +5430,7 @@ function renderPrestadoresLocal(){
 
 function openModalPrestador(id){
   const p=id?prestadores.find(x=>x.id===id):null;
-  const obrasSel=obras.map(o=>`<option value="${o.id}" ${String(p?.obra_id||'')===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
+  const obrasSel=obrasParaCadastro(p?.obra_id).map(o=>`<option value="${o.id}" ${String(p?.obra_id||'')===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
   const alojSel=alojamentos.map(a=>`<option value="${a.id}" ${String(p?.alojamento_id||'')===String(a.id)?'selected':''}>${a.nome||''} ${a.obra?.codigo?'('+a.obra.codigo+')':''}</option>`).join('');
   window._prestFotoFile=null;
   const fotoPreview=p?.foto_url
@@ -6179,7 +6190,7 @@ async function toggleUsuarioAtivo(id,novoStatus,nome){
 function renderObras(){
   const rows=obras.length?obras.map(o=>`<tr>
     <td><div style="font-weight:500">${o.codigo||'—'}</div></td>
-    <td>${o.nome}</td>
+    <td>${o.nome}${o.bloqueada_cadastro?' <span class="badge" style="background:#FEE2E2;color:#991B1B;font-size:10px">🔒 sem novos cadastros</span>':''}</td>
     <td>${o.cidade||'—'}</td>
     <td>${o.uf||'—'}</td>
     <td style="color:var(--text-muted);font-size:12px">${o.centro_custo||'—'}</td>
@@ -6215,6 +6226,7 @@ function openModalObra(obra=null){
           <div class="form-group"><label>Cidade</label><input id="o-cidade" value="${obra?.cidade||''}" placeholder="Cidade"></div>
           <div class="form-group"><label>UF</label><select id="o-uf"><option value="">—</option>${UFS.map(u=>`<option value="${u}" ${obra?.uf===u?'selected':''}>${u}</option>`).join('')}</select></div>
           <div class="form-group full"><label>Empresa</label><select id="o-empresa"><option value="">Selecione...</option>${empresaOptions}</select></div>
+          <div class="form-group full"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:500"><input type="checkbox" id="o-bloqueada" ${obra?.bloqueada_cadastro?'checked':''}> Bloquear novos cadastros nesta obra</label><div style="font-size:11px;color:var(--text-muted);margin-top:2px">Funcionários, candidatos, vagas e prestadores novos não poderão ser vinculados a esta obra.</div></div>
         </div></div>
         <div class="modal-footer">
           <button class="btn" onclick="closeModal('modal-obra')">Cancelar</button>
@@ -6236,6 +6248,7 @@ async function saveObra(id){
     cidade:document.getElementById('o-cidade').value.trim()||null,
     uf:document.getElementById('o-uf').value||null,
     empresa_id:document.getElementById('o-empresa').value||null,
+    bloqueada_cadastro:document.getElementById('o-bloqueada').checked,
   };
   const{error}=id?await sb.from('obras').update(payload).eq('id',id):await sb.from('obras').insert(payload);
   if(error){showToast('Erro: '+error.message,'error');return;}
@@ -12119,7 +12132,7 @@ function openModalContratacao(id){
   ctrFuncaoModoManual=false;
   window._ctrDocsState=ctrNormalizarDocs(c?.documentos);
   const funcaoOpts=ctrFuncoesUnicas().map(f=>`<option value="${f.id}" ${String(c?.funcao_id||'')===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
-  const obraOpts=obras.map(o=>`<option value="${o.id}" ${String(c?.obra_id||'')===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
+  const obraOpts=obrasParaCadastro(c?.obra_id).map(o=>`<option value="${o.id}" ${String(c?.obra_id||'')===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
   const{done,total,pct}=ctrDocsPct(c||{documentos:{}});
   const p=ctrCalcularProjecoes(c||{});
   document.body.insertAdjacentHTML('beforeend',`
@@ -12416,7 +12429,7 @@ function openModalVaga(id){
   const v=id?contratacoesVagas.find(x=>x.id===id):null;
   vagaFuncaoModoManual=false;
   const funcaoOpts=ctrFuncoesUnicas().map(f=>`<option value="${f.id}" ${String(v?.funcao_id||'')===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
-  const obraOpts=obras.map(o=>`<option value="${o.id}" ${String(v?.obra_id||'')===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
+  const obraOpts=obrasParaCadastro(v?.obra_id).map(o=>`<option value="${o.id}" ${String(v?.obra_id||'')===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
   document.body.insertAdjacentHTML('beforeend',`
     <div class="modal-overlay" id="modal-vaga" onclick="if(event.target===this)closeModal('modal-vaga')">
       <div class="modal" style="max-width:480px">
