@@ -5767,13 +5767,24 @@ function renderTreinamentosLocal(){
   const nAlerta=comStatus.filter(t=>t._calc.status==='alerta').length;
   const nOk=comStatus.filter(t=>t._calc.status==='ok').length;
 
-  const alertCardsHtml=alertCardsRow([
-    nVencidos>0?{count:nVencidos,label:'Vencidos',icon:'alert-octagon',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"treinSetStatus('vencido')"}:null,
-    nCritico>0?{count:nCritico,label:'Vencem em ≤ 10 dias',icon:'clock-exclamation',cor:'#C2410C',bg:'#FFEDD5',border:'#FDBA74',onclick:"treinSetStatus('critico')"}:null,
-    nAtencao>0?{count:nAtencao,label:'Vencem em ≤ 20 dias',icon:'clock',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"treinSetStatus('atencao')"}:null,
-    nAlerta>0?{count:nAlerta,label:'Vencem em ≤ 30 dias',icon:'calendar-time',cor:'#1D4ED8',bg:'#DBEAFE',border:'#93C5FD',onclick:"treinSetStatus('alerta')"}:null,
-    nOk>0?{count:nOk,label:'Em dia',icon:'circle-check',cor:'#166534',bg:'#DCFCE7',border:'#86EFAC',onclick:"treinSetStatus('ok')"}:null,
-  ]);
+  // Cards de alerta de vencimento — sempre visíveis (inclusive com 0), como na tela original; clicar filtra
+  const totalTrein=comStatus.length;
+  const cardTrein=(label,valor,st)=>{
+    const ui=st?TREIN_STATUS_UI[st]:null;
+    const ativo=st?(treinamentosFiltroStatus===st):(!treinamentosFiltroStatus&&treinamentosFiltroPrazo===null);
+    const cor=ui?ui.cor:(st===null?'var(--text)':'var(--success)');
+    return '<div class="metric-card" onclick="'+(st?"treinSetStatus('"+st+"')":"treinamentosFiltroStatus='';treinamentosFiltroPrazo=null;renderTreinamentosLocal()")+'" style="cursor:pointer;'+(ui?'background:'+ui.bg+';':'')+'border-color:'+(ativo?(ui?ui.cor:'var(--primary)'):'var(--border)')+(ativo?';box-shadow:0 0 0 2px '+(ui?ui.cor:'var(--primary)'):'')+'">'
+      +'<div class="metric-label"'+(ui?' style="color:'+ui.cor+'"':'')+'>'+label+'</div>'
+      +'<div class="metric-value"'+(ui?' style="color:'+ui.cor+'"':'')+'>'+valor+'</div></div>';
+  };
+  const alertCardsHtml='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px">'
+    +cardTrein('Total',totalTrein,null)
+    +cardTrein('Vencidos',nVencidos,'vencido')
+    +cardTrein('≤ 10 dias',nCritico,'critico')
+    +cardTrein('≤ 20 dias',nAtencao,'atencao')
+    +cardTrein('≤ 30 dias',nAlerta,'alerta')
+    +'<div class="metric-card green" onclick="treinSetStatus(\'ok\')" style="cursor:pointer;border-color:'+(treinamentosFiltroStatus==='ok'?'var(--success)':'var(--border)')+(treinamentosFiltroStatus==='ok'?';box-shadow:0 0 0 2px var(--success)':'')+'"><div class="metric-label">Em dia</div><div class="metric-value">'+nOk+'</div></div>'
+    +'</div>';
 
   // ── Agrupamento: funcionário → treinamentos; funcionários agrupados por obra ──
   const porFunc={};
