@@ -5726,90 +5726,222 @@ async function renderTreinamentos(){
   await loadTreinamentos();
   renderTreinamentosLocal();
 }
-function renderTreinamentosLocal(){
-  const obraFiltroAtivo=globalObraFiltro||treinamentosFiltroObra||'';
-  let base=obraFiltroAtivo?treinamentos.filter(t=>String(t.funcionario?.obra_id)===String(obraFiltroAtivo)):treinamentos;
+let treinFuncSelId=null;
+let treinObrasAbertas={}; // acordeão da lista por obra
+let treinamentosFiltroPrazo=null; // null | 'vencido' | número N (vence em até N dias, ainda não vencidos)
+const TREIN_ORDEM_STATUS={vencido:0,critico:1,atencao:2,alerta:3,ok:4,sem_data:5};
 
+// Aplica TODOS os filtros da tela (obra, status, prazo, tipo, busca). Usado pela tela e pelo Excel.
+function treinamentosAplicarFiltros(){
+  const obraFiltroAtivo=globalObraFiltro||treinamentosFiltroObra||'';
+  const base=obraFiltroAtivo?treinamentos.filter(t=>String(t.funcionario?.obra_id)===String(obraFiltroAtivo)):treinamentos;
   const comStatus=base.map(t=>({...t,_calc:calcVencTreinamento(t)}));
-  const total=comStatus.length;
+  let lista=comStatus;
+  if(treinamentosFiltroStatus)lista=lista.filter(t=>t._calc.status===treinamentosFiltroStatus);
+  if(treinamentosFiltroPrazo==='vencido')lista=lista.filter(t=>t._calc.status==='vencido');
+  else if(typeof treinamentosFiltroPrazo==='number')lista=lista.filter(t=>t._calc.dias!==null&&t._calc.dias>=0&&t._calc.dias<=treinamentosFiltroPrazo);
+  if(treinamentosFiltroTipo)lista=lista.filter(t=>t.tipo===treinamentosFiltroTipo);
+  if(treinamentosBusca){
+    const b=treinamentosBusca.toLowerCase();
+    lista=lista.filter(t=>(t.funcionario?.nome_completo||'').toLowerCase().includes(b)||(t.funcionario?.matricula||'').toLowerCase().includes(b)||tipoLabelTreinamento(t).toLowerCase().includes(b));
+  }
+  lista=lista.slice().sort((a,b)=>(TREIN_ORDEM_STATUS[a._calc.status]-TREIN_ORDEM_STATUS[b._calc.status])||((a._calc.dias??9999)-(b._calc.dias??9999)));
+  return{obraFiltroAtivo,comStatus,lista};
+}
+function treinSetStatus(st){treinamentosFiltroStatus=treinamentosFiltroStatus===st?'':st;treinamentosFiltroPrazo=null;renderTreinamentosLocal();}
+function treinTogglePrazo(p){treinamentosFiltroPrazo=(treinamentosFiltroPrazo===p)?null:p;if(treinamentosFiltroPrazo!==null)treinamentosFiltroStatus='';renderTreinamentosLocal();}
+function treinSetPrazoCustom(v){const n=parseInt(v,10);treinamentosFiltroPrazo=(n>0)?n:null;if(n>0)treinamentosFiltroStatus='';renderTreinamentosLocal();}
+function treinLimparFiltros(){
+  treinamentosBusca='';treinamentosFiltroTipo='';treinamentosFiltroObra='';treinamentosFiltroStatus='';treinamentosFiltroPrazo=null;
+  document.querySelectorAll('.search-box input').forEach(i=>i.value='');
+  renderTreinamentosLocal();
+}
+
+function renderTreinamentosLocal(){
+  const{obraFiltroAtivo,comStatus,lista}=treinamentosAplicarFiltros();
+  const filtroAtivo=!!(treinamentosBusca||treinamentosFiltroTipo||treinamentosFiltroObra||treinamentosFiltroStatus||treinamentosFiltroPrazo!==null);
+
   const nVencidos=comStatus.filter(t=>t._calc.status==='vencido').length;
   const nCritico=comStatus.filter(t=>t._calc.status==='critico').length;
   const nAtencao=comStatus.filter(t=>t._calc.status==='atencao').length;
   const nAlerta=comStatus.filter(t=>t._calc.status==='alerta').length;
   const nOk=comStatus.filter(t=>t._calc.status==='ok').length;
 
-  let lista=comStatus;
-  if(treinamentosFiltroStatus)lista=lista.filter(t=>t._calc.status===treinamentosFiltroStatus);
-  if(treinamentosFiltroTipo)lista=lista.filter(t=>t.tipo===treinamentosFiltroTipo);
-  if(treinamentosBusca){
-    const b=treinamentosBusca.toLowerCase();
-    lista=lista.filter(t=>(t.funcionario?.nome_completo||'').toLowerCase().includes(b)||(t.funcionario?.matricula||'').toLowerCase().includes(b)||tipoLabelTreinamento(t).toLowerCase().includes(b));
-  }
-  // Ordena: vencido/crítico primeiro, depois por dias restantes
-  const ordemStatus={vencido:0,critico:1,atencao:2,alerta:3,ok:4,sem_data:5};
-  lista.sort((a,b)=>(ordemStatus[a._calc.status]-ordemStatus[b._calc.status])||((a._calc.dias??9999)-(b._calc.dias??9999)));
+  const alertCardsHtml=alertCardsRow([
+    nVencidos>0?{count:nVencidos,label:'Vencidos',icon:'alert-octagon',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"treinSetStatus('vencido')"}:null,
+    nCritico>0?{count:nCritico,label:'Vencem em ≤ 10 dias',icon:'clock-exclamation',cor:'#C2410C',bg:'#FFEDD5',border:'#FDBA74',onclick:"treinSetStatus('critico')"}:null,
+    nAtencao>0?{count:nAtencao,label:'Vencem em ≤ 20 dias',icon:'clock',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"treinSetStatus('atencao')"}:null,
+    nAlerta>0?{count:nAlerta,label:'Vencem em ≤ 30 dias',icon:'calendar-time',cor:'#1D4ED8',bg:'#DBEAFE',border:'#93C5FD',onclick:"treinSetStatus('alerta')"}:null,
+    nOk>0?{count:nOk,label:'Em dia',icon:'circle-check',cor:'#166534',bg:'#DCFCE7',border:'#86EFAC',onclick:"treinSetStatus('ok')"}:null,
+  ]);
+
+  // ── Agrupamento: funcionário → treinamentos; funcionários agrupados por obra ──
+  const porFunc={};
+  lista.forEach(t=>{
+    const k=String(t.funcionario_id);
+    (porFunc[k]=porFunc[k]||{id:t.funcionario_id,f:t.funcionario||{},itens:[]}).itens.push(t);
+  });
+  const todosPorFunc={};
+  comStatus.forEach(t=>{(todosPorFunc[String(t.funcionario_id)]=todosPorFunc[String(t.funcionario_id)]||[]).push(t);});
+  const piorStatus=(fid)=>{
+    let p='sem_data';
+    (todosPorFunc[String(fid)]||[]).forEach(t=>{if(TREIN_ORDEM_STATUS[t._calc.status]<TREIN_ORDEM_STATUS[p])p=t._calc.status;});
+    return p;
+  };
+  const corDot=(st)=>st==='vencido'?'#DC2626':(st==='critico'||st==='atencao'||st==='alerta')?'#D97706':st==='ok'?'#16A34A':'#9CA3AF';
+  const temPendencia=(st)=>st==='vencido'||st==='critico'||st==='atencao'||st==='alerta';
+
+  const grupos={};
+  Object.values(porFunc).forEach(e=>{
+    const ob=e.f.obra;
+    const key=ob?.codigo?(ob.codigo+(ob.nome?' — '+ob.nome:'')):(ob?.nome||'Sem obra');
+    (grupos[key]=grupos[key]||[]).push(e);
+  });
+  const chavesGrupos=Object.keys(grupos).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  chavesGrupos.forEach(k=>grupos[k].sort((a,b)=>(a.f.nome_completo||'').localeCompare(b.f.nome_completo||'','pt-BR')));
+  const nFuncionarios=Object.keys(porFunc).length;
+
+  const masterDetailHtml=(()=>{
+    try{
+      if(!nFuncionarios)return '<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-school" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum treinamento encontrado</div>';
+
+      let sel=porFunc[String(treinFuncSelId)];
+      if(!sel){sel=grupos[chavesGrupos[0]][0];treinFuncSelId=sel.id;}
+      const grupoSel=chavesGrupos.find(k=>grupos[k].some(e=>String(e.id)===String(sel.id)));
+      const multiGrupo=chavesGrupos.length>1;
+
+      const itemHtml=(e)=>{
+        const isSel=String(e.id)===String(sel.id);
+        const st=piorStatus(e.id);
+        const qtd=(todosPorFunc[String(e.id)]||[]).length;
+        return '<div class="item aloj-item" onclick="treinFuncSelId=\''+e.id+'\';renderTreinamentosLocal()" style="background:'+(isSel?'#1D9E75':'#fff')+';border:1px solid '+(isSel?'#1D9E75':'#D8DAE0')+';border-radius:4px;padding:9px 12px;cursor:pointer;margin-bottom:6px">'
+          +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
+          +'<div style="display:flex;align-items:center;gap:8px;min-width:0">'
+          +(e.f.foto_url
+            ?'<img src="'+e.f.foto_url+'" style="width:22px;height:22px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1px solid '+(isSel?'rgba(255,255,255,.4)':'#D8DAE0')+'">'
+            :'<i class="ti ti-user" style="font-size:14px;color:'+(isSel?'#fff':'#8B95A5')+';flex-shrink:0"></i>')
+          +'<span style="font-size:13px;font-weight:600;color:'+(isSel?'#fff':'#1A1F29')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">'+escHtml(e.f.nome_completo||'—')+'</span>'
+          +'</div>'
+          +'<div style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:'+corDot(st)+'"></div>'
+          +'</div>'
+          +'<div style="font-size:10.5px;color:'+(isSel?'rgba(255,255,255,.85)':'#8B95A5')+';margin-top:2px;margin-left:30px">Mat. '+escHtml(e.f.matricula||'—')+' · '+qtd+' treinamento(s)</div>'
+          +'</div>';
+      };
+
+      const listaHtml=multiGrupo?chavesGrupos.map(k=>{
+        const emps=grupos[k];
+        const chave=encodeURIComponent(k).replace(/'/g,'%27');
+        const aberto=(chave in treinObrasAbertas)?!!treinObrasAbertas[chave]:(filtroAtivo||k===grupoSel);
+        const qtdAlerta=emps.filter(e=>temPendencia(piorStatus(e.id))).length;
+        const header='<div class="aloj-secao-row" onclick="treinObrasAbertas[\''+chave+'\']='+(!aberto)+';renderTreinamentosLocal()" style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:#fff;border:1px solid '+(k===grupoSel?'#1D9E75':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:6px">'
+          +'<div style="display:flex;align-items:center;gap:8px;min-width:0">'
+          +'<i class="ti ti-chevron-down" style="font-size:12px;color:#8B95A5;flex-shrink:0;transform:rotate('+(aberto?'0deg':'-90deg')+')"></i>'
+          +'<i class="ti ti-building" style="font-size:15px;color:#4B5160;flex-shrink:0"></i>'
+          +'<span style="font-size:13px;font-weight:700;color:#1A1F29;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(k)+'</span>'
+          +'</div>'
+          +'<div style="display:flex;align-items:center;gap:5px;flex-shrink:0">'
+          +(qtdAlerta?'<span title="'+qtdAlerta+' com treinamento vencido ou vencendo" style="font-size:10px;font-weight:700;color:#991B1B;background:#FEE2E2;border-radius:20px;padding:1px 7px">'+qtdAlerta+' !</span>':'')
+          +'<span style="font-size:10.5px;font-weight:700;color:#fff;background:var(--primary);border-radius:20px;padding:1px 8px">'+emps.length+'</span>'
+          +'</div></div>';
+        const itens=!aberto?'':'<div style="margin:0 0 8px 10px;padding-left:8px;border-left:2px solid #E0E2E7">'+emps.map(itemHtml).join('')+'</div>';
+        return header+itens;
+      }).join(''):grupos[chavesGrupos[0]].map(itemHtml).join('');
+
+      // ── Painel direito: todos os treinamentos do funcionário selecionado ──
+      const todos=(todosPorFunc[String(sel.id)]||[]).slice().sort((a,b)=>(TREIN_ORDEM_STATUS[a._calc.status]-TREIN_ORDEM_STATUS[b._calc.status])||((a._calc.dias??9999)-(b._calc.dias??9999)));
+      const casam=new Set(sel.itens.map(t=>t.id));
+      const stSel=piorStatus(sel.id);
+      const uiSel=TREIN_STATUS_UI[stSel];
+      const nomeJs=(sel.f.nome_completo||'').replace(/\\/g,'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+
+      const linhas=todos.map(t=>{
+        const ui=TREIN_STATUS_UI[t._calc.status];
+        const diasStr=t._calc.dias===null?'':t._calc.dias<0?Math.abs(t._calc.dias)+'d atrás':t._calc.dias===0?'hoje':t._calc.dias+'d';
+        const casa=filtroAtivo&&casam.has(t.id);
+        return '<div style="display:grid;grid-template-columns:1fr 100px 130px 180px 76px;align-items:center;padding:11px 18px;border-bottom:1px solid #EEF0F2;background:'+(casa?'#FFFBEB':'#fff')+';'+(casa?'box-shadow:inset 3px 0 0 #D97706':'')+'">'
+          +'<span style="font-size:13px;font-weight:600;color:#1A1F29;display:flex;align-items:center;gap:8px;min-width:0"><i class="ti '+tipoIconTreinamento(t)+'" style="font-size:14px;color:#4B5160;flex-shrink:0"></i><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(tipoLabelTreinamento(t))+'</span></span>'
+          +'<span style="font-size:12.5px;color:#4B5563">'+(formatDate(t.data_realizacao)||'—')+'</span>'
+          +'<span style="font-size:12.5px;font-weight:600;color:#1A1F29">'+(formatDate(t.data_vencimento)||'—')+(t.vencimento_manual?' <span title="Vencimento definido manualmente" style="color:#8B95A5;font-weight:400">✎</span>':'')+'</span>'
+          +'<span style="font-size:11px;font-weight:700;color:'+ui.cor+';background:'+ui.bg+';padding:3px 10px;border-radius:3px;display:inline-block;width:fit-content">'+ui.label.toUpperCase()+(diasStr?' ('+diasStr+')':'')+'</span>'
+          +'<span style="display:flex;gap:4px;justify-content:flex-end">'
+          +'<button class="btn btn-sm" title="Editar" onclick="openModalTreinamento(\''+t.id+'\')"><i class="ti ti-edit"></i></button>'
+          +'<button class="btn btn-sm btn-danger" title="Remover" onclick="deletarTreinamento(\''+t.id+'\',\''+nomeJs+'\')"><i class="ti ti-trash"></i></button>'
+          +'</span>'
+          +'</div>';
+      }).join('');
+
+      const obraSel=sel.f.obra;
+      const resumoFiltro=filtroAtivo?'<div style="margin-top:6px;font-size:11px;font-weight:600;color:#92400E">Filtro ativo: '+sel.itens.length+' de '+todos.length+' treinamento(s) deste funcionário dentro do filtro (destacados abaixo)</div>':'';
+
+      return '<div style="display:flex;gap:16px;align-items:flex-start">'
+        +'<div style="width:280px;flex-shrink:0">'+listaHtml+'</div>'
+        +'<div style="flex:1;min-width:0">'
+          +'<div style="background:#243244;padding:13px 18px;display:flex;align-items:center;justify-content:space-between;border-radius:4px 4px 0 0;flex-wrap:wrap;gap:8px">'
+            +'<div style="display:flex;align-items:center;gap:10px;min-width:0">'
+            +(sel.f.foto_url?'<img src="'+sel.f.foto_url+'" style="width:30px;height:30px;border-radius:50%;object-fit:cover;flex-shrink:0">':'<i class="ti ti-user" style="color:var(--primary);flex-shrink:0"></i>')
+            +'<span style="color:#fff;font-size:14.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">'+escHtml(sel.f.nome_completo||'—')+'</span>'
+            +'<span style="font-size:10px;font-weight:700;color:'+uiSel.cor+';background:'+uiSel.bg+';padding:2px 8px;border-radius:20px;flex-shrink:0">'+uiSel.label.toUpperCase()+'</span>'
+            +'</div>'
+            +'<div style="display:flex;gap:6px;flex-shrink:0">'
+            +'<button class="btn btn-sm" onclick="verFicha(\''+sel.id+'\')" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2)"><i class="ti ti-id"></i> Ficha</button>'
+            +'<button class="btn btn-sm btn-primary" onclick="openModalTreinamento(null,\''+sel.id+'\')"><i class="ti ti-plus"></i> Novo treinamento</button>'
+            +'</div>'
+          +'</div>'
+          +'<div style="background:#fff;border:1px solid #E0E2E7;border-top:none;padding:9px 18px;font-size:12px;color:#6B7280">'
+            +'Matrícula '+escHtml(sel.f.matricula||'—')+' · '+escHtml(sel.f.funcao?.nome||'—')+' · Obra: '+escHtml(obraSel?.codigo||obraSel?.nome||'—')
+            +resumoFiltro
+          +'</div>'
+          +'<div style="background:#3A4658;display:grid;grid-template-columns:1fr 100px 130px 180px 76px;padding:9px 18px;margin-top:10px">'
+            +'<span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">TREINAMENTO</span>'
+            +'<span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">REALIZAÇÃO</span>'
+            +'<span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">VENCIMENTO</span>'
+            +'<span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">STATUS</span>'
+            +'<span></span>'
+          +'</div>'
+          +'<div style="background:#fff;border:1px solid #E0E2E7;border-top:none;border-radius:0 0 4px 4px;overflow:hidden">'+linhas+'</div>'
+        +'</div>'
+      +'</div>';
+    }catch(e){
+      console.error('[Treinamentos] erro ao montar o painel:',e);
+      return '<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:16px;color:#991B1B">'
+        +'<strong>⚠ Erro ao montar o painel de treinamentos</strong>'
+        +'<div style="font-size:12px;margin-top:6px;font-family:monospace;white-space:pre-wrap">'+(e.message||e)+'</div>'
+        +'<div style="font-size:11px;margin-top:8px;color:#7F1D1D">Tire um print desta caixa e envie.</div>'
+        +'</div>';
+    }
+  })();
 
   const obrasOpts=obras.map(o=>`<option value="${o.id}" ${treinamentosFiltroObra===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
   const tiposOpts=[['NR','NR'],['CNH','CNH'],['ASO','ASO'],['OUTRO','Outro']].map(([v,l])=>`<option value="${v}" ${treinamentosFiltroTipo===v?'selected':''}>${l}</option>`).join('');
-
-  const rows=lista.map(t=>{
-    const ui=TREIN_STATUS_UI[t._calc.status];
-    const diasStr=t._calc.dias===null?'—':t._calc.dias<0?Math.abs(t._calc.dias)+'d atrás':t._calc.dias+'d';
-    const nomeCell=t.funcionario_id?`<span style="cursor:pointer" onclick="verFicha('${t.funcionario_id}')" title="Ver ficha">${t.funcionario?.nome_completo||'—'}</span>`:(t.funcionario?.nome_completo||'—');
-    return`<tr>
-      <td>
-        <div class="name-cell">
-          ${avatarHtml(t.funcionario?.foto_url,t.funcionario?.nome_completo)}
-          <div>
-            <div style="font-weight:500">${nomeCell}</div>
-            <div style="font-size:11px;color:var(--text-muted)">${t.funcionario?.matricula||'—'} · ${t.funcionario?.obra?.codigo||'—'}</div>
-          </div>
-        </div>
-      </td>
-      <td style="font-size:13px"><i class="ti ${tipoIconTreinamento(t)}" style="margin-right:4px;color:var(--text-muted)"></i>${tipoLabelTreinamento(t)}</td>
-      <td style="font-size:12px">${formatDate(t.data_realizacao)}</td>
-      <td style="font-size:12px;font-weight:600">${formatDate(t.data_vencimento)}${t.vencimento_manual?' <span title="Vencimento definido manualmente" style="color:var(--text-muted);font-weight:400">✎</span>':''}</td>
-      <td><span class="badge" style="background:${ui.bg};color:${ui.cor}">${ui.label}${t._calc.dias!==null?' ('+diasStr+')':''}</span></td>
-      <td>
-        <div style="display:flex;gap:6px">
-          <button class="btn btn-sm" onclick="openModalTreinamento('${t.id}')"><i class="ti ti-edit"></i></button>
-          <button class="btn btn-sm btn-danger" onclick="deletarTreinamento('${t.id}','${(t.funcionario?.nome_completo||'').replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i></button>
-        </div>
-      </td>
-    </tr>`;
-  }).join('')||'<tr><td colspan="6"><div class="empty-state"><i class="ti ti-school"></i><div>Nenhum treinamento encontrado</div></div></td></tr>';
+  const chip=(label,val)=>{
+    const s=treinamentosFiltroPrazo===val;
+    return '<button onclick="treinTogglePrazo('+(typeof val==='number'?val:"'"+val+"'")+')" style="font-size:12px;padding:4px 12px;border-radius:20px;border:1px solid '+(s?'var(--primary)':'var(--border)')+';background:'+(s?'var(--primary)':'var(--surface)')+';color:'+(s?'#fff':'var(--text-muted)')+';cursor:pointer;font-weight:'+(s?'600':'400')+'">'+label+'</button>';
+  };
+  const prazoCustom=(typeof treinamentosFiltroPrazo==='number'&&![30,60,90,120].includes(treinamentosFiltroPrazo))?treinamentosFiltroPrazo:'';
 
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
-      <div><div class="page-title"><i class="ti ti-school"></i> Treinamentos</div><div class="page-subtitle">NR · ASO · CNH — controle de vencimentos${globalObraFiltro?' · <strong>'+(obras.find(o=>String(o.id)===String(globalObraFiltro))?.nome||'')+'</strong>':''}</div></div>
+      <div><div class="page-title"><i class="ti ti-school"></i> Treinamentos</div>
+        <div class="page-subtitle">${nFuncionarios} funcionário(s) · ${lista.length} treinamento(s) · NR · ASO · CNH${globalObraFiltro?' · <strong>'+(obras.find(o=>String(o.id)===String(globalObraFiltro))?.nome||'')+'</strong>':''}</div></div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-sm" onclick="exportarTreinamentosExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
         <button class="btn btn-primary" onclick="openModalTreinamento()"><i class="ti ti-plus"></i> Novo treinamento</button>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px">
-      <div class="metric-card" onclick="treinamentosFiltroStatus='';renderTreinamentosLocal()" style="cursor:pointer;border-color:${!treinamentosFiltroStatus?'var(--primary)':'var(--border)'}">
-        <div class="metric-label">Total</div><div class="metric-value">${total}</div>
-      </div>
-      <div class="metric-card" onclick="treinamentosFiltroStatus=treinamentosFiltroStatus==='vencido'?'':'vencido';renderTreinamentosLocal()" style="cursor:pointer;background:${TREIN_STATUS_UI.vencido.bg};border-color:${treinamentosFiltroStatus==='vencido'?TREIN_STATUS_UI.vencido.cor:'var(--border)'}">
-        <div class="metric-label" style="color:${TREIN_STATUS_UI.vencido.cor}">Vencidos</div><div class="metric-value" style="color:${TREIN_STATUS_UI.vencido.cor}">${nVencidos}</div>
-      </div>
-      <div class="metric-card" onclick="treinamentosFiltroStatus=treinamentosFiltroStatus==='critico'?'':'critico';renderTreinamentosLocal()" style="cursor:pointer;background:${TREIN_STATUS_UI.critico.bg};border-color:${treinamentosFiltroStatus==='critico'?TREIN_STATUS_UI.critico.cor:'var(--border)'}">
-        <div class="metric-label" style="color:${TREIN_STATUS_UI.critico.cor}">≤ 10 dias</div><div class="metric-value" style="color:${TREIN_STATUS_UI.critico.cor}">${nCritico}</div>
-      </div>
-      <div class="metric-card" onclick="treinamentosFiltroStatus=treinamentosFiltroStatus==='atencao'?'':'atencao';renderTreinamentosLocal()" style="cursor:pointer;background:${TREIN_STATUS_UI.atencao.bg};border-color:${treinamentosFiltroStatus==='atencao'?TREIN_STATUS_UI.atencao.cor:'var(--border)'}">
-        <div class="metric-label" style="color:${TREIN_STATUS_UI.atencao.cor}">≤ 20 dias</div><div class="metric-value" style="color:${TREIN_STATUS_UI.atencao.cor}">${nAtencao}</div>
-      </div>
-      <div class="metric-card" onclick="treinamentosFiltroStatus=treinamentosFiltroStatus==='alerta'?'':'alerta';renderTreinamentosLocal()" style="cursor:pointer;background:${TREIN_STATUS_UI.alerta.bg};border-color:${treinamentosFiltroStatus==='alerta'?TREIN_STATUS_UI.alerta.cor:'var(--border)'}">
-        <div class="metric-label" style="color:${TREIN_STATUS_UI.alerta.cor}">≤ 30 dias</div><div class="metric-value" style="color:${TREIN_STATUS_UI.alerta.cor}">${nAlerta}</div>
-      </div>
-      <div class="metric-card green" onclick="treinamentosFiltroStatus=treinamentosFiltroStatus==='ok'?'':'ok';renderTreinamentosLocal()" style="cursor:pointer;border-color:${treinamentosFiltroStatus==='ok'?'var(--success)':'var(--border)'}">
-        <div class="metric-label">Em dia</div><div class="metric-value">${nOk}</div>
-      </div>
+
+    ${alertCardsHtml}
+
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <span style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Vencimento:</span>
+      ${chip('Vencidos','vencido')}${chip('30 dias',30)}${chip('60 dias',60)}${chip('90 dias',90)}${chip('120 dias',120)}
+      <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);margin-left:4px">ou vence em até
+        <input type="number" min="1" placeholder="nº" value="${prazoCustom}" onchange="treinSetPrazoCustom(this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="width:70px;padding:5px 8px;border:1px solid ${prazoCustom!==''?'var(--primary)':'var(--border)'};border-radius:var(--radius);font-size:12.5px"> dias
+      </span>
     </div>
-    <div class="filters">
-      <div class="search-box"><i class="ti ti-search"></i>
-        <input placeholder="Buscar por funcionário ou treinamento..." value="${treinamentosBusca}"
+
+    <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <div class="search-box" style="max-width:340px"><i class="ti ti-search"></i>
+        <input placeholder="Buscar por funcionário, matrícula ou treinamento..." value="${escHtml(treinamentosBusca)}"
           oninput="treinamentosBusca=this.value;if(!_buscaHandlers.trein)_buscaHandlers.trein=makeBuscaHandler(v=>treinamentosBusca=v,renderTreinamentosLocal,300);_buscaHandlers.trein(this.value);this.focus()">
       </div>
       <select class="filter-select" onchange="treinamentosFiltroTipo=this.value;renderTreinamentosLocal()">
@@ -5818,20 +5950,16 @@ function renderTreinamentosLocal(){
       <select class="filter-select" onchange="treinamentosFiltroObra=this.value;renderTreinamentosLocal()">
         <option value="">Todas as obras</option>${obrasOpts}
       </select>
-      <button class="btn btn-sm" onclick="treinamentosBusca='';treinamentosFiltroTipo='';treinamentosFiltroObra='';treinamentosFiltroStatus='';renderTreinamentosLocal()"><i class="ti ti-x"></i> Limpar</button>
+      <button class="btn btn-sm" ${filtroAtivo?'':'disabled style="opacity:.5;cursor:default"'} onclick="treinLimparFiltros()"><i class="ti ti-filter-x"></i> Limpar filtros</button>
     </div>
-    <div class="table-container"><table>
-      <thead><tr>
-        <th>Funcionário</th><th>Treinamento</th><th>Realização</th><th>Vencimento</th><th>Status</th><th>Ações</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>`;
+
+    <div id="trein-tabela-secao">${masterDetailHtml}</div>`;
 }
 
-function openModalTreinamento(id){
+function openModalTreinamento(id,funcIdPre){
   const t=id?treinamentos.find(x=>x.id===id):null;
   const candidatos=funcionarios.filter(f=>f.situacao==='ativo'||f.situacao==='transferido');
-  const funcSelecionado=t?candidatos.find(f=>f.id===t.funcionario_id)||funcionarios.find(f=>f.id===t.funcionario_id):null;
+  const funcSelecionado=t?candidatos.find(f=>f.id===t.funcionario_id)||funcionarios.find(f=>f.id===t.funcionario_id):(funcIdPre?funcionarios.find(f=>String(f.id)===String(funcIdPre))||null:null);
   const valorInicial=funcSelecionado?`${funcSelecionado.matricula||'—'} — ${funcSelecionado.nome_completo}`:'';
   const tipo=t?.tipo||'NR';
   const nrOpts=NR_LISTA.map(n=>`<option value="${n.codigo}" ${t?.nr_codigo===n.codigo?'selected':''}>${n.codigo} — ${n.nome}</option>`).join('');
@@ -5849,7 +5977,7 @@ function openModalTreinamento(id){
             <div class="form-group full autocomplete-wrap">
               <label>Funcionário *</label>
               <input type="text" id="tr-func-busca" placeholder="Digite o nome ou matrícula..." autocomplete="off" value="${valorInicial}" oninput="funcAutocompleteInput('tr-func-busca','tr-func')" onfocus="funcAutocompleteInput('tr-func-busca','tr-func')">
-              <input type="hidden" id="tr-func" value="${t?.funcionario_id||''}">
+              <input type="hidden" id="tr-func" value="${t?.funcionario_id||funcSelecionado?.id||''}">
               <div class="autocomplete-list" id="tr-func-busca-list"></div>
             </div>
             <div class="form-group">
@@ -6003,15 +6131,8 @@ function exportarTreinamentosExcel(){
   const dataEmissao=hoje.toLocaleDateString('pt-BR');
   const obraFiltroAtivo=globalObraFiltro||treinamentosFiltroObra||'';
 
-  // Reaplica os mesmos filtros ativos na tela (obra, tipo, status, busca)
-  let lista=obraFiltroAtivo?treinamentos.filter(t=>String(t.funcionario?.obra_id)===String(obraFiltroAtivo)):treinamentos;
-  lista=lista.map(t=>({...t,_calc:calcVencTreinamento(t)}));
-  if(treinamentosFiltroStatus)lista=lista.filter(t=>t._calc.status===treinamentosFiltroStatus);
-  if(treinamentosFiltroTipo)lista=lista.filter(t=>t.tipo===treinamentosFiltroTipo);
-  if(treinamentosBusca){
-    const b=treinamentosBusca.toLowerCase();
-    lista=lista.filter(t=>(t.funcionario?.nome_completo||'').toLowerCase().includes(b)||(t.funcionario?.matricula||'').toLowerCase().includes(b)||tipoLabelTreinamento(t).toLowerCase().includes(b));
-  }
+  // Reaplica os mesmos filtros ativos na tela (obra, status, prazo, tipo, busca)
+  let lista=treinamentosAplicarFiltros().lista.slice();
   if(!lista.length){showToast('Nenhum treinamento para exportar.','error');return;}
 
   const ordemStatus={vencido:0,critico:1,atencao:2,alerta:3,ok:4,sem_data:5};
@@ -7396,13 +7517,23 @@ function renderVeiculos(){
   const kmMesOk=(veiculoId)=>{const k=kmMesLancado(veiculoId);return!!(k&&(k.isento||k.anexo_url));};
   const abastecMesLancado=(veiculoId)=>veiculosAbastecimentos.find(a=>String(a.veiculo_id)===String(veiculoId)&&a.mes===_mesTabela&&a.ano===_anoTabela);
 
+  // Locado só passa a existir a partir do mês em que o contrato começa — antes disso não faz sentido
+  // aparecer (nem cobrar KM/abastecimento). Sem data de início (ou veículo próprio) segue sempre visível.
+  const _ultimoDiaMesTabela=new Date(_anoTabela,_mesTabela,0,12,0,0);
+  const veiculoJaIniciado=(v)=>{
+    if(v.tipo!=='locado')return true;
+    const ini=parseDate(v.contrato_inicio);
+    return !ini||ini<=_ultimoDiaMesTabela;
+  };
+
   const veiculosFiltrados=(()=>{
     let lista=globalObraFiltro?veiculos.filter(v=>String(v.obra_id)===String(globalObraFiltro)):veiculos;
     lista=lista.filter(v=>v.status!=='devolvido'&&v.status!=='vendido'); // sumiram do dia a dia — histórico continua no banco
+    lista=lista.filter(veiculoJaIniciado);
     if(veiculoFiltroAtivo==='revisao_vencida')lista=lista.filter(v=>(v.km_atual||0)>=proximaRevisaoKm(v));
     else if(veiculoFiltroAtivo==='revisao_proxima')lista=lista.filter(v=>{const f=proximaRevisaoKm(v)-(v.km_atual||0);return f>0&&f<=1000;});
     else if(veiculoFiltroAtivo==='km_pendente')lista=lista.filter(v=>!kmMesOk(v.id));
-    else if(veiculoFiltroAtivo==='contrato_vencendo')lista=lista.filter(v=>{if(v.tipo!=='locado')return false;const d=parseDate(v.contrato_fim);if(!d)return false;const dias=Math.floor((d-hoje)/86400000);return dias>=0&&dias<=60;});
+    else if(veiculoFiltroAtivo==='contrato_vencendo')lista=lista.filter(v=>{if(v.tipo!=='locado')return false;const d=parseDate(v.contrato_fim);if(!d)return false;const dias=Math.floor((d-hoje)/86400000);return dias<=60;});
     else if(veiculoFiltroAtivo==='sem_termo')lista=lista.filter(v=>condutoresAtuais(v.id).some(c=>!c.termo_url));
     if(veiculoBusca){
       const b=veiculoBusca.toLowerCase();
@@ -7428,14 +7559,14 @@ function renderVeiculos(){
   const revVencidas=veiculosFiltrados.filter(v=>(v.km_atual||0)>=proximaRevisaoKm(v)).length;
   const revProximas=veiculosFiltrados.filter(v=>{const f=proximaRevisaoKm(v)-(v.km_atual||0);return f>0&&f<=1000;}).length;
   const kmPendentes=veiculosFiltrados.filter(v=>!kmMesOk(v.id)).length;
-  const contratosVenc=veiculosFiltrados.filter(v=>{if(v.tipo!=='locado')return false;const d=parseDate(v.contrato_fim);if(!d)return false;const dias=Math.floor((d-hoje)/86400000);return dias>=0&&dias<=60;}).length;
+  const contratosVenc=veiculosFiltrados.filter(v=>{if(v.tipo!=='locado')return false;const d=parseDate(v.contrato_fim);if(!d)return false;const dias=Math.floor((d-hoje)/86400000);return dias<=60;}).length;
   const semTermoCount=veiculosFiltrados.filter(v=>condutoresAtuais(v.id).some(c=>!c.termo_url)).length;
 
   const alertCardsHtml=alertCardsRow([
     revVencidas>0?{count:revVencidas,label:'Revisão vencida',icon:'engine',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"veiculoFiltroAtivo=veiculoFiltroAtivo==='revisao_vencida'?null:'revisao_vencida';renderVeiculos()"}:null,
     revProximas>0?{count:revProximas,label:'Revisão próxima (≤1.000km)',icon:'gauge',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"veiculoFiltroAtivo=veiculoFiltroAtivo==='revisao_proxima'?null:'revisao_proxima';renderVeiculos()"}:null,
     kmPendentes>0?{count:kmPendentes,label:'KM não lançada em '+_mesLabel,icon:'road',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"veiculoFiltroAtivo=veiculoFiltroAtivo==='km_pendente'?null:'km_pendente';renderVeiculos()"}:null,
-    contratosVenc>0?{count:contratosVenc,label:'Contrato locação vencendo',icon:'file-clock',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"veiculoFiltroAtivo=veiculoFiltroAtivo==='contrato_vencendo'?null:'contrato_vencendo';renderVeiculos()"}:null,
+    contratosVenc>0?{count:contratosVenc,label:'Contrato locação vencido/vencendo',icon:'file-clock',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"veiculoFiltroAtivo=veiculoFiltroAtivo==='contrato_vencendo'?null:'contrato_vencendo';renderVeiculos()"}:null,
     semTermoCount>0?{count:semTermoCount,label:'Condutor sem Termo assinado',icon:'file-alert',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"veiculoFiltroAtivo=veiculoFiltroAtivo==='sem_termo'?null:'sem_termo';renderVeiculos()"}:null,
   ]);
 
@@ -7558,7 +7689,9 @@ function renderVeiculos(){
             +'Locadora: <strong>'+escHtml(sel.locadora||'—')+'</strong> · Valor mensal: <strong>R$ '+Number(sel.contrato_valor_mensal||0).toLocaleString('pt-BR',{minimumFractionDigits:2})+'</strong>'
             +(sel.contrato_franquia_km?' · Franquia: <strong>'+Number(sel.contrato_franquia_km).toLocaleString('pt-BR')+'km/mês</strong>':'')
             +(sel.contrato_url?' · <a href="'+sel.contrato_url+'" target="_blank" style="color:var(--primary)">Ver PDF do contrato</a>':'')
-            +'<div style="margin-top:6px"><button class="btn btn-sm" onclick="openModalVeiculo(\''+sel.id+'\')"><i class="ti ti-edit"></i> Editar contrato</button></div>'
+            +'<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-sm" onclick="openModalVeiculo(\''+sel.id+'\')"><i class="ti ti-edit"></i> Editar contrato</button>'
+            +'<button class="btn btn-sm btn-primary" onclick="openModalRenovarContrato(\''+sel.id+'\')"><i class="ti ti-refresh"></i> Renovar contrato</button>'
+            +'<button class="btn btn-sm btn-danger" onclick="encerrarContratoVeiculo(\''+sel.id+'\')"><i class="ti ti-circle-x"></i> Encerrar contrato</button></div>'
             +'</div>';
         } else if(s.key==='documentos'){
           expandido='<div style="padding:12px 18px 14px 42px;background:#FAFBFC;border-bottom:1px solid #EEF0F2">'
@@ -7597,6 +7730,19 @@ function renderVeiculos(){
         +'<div style="background:#fff;border:1px solid #E0E2E7;border-top:none;padding:9px 18px;font-size:12px;color:#6B7280">'
           +escHtml(sel.modelo||'—')+(sel.ano?' · '+sel.ano:'')+(isLocado&&sel.locadora?' · '+escHtml(sel.locadora):'')
         +'</div>'
+        +(isLocado&&diasContrato!==null&&diasContrato<=60?(()=>{
+          const venc=diasContrato<0;
+          const msg=venc
+            ?'Contrato venceu em <strong>'+formatDate(sel.contrato_fim)+'</strong> ('+Math.abs(diasContrato)+' dia(s) atrás). Renove o contrato ou encerre o veículo.'
+            :(diasContrato===0?'Contrato vence <strong>hoje</strong> ('+formatDate(sel.contrato_fim)+').':'Contrato vence em <strong>'+diasContrato+' dia(s)</strong> ('+formatDate(sel.contrato_fim)+').');
+          return '<div style="background:'+(venc?'#FEE2E2':'#FFFBEB')+';border:1px solid '+(venc?'#FCA5A5':'#FCD34D')+';border-left:4px solid '+(venc?'#DC2626':'#D97706')+';padding:10px 14px;margin:10px 0;border-radius:4px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
+            +'<i class="ti ti-file-alert" style="color:'+(venc?'#991B1B':'#92400E')+';font-size:18px;flex-shrink:0"></i>'
+            +'<div style="flex:1;min-width:200px;font-size:12.5px;color:'+(venc?'#7F1D1D':'#78350F')+'">'+msg+'</div>'
+            +'<div style="display:flex;gap:6px;flex-shrink:0">'
+            +'<button class="btn btn-sm btn-primary" onclick="openModalRenovarContrato(\''+sel.id+'\')"><i class="ti ti-refresh"></i> Renovar</button>'
+            +'<button class="btn btn-sm btn-danger" onclick="encerrarContratoVeiculo(\''+sel.id+'\')"><i class="ti ti-circle-x"></i> Encerrar</button>'
+            +'</div></div>';
+        })():'')
         +(sel.observacoes?'<div style="background:#FEF3C7;border:1px solid #FCD34D;border-left:4px solid #D97706;padding:10px 14px;margin:10px 0;border-radius:4px;display:flex;gap:10px;align-items:flex-start">'
           +'<i class="ti ti-note" style="color:#92400E;font-size:16px;flex-shrink:0;margin-top:1px"></i>'
           +'<div><div style="font-size:11px;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:.03em;margin-bottom:2px">Observação / Lembrete</div>'
@@ -8896,6 +9042,84 @@ async function saveVeiculo(id){
   if(!id&&res.data)veiculoSelecionadoId=res.data.id;
   renderVeiculos();
 }
+// ── Renovar / encerrar contrato de locação ──
+function openModalRenovarContrato(id){
+  const v=veiculos.find(x=>String(x.id)===String(id));
+  if(!v)return;
+  const atual=parseDate(v.contrato_fim);
+  const base=atual&&atual>new Date()?atual:new Date();
+  const sug=new Date(base.getFullYear()+1,base.getMonth(),base.getDate(),12);
+  const sugStr=sug.toISOString().slice(0,10);
+  insertModal('modal-veic-renov',`
+    <div class="modal" style="max-width:460px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-refresh"></i> Renovar contrato — ${escHtml(v.placa)}</span>
+        <button class="btn btn-sm" onclick="closeModal('modal-veic-renov')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px">Término atual: <strong>${formatDate(v.contrato_fim)||'—'}</strong>. O início do contrato é mantido, então os meses anteriores não mudam.</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Novo término *</label><input id="renov-fim" type="date" value="${sugStr}"></div>
+          <div class="form-group"><label>Novo valor mensal (R$)</label><input id="renov-valor" type="text" inputmode="decimal" placeholder="manter atual" value=""></div>
+          <div class="form-group full"><label>Novo contrato (PDF) — opcional</label><input type="file" id="renov-file" accept=".pdf"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal('modal-veic-renov')">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarRenovacaoContrato('${v.id}')"><i class="ti ti-check"></i> Renovar</button>
+      </div>
+    </div>`);
+}
+async function salvarRenovacaoContrato(id){
+  try{
+    const v=veiculos.find(x=>String(x.id)===String(id));
+    if(!v)return;
+    const novoFim=document.getElementById('renov-fim').value;
+    if(!novoFim){showToast('Informe o novo término','error');return;}
+    const atual=parseDate(v.contrato_fim);
+    if(atual&&parseDate(novoFim)<=atual&&!confirm('O novo término ('+formatDate(novoFim)+') não é posterior ao atual ('+formatDate(v.contrato_fim)+'). Continuar mesmo assim?'))return;
+    const payload={contrato_fim:novoFim};
+    const rawValor=document.getElementById('renov-valor').value.trim();
+    if(rawValor){
+      const n=rawValor.includes(',')?parseFloat(rawValor.replace(/\./g,'').replace(',','.')):parseFloat(rawValor);
+      if(isNaN(n)){showToast('Valor mensal inválido','error');return;}
+      payload.contrato_valor_mensal=n;
+    }
+    const f=document.getElementById('renov-file').files[0];
+    if(f){
+      const path='contratos/'+Date.now()+'_'+sanitizeFilename(f.name);
+      const{error:upErr}=await sb.storage.from('veiculos').upload(path,f,{contentType:'application/pdf',upsert:true});
+      if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
+      payload.contrato_url=sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl;
+    }
+    const{error}=await sb.from('veiculos').update(payload).eq('id',id);
+    if(error){showToast('Erro: '+error.message,'error');return;}
+    showToast('Contrato renovado até '+formatDate(novoFim)+'!');
+    closeModal('modal-veic-renov');
+    await loadVeiculos();
+    renderVeiculos();
+  }catch(e){
+    console.error('[Veículos] erro ao renovar contrato:',e);
+    showToast('Erro ao renovar contrato: '+(e.message||e),'error');
+  }
+}
+async function encerrarContratoVeiculo(id){
+  try{
+    const v=veiculos.find(x=>String(x.id)===String(id));
+    if(!v)return;
+    if(!confirm('Encerrar o contrato do veículo '+v.placa+'?\n\nO veículo será marcado como "Devolvido" e sairá da lista do dia a dia. O histórico (KM, revisões, abastecimentos, condutores) continua guardado no banco.'))return;
+    const{error}=await sb.from('veiculos').update({status:'devolvido'}).eq('id',id);
+    if(error){showToast('Erro: '+error.message,'error');return;}
+    showToast('Contrato encerrado — veículo '+v.placa+' marcado como devolvido.');
+    veiculoSelecionadoId=null;
+    await loadVeiculos();
+    renderVeiculos();
+  }catch(e){
+    console.error('[Veículos] erro ao encerrar contrato:',e);
+    showToast('Erro ao encerrar contrato: '+(e.message||e),'error');
+  }
+}
+
 async function deleteVeiculo(id,placa){
   if(!confirm('Excluir o veículo '+placa+'? Isso remove também o histórico de condutores, KM, revisões e abastecimentos. Prefira mudar o status para "Devolvido" ou "Vendido" em vez de excluir, para manter o histórico.'))return;
   await sb.from('veiculos').delete().eq('id',id);
