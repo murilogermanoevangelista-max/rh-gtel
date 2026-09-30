@@ -1697,6 +1697,7 @@ function calcFeriasStats(data,hoje){
 let filtroSituacao='',filtroObra='',busca='';
 let filtroObraTocado=false; // true quando o usuário interage manualmente com o select de obra desta página
 let filtroFuncaoDash=''; // filtro de função vindo do clique no card do Dashboard
+let funcOrdem={campo:'',dir:'asc'},funcAdmDe='',funcAdmAte=''; // ordenação por coluna e filtro por data de admissão
 let dashMesIdsFiltro=null,dashMesLabel=''; // filtro por IDs vindo do clique num mês do gráfico de Admissões/Demissões/Transferências do Dashboard
 
 let funcTab='ativos'; // 'ativos' | 'demitidos' | 'transferidos'
@@ -1729,7 +1730,78 @@ function getFuncionariosFiltrados(){
   if(busca){const b=busca.toLowerCase();lista=lista.filter(f=>f.nome_completo?.toLowerCase().includes(b)||f.matricula?.toLowerCase().includes(b));}
   if(filtroFuncaoDash){lista=lista.filter(f=>(f.funcao?.nome||f.funcao_manual||'Sem função')===filtroFuncaoDash);}
   if(dashMesIdsFiltro){lista=lista.filter(f=>dashMesIdsFiltro.has(String(f.id)));}
+  // Filtro por período de admissão (quem não tem data de admissão fica de fora quando há filtro)
+  if(funcAdmDe||funcAdmAte){
+    lista=lista.filter(f=>{
+      const d=(f.data_admissao||'').substring(0,10);
+      if(!d)return false;
+      if(funcAdmDe&&d<funcAdmDe)return false;
+      if(funcAdmAte&&d>funcAdmAte)return false;
+      return true;
+    });
+  }
+  // Ordenação por clique no cabeçalho (só colunas que existem na aba atual)
+  const campo=funcOrdem.campo;
+  if(campo&&funcCamposOrdenaveis().includes(campo)){
+    const dir=funcOrdem.dir==='desc'?-1:1;
+    const isData=campo==='admissao'||campo==='demissao';
+    const val=f=>{
+      switch(campo){
+        case'nome':return f.nome_completo||'';
+        case'funcao':return f.funcao?.nome||f.funcao_manual||'';
+        case'obra':return((f.obra?.codigo||'')+' '+(f.obra?.nome||'')).trim();
+        case'empresa':return f.empresa?.nome||'';
+        case'situacao':return f.situacao||'';
+        case'admissao':return(f.data_admissao||'').substring(0,10);
+        case'demissao':return(f.data_demissao||'').substring(0,10);
+      }
+      return'';
+    };
+    lista=[...lista].sort((a,b)=>{
+      const va=val(a),vb=val(b);
+      if(!va&&!vb)return 0;
+      if(!va)return 1;   // vazios sempre no fim, em qualquer direção
+      if(!vb)return -1;
+      const c=isData?(va<vb?-1:va>vb?1:0):String(va).localeCompare(String(vb),'pt-BR',{sensitivity:'base'});
+      return c*dir||String(a.nome_completo||'').localeCompare(String(b.nome_completo||''),'pt-BR');
+    });
+  }
   return lista;
+}
+function funcCamposOrdenaveis(){
+  return funcTab==='transferidos'?['nome','funcao','empresa','admissao']
+    :funcTab==='demitidos'?['nome','funcao','obra','demissao']
+    :['nome','funcao','obra','empresa','admissao','situacao'];
+}
+function funcThOrd(campo,label){
+  const ativo=funcOrdem.campo===campo;
+  const seta=ativo?(funcOrdem.dir==='asc'?' ▲':' ▼'):' <span style="opacity:.3">↕</span>';
+  const dica=campo==='admissao'||campo==='demissao'?'Clique para ordenar (mais recentes / mais antigas)':'Clique para ordenar (A→Z / Z→A)';
+  return`<th onclick="funcOrdenarPor('${campo}')" style="cursor:pointer;user-select:none;white-space:nowrap" title="${dica}">${label}${seta}</th>`;
+}
+function funcTheadHtml(){
+  if(funcTab==='transferidos')return`<tr>${funcThOrd('nome','Funcionário')}${funcThOrd('funcao','Função')}<th>Obra Origem → Destino</th><th>Alojamento na Origem</th>${funcThOrd('empresa','Empresa')}${funcThOrd('admissao','Admissão')}<th>Transferência</th><th></th></tr>`;
+  if(funcTab==='demitidos')return`<tr>${funcThOrd('nome','Funcionário')}${funcThOrd('funcao','Função')}${funcThOrd('obra','Obra / Contrato')}${funcThOrd('demissao','Data Demissão')}<th>Tipo</th><th>Motivo</th><th></th></tr>`;
+  return`<tr>${funcThOrd('nome','Funcionário')}${funcThOrd('funcao','Função')}${funcThOrd('obra','Obra / Contrato')}${funcThOrd('empresa','Empresa')}${funcThOrd('admissao','Admissão')}${funcThOrd('situacao','Situação')}<th></th></tr>`;
+}
+// 1º clique: texto A→Z / datas mais recentes primeiro · 2º clique inverte · 3º clique volta à ordem original
+function funcOrdenarPor(campo){
+  const isData=campo==='admissao'||campo==='demissao';
+  const inicial=isData?'desc':'asc';
+  if(funcOrdem.campo!==campo)funcOrdem={campo,dir:inicial};
+  else if(funcOrdem.dir===inicial)funcOrdem={campo,dir:inicial==='asc'?'desc':'asc'};
+  else funcOrdem={campo:'',dir:'asc'};
+  atualizarTabelaFuncionarios();
+}
+function funcAdmPreset(v){
+  const hoje=new Date();hoje.setHours(12,0,0,0);
+  if(!v){funcAdmDe='';funcAdmAte='';}
+  else if(v==='mes'){funcAdmDe=toISO(new Date(hoje.getFullYear(),hoje.getMonth(),1));funcAdmAte=toISO(hoje);}
+  else{const d=new Date(hoje);d.setDate(d.getDate()-parseInt(v,10));funcAdmDe=toISO(d);funcAdmAte=toISO(hoje);}
+  const de=document.getElementById('func-adm-de'),ate=document.getElementById('func-adm-ate');
+  if(de)de.value=funcAdmDe;
+  if(ate)ate.value=funcAdmAte;
+  atualizarTabelaFuncionarios();
 }
 function getFuncionariosRows(lista){
   if(funcTab==='demitidos'){
@@ -1825,7 +1897,7 @@ function atualizarTabelaFuncionarios(){
   const totalNaObra=funcTab==='transferidos'?totalTransf:funcTab==='demitidos'?totalDemitidos:totalAtivos;
   if(sub)sub.textContent=lista.length+' de '+totalNaObra+' registros'+(obraEfetiva?' nesta obra':'');
   if(tbody)tbody.innerHTML=getFuncionariosRows(lista);
-  if(thead)thead.innerHTML=funcTab==='transferidos'?theadTransf:funcTab==='demitidos'?theadDemitidos:theadAtivos;
+  if(thead)thead.innerHTML=funcTheadHtml();
   if(tabAtivos){tabAtivos.className='exp-tab'+(funcTab==='ativos'?' active':'');tabAtivos.innerHTML='Ativos <span style="background:var(--primary);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">'+totalAtivos+'</span>';}
   if(tabDemitidos){tabDemitidos.className='exp-tab'+(funcTab==='demitidos'?' active':'');tabDemitidos.innerHTML='Demitidos <span style="background:var(--danger);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">'+totalDemitidos+'</span>';}
   if(tabTransf){tabTransf.className='exp-tab'+(funcTab==='transferidos'?' active':'');tabTransf.innerHTML='Transferidos <span style="background:#B45309;color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">'+totalTransf+'</span>';}
@@ -1891,13 +1963,25 @@ function renderFuncionarios(){
       <select id="func-funcao-select" class="filter-select" onchange="filtroFuncaoDash=this.value;atualizarTabelaFuncionarios()">
         <option value="">Todas funções</option>${funcaoOptions}
       </select>
-      <button class="btn btn-sm" onclick="filtroObra='';filtroObraTocado=false;busca='';filtroFuncaoDash='';dashMesIdsFiltro=null;document.getElementById('func-busca').value='';renderFuncionarios()"><i class="ti ti-x"></i> Limpar</button>
+      <select class="filter-select" title="Atalho para filtrar pela data de admissão" onchange="funcAdmPreset(this.value);this.value=''">
+        <option value="">Admissão: período rápido</option>
+        <option value="7">Últimos 7 dias</option>
+        <option value="30">Últimos 30 dias</option>
+        <option value="90">Últimos 90 dias</option>
+        <option value="mes">Este mês</option>
+      </select>
+      <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted)">Admissão de
+        <input type="date" id="func-adm-de" class="filter-select" value="${funcAdmDe}" onchange="funcAdmDe=this.value;atualizarTabelaFuncionarios()">
+        até
+        <input type="date" id="func-adm-ate" class="filter-select" value="${funcAdmAte}" onchange="funcAdmAte=this.value;atualizarTabelaFuncionarios()">
+      </span>
+      <button class="btn btn-sm" onclick="filtroObra='';filtroObraTocado=false;busca='';filtroFuncaoDash='';dashMesIdsFiltro=null;funcAdmDe='';funcAdmAte='';funcOrdem={campo:'',dir:'asc'};document.getElementById('func-busca').value='';renderFuncionarios()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div id="transf-banner" style="display:${funcTab==='transferidos'?'flex':'none'};align-items:center;gap:8px;padding:10px 14px;background:#FEF3C7;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:12px;font-size:13px;color:#92400E"><i class="ti ti-info-circle" style="font-size:16px;flex-shrink:0"></i><span>Funcionários transferidos aparecem aqui como <strong>histórico</strong> e não são contabilizados nos indicadores da obra de origem.</span></div>
     ${dashMesIdsFiltro?`<div style="display:flex;align-items:center;gap:8px;background:#E6F7F0;border:1px solid var(--primary);border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;font-size:13px;color:var(--primary-dark)"><i class="ti ti-filter"></i><span>${dashMesLabel} (${lista.length})</span><button class="btn btn-sm" style="margin-left:auto" onclick="dashMesIdsFiltro=null;dashMesLabel='';renderFuncionarios()"><i class="ti ti-x"></i> Limpar filtro</button></div>`:''}
     ${funcTab==='transferidos'?renderPainelTransferenciasPendentes(pendentesVisiveis):''}
     <div class="table-container"><table>
-      <thead id="func-thead">${funcTab==='transferidos'?theadTransf:funcTab==='demitidos'?theadDemitidos:theadAtivos}</thead>
+      <thead id="func-thead">${funcTheadHtml()}</thead>
       <tbody id="func-tbody">${getFuncionariosRows(lista)}</tbody>
     </table></div>`;
 }
@@ -4284,7 +4368,7 @@ function renderFeriasLocal(){
     return(f.funcionario?.nome_completo||'').toLowerCase().includes(feriasBusca.toLowerCase())||(f.matricula||'').includes(feriasBusca);
   });
   if(feriasFiltro==='programado')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>f.programado&&!isGozada(f)));
-  if(feriasFiltro==='gozadas')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>estaResolvido(f)));
+  if(feriasFiltro==='gozadas')listaFuncs=listaFuncs.filter(arr=>arr.some(f=>estaResolvido(f)||concluidaSemValidar(f)));
   if(feriasFiltro==='naoprog')listaFuncs=listaFuncs.filter(arr=>arr.some(p=>ePendente(p)));
   if(feriasFiltro==='emferias')listaFuncs=listaFuncs.filter(arr=>matsEmFerias.has(arr[0]?.matricula));
   if(feriasFiltro==='vencidas')listaFuncs=listaFuncs.filter(arr=>{const p=getPeriodoUrgente(arr);if(!p)return false;const l=parseDate(p.dt_limite_maxima);return l&&l<hoje;});
@@ -4333,6 +4417,12 @@ function renderFeriasLocal(){
     return diasDefasagem>20; // ficou de fora de pelo menos uma importação mensal mais recente
   }
   function estaResolvido(p){return isGozada(p)||isEncerradoSemData(p);}
+  // Férias cuja data de retorno já passou, mas o DP ainda não foi marcado como validado (continuam em "Programadas")
+  function concluidaSemValidar(p){
+    if(!p||!p.programado||p.validado_dp||!p.data_fim_programada)return false;
+    const fim=parseDate(p.data_fim_programada);
+    return !!(fim&&fim<hoje);
+  }
   function getUrgenciaNivel(arr){
     // 0=limMax vencido (férias não gozadas — multa legal)
     // 1=prazo p/ programar vencido
@@ -4606,6 +4696,55 @@ function renderFeriasLocal(){
     </tr>`;
   }).join('')||`<tr><td colspan="8"><div class="empty-state"><i class="ti ti-palm-tree"></i><div>Nenhum registro encontrado</div><div style="font-size:12px;margin-top:8px">Importe a planilha do DP para começar</div></div></td></tr>`;
 
+  // ── Histórico de férias (card "Gozadas"): uma linha por PERÍODO, com as datas das férias ──
+  let tabelaHistorico='';
+  if(feriasFiltro==='gozadas'){
+    const itens=[];
+    listaFuncs.forEach(arr=>arr.forEach(p=>{
+      if(isGozada(p))itens.push({p,tipo:'gozada'});
+      else if(isEncerradoSemData(p))itens.push({p,tipo:'sem_data'});
+      else if(concluidaSemValidar(p))itens.push({p,tipo:'aguardando'});
+    }));
+    itens.sort((a,b)=>(b.p.data_fim_programada||'').localeCompare(a.p.data_fim_programada||'')||(a.p.funcionario?.nome_completo||'').localeCompare(b.p.funcionario?.nome_completo||'','pt-BR'));
+    const nGoz=itens.filter(i=>i.tipo==='gozada').length;
+    const nAg=itens.filter(i=>i.tipo==='aguardando').length;
+    const nSd=itens.filter(i=>i.tipo==='sem_data').length;
+    const linhasH=itens.map(({p,tipo})=>{
+      const nome=escHtml(p.funcionario?.nome_completo||p.matricula||'—');
+      const obra=p.funcionario?.obra?.codigo?`${p.funcionario.obra.codigo} — ${p.funcionario.obra.nome||''}`:(p.funcionario?.obra?.nome||'—');
+      const feriasTxt=tipo==='sem_data'
+        ?'<span style="color:var(--text-muted)">Sem datas no sistema</span>'
+        :`<strong>${p.dias_programados||'?'}d</strong> · ${formatDate(p.data_inicio_programada)} → ${formatDate(p.data_fim_programada)}`;
+      const situacao=tipo==='gozada'
+        ?'<span style="font-size:11px;font-weight:700;color:var(--success)">✓ Gozada · Validado DP</span>'
+        :tipo==='sem_data'
+          ?'<span style="font-size:11px;color:var(--text-muted)">📁 Encerrado — sumiu da planilha do DP</span>'
+          :`<label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;font-weight:600;color:var(--warning)" title="Marque quando o DP confirmar que as férias foram lançadas/efetivadas"><input type="checkbox" onchange="toggleValidadoDP('${p.id}',this.checked)" style="cursor:pointer;margin:0"> Concluída — aguardando validação do DP</label>`;
+      const acao=tipo==='sem_data'?'':`<button class="prog-btn programada" style="font-size:11px;padding:3px 8px" onclick="openModalProgramarFerias('${p.id}')"><i class="ti ti-edit" style="font-size:11px"></i> Alterar</button>`;
+      return`<tr>
+        <td><div class="name-cell">${avatarHtml(p.funcionario?.foto_url,p.funcionario?.nome_completo||p.matricula)}
+          <div><div style="font-weight:500;cursor:pointer" onclick="event.stopPropagation();verFicha('${p.funcionario_id}')" title="Ver ficha">${nome}</div>
+          <div style="font-size:11px;color:var(--text-muted)">${p.matricula||'—'}</div></div></div></td>
+        <td style="font-size:12px;white-space:nowrap">${obra}</td>
+        <td style="font-size:12px;white-space:nowrap">${formatDate(p.periodo_aquisitivo_inicio)} → ${formatDate(p.periodo_aquisitivo_fim)}</td>
+        <td style="font-size:12px">${feriasTxt}</td>
+        <td>${situacao}</td>
+        <td>${acao}</td>
+      </tr>`;
+    }).join('')||'<tr><td colspan="6"><div class="empty-state"><i class="ti ti-palm-tree"></i><div>Nenhum período concluído encontrado</div></div></td></tr>';
+    tabelaHistorico=`
+      <div style="margin-bottom:10px;padding:10px 14px;background:var(--info-light);border-radius:var(--radius);font-size:12px;color:var(--info)">
+        <strong>Histórico de férias</strong> — ${nGoz} gozada(s) validada(s)${nAg?` · ${nAg} concluída(s) aguardando validação do DP`:''}${nSd?` · ${nSd} encerrado(s) sem datas`:''}.
+        Cada linha é um período aquisitivo. Férias cuja data de retorno já passou só entram em "Gozadas" depois de marcadas como <em>Validado DP</em>.
+      </div>
+      <div class="table-container" style="overflow-x:auto"><table>
+        <thead><tr>
+          <th style="min-width:180px">Funcionário</th><th>Obra / C. Custo</th><th>Período aquisitivo</th><th>Férias</th><th>Situação</th><th></th>
+        </tr></thead>
+        <tbody>${linhasH}</tbody>
+      </table></div>`;
+  }
+
   // Verificar ativos sem registro de férias
   const matsComFerias=new Set(feriasData.map(f=>String(f.matricula||'').trim().replace(/^0+/,'')));
   const ativosSemFerias=funcionarios.filter(f=>{
@@ -4700,7 +4839,7 @@ function renderFeriasLocal(){
     </div>
 
     <!-- Tabela -->
-    <div class="table-container" style="overflow-x:auto"><table>
+    ${feriasFiltro==='gozadas'?tabelaHistorico:`<div class="table-container" style="overflow-x:auto"><table>
       <thead>
         <tr>
           <th rowspan="2" style="min-width:180px">Funcionário</th>
@@ -4720,7 +4859,7 @@ function renderFeriasLocal(){
         </tr>
       </thead>
       <tbody>${rows}</tbody>
-    </table></div>
+    </table></div>`}
   `;
 }
 
