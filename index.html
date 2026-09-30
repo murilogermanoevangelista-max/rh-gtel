@@ -1520,7 +1520,7 @@ async function renderDashboard(){
   feriasDash.forEach(f=>{
     const limMax=parseDate(f.dt_limite_maxima);
     if(!limMax)return;
-    if(f.programado)return;
+    if(f.programado||f.gozado_manual)return;
     const diff=Math.floor((limMax-hoje)/86400000);
     if(diff>=0&&diff<=60){
       // descobrir se é 1º ou 2º período
@@ -1684,7 +1684,7 @@ function calcFeriasStats(data,hoje){
   data.forEach(f=>{
     if(f.programado)feriasProgTotal++;
     const limMax=parseDate(f.dt_limite_maxima);
-    if(!f.programado&&limMax){
+    if(!f.programado&&!f.gozado_manual&&limMax){
       const diff=Math.floor((limMax-hoje)/86400000);
       if(diff<0)feriasVencidas++;
       else if(diff<=60)feriasVencendo60++;
@@ -2271,7 +2271,7 @@ async function verFicha(id,historico=false){
       const diff=limMax?Math.floor((limMax-hoje2)/86400000):null;
       const statusColor=diff===null?'var(--text-muted)':diff<0?'var(--danger)':diff<=60?'#B45309':'var(--success)';
       const diffStr=diff===null?'':' <span style="color:'+statusColor+';font-weight:700">('+( diff<0?Math.abs(diff)+'d atrás':diff+'d')+')</span>';
-      const progStr=p.programado?('✅ Programada: '+formatDate(p.data_inicio_programada)+' → '+formatDate(p.data_fim_programada)):'⏳ Não programada';
+      const progStr=p.gozado_manual?'✅ Gozada (marcada manualmente)':p.programado?('✅ Programada: '+formatDate(p.data_inicio_programada)+' → '+formatDate(p.data_fim_programada)):'⏳ Não programada';
       const passagemStr=p.programado?('<div style="margin-top:2px">🎫 Passagem: <strong style="color:'+(p.passagem_comprada?'var(--success)':'var(--warning)')+'">'+(p.passagem_comprada?'Comprada':'Não comprada')+'</strong></div>'+(p.passagem_observacao?'<div style="color:var(--text-muted);margin-top:2px;font-style:italic">"'+p.passagem_observacao+'"</div>':'')):'';
       return'<div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;font-size:12px">'
         +'<div style="font-weight:600;color:var(--text-muted);font-size:11px">'+formatDate(p.periodo_aquisitivo_inicio)+' → '+formatDate(p.periodo_aquisitivo_fim)+'</div>'
@@ -4322,7 +4322,7 @@ function renderFeriasLocal(){
 
   Object.values(byMat).forEach(arr=>{
     if(arr.some(f=>f.programado&&!isGozada(f)))progCount++;
-    if(arr.some(f=>!f.programado&&!isEncerradoSemData(f)))naoProgCount++;
+    if(arr.some(f=>!f.programado&&!f.gozado_manual&&!isEncerradoSemData(f)))naoProgCount++;
     gozadasCount+=arr.filter(f=>estaResolvido(f)).length;
     // Mesma janela usada na tabela: pula períodos já resolvidos (gozados ou sumidos da planilha do DP)
     // pra pegar o 1º/2º período REAL (em aberto).
@@ -4391,6 +4391,7 @@ function renderFeriasLocal(){
   // programado mas data_inicio no futuro = agendado mas não saiu = AINDA pendente
   function ePendente(p){
     if(isEncerradoSemData(p))return false; // sumiu da planilha do DP — já não é mais pendência real
+    if(p.gozado_manual)return false;      // marcado manualmente como já gozado
     if(!p.programado) return true;
     const ini=parseDate(p.data_inicio_programada);
     return !ini || ini > hoje; // se início futuro, ainda não gozou
@@ -4400,6 +4401,7 @@ function renderFeriasLocal(){
   // "Programada" — isso também sinaliza períodos já vividos mas ainda não confirmados pelo DP, que
   // precisam de atenção antes de virar histórico.
   function isGozada(p){
+    if(p&&p.gozado_manual)return true; // marcado manualmente como já gozado (sem exigir datas)
     if(!p||!p.programado||!p.validado_dp||!p.data_fim_programada)return false;
     const fim=parseDate(p.data_fim_programada);
     return !!(fim&&fim<hoje);
@@ -4477,6 +4479,14 @@ function renderFeriasLocal(){
     const fimPer  = parseDate(f.periodo_aquisitivo_fim);
     const perAqui = formatDate(f.periodo_aquisitivo_inicio) + ' → ' + formatDate(f.periodo_aquisitivo_fim);
     const dias    = f.dias_direito || 30;
+
+    if(f.gozado_manual&&!f._projetado){
+      return '<td style="padding:8px 12px">'
+        + '<div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;white-space:nowrap">' + perAqui + '</div>'
+        + '<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;display:inline-block;min-width:140px">'
+          + '<div style="font-size:11px;font-weight:600;color:var(--text-muted)">📁 Gozada · marcada manualmente</div>'
+        + '</div></td>';
+    }
 
     // Datas de controle
     const progAte   = fimPer ? new Date(fimPer.getTime() - 60*86400000) : null;
@@ -4655,7 +4665,7 @@ function renderFeriasLocal(){
     const st=getStatus(arr);
     const estaEmFerias=matsEmFerias.has(f0.matricula);
     const rowStyle=estaEmFerias?'border-left:4px solid #2563EB;background:#EFF6FF':st==='vencida'?'border-left:4px solid var(--danger)':st==='vencendo'?'border-left:4px solid var(--warning)':'';
-    const pendente=arr.find(f=>!f.programado&&!isEncerradoSemData(f));
+    const pendente=arr.find(f=>!f.programado&&!f.gozado_manual&&!isEncerradoSemData(f));
     // Só mostra aqui o que ainda é relevante agora — uma vez Gozada (já confirmada e no passado),
     // sai desta coluna e fica só no histórico (card Gozadas).
     const programados=arr.filter(f=>f.programado&&!isGozada(f));
@@ -4666,6 +4676,7 @@ function renderFeriasLocal(){
           <button class="prog-btn" style="background:#FEE2E2;color:#991B1B;border-color:#FCA5A5;font-size:11px;padding:3px 8px" onclick="cancelarProgFerias('${f.id}')"><i class="ti ti-x" style="font-size:11px"></i> Cancelar</button>
         </div>`).join('')}
       ${pendente?`<button class="prog-btn" style="font-size:11px;padding:3px 8px" onclick="openModalProgramarFerias('${pendente.id}')">📅 Programar${arr.length>1?' Per.'+(arr.indexOf(pendente)+1):''}</button>`:''}
+      ${(per1&&!per1._projetado&&!per1.programado&&!per1.gozado_manual)?`<button class="prog-btn" style="font-size:11px;padding:3px 8px;background:var(--bg)" title="As férias do 1º período exibido já foram tiradas: tira da frente e mostra o próximo período" onclick="marcarPeriodoGozado('${per1.id}')">✔ 1º já gozado</button>`:''}
     </div>`;
     const progResume=programados.map(f=>
       `<div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
@@ -4714,13 +4725,19 @@ function renderFeriasLocal(){
       const obra=p.funcionario?.obra?.codigo?`${p.funcionario.obra.codigo} — ${p.funcionario.obra.nome||''}`:(p.funcionario?.obra?.nome||'—');
       const feriasTxt=tipo==='sem_data'
         ?'<span style="color:var(--text-muted)">Sem datas no sistema</span>'
-        :`<strong>${p.dias_programados||'?'}d</strong> · ${formatDate(p.data_inicio_programada)} → ${formatDate(p.data_fim_programada)}`;
+        :(p.gozado_manual&&!p.data_inicio_programada)
+          ?'<span style="color:var(--text-muted)">Marcada como gozada (sem datas)</span>'
+          :`<strong>${p.dias_programados||'?'}d</strong> · ${formatDate(p.data_inicio_programada)} → ${formatDate(p.data_fim_programada)}`;
       const situacao=tipo==='gozada'
-        ?'<span style="font-size:11px;font-weight:700;color:var(--success)">✓ Gozada · Validado DP</span>'
+        ?(p.gozado_manual
+          ?'<span style="font-size:11px;font-weight:700;color:var(--success)">✓ Gozada · marcada manualmente</span>'
+          :'<span style="font-size:11px;font-weight:700;color:var(--success)">✓ Gozada · Validado DP</span>')
         :tipo==='sem_data'
           ?'<span style="font-size:11px;color:var(--text-muted)">📁 Encerrado — sumiu da planilha do DP</span>'
           :`<label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;font-weight:600;color:var(--warning)" title="Marque quando o DP confirmar que as férias foram lançadas/efetivadas"><input type="checkbox" onchange="toggleValidadoDP('${p.id}',this.checked)" style="cursor:pointer;margin:0"> Concluída — aguardando validação do DP</label>`;
-      const acao=tipo==='sem_data'?'':`<button class="prog-btn programada" style="font-size:11px;padding:3px 8px" onclick="openModalProgramarFerias('${p.id}')"><i class="ti ti-edit" style="font-size:11px"></i> Alterar</button>`;
+      const acao=tipo==='sem_data'?'':(p.gozado_manual
+        ?`<button class="prog-btn" style="font-size:11px;padding:3px 8px;background:#FEE2E2;color:#991B1B;border-color:#FCA5A5" onclick="desmarcarGozadoManual('${p.id}')" title="Voltar este período para pendente"><i class="ti ti-arrow-back-up" style="font-size:11px"></i> Desfazer</button>`
+        :`<button class="prog-btn programada" style="font-size:11px;padding:3px 8px" onclick="openModalProgramarFerias('${p.id}')"><i class="ti ti-edit" style="font-size:11px"></i> Alterar</button>`);
       return`<tr>
         <td><div class="name-cell">${avatarHtml(p.funcionario?.foto_url,p.funcionario?.nome_completo||p.matricula)}
           <div><div style="font-weight:500;cursor:pointer" onclick="event.stopPropagation();verFicha('${p.funcionario_id}')" title="Ver ficha">${nome}</div>
@@ -5008,6 +5025,29 @@ async function cancelarProgFerias(id){
   if(error){showToast('Erro ao cancelar: '+error.message,'error');return;}
   showToast('Programação cancelada.','success');
   await loadFerias();renderFerias();
+}
+
+async function marcarPeriodoGozado(id){
+  const f=feriasData.find(x=>x.id===id);
+  if(!f)return;
+  const nome=f.funcionario?.nome_completo||f.matricula||'—';
+  if(!confirm(`Marcar o período ${formatDate(f.periodo_aquisitivo_inicio)} → ${formatDate(f.periodo_aquisitivo_fim)} de ${nome} como JÁ GOZADO?\n\nUse só se as férias deste período já foram realmente tiradas.\nEle sai da frente da linha (passa a mostrar o próximo período e a projeção seguinte) e vai para o histórico, no card Gozadas, onde dá para desfazer.`))return;
+  const{error}=await sb.from('ferias').update({gozado_manual:true}).eq('id',id);
+  if(error){ctrErroGozadoManual(error);return;}
+  showToast('Período marcado como gozado.');
+  await loadFerias();renderFerias();
+}
+async function desmarcarGozadoManual(id){
+  if(!confirm('Desfazer a marcação? O período volta a contar como pendente.'))return;
+  const{error}=await sb.from('ferias').update({gozado_manual:false}).eq('id',id);
+  if(error){ctrErroGozadoManual(error);return;}
+  showToast('Marcação desfeita.');
+  await loadFerias();renderFerias();
+}
+function ctrErroGozadoManual(error){
+  if(/gozado_manual/i.test(error.message||''))
+    showToast('Falta criar a coluna no Supabase. Rode: ALTER TABLE ferias ADD COLUMN IF NOT EXISTS gozado_manual boolean NOT NULL DEFAULT false;','error');
+  else showToast('Erro: '+error.message,'error');
 }
 
 async function toggleValidadoDP(id,checked){
@@ -5515,7 +5555,7 @@ function exportFeriasExcel(){
   }));
 
   // Filtrar só alertas (vencido ou vencendo 60d no período mais urgente)
-  function getPeriodoUrgenteExp(arr){return arr.find(f=>!f.programado)||null;}
+  function getPeriodoUrgenteExp(arr){return arr.find(f=>!f.programado&&!f.gozado_manual)||null;}
   function getStatusExp(arr){
     const p=getPeriodoUrgenteExp(arr);if(!p)return'ok';
     const lim=parseDate(p.dt_limite_maxima);
