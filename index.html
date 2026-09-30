@@ -5,21 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GTEL Obras</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script>window.__XLSXCore=window.XLSX;</script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script>window.XLSXStyle=window.XLSX;window.XLSX=window.__XLSXCore;</script>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script>if(window['pdfjs-dist/build/pdf'])window.pdfjsLib=window['pdfjs-dist/build/pdf'];if(window.pdfjsLib)window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Sora:wght@600;700;800&display=swap">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
---primary:#1D9E75;--primary-dark:#0F6E56;--primary-light:#E1F5EE;
---bg:#F8F9FA;--surface:#fff;--border:#E5E7EB;
+--primary:#1F5FA6;--primary-dark:#123F73;--primary-light:#E3EEFB;
+--accent:#E56F00;--accent-light:#FFF1E3;--navy:#123F73;--navy-deep:#0F2F57;
+--bg:#F3F6FB;--surface:#fff;--border:#DCE5F0;
 --text:#1a1a1a;--text-muted:#6B7280;
 --danger:#E24B4A;--danger-light:#FCEBEB;
 --warning:#BA7517;--warning-light:#FAEEDA;
@@ -27,23 +22,28 @@
 --info:#185FA5;--info-light:#E6F1FB;
 --radius:8px;--radius-lg:12px;
 }
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
-.sidebar{position:fixed;left:0;top:0;bottom:0;width:220px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100}
-.sidebar-header{padding:20px 16px 16px;border-bottom:1px solid var(--border)}
-.sidebar-logo{font-size:16px;font-weight:600;color:var(--primary)}
-.sidebar-sub{font-size:11px;color:var(--text-muted)}
+body{font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
+.sidebar{position:fixed;left:0;top:0;bottom:0;width:240px;background:var(--navy);border-right:0;display:flex;flex-direction:column;z-index:100}
+.sidebar-header{padding:20px 16px 16px;border-bottom:1px solid rgba(255,255,255,.12)}
+.sidebar-logo{display:flex;align-items:baseline;gap:8px;font-family:Sora,sans-serif;font-size:15px;font-weight:600;color:#fff}
+.logo-gtel{font-family:Sora,sans-serif;font-weight:800;font-size:24px;letter-spacing:-.5px;color:#FFB066}
+.sidebar-sub{font-size:11px;color:#B9CCE6;margin-top:2px}
 .sidebar-nav{flex:1;padding:12px 8px;overflow-y:auto}
-.nav-section{font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.8px;padding:8px 8px 4px}
-.nav-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;color:var(--text-muted);font-size:13px;margin-bottom:2px;transition:all .15s}
-.nav-item:hover{background:var(--bg);color:var(--text)}
-.nav-item.active{background:var(--primary-light);color:var(--primary-dark);font-weight:500}
+.nav-section{font-size:10.5px;font-weight:700;color:#FFB066;text-transform:uppercase;letter-spacing:1.2px;padding:12px 10px 6px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;cursor:pointer;color:#D6E3F5;font-size:13.5px;font-weight:500;margin-bottom:2px;transition:all .15s}
+.nav-item:hover{background:rgba(255,255,255,.1);color:#fff}
+.nav-item.active{background:#fff;color:var(--navy);font-weight:700}
+.nav-item.active i{color:var(--accent)}
+.nav-item.nav-menu{background:rgba(255,255,255,.12);color:#fff;font-weight:600}
+.nav-item.nav-menu:hover{background:rgba(255,255,255,.2)}
+.nav-item.nav-menu.active{background:#fff;color:var(--navy)}
 .nav-item i{font-size:16px}
-.sidebar-obra-filter{padding:8px 12px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--bg)}
-.sidebar-obra-filter label{font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}
+.sidebar-obra-filter{padding:10px 14px;border-top:0;border-bottom:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06)}
+.sidebar-obra-filter label{font-size:10px;font-weight:700;color:#B9CCE6;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}
 .sidebar-obra-filter select{width:100%;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer}
 .sidebar-obra-filter select:focus{outline:none;border-color:var(--primary)}
-.global-obra-badge{display:none;margin:0 8px 6px;padding:4px 8px;background:var(--primary-light);border-radius:20px;font-size:11px;color:var(--primary-dark);font-weight:500;text-align:center}
-.main{margin-left:220px;min-height:100vh;padding:24px}
+.global-obra-badge{display:none;margin:0 8px 6px;padding:4px 8px;background:rgba(255,179,102,.22);border-radius:20px;font-size:11px;color:#FFD9B3;font-weight:600;text-align:center}
+.main{margin-left:240px;min-height:100vh;padding:24px}
 .page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
 .page-title{font-size:20px;font-weight:600}
 .page-subtitle{font-size:13px;color:var(--text-muted);margin-top:2px}
@@ -51,7 +51,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .metric-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px}
 .metric-label{font-size:12px;color:var(--text-muted);margin-bottom:4px}
 .metric-value{font-size:24px;font-weight:600;color:var(--text)}
-.metric-card.green .metric-value{color:var(--primary-dark)}
+.metric-card.green .metric-value{color:var(--success)}
 .metric-card.red .metric-value{color:var(--danger)}
 .metric-card.amber .metric-value{color:var(--warning)}
 .table-container{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
@@ -165,7 +165,7 @@ input:focus,select:focus{border-color:var(--primary)}
 .loading{text-align:center;padding:32px;color:var(--text-muted)}
 .toast{position:fixed;bottom:24px;right:24px;background:#1a1a1a;color:#fff;padding:12px 16px;border-radius:var(--radius);font-size:13px;z-index:9999;transform:translateY(100px);transition:transform .3s;max-width:320px}
 .toast.show{transform:translateY(0)}
-.toast.success{background:var(--primary-dark)}
+.toast.success{background:var(--success)}
 .toast.error{background:var(--danger)}
 .action-btns{display:flex;gap:4px}
 .filters{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;row-gap:8px}
@@ -173,15 +173,61 @@ input:focus,select:focus{border-color:var(--primary)}
 .filters .search-box{flex:1 1 220px;min-width:180px}
 .filters>button{flex:0 0 auto;white-space:nowrap}
 .filter-select{padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text);outline:none}
-.login-screen{position:fixed;inset:0;background:linear-gradient(135deg,var(--primary-dark),var(--primary));display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}
+.login-screen{position:fixed;inset:0;background:linear-gradient(135deg,var(--navy-deep),var(--primary));display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}
 .login-card{background:var(--surface);border-radius:var(--radius-lg);box-shadow:0 20px 50px rgba(0,0,0,.25);padding:36px 32px;width:100%;max-width:380px}
-.login-logo{display:flex;align-items:center;gap:8px;font-size:20px;font-weight:700;color:var(--primary-dark);margin-bottom:2px}
+.login-logo{display:flex;align-items:baseline;gap:8px;font-family:Sora,sans-serif;font-size:20px;font-weight:700;color:var(--primary-dark);margin-bottom:2px}
+.login-logo .logo-gtel{font-size:30px;color:var(--accent)}
 .login-sub{font-size:12px;color:var(--text-muted);margin-bottom:24px}
 .login-field{margin-bottom:14px}
 .login-field label{display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:5px}
 .login-field input{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px}
 .login-error{display:none;background:var(--danger-light);color:var(--danger);font-size:12px;padding:8px 10px;border-radius:var(--radius);margin-bottom:14px}
 .login-btn{width:100%;justify-content:center;padding:11px;font-size:14px}
+
+/* ─── Usuário na lateral ─── */
+.sidebar-user{padding:12px 14px;border-top:1px solid rgba(255,255,255,.12);display:flex;align-items:center;gap:10px}
+.sidebar-user-avatar{width:34px;height:34px;border-radius:50%;background:#FFB066;color:var(--navy-deep);display:flex;align-items:center;justify-content:center;font-family:Sora,sans-serif;font-size:12px;font-weight:700;flex-shrink:0}
+.sidebar-user-nome{font-size:12.5px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sidebar-user-perfil{font-size:10.5px;color:#B9CCE6}
+.sidebar-user .btn{background:transparent;border-color:rgba(255,255,255,.28);color:#D6E3F5}
+.sidebar-user .btn:hover{background:rgba(255,255,255,.12)}
+/* ─── Menu principal ─── */
+.menu-hero{background:linear-gradient(100deg,var(--navy-deep) 0%,var(--navy) 60%,var(--primary) 140%);border-radius:var(--radius-lg);padding:26px 30px;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:26px}
+.menu-hero-eyebrow{font-size:11.5px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:#FFB066}
+.menu-hero h1{font-family:Sora,sans-serif;font-weight:700;font-size:28px;line-height:1.15;color:#fff;margin:4px 0}
+.menu-hero-sub{font-size:12.5px;color:#B9CCE6}
+.menu-hero-acoes{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.menu-busca{position:relative;width:340px;max-width:100%}
+.menu-busca i{position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:18px;color:var(--text-muted)}
+.menu-busca input{width:100%;height:46px;padding:0 14px 0 42px;border:0;border-radius:12px;background:#fff;font-size:14px;color:var(--navy-deep)}
+.menu-btn-dash{display:flex;align-items:center;gap:8px;height:46px;padding:0 18px;border:0;border-radius:12px;background:var(--accent);color:#fff;font-family:inherit;font-size:13.5px;font-weight:700;cursor:pointer}
+.menu-btn-dash:hover{background:#C95F00}
+.menu-grupo{margin-bottom:26px}
+.menu-grupo-titulo{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.menu-grupo-titulo .marca{width:9px;height:9px;border-radius:2px;background:var(--accent);flex-shrink:0}
+.menu-grupo-titulo h2{font-family:Sora,sans-serif;font-weight:700;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:#164A85;margin:0}
+.menu-grupo-titulo .qtd{font-size:12px;color:var(--text-muted)}
+.menu-grupo-titulo .linha{flex:1;height:1px;background:var(--border)}
+.menu-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.menu-card{display:flex;align-items:center;gap:14px;min-height:84px;padding:16px;background:#fff;border:1px solid var(--border);border-radius:14px;text-align:left;font-family:inherit;color:var(--navy-deep);cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .15s}
+.menu-card:hover{border-color:var(--primary);box-shadow:0 6px 18px rgba(18,63,115,.12);transform:translateY(-1px)}
+.menu-card:focus-visible{outline:3px solid rgba(31,95,166,.35);outline-offset:2px}
+.menu-card-icone{flex-shrink:0;width:44px;height:44px;border-radius:12px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px}
+.menu-card.destaque .menu-card-icone{background:var(--accent)}
+.menu-card-texto{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.menu-card-nome{font-family:Sora,sans-serif;font-weight:600;font-size:14.5px;line-height:1.25}
+.menu-card-desc{font-size:12px;line-height:1.35;color:#4F6079}
+.menu-card-pill{flex-shrink:0;padding:4px 10px;border-radius:999px;background:var(--accent-light);color:#8F3F00;font-size:11px;font-weight:700}
+.menu-card-seta{flex-shrink:0;font-size:18px;color:#8FA4C0}
+.menu-vazio{display:none;padding:32px;text-align:center;color:var(--text-muted)}
+.btn-menu-mobile{display:none}
+@media(max-width:1180px){.menu-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:900px){.menu-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:768px){
+  .menu-grid{grid-template-columns:1fr}
+  .menu-hero{padding:20px}
+  .btn-menu-mobile{display:flex;align-items:center;gap:8px;position:fixed;right:16px;bottom:16px;z-index:200;height:46px;padding:0 18px;border:0;border-radius:999px;background:var(--navy);color:#fff;font-family:inherit;font-size:13.5px;font-weight:700;box-shadow:0 6px 18px rgba(15,47,87,.35);cursor:pointer}
+}
 @media(max-width:768px){.sidebar{display:none}.main{margin-left:0}.form-grid{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}.ficha-grid{grid-template-columns:1fr}}
 /* EXPERIÊNCIA */
 .exp-alert{border-radius:var(--radius-lg);padding:16px 20px;display:flex;align-items:center;gap:16px;margin-bottom:20px;border:1px solid}
@@ -194,7 +240,7 @@ input:focus,select:focus{border-color:var(--primary)}
 .exp-card-value{font-size:28px;font-weight:700;margin-bottom:2px}
 .exp-card-label{font-size:11px;color:var(--text-muted);font-weight:500;text-transform:uppercase;letter-spacing:.5px}
 .exp-card.blue .exp-card-value{color:#185FA5}
-.exp-card.green .exp-card-value{color:var(--primary-dark)}
+.exp-card.green .exp-card-value{color:var(--success)}
 .exp-card.amber .exp-card-value{color:var(--warning)}
 .exp-card.red .exp-card-value{color:var(--danger)}
 .exp-card.purple .exp-card-value{color:#6B21A8}
@@ -209,7 +255,7 @@ input:focus,select:focus{border-color:var(--primary)}
 .status-vencendo{background:#FFF3CD;color:#856404;border:1px solid #FCD34D}
 .status-vencida{background:var(--danger-light);color:var(--danger)}
 .dias-restantes{font-weight:700;font-size:13px}
-.dias-restantes.ok{color:var(--primary-dark)}
+.dias-restantes.ok{color:var(--success)}
 .dias-restantes.warn{color:var(--warning)}
 .dias-restantes.danger{color:var(--danger)}
 .obs-cell{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--text-muted);cursor:pointer}
@@ -251,7 +297,7 @@ input:focus,select:focus{border-color:var(--primary)}
 .ferias-card-label{font-size:11px;color:var(--text-muted);font-weight:500;text-transform:uppercase;letter-spacing:.5px}
 .ferias-card.red .ferias-card-value{color:var(--danger)}
 .ferias-card.amber .ferias-card-value{color:var(--warning)}
-.ferias-card.green .ferias-card-value{color:var(--primary-dark)}
+.ferias-card.green .ferias-card-value{color:var(--success)}
 .ferias-card.blue .ferias-card-value{color:#185FA5}
 .ferias-card.purple .ferias-card-value{color:#6B21A8}
 .ferias-periodo{display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap}
@@ -290,7 +336,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <body>
 <div class="login-screen" id="login-screen">
   <div class="login-card">
-    <div class="login-logo"><i class="ti ti-building-factory"></i> GTEL Obras</div>
+    <div class="login-logo"><span class="logo-gtel">GTEL</span> Obras</div>
     <div class="login-sub">Gestão de Obras e Colaboradores</div>
     <div class="login-error" id="login-erro"></div>
     <div class="login-field">
@@ -307,7 +353,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <div id="app-shell" style="display:none">
 <aside class="sidebar">
   <div class="sidebar-header">
-    <div class="sidebar-logo"><i class="ti ti-building-factory"></i> GTEL Obras</div>
+    <div class="sidebar-logo"><span class="logo-gtel">GTEL</span> Obras</div>
     <div class="sidebar-sub">Gestão de Obras e Colaboradores</div>
   </div>
   <div class="sidebar-obra-filter">
@@ -316,41 +362,19 @@ input:focus,select:focus{border-color:var(--primary)}
       <option value="">Todas as obras</option>
     </select>
   </div>
-  <nav class="sidebar-nav">
-    <div class="global-obra-badge" id="global-obra-badge"></div>
-    <div class="nav-section">Principal</div>
-    <div class="nav-item active" onclick="showPage('dashboard')"><i class="ti ti-dashboard"></i> Dashboard</div>
-    <div class="nav-item" onclick="showPage('alojamentos')"><i class="ti ti-home-2"></i> Alojamentos</div>
-    <div class="nav-item" onclick="showPage('ativos-imobilizados')"><i class="ti ti-package"></i> Ativo GTEL</div>
-    <div class="nav-item" onclick="showPage('efetivo')"><i class="ti ti-users-group"></i> Efetivo</div>
-    <div class="nav-item" onclick="showPage('experiencia')"><i class="ti ti-certificate"></i> Experiência</div>
-    <div class="nav-item" onclick="showPage('ferias')"><i class="ti ti-sunglasses"></i> Férias</div>
-    <div class="nav-item" onclick="showPage('folgas')"><i class="ti ti-beach"></i> Folgas de Campo</div>
-    <div class="nav-item" onclick="showPage('funcionarios')"><i class="ti ti-users"></i> Funcionários</div>
-    <div class="nav-item" onclick="showPage('matriz')"><i class="ti ti-map-2"></i> Matriz de Comunicação</div>
-    <div class="nav-item" onclick="showPage('prestadores')"><i class="ti ti-id-badge"></i> Prestadores</div>
-    <div class="nav-item" onclick="showPage('procedimentos')"><i class="ti ti-file-text"></i> Procedimentos</div>
-    <div class="nav-item" onclick="showPage('transferencias-pendentes')"><i class="ti ti-transfer"></i> Transferências Pendentes <span id="nav-transf-badge" style="display:none;background:var(--danger);color:#fff;border-radius:20px;font-size:10px;padding:1px 7px;margin-left:4px"></span></div>
-    <div class="nav-item" onclick="showPage('treinamentos')"><i class="ti ti-school"></i> Treinamentos</div>
-    <div class="nav-item" onclick="showPage('veiculos')"><i class="ti ti-car"></i> Veículos</div>
-    <div class="nav-section">Cadastros</div>
-    <div class="nav-item" id="nav-usuarios" onclick="showPage('usuarios')"><i class="ti ti-shield-lock"></i> Usuários</div>
-    <div class="nav-item" onclick="showPage('contratacoes')"><i class="ti ti-user-plus"></i> Contratações</div>
-    <div class="nav-item" onclick="showPage('empresas')"><i class="ti ti-briefcase"></i> Empresas</div>
-    <div class="nav-item" onclick="showPage('fornecedores')"><i class="ti ti-truck-delivery"></i> Fornecedores</div>
-    <div class="nav-item" onclick="showPage('obras')"><i class="ti ti-building-skyscraper"></i> Obras / Contratos</div>
-  </nav>
-  <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px">
-    <div style="width:30px;height:30px;border-radius:50%;background:var(--primary-light);color:var(--primary-dark);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0" id="sidebar-user-avatar">—</div>
+  <nav class="sidebar-nav" id="sidebar-nav"><div class="global-obra-badge" id="global-obra-badge"></div><div id="sidebar-nav-itens"></div></nav>
+  <div class="sidebar-user">
+    <div class="sidebar-user-avatar" id="sidebar-user-avatar">—</div>
     <div style="overflow:hidden;flex:1">
-      <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" id="sidebar-user-nome">—</div>
-      <div style="font-size:10px;color:var(--text-muted)" id="sidebar-user-perfil">—</div>
+      <div class="sidebar-user-nome" id="sidebar-user-nome">—</div>
+      <div class="sidebar-user-perfil" id="sidebar-user-perfil">—</div>
     </div>
-    <button class="btn btn-sm" title="Sair" onclick="fazerLogout()"><i class="ti ti-logout"></i></button>
+    <button class="btn btn-sm" title="Sair" aria-label="Sair" onclick="fazerLogout()"><i class="ti ti-logout"></i></button>
   </div>
 </aside>
 
 <main class="main" id="main-content"></main>
+<button type="button" class="btn-menu-mobile" onclick="showPage('menu')" aria-label="Menu principal"><i class="ti ti-layout-grid"></i> Menu</button>
 <div id="foto-lightbox" onclick="closeFotoLightbox()">
   <span class="lb-close" onclick="closeFotoLightbox()">✕</span>
   <img id="foto-lightbox-img" src="" alt="">
@@ -421,8 +445,6 @@ function atualizarSidebarUsuario(){
   if(nomeEl)nomeEl.textContent=currentUser.nome||currentUser.usuario||'—';
   if(perfilEl)perfilEl.textContent={admin:'Admin',gerente:'Gerente'}[currentUser.perfil]||'Usuário';
   if(avatarEl)avatarEl.textContent=initials(currentUser.nome||currentUser.usuario||'?');
-  const navUsuarios=document.getElementById('nav-usuarios');
-  if(navUsuarios)navUsuarios.style.display=currentUser.perfil==='admin'?'':'none';
 }
 
 function entrarNoApp(){
@@ -430,7 +452,7 @@ function entrarNoApp(){
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app-shell').style.display='';
   atualizarSidebarUsuario();
-  showPage('dashboard');
+  showPage(PAGINA_INICIAL);
 }
 
 function checkSessao(){
@@ -715,6 +737,7 @@ function normalizarTextoConta(s){
   return(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
 }
 async function extrairTextoPdf(file){
+  try{await garantirPdfJs();}catch(e){console.warn('pdf.js indisponível:',e);}
   if(!window.pdfjsLib)return null;
   try{
     const buf=await file.arrayBuffer();
@@ -769,14 +792,90 @@ function toISO(d){
 
 const UFS=['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];
 
+
+// ─── BIBLIOTECAS SOB DEMANDA ────────────────────────────────────────────────
+// jsPDF, Leaflet, pdf.js e xlsx-js-style só são baixadas na primeira vez que o recurso é usado,
+// deixando a abertura do sistema mais rápida. (xlsx principal continua no <head>.)
+const _libPromises={};
+function carregarScript(url,aoCarregar){
+  if(_libPromises[url])return _libPromises[url];
+  return _libPromises[url]=new Promise((res,rej)=>{
+    const sc=document.createElement('script');
+    sc.src=url;
+    sc.onload=()=>{try{if(aoCarregar)aoCarregar();}catch(e){console.error(e);}res();};
+    sc.onerror=()=>{delete _libPromises[url];rej(new Error('Falha ao carregar biblioteca: '+url));};
+    document.head.appendChild(sc);
+  });
+}
+function carregarCss(url){
+  if(document.querySelector('link[href="'+url+'"]'))return;
+  const l=document.createElement('link');l.rel='stylesheet';l.href=url;document.head.appendChild(l);
+}
+async function garantirJsPDF(){
+  if(window.jspdf)return;
+  await carregarScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+}
+async function garantirLeaflet(){
+  if(typeof L!=='undefined')return;
+  carregarCss('https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css');
+  await carregarScript('https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js');
+}
+async function garantirPdfJs(){
+  if(window.pdfjsLib)return;
+  await carregarScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',()=>{
+    if(window['pdfjs-dist/build/pdf'])window.pdfjsLib=window['pdfjs-dist/build/pdf'];
+    if(window.pdfjsLib)window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  });
+}
+async function garantirXLSXStyle(){
+  if(window.XLSXStyle)return;
+  const core=window.XLSX; // o bundle do xlsx-js-style sobrescreve window.XLSX; guardamos o original e restauramos
+  await carregarScript('https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js',()=>{
+    window.XLSXStyle=window.XLSX;
+    window.XLSX=core;
+  });
+}
+
+// ─── CARGA PAGINADA ─────────────────────────────────────────────────────────
+// O Supabase corta silenciosamente qualquer consulta em 1000 linhas. pagAll() busca em lotes até acabar.
+// mk(restrito) devolve a consulta; quando o usuário tem acesso restrito a obras, restrito=true e a consulta
+// já filtra no servidor (menos dados trafegados). Se essa versão filtrada der erro, tenta de novo sem o
+// filtro — o filtro no navegador continua existindo como segurança.
+function idsObrasPermitidas(){return obrasPermitidasIds?[...obrasPermitidasIds].join(','):'';}
+async function _pagRun(mk,tiebreak){
+  const PAGE=1000;let de=0,tudo=[];
+  while(true){
+    let q=mk();
+    if(tiebreak)q=q.order('id');
+    const{data,error}=await q.range(de,de+PAGE-1);
+    if(error)return{data:null,error};
+    tudo=tudo.concat(data||[]);
+    if(!data||data.length<PAGE)break;
+    de+=PAGE;
+  }
+  return{data:tudo,error:null};
+}
+async function pagAll(mk){
+  const restrito=!!obrasPermitidasIds;
+  const tentar=async(r)=>{
+    let res=await _pagRun(()=>mk(r),true);          // desempate por id mantém a ordem estável entre páginas
+    if(res.error)res=await _pagRun(()=>mk(r),false); // tabela sem coluna id
+    return res;
+  };
+  let res=await tentar(restrito);
+  if(res.error&&restrito){console.warn('[pagAll] consulta filtrada falhou, repetindo sem filtro:',res.error);res=await tentar(false);}
+  if(res.error)console.error('[pagAll] erro:',res.error);
+  return res;
+}
+
 async function loadAll(){
   const [f,o,e,fn,al,mh]=await Promise.all([
-    sb.from('funcionarios').select('*,funcao:funcoes!funcionarios_funcao_id_fkey(nome),empresa:empresas!funcionarios_empresa_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo),obra_transferencia:obras!funcionarios_obra_transferencia_id_fkey(nome,codigo)').order('nome_completo'),
-    sb.from('obras').select('*,empresa:empresas(nome)').order('nome'),
-    sb.from('empresas').select('*').order('nome'),
-    sb.from('funcoes').select('*').order('nome'),
-    sb.from('alojamentos').select('*,obra:obras(nome,codigo)').order('nome'),
-    sb.from('movimentacoes_historico').select('*,obra_origem:obras!movimentacoes_historico_obra_origem_id_fkey(nome,codigo),obra_destino:obras!movimentacoes_historico_obra_destino_id_fkey(nome,codigo)').order('data_movimentacao'),
+    pagAll(r=>{let q=sb.from('funcionarios').select('*,funcao:funcoes!funcionarios_funcao_id_fkey(nome),empresa:empresas!funcionarios_empresa_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo),obra_transferencia:obras!funcionarios_obra_transferencia_id_fkey(nome,codigo)');if(r)q=q.or('obra_id.in.('+idsObrasPermitidas()+'),transf_pendente_obra_id.in.('+idsObrasPermitidas()+')');return q.order('nome_completo');}),
+    pagAll(r=>{let q=sb.from('obras').select('*,empresa:empresas(nome)');return q.order('nome');}),
+    pagAll(r=>{let q=sb.from('empresas').select('*');return q.order('nome');}),
+    pagAll(r=>{let q=sb.from('funcoes').select('*');return q.order('nome');}),
+    pagAll(r=>{let q=sb.from('alojamentos').select('*,obra:obras(nome,codigo)');return q.order('nome');}), // sem filtro de obra no servidor: alojamentosTodos precisa da lista completa (transferência)
+    pagAll(r=>{let q=sb.from('movimentacoes_historico').select('*,obra_origem:obras!movimentacoes_historico_obra_origem_id_fkey(nome,codigo),obra_destino:obras!movimentacoes_historico_obra_destino_id_fkey(nome,codigo)');return q.order('data_movimentacao');}),
   ]);
   funcionarios=f.data||[];obras=o.data||[];empresas=e.data||[];funcoes=fn.data||[];
   obrasTodas=o.data||[]; // lista completa, sem restrição — usada em campos onde o destino pode ser fora da obra do usuário (ex: transferência)
@@ -792,10 +891,11 @@ async function loadAll(){
     listaAloj=listaAloj.filter(x=>x.obra_id&&obrasPermitidasIds.has(String(x.obra_id)));
   }
   alojamentos=listaAloj;
+  window._dadosCarregados=true; // o Menu principal reaproveita esses dados sem recarregar tudo
 }
 
 async function loadFolgas(){
-  const {data}=await sb.from('folgas').select('*,funcionario:funcionarios(nome_completo,matricula,obra_id,situacao,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo))').order('funcionario_id');
+  const {data}=await pagAll(r=>{let q=sb.from('folgas').select(`*,funcionario:${r?'funcionarios!inner':'funcionarios'}(nome_completo,matricula,obra_id,situacao,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo))`);if(r)q=q.in('funcionario.obra_id',[...obrasPermitidasIds]);return q.order('funcionario_id');});
   let lista=data||[];
   lista=lista.filter(x=>x.funcionario?.situacao!=='inativo'); // remove demitidos — histórico fica só na aba Demitidos
   if(obrasPermitidasIds){
@@ -806,7 +906,7 @@ async function loadFolgas(){
 }
 
 async function loadFolgasTranslados(){
-  const{data}=await sb.from('folgas_translados').select('*');
+  const{data}=await pagAll(r=>{let q=sb.from('folgas_translados').select('*');return q;});
   folgasTranslados=data||[];
 }
 
@@ -814,12 +914,12 @@ async function loadFolgasTranslados(){
 // Para funcionários que já ultrapassaram os 5 ciclos, os ciclos 6+ ficam nesta tabela à parte,
 // sem limite de quantidade — permitindo manter o histórico completo desde o início na GTEL.
 async function loadFolgasCiclos(){
-  const{data}=await sb.from('folgas_ciclos').select('*');
+  const{data}=await pagAll(r=>{let q=sb.from('folgas_ciclos').select('*');return q;});
   folgasCiclos=data||[];
 }
 
 async function loadFerias(){
-  const {data}=await sb.from('ferias').select('*,funcionario:funcionarios(nome_completo,matricula,foto_url,obra_id,situacao,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo,centro_custo))').order('dt_limite_maxima');
+  const {data}=await pagAll(r=>{let q=sb.from('ferias').select(`*,funcionario:${r?'funcionarios!inner':'funcionarios'}(nome_completo,matricula,foto_url,obra_id,situacao,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo,centro_custo))`);if(r)q=q.in('funcionario.obra_id',[...obrasPermitidasIds]);return q.order('dt_limite_maxima');});
   let lista=data||[];
   lista=lista.filter(x=>x.funcionario?.situacao!=='inativo'); // remove demitidos — histórico fica só na aba Demitidos
   if(obrasPermitidasIds){
@@ -831,9 +931,9 @@ async function loadFerias(){
 
 async function loadAlojamentos(){
   const [a,c,r]=await Promise.all([
-    sb.from('alojamentos').select('*,obra:obras(nome,codigo)').order('nome'),
-    sb.from('alojamentos_contas').select('*').order('ano',{ascending:false}).order('mes',{ascending:false}),
-    sb.from('alojamentos_relatorios').select('*').order('ano',{ascending:false}).order('mes',{ascending:false}),
+    pagAll(r=>{let q=sb.from('alojamentos').select('*,obra:obras(nome,codigo)');if(r)q=q.in('obra_id',[...obrasPermitidasIds]);return q.order('nome');}),
+    pagAll(r=>{let q=sb.from('alojamentos_contas').select('*');return q.order('ano',{ascending:false}).order('mes',{ascending:false});}),
+    pagAll(r=>{let q=sb.from('alojamentos_relatorios').select('*');return q.order('ano',{ascending:false}).order('mes',{ascending:false});}),
   ]);
   let listaAloj=a.data||[],listaContas=c.data||[],listaRel=r.data||[];
   if(obrasPermitidasIds){
@@ -847,11 +947,11 @@ async function loadAlojamentos(){
 
 async function loadVeiculos(){
   const [v,cd,km,rv,ab]=await Promise.all([
-    sb.from('veiculos').select('*,obra:obras(nome,codigo)').order('placa'),
-    sb.from('veiculos_condutores').select('*,funcionario:funcionarios(nome_completo,matricula)').order('data_inicio',{ascending:false}),
-    sb.from('veiculos_km').select('*').order('ano',{ascending:false}).order('mes',{ascending:false}),
-    sb.from('veiculos_revisoes').select('*').order('km_revisao',{ascending:false}),
-    sb.from('veiculos_abastecimentos').select('*').order('ano',{ascending:false}).order('mes',{ascending:false}),
+    pagAll(r=>{let q=sb.from('veiculos').select('*,obra:obras(nome,codigo)');if(r)q=q.in('obra_id',[...obrasPermitidasIds]);return q.order('placa');}),
+    pagAll(r=>{let q=sb.from('veiculos_condutores').select('*,funcionario:funcionarios(nome_completo,matricula)');return q.order('data_inicio',{ascending:false});}),
+    pagAll(r=>{let q=sb.from('veiculos_km').select('*');return q.order('ano',{ascending:false}).order('mes',{ascending:false});}),
+    pagAll(r=>{let q=sb.from('veiculos_revisoes').select('*');return q.order('km_revisao',{ascending:false});}),
+    pagAll(r=>{let q=sb.from('veiculos_abastecimentos').select('*');return q.order('ano',{ascending:false}).order('mes',{ascending:false});}),
   ]);
   let listaVei=v.data||[],listaCond=cd.data||[],listaKm=km.data||[],listaRev=rv.data||[],listaAbast=ab.data||[];
   if(obrasPermitidasIds){
@@ -869,9 +969,9 @@ const CATEGORIAS_ATIVO_IMOB=['Instrumentos de Medição','Ferramentas','Equipame
 let ativosImobFotos=[];
 async function loadAtivosImobilizados(){
   const [a,r,f]=await Promise.all([
-    sb.from('ativos_imobilizados').select('*,obra:obras(nome,codigo),fornecedor:fornecedores(razao_social)').order('descricao'),
-    sb.from('ativos_imob_responsaveis').select('*,funcionario:funcionarios(nome_completo,matricula),obra:obras(nome,codigo)').order('data_recebimento',{ascending:false}),
-    sb.from('ativos_imob_fotos').select('*').order('ordem'),
+    pagAll(r=>{let q=sb.from('ativos_imobilizados').select('*,obra:obras(nome,codigo),fornecedor:fornecedores(razao_social)');if(r)q=q.in('obra_id',[...obrasPermitidasIds]);return q.order('descricao');}),
+    pagAll(r=>{let q=sb.from('ativos_imob_responsaveis').select('*,funcionario:funcionarios(nome_completo,matricula),obra:obras(nome,codigo)');return q.order('data_recebimento',{ascending:false});}),
+    pagAll(r=>{let q=sb.from('ativos_imob_fotos').select('*');return q.order('ordem');}),
   ]);
   let listaAtivos=a.data||[],listaResp=r.data||[],listaFotos=f.data||[];
   if(obrasPermitidasIds){
@@ -888,9 +988,9 @@ function fotosDoAtivo(ativoId){return ativosImobFotos.filter(f=>String(f.ativo_i
 let procedimentosAnexos=[];
 async function loadProcedimentos(){
   const[p,v,x]=await Promise.all([
-    sb.from('procedimentos').select('*').order('tipo').order('numero'),
-    sb.from('procedimentos_versoes').select('*').order('revisao',{ascending:false}),
-    sb.from('procedimentos_anexos').select('*').order('created_at'),
+    pagAll(r=>{let q=sb.from('procedimentos').select('*');return q.order('tipo').order('numero');}),
+    pagAll(r=>{let q=sb.from('procedimentos_versoes').select('*');return q.order('revisao',{ascending:false});}),
+    pagAll(r=>{let q=sb.from('procedimentos_anexos').select('*');return q.order('created_at');}),
   ]);
   procedimentos=p.data||[];
   procedimentosVersoes=v.data||[];
@@ -900,9 +1000,7 @@ async function loadProcedimentos(){
 function anexosDoProc(procId){return procedimentosAnexos.filter(x=>String(x.procedimento_id)===String(procId));}
 
 async function loadPrestadores(){
-  const{data}=await sb.from('prestadores')
-    .select('*,obra:obras(nome,codigo),alojamento:alojamentos(nome)')
-    .order('nome_completo');
+  const{data}=await pagAll(r=>{let q=sb.from('prestadores').select('*,obra:obras(nome,codigo),alojamento:alojamentos(nome)');if(r)q=q.in('obra_id',[...obrasPermitidasIds]);return q.order('nome_completo');});
   let lista=data||[];
   if(obrasPermitidasIds){
     lista=lista.filter(x=>x.obra_id&&obrasPermitidasIds.has(String(x.obra_id)));
@@ -911,9 +1009,7 @@ async function loadPrestadores(){
 }
 
 async function loadTreinamentos(){
-  const{data}=await sb.from('treinamentos')
-    .select('*,funcionario:funcionarios(nome_completo,matricula,foto_url,obra_id,situacao,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo))')
-    .order('data_vencimento');
+  const{data}=await pagAll(r=>{let q=sb.from('treinamentos').select(`*,funcionario:${r?'funcionarios!inner':'funcionarios'}(nome_completo,matricula,foto_url,obra_id,situacao,funcao:funcoes!funcionarios_funcao_id_fkey(nome),obra:obras!funcionarios_obra_id_fkey(nome,codigo))`);if(r)q=q.in('funcionario.obra_id',[...obrasPermitidasIds]);return q.order('data_vencimento');});
   let lista=data||[];
   lista=lista.filter(x=>x.funcionario?.situacao!=='inativo'); // some junto com o funcionário quando demitido
   if(obrasPermitidasIds){
@@ -925,8 +1021,8 @@ async function loadTreinamentos(){
 
 async function loadFornecedores(){
   const[f,o]=await Promise.all([
-    sb.from('fornecedores').select('*,obra:obras(nome,codigo)').order('razao_social'),
-    sb.from('fornecedor_orcamentos').select('*').order('data',{ascending:false}),
+    pagAll(r=>{let q=sb.from('fornecedores').select('*,obra:obras(nome,codigo)');if(r)q=q.or('obra_id.is.null,obra_id.in.('+idsObrasPermitidas()+')');return q.order('razao_social');}),
+    pagAll(r=>{let q=sb.from('fornecedor_orcamentos').select('*');return q.order('data',{ascending:false});}),
   ]);
   let lista=f.data||[];
   if(obrasPermitidasIds){
@@ -938,9 +1034,7 @@ async function loadFornecedores(){
 }
 
 async function loadContratacoes(){
-  const{data}=await sb.from('contratacoes')
-    .select('*,funcao:funcoes(nome),obra:obras(nome,codigo)')
-    .order('created_at',{ascending:false});
+  const{data}=await pagAll(r=>{let q=sb.from('contratacoes').select('*,funcao:funcoes(nome),obra:obras(nome,codigo)');if(r)q=q.in('obra_id',[...obrasPermitidasIds]);return q.order('created_at',{ascending:false});});
   let lista=data||[];
   if(obrasPermitidasIds){
     lista=lista.filter(x=>x.obra_id&&obrasPermitidasIds.has(String(x.obra_id)));
@@ -949,9 +1043,7 @@ async function loadContratacoes(){
 }
 
 async function loadContratacoesVagas(){
-  const{data}=await sb.from('contratacoes_vagas')
-    .select('*,funcao:funcoes(nome),obra:obras(nome,codigo)')
-    .order('created_at');
+  const{data}=await pagAll(r=>{let q=sb.from('contratacoes_vagas').select('*,funcao:funcoes(nome),obra:obras(nome,codigo)');if(r)q=q.in('obra_id',[...obrasPermitidasIds]);return q.order('created_at');});
   let lista=data||[];
   if(obrasPermitidasIds){
     lista=lista.filter(x=>x.obra_id&&obrasPermitidasIds.has(String(x.obra_id)));
@@ -960,15 +1052,123 @@ async function loadContratacoesVagas(){
 }
 
 async function loadContratacoesProspeccoes(){
-  const{data}=await sb.from('contratacoes_prospeccoes')
-    .select('*,funcao:funcoes(nome)')
-    .order('data_contato',{ascending:false});
+  const{data}=await pagAll(r=>{let q=sb.from('contratacoes_prospeccoes').select('*,funcao:funcoes(nome)');if(r)q=q.or('obra_id.is.null,obra_id.in.('+idsObrasPermitidas()+')');return q.order('data_contato',{ascending:false});});
   let lista=data||[];
   if(obrasPermitidasIds){
     // contatos sem obra definida (registros antigos) continuam visíveis; restringe só os já vinculados a uma obra
     lista=lista.filter(x=>!x.obra_id||obrasPermitidasIds.has(String(x.obra_id)));
   }
   contratacoesProspeccoes=lista;
+}
+
+
+// ─── MENU PRINCIPAL E MÓDULOS ───────────────────────────────────────────────
+// Para acrescentar um módulo novo ao sistema: 1) adicione UMA linha em MODULOS (grupo, ícone, nome, descrição);
+// 2) crie o ramo correspondente em showPage(). O menu e a barra lateral se atualizam sozinhos.
+// somenteAdmin:true esconde o módulo de quem não é admin.
+const PAGINA_INICIAL='menu'; // trocar para 'dashboard' se preferir abrir direto no Dashboard
+const GRUPOS_MENU=[
+  {id:'pessoas',nome:'Pessoas'},
+  {id:'obras',nome:'Obras e logística'},
+  {id:'patrimonio',nome:'Patrimônio e documentos'},
+  {id:'admin',nome:'Administração'},
+];
+const MODULOS=[
+  {page:'funcionarios',grupo:'pessoas',icone:'ti-users',nome:'Funcionários',desc:'Cadastro e situação'},
+  {page:'contratacoes',grupo:'pessoas',icone:'ti-user-plus',nome:'Contratações',desc:'Pipeline de vagas'},
+  {page:'efetivo',grupo:'pessoas',icone:'ti-users-group',nome:'Efetivo',desc:'Presença e horas'},
+  {page:'experiencia',grupo:'pessoas',icone:'ti-certificate',nome:'Experiência',desc:'Prazos de experiência'},
+  {page:'ferias',grupo:'pessoas',icone:'ti-sunglasses',nome:'Férias',desc:'Períodos e alertas'},
+  {page:'folgas',grupo:'pessoas',icone:'ti-beach',nome:'Folgas de Campo',desc:'Ciclos de folga'},
+  {page:'treinamentos',grupo:'pessoas',icone:'ti-school',nome:'Treinamentos',desc:'Validades e vencimentos'},
+  {page:'prestadores',grupo:'pessoas',icone:'ti-id-badge',nome:'Prestadores',desc:'Terceiros e presença'},
+  {page:'obras',grupo:'obras',icone:'ti-building-skyscraper',nome:'Obras / Contratos',desc:'Obras e centros de custo'},
+  {page:'alojamentos',grupo:'obras',icone:'ti-home-2',nome:'Alojamentos',desc:'Contas e relatórios'},
+  {page:'veiculos',grupo:'obras',icone:'ti-car',nome:'Veículos',desc:'Frota, km e revisões'},
+  {page:'transferencias-pendentes',grupo:'obras',icone:'ti-transfer',nome:'Transferências Pendentes',desc:'Aprovações entre obras',badge:'transf'},
+  {page:'matriz',grupo:'obras',icone:'ti-map-2',nome:'Matriz de Comunicação',desc:'Mapa de contatos'},
+  {page:'fornecedores',grupo:'obras',icone:'ti-truck-delivery',nome:'Fornecedores',desc:'Cadastro e orçamentos'},
+  {page:'ativos-imobilizados',grupo:'patrimonio',icone:'ti-package',nome:'Ativo GTEL',desc:'Ferramentas e equipamentos'},
+  {page:'procedimentos',grupo:'patrimonio',icone:'ti-file-text',nome:'Procedimentos',desc:'Procedimentos e formulários'},
+  {page:'empresas',grupo:'admin',icone:'ti-briefcase',nome:'Empresas',desc:'Cadastro de empresas'},
+  {page:'usuarios',grupo:'admin',icone:'ti-shield-lock',nome:'Usuários',desc:'Acessos por obra',somenteAdmin:true},
+];
+function modulosVisiveis(){return MODULOS.filter(m=>!m.somenteAdmin||currentUser?.perfil==='admin');}
+function qtdTransferenciasPendentes(){
+  return (funcionarios||[]).filter(f=>f.transf_pendente&&usuarioPodeAprovarObra(f.transf_pendente_obra_id)).length;
+}
+function _semAcento(t){return String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();}
+
+// Barra lateral: mostra o grupo da página atual (e todos os grupos no Dashboard; só os atalhos no Menu).
+function renderSidebar(page){
+  const box=document.getElementById('sidebar-nav-itens');
+  if(!box)return;
+  const visiveis=modulosVisiveis();
+  const modAtual=MODULOS.find(m=>m.page===page);
+  const grupos=modAtual?GRUPOS_MENU.filter(g=>g.id===modAtual.grupo):(page==='dashboard'?GRUPOS_MENU:[]);
+  const item=(m)=>`<div class="nav-item${m.page===page?' active':''}" data-page="${m.page}" onclick="showPage('${m.page}')"><i class="ti ${m.icone}"></i> ${m.nome}${m.badge==='transf'?' <span id="nav-transf-badge" style="display:none;background:var(--accent);color:#fff;border-radius:20px;font-size:10px;padding:1px 7px;margin-left:4px"></span>':''}</div>`;
+  let h=`<div class="nav-item nav-menu${page==='menu'?' active':''}" data-page="menu" onclick="showPage('menu')"><i class="ti ti-layout-grid"></i> Menu principal</div>`;
+  h+=`<div class="nav-item${page==='dashboard'?' active':''}" data-page="dashboard" onclick="showPage('dashboard')"><i class="ti ti-dashboard"></i> Dashboard</div>`;
+  grupos.forEach(g=>{
+    const itens=visiveis.filter(m=>m.grupo===g.id);
+    if(!itens.length)return;
+    h+=`<div class="nav-section">${g.nome}</div>`+itens.map(item).join('');
+  });
+  box.innerHTML=h;
+}
+
+// Tela inicial com os módulos agrupados
+function renderMenu(){
+  const primeiroNome=(currentUser?.nome||currentUser?.usuario||'').trim().split(' ')[0]||'';
+  const ua=currentUser?.ultimo_acesso_anterior?new Date(currentUser.ultimo_acesso_anterior):null;
+  const uaTxt=ua&&!isNaN(ua)?ua.toLocaleDateString('pt-BR')+' às '+ua.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';
+  const pend=qtdTransferenciasPendentes();
+  const visiveis=modulosVisiveis();
+  const card=(m)=>{
+    const destaque=m.badge==='transf'&&pend>0;
+    const direita=destaque?`<span class="menu-card-pill">${pend} pendente${pend>1?'s':''}</span>`:'<i class="ti ti-chevron-right menu-card-seta"></i>';
+    return `<button type="button" class="menu-card${destaque?' destaque':''}" data-busca="${_semAcento(m.nome+' '+m.desc)}" onclick="showPage('${m.page}')">
+      <span class="menu-card-icone"><i class="ti ${m.icone}"></i></span>
+      <span class="menu-card-texto"><span class="menu-card-nome">${m.nome}</span><span class="menu-card-desc">${m.desc}</span></span>
+      ${direita}</button>`;
+  };
+  const grupos=GRUPOS_MENU.map(g=>{
+    const itens=visiveis.filter(m=>m.grupo===g.id);
+    if(!itens.length)return'';
+    return `<section class="menu-grupo">
+      <div class="menu-grupo-titulo"><span class="marca"></span><h2>${g.nome}</h2><span class="qtd">${itens.length} módulo${itens.length>1?'s':''}</span><span class="linha"></span></div>
+      <div class="menu-grid">${itens.map(card).join('')}</div></section>`;
+  }).join('');
+  document.getElementById('main-content').innerHTML=`
+    <div class="menu-hero">
+      <div>
+        <div class="menu-hero-eyebrow">Menu principal</div>
+        <h1>Olá${primeiroNome?', '+primeiroNome:''}</h1>
+        <div class="menu-hero-sub">${uaTxt?'Último acesso: '+uaTxt:'GTEL Obras · Gestão de Obras e Colaboradores'}</div>
+      </div>
+      <div class="menu-hero-acoes">
+        <label class="menu-busca"><i class="ti ti-search"></i><input type="search" id="menu-busca-input" placeholder="Buscar módulo…" aria-label="Buscar módulo" oninput="filtrarMenu(this.value)" autocomplete="off"></label>
+        <button type="button" class="menu-btn-dash" onclick="showPage('dashboard')"><i class="ti ti-dashboard"></i> Dashboard</button>
+      </div>
+    </div>
+    ${grupos}
+    <div class="menu-vazio" id="menu-vazio">Nenhum módulo encontrado.</div>`;
+}
+function filtrarMenu(q){
+  const t=_semAcento(q).trim();
+  let total=0;
+  document.querySelectorAll('.menu-grupo').forEach(gr=>{
+    let vis=0;
+    gr.querySelectorAll('.menu-card').forEach(c=>{
+      const ok=!t||c.dataset.busca.includes(t);
+      c.style.display=ok?'':'none';
+      if(ok)vis++;
+    });
+    gr.style.display=vis?'':'none';
+    total+=vis;
+  });
+  const v=document.getElementById('menu-vazio');
+  if(v)v.style.display=total?'none':'block';
 }
 
 let currentPage='dashboard';
@@ -983,38 +1183,17 @@ async function showPage(page){
     page='dashboard';
   }
   currentPage=page;
-  document.querySelectorAll('.nav-item').forEach(el=>{
-    const t=el.textContent.trim().toLowerCase();
-    el.classList.toggle('active',
-      (page==='dashboard'&&t.includes('dashboard'))||
-      (page==='funcionarios'&&t.includes('funcionário'))||
-      (page==='transferencias-pendentes'&&t.includes('transferências pendentes'))||
-      (page==='experiencia'&&t.includes('experiência'))||
-      (page==='treinamentos'&&t.includes('treinamentos'))||
-      (page==='folgas'&&t.includes('folga'))||
-      (page==='ferias'&&t.includes('férias'))||
-      (page==='alojamentos'&&t.includes('alojamento'))||
-      (page==='veiculos'&&t.includes('veículo'))||
-      (page==='ativos-imobilizados'&&t.includes('ativo imobilizado'))||
-      (page==='procedimentos'&&t.includes('procedimento'))||
-      (page==='prestadores'&&t.includes('prestador'))||
-      (page==='usuarios'&&t.includes('usuário'))||
-      (page==='obras'&&t.includes('obra'))||
-      (page==='empresas'&&t.includes('empresa'))||
-      (page==='fornecedores'&&t.includes('fornecedores'))||
-      (page==='contratacoes'&&t.includes('contratações'))||
-      (page==='matriz'&&t.includes('matriz'))
-    );
-  });
+  renderSidebar(page);
   document.getElementById('main-content').innerHTML='<div class="loading"><i class="ti ti-loader ti-spin"></i> Carregando...</div>';
-  try{await loadAll();}catch(e){
+  try{if(!(page==='menu'&&window._dadosCarregados))await loadAll();}catch(e){
     document.getElementById('main-content').innerHTML='<div style="padding:40px;color:var(--danger)"><strong>Erro no loadAll:</strong><br>'+e.message+'</div>';
     return;
   }
   populateGlobalObraSelect();
   atualizarBadgeTransferenciasPendentes();
   try{
-    if(page==='dashboard')await renderDashboard();
+    if(page==='menu')renderMenu();
+    else if(page==='dashboard')await renderDashboard();
     else if(page==='funcionarios')renderFuncionarios();
     else if(page==='transferencias-pendentes')renderTransferenciasPendentesPage();
     else if(page==='experiencia')renderExperiencia();
@@ -1396,7 +1575,7 @@ async function renderDashboard(){
     ?ultimoAcessoDate.toLocaleDateString('pt-BR')+' às '+ultimoAcessoDate.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})
     :null;
   document.getElementById('main-content').innerHTML=`
-    <div style="background:linear-gradient(100deg,#1E293B 0%,#26463B 55%,var(--primary) 145%);border-radius:var(--radius-lg);padding:20px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px">
+    <div style="background:linear-gradient(100deg,#0F2F57 0%,#123F73 55%,var(--primary) 145%);border-radius:var(--radius-lg);padding:20px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px">
       <div>
         <div style="font-size:18px;font-weight:700;color:#fff">Bem-vindo${primeiroNome?', '+primeiroNome.toUpperCase():''}!</div>
         <div style="font-size:12.5px;color:#CBD5E1;margin-top:4px">GTEL Obras${obraFiltroLabel?` · obra <strong style="color:#fff">${obraFiltroLabel}</strong>`:''}</div>
@@ -1755,7 +1934,7 @@ function renderPainelTransferenciasPendentes(lista){
 function atualizarBadgeTransferenciasPendentes(){
   const el=document.getElementById('nav-transf-badge');
   if(!el)return;
-  const qtd=funcionarios.filter(f=>f.transf_pendente&&usuarioPodeAprovarObra(f.transf_pendente_obra_id)).length;
+  const qtd=qtdTransferenciasPendentes();
   if(qtd>0){el.textContent=qtd;el.style.display='';}
   else{el.style.display='none';}
 }
@@ -2126,6 +2305,7 @@ async function verFicha(id,historico=false){
 
 async function exportFichaPDF(id){
   const f=funcionarios.find(x=>x.id===id);if(!f)return;
+  try{await garantirJsPDF();}catch(e){showToast('Não foi possível carregar o gerador de PDF. Verifique a conexão.','error');return;}
   const {jsPDF}=window.jspdf;const doc=new jsPDF();
   const funcaoNome=f.funcao?.nome||f.funcao_manual||'—';
   doc.setFillColor(15,110,86);doc.rect(0,0,210,40,'F');
@@ -2926,7 +3106,7 @@ async function cancelarTransferenciaPendente(id){
 }
 
 async function carregarMovimentacoesHistorico(){
-  const{data}=await sb.from('movimentacoes_historico').select('*,obra_origem:obras!movimentacoes_historico_obra_origem_id_fkey(nome,codigo),obra_destino:obras!movimentacoes_historico_obra_destino_id_fkey(nome,codigo)').order('data_movimentacao');
+  const{data}=await pagAll(()=>sb.from('movimentacoes_historico').select('*,obra_origem:obras!movimentacoes_historico_obra_origem_id_fkey(nome,codigo),obra_destino:obras!movimentacoes_historico_obra_destino_id_fkey(nome,codigo)').order('data_movimentacao'));
   movimentacoesHistorico=data||[];
 }
 
@@ -3409,7 +3589,7 @@ function renderFolgasLocal(){
     // Card "Em folga agora" — mantém estilo destacado com lista (geralmente poucos itens)
     if(temAgora){
       var itensAgora=emFolgaAgora.map(function(f){return itemAgoraRow(f);}).join('');
-      cardsCols+='<div style="background:linear-gradient(135deg,#0d5e46,#1D9E75);border-radius:var(--radius-lg);padding:16px 18px;flex:1;min-width:220px;max-height:260px;overflow-y:auto">'
+      cardsCols+='<div style="background:linear-gradient(135deg,#123F73,#1F5FA6);border-radius:var(--radius-lg);padding:16px 18px;flex:1;min-width:220px;max-height:260px;overflow-y:auto">'
         +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
         +'<i class="ti ti-plane-departure" style="font-size:16px;color:rgba(255,255,255,.8)"></i>'
         +'<span style="font-size:11px;font-weight:700;color:rgba(255,255,255,.7);text-transform:uppercase;letter-spacing:.5px">Em folga agora</span>'
@@ -3422,7 +3602,7 @@ function renderFolgasLocal(){
     // helper: linha clicável por funcionário (usado no card "Em folga agora")
     function itemAgoraRow(f){
       var busca=f.busca||'';
-      return '<div onclick="event.stopPropagation();folgasNomesFiltro=null;folgasBusca=\''+busca+'\';folgasFiltro=\'todos\';renderFolgas();setTimeout(function(){var rows=document.querySelectorAll(\'.folga-row\');var el=null;rows.forEach(function(r){if(r.innerText.toUpperCase().indexOf(\''+busca.toUpperCase()+'\')>=0)el=r;});if(el){el.scrollIntoView({behavior:\'smooth\',block:\'center\'});el.style.outline=\'2px solid #1D9E75\';setTimeout(function(){el.style.outline=\'\';},2000);}},150)" '
+      return '<div onclick="event.stopPropagation();folgasNomesFiltro=null;folgasBusca=\''+busca+'\';folgasFiltro=\'todos\';renderFolgas();setTimeout(function(){var rows=document.querySelectorAll(\'.folga-row\');var el=null;rows.forEach(function(r){if(r.innerText.toUpperCase().indexOf(\''+busca.toUpperCase()+'\')>=0)el=r;});if(el){el.scrollIntoView({behavior:\'smooth\',block:\'center\'});el.style.outline=\'2px solid #1F5FA6\';setTimeout(function(){el.style.outline=\'\';},2000);}},150)" '
         +'style="display:flex;justify-content:space-between;align-items:center;padding:7px 8px;margin:0 -8px;border-radius:6px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.15);transition:background .15s" '
         +'onmouseover="this.style.background=\'rgba(255,255,255,.1)\'" onmouseout="this.style.background=\'\'">'
         +'<span style="font-size:12px;color:rgba(255,255,255,.95);font-weight:500">'+f.nome+'</span>'
@@ -5322,7 +5502,8 @@ function exportFeriasExcel(){
   showToast(`Excel exportado — ${listaAlerta.length} funcionário(s) em alerta!`);
 }
 
-function exportFeriasPDF(){
+async function exportFeriasPDF(){
+  try{await garantirJsPDF();}catch(e){showToast('Não foi possível carregar o gerador de PDF. Verifique a conexão.','error');return;}
   const{jsPDF}=window.jspdf;const doc=new jsPDF('l');
   const hoje=new Date();hoje.setHours(0,0,0,0);
   doc.setFillColor(15,110,86);doc.rect(0,0,297,30,'F');
@@ -5864,7 +6045,7 @@ function renderTreinamentosLocal(){
         const isSel=String(e.id)===String(sel.id);
         const st=piorStatus(e.id);
         const qtd=(todosPorFunc[String(e.id)]||[]).length;
-        return '<div class="item aloj-item" onclick="treinFuncSelId=\''+e.id+'\';renderTreinamentosLocal()" style="background:'+(isSel?'#1D9E75':'#fff')+';border:1px solid '+(isSel?'#1D9E75':'#D8DAE0')+';border-radius:4px;padding:9px 12px;cursor:pointer;margin-bottom:6px">'
+        return '<div class="item aloj-item" onclick="treinFuncSelId=\''+e.id+'\';renderTreinamentosLocal()" style="background:'+(isSel?'#1F5FA6':'#fff')+';border:1px solid '+(isSel?'#1F5FA6':'#D8DAE0')+';border-radius:4px;padding:9px 12px;cursor:pointer;margin-bottom:6px">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
           +'<div style="display:flex;align-items:center;gap:8px;min-width:0">'
           +(e.f.foto_url
@@ -5883,7 +6064,7 @@ function renderTreinamentosLocal(){
         const chave=encodeURIComponent(k).replace(/'/g,'%27');
         const aberto=(chave in treinObrasAbertas)?!!treinObrasAbertas[chave]:(filtroAtivo||k===grupoSel);
         const qtdAlerta=emps.filter(e=>temPendencia(piorStatus(e.id))).length;
-        const header='<div class="aloj-secao-row" onclick="treinObrasAbertas[\''+chave+'\']='+(!aberto)+';renderTreinamentosLocal()" style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:#fff;border:1px solid '+(k===grupoSel?'#1D9E75':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:6px">'
+        const header='<div class="aloj-secao-row" onclick="treinObrasAbertas[\''+chave+'\']='+(!aberto)+';renderTreinamentosLocal()" style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:#fff;border:1px solid '+(k===grupoSel?'#1F5FA6':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:6px">'
           +'<div style="display:flex;align-items:center;gap:8px;min-width:0">'
           +'<i class="ti ti-chevron-down" style="font-size:12px;color:#8B95A5;flex-shrink:0;transform:rotate('+(aberto?'0deg':'-90deg')+')"></i>'
           +'<i class="ti ti-building" style="font-size:15px;color:#4B5160;flex-shrink:0"></i>'
@@ -6936,9 +7117,11 @@ function renderMatriz(){
   initMatrizMap(porObra);
 }
 
-function initMatrizMap(porObra){
+async function initMatrizMap(porObra){
   const el=document.getElementById('matriz-map');
-  if(!el||typeof L==='undefined')return;
+  if(!el)return;
+  try{await garantirLeaflet();}catch(e){console.warn('Leaflet indisponível:',e);return;}
+  if(typeof L==='undefined'||!document.getElementById('matriz-map'))return;
   if(_matrizMapInstance){_matrizMapInstance.remove();_matrizMapInstance=null;}
   const map=L.map('matriz-map',{scrollWheelZoom:true}).setView([-15,-50],4);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
@@ -6953,7 +7136,7 @@ function initMatrizMap(porObra){
     const ativo=matrizFiltroObra===o.obra;
     const icon=L.divIcon({
       className:'',
-      html:`<div style="width:16px;height:16px;border-radius:50%;background:${ativo?'#0F6E56':'#1D9E75'};border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></div>`,
+      html:`<div style="width:16px;height:16px;border-radius:50%;background:${ativo?'#123F73':'#1F5FA6'};border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></div>`,
       iconSize:[16,16],iconAnchor:[8,8],
     });
     const marker=L.marker(coord,{icon}).addTo(map);
@@ -7181,7 +7364,7 @@ function renderAlojamentos(){
           +prestadores.filter(p=>String(p.alojamento_id)===String(a.id)&&p.situacao==='ativo').length;
         const total=a.vagas_total||0;
         const alerta=temAlerta(a);
-        return '<div class="item aloj-item" onclick="alojSelecionadoId=\''+a.id+'\';renderAlojamentos()" style="background:'+(isSel?'#1D9E75':'#fff')+';border:1px solid '+(isSel?'#1D9E75':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:6px">'
+        return '<div class="item aloj-item" onclick="alojSelecionadoId=\''+a.id+'\';renderAlojamentos()" style="background:'+(isSel?'#1F5FA6':'#fff')+';border:1px solid '+(isSel?'#1F5FA6':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:6px">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
           +'<div style="display:flex;align-items:center;gap:8px;min-width:0">'
           +'<i class="ti ti-'+(a.tipo_alojamento==='hotel'?'building-lighthouse':'home')+'" style="font-size:14px;color:'+(isSel?'#fff':'#8B95A5')+';flex-shrink:0"></i>'
@@ -7638,7 +7821,7 @@ function renderVeiculos(){
       const itens=lista.map(v=>{
         const isSel=String(v.id)===String(sel.id);
         const alerta=temAlertaVeiculo(v);
-        return '<div class="item veic-item" onclick="veiculoSelecionadoId=\''+v.id+'\';renderVeiculos()" style="background:'+(isSel?'#1D9E75':'#fff')+';border:1px solid '+(isSel?'#1D9E75':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:6px">'
+        return '<div class="item veic-item" onclick="veiculoSelecionadoId=\''+v.id+'\';renderVeiculos()" style="background:'+(isSel?'#1F5FA6':'#fff')+';border:1px solid '+(isSel?'#1F5FA6':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:6px">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
           +'<div style="display:flex;align-items:center;gap:8px;min-width:0">'
           +'<i class="ti ti-car" style="font-size:14px;color:'+(isSel?'#fff':'#8B95A5')+';flex-shrink:0"></i>'
@@ -7927,7 +8110,7 @@ function renderAtivosImobilizados(){
       const qtdAlerta=lista.filter(temAlertaAtivo).length;
       const contemSel=cat===catSel;
 
-      const header='<div class="aloj-secao-row" onclick="ativoImobCategoriasAbertas[\''+chave+'\']='+(!aberto)+';renderAtivosImobilizados()" style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:#fff;border:1px solid '+(contemSel?'#1D9E75':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:'+(aberto?'6':'6')+'px">'
+      const header='<div class="aloj-secao-row" onclick="ativoImobCategoriasAbertas[\''+chave+'\']='+(!aberto)+';renderAtivosImobilizados()" style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:#fff;border:1px solid '+(contemSel?'#1F5FA6':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:'+(aberto?'6':'6')+'px">'
         +'<div style="display:flex;align-items:center;gap:8px;min-width:0">'
         +'<i class="ti ti-chevron-down" style="font-size:12px;color:#8B95A5;flex-shrink:0;transform:rotate('+(aberto?'0deg':'-90deg')+')"></i>'
         +'<i class="ti ti-'+(iconeCat[cat]||'package')+'" style="font-size:15px;color:#4B5160;flex-shrink:0"></i>'
@@ -7943,7 +8126,7 @@ function renderAtivosImobilizados(){
         const isSel=String(a.id)===String(sel.id);
         const alerta=temAlertaAtivo(a);
         const obraCod=multiObra?(obras.find(o=>String(o.id)===String(obraAtualDoAtivo(a)))?.codigo||'—'):'';
-        return '<div class="item aloj-item" onclick="ativoImobSelecionadoId=\''+a.id+'\';renderAtivosImobilizados()" style="background:'+(isSel?'#1D9E75':'#fff')+';border:1px solid '+(isSel?'#1D9E75':'#D8DAE0')+';border-radius:4px;padding:9px 12px;cursor:pointer;margin-bottom:6px">'
+        return '<div class="item aloj-item" onclick="ativoImobSelecionadoId=\''+a.id+'\';renderAtivosImobilizados()" style="background:'+(isSel?'#1F5FA6':'#fff')+';border:1px solid '+(isSel?'#1F5FA6':'#D8DAE0')+';border-radius:4px;padding:9px 12px;cursor:pointer;margin-bottom:6px">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
           +'<div style="display:flex;align-items:center;gap:8px;min-width:0">'
           +(fotosDoAtivo(a.id)[0]
@@ -8628,7 +8811,7 @@ function renderProcedimentos(){
         const isSel=String(p.id)===String(sel.id);
         const vAtual=versaoAtualProc(p.id);
         const alerta=!vAtual||!vAtual.arquivo_url;
-        return '<div class="item aloj-item" onclick="procSelecionadoId=\''+p.id+'\';renderProcedimentos()" style="background:'+(isSel?'#1D9E75':'#fff')+';border:1px solid '+(isSel?'#1D9E75':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:6px;'+(p.obsoleto?'opacity:.6':'')+'">'
+        return '<div class="item aloj-item" onclick="procSelecionadoId=\''+p.id+'\';renderProcedimentos()" style="background:'+(isSel?'#1F5FA6':'#fff')+';border:1px solid '+(isSel?'#1F5FA6':'#D8DAE0')+';border-radius:4px;padding:10px 12px;cursor:pointer;margin-bottom:6px;'+(p.obsoleto?'opacity:.6':'')+'">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
           +'<div style="display:flex;align-items:center;gap:8px;min-width:0">'
           +'<i class="ti ti-file-text" style="font-size:14px;color:'+(isSel?'#fff':'#8B95A5')+';flex-shrink:0"></i>'
@@ -10231,16 +10414,12 @@ let efetivoFuncaoExpandida=''; // '' | 'PRESENTE' | 'AUSENTE'
 // (uma query simples sem paginação trunca silenciosamente em 1000 registros, cortando dados mais
 // antigos quando ordenado por data desc — foi o que escondia o Efetivo de obras com lançamentos antigos).
 async function fetchAllPaginado(tabela,ordenarPor){
-  const PAGE=1000;
-  let de=0,tudo=[];
-  while(true){
-    const{data,error}=await sb.from(tabela).select('*').order(ordenarPor,{ascending:false}).range(de,de+PAGE-1);
-    if(error){console.error('fetchAllPaginado erro em '+tabela+':',error);break;}
-    tudo=tudo.concat(data||[]);
-    if(!data||data.length<PAGE)break;
-    de+=PAGE;
-  }
-  return tudo;
+  // Ordenar só por data gera empates; sem desempate por id, linhas podem repetir ou sumir entre páginas.
+  const mk=()=>sb.from(tabela).select('*').order(ordenarPor,{ascending:false});
+  let res=await _pagRun(mk,true);
+  if(res.error)res=await _pagRun(mk,false);
+  if(res.error){console.error('fetchAllPaginado erro em '+tabela+':',res.error);return[];}
+  return res.data||[];
 }
 
 async function loadEfetivo(){
@@ -11803,7 +11982,8 @@ function renderContratacoesCandidatos(){
     </table></div>`;
 }
 
-function exportContratacoesExcel(){
+async function exportContratacoesExcel(){
+  try{await garantirXLSXStyle();}catch(e){showToast('Não foi possível carregar o gerador de Excel. Verifique a conexão.','error');return;}
  try{
   const{ativos,lista}=ctrCandidatosFiltrados();
   if(!lista.length){showToast('Nenhum candidato para exportar.','error');return;}
@@ -11871,7 +12051,7 @@ function exportContratacoesExcel(){
   const STATUS_COLORS={
     em_processo:{bg:'FAEEDA',fg:'BA7517'},
     aguardando_integracao:{bg:'E6F1FB',fg:'185FA5'},
-    integracao_liberada:{bg:'E1F5EE',fg:'0F6E56'},
+    integracao_liberada:{bg:'E3EEFB',fg:'123F73'},
     integrado:{bg:'EAF3DE',fg:'3B6D11'},
     desistiu:{bg:'FCEBEB',fg:'E24B4A'},
   };
@@ -11894,20 +12074,20 @@ function exportContratacoesExcel(){
   ws['!rows']=rowHeights;
 
   // Título
-  ws['A1'].s={font:{bold:true,sz:14,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1D9E75'}},alignment:{vertical:'center',horizontal:'left',indent:1}};
+  ws['A1'].s={font:{bold:true,sz:14,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1F5FA6'}},alignment:{vertical:'center',horizontal:'left',indent:1}};
   // Subtítulo
-  ws['A2'].s={font:{italic:true,sz:10,color:{rgb:'6B7280'}},fill:{fgColor:{rgb:'E1F5EE'}},alignment:{vertical:'center',horizontal:'left',indent:1}};
+  ws['A2'].s={font:{italic:true,sz:10,color:{rgb:'6B7280'}},fill:{fgColor:{rgb:'E3EEFB'}},alignment:{vertical:'center',horizontal:'left',indent:1}};
 
   // Cabeçalho da tabela
   for(let c=0;c<NCOL;c++){
     const addr=XLSXStyle.utils.encode_cell({r:headerRowIdx,c});
-    if(ws[addr])ws[addr].s={font:{bold:true,color:{rgb:'FFFFFF'},sz:11},fill:{fgColor:{rgb:'0F6E56'}},alignment:{vertical:'center',horizontal:'center'},border:borderAll};
+    if(ws[addr])ws[addr].s={font:{bold:true,color:{rgb:'FFFFFF'},sz:11},fill:{fgColor:{rgb:'123F73'}},alignment:{vertical:'center',horizontal:'center'},border:borderAll};
   }
 
   // Linhas de grupo (função)
   grupoRowsIdx.forEach(r=>{
     const addr=XLSXStyle.utils.encode_cell({r,c:0});
-    if(ws[addr])ws[addr].s={font:{bold:true,sz:11,color:{rgb:'0F6E56'}},fill:{fgColor:{rgb:'E1F5EE'}},alignment:{vertical:'center',horizontal:'left',indent:1},border:{bottom:thin}};
+    if(ws[addr])ws[addr].s={font:{bold:true,sz:11,color:{rgb:'123F73'}},fill:{fgColor:{rgb:'E3EEFB'}},alignment:{vertical:'center',horizontal:'left',indent:1},border:{bottom:thin}};
   });
 
   // Linhas de dados: bordas, zebra e cor de status
@@ -11967,12 +12147,12 @@ function exportContratacoesExcel(){
   const wsRes=XLSXStyle.utils.aoa_to_sheet(resumoRows);
   wsRes['!cols']=[{wch:34},{wch:14},{wch:8}];
   wsRes['!merges']=[{s:{r:0,c:0},e:{r:0,c:2}},{s:{r:1,c:0},e:{r:1,c:2}}];
-  if(wsRes['A1'])wsRes['A1'].s={font:{bold:true,sz:14,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1D9E75'}},alignment:{vertical:'center',horizontal:'left',indent:1}};
-  if(wsRes['A2'])wsRes['A2'].s={font:{italic:true,sz:10,color:{rgb:'6B7280'}},fill:{fgColor:{rgb:'E1F5EE'}},alignment:{vertical:'center',horizontal:'left',indent:1}};
+  if(wsRes['A1'])wsRes['A1'].s={font:{bold:true,sz:14,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1F5FA6'}},alignment:{vertical:'center',horizontal:'left',indent:1}};
+  if(wsRes['A2'])wsRes['A2'].s={font:{italic:true,sz:10,color:{rgb:'6B7280'}},fill:{fgColor:{rgb:'E3EEFB'}},alignment:{vertical:'center',horizontal:'left',indent:1}};
   [3,13].forEach(r=>{
     for(let c=0;c<2;c++){
       const addr=XLSXStyle.utils.encode_cell({r,c});
-      if(wsRes[addr])wsRes[addr].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'0F6E56'}},border:borderAll};
+      if(wsRes[addr])wsRes[addr].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'123F73'}},border:borderAll};
     }
   });
   for(let r=4;r<resumoRows.length;r++){
