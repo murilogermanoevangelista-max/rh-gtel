@@ -8028,6 +8028,84 @@ function renderVeiculos(){
 // ═══════════════════════════════════════════════════════════════════
 // ATIVO IMOBILIZADO
 // ═══════════════════════════════════════════════════════════════════
+// ═══ Galeria de fotos do Ativo GTEL (todas as fotos, setas, miniaturas, teclado e deslize) ═══
+function abrirGaleriaAtivo(ativoId,idx){
+  const fotos=fotosDoAtivo(ativoId);
+  if(!fotos.length)return;
+  const a=ativosImob.find(x=>String(x.id)===String(ativoId));
+  window._galAtivo={titulo:a?(a.descricao||'Fotos do ativo'):'Fotos do ativo',urls:fotos.map(f=>f.foto_url),idx:Math.min(Math.max(idx||0,0),fotos.length-1)};
+  fecharGaleriaAtivo();
+  document.body.insertAdjacentHTML('beforeend',`
+    <div id="galeria-ativo" style="position:fixed;inset:0;background:rgba(0,0,0,.93);z-index:10000;display:flex;flex-direction:column" onclick="if(event.target===this)fecharGaleriaAtivo()">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;color:#fff;flex-shrink:0">
+        <div style="min-width:0">
+          <div id="gal-titulo" style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+          <div id="gal-contador" style="font-size:12px;opacity:.7"></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;flex-shrink:0">
+          <a id="gal-abrir" target="_blank" rel="noopener" style="color:#fff;font-size:12px;text-decoration:underline;opacity:.85">Abrir original</a>
+          <span onclick="fecharGaleriaAtivo()" title="Fechar (Esc)" style="font-size:28px;line-height:1;cursor:pointer;opacity:.85;user-select:none">✕</span>
+        </div>
+      </div>
+      <div id="gal-palco" style="flex:1;min-height:0;position:relative;display:flex;align-items:center;justify-content:center;padding:0 56px" onclick="if(event.target===this)fecharGaleriaAtivo()">
+        <button id="gal-prev" onclick="galNavegarAtivo(-1)" title="Anterior (←)" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);width:40px;height:40px;border-radius:50%;border:none;background:rgba(255,255,255,.18);color:#fff;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-left"></i></button>
+        <img id="gal-img" src="" alt="" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:6px;box-shadow:0 8px 40px rgba(0,0,0,.6)">
+        <button id="gal-next" onclick="galNavegarAtivo(1)" title="Próxima (→)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);width:40px;height:40px;border-radius:50%;border:none;background:rgba(255,255,255,.18);color:#fff;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-right"></i></button>
+      </div>
+      <div id="gal-thumbs" style="display:flex;gap:8px;overflow-x:auto;padding:12px 18px 16px;flex-shrink:0"></div>
+    </div>`);
+  const palco=document.getElementById('gal-palco');
+  let x0=null;
+  palco.addEventListener('touchstart',e=>{x0=e.touches[0].clientX;},{passive:true});
+  palco.addEventListener('touchend',e=>{
+    if(x0===null)return;
+    const dx=e.changedTouches[0].clientX-x0;x0=null;
+    if(Math.abs(dx)>50)galNavegarAtivo(dx<0?1:-1);
+  });
+  if(!window._galKeyOk){
+    window._galKeyOk=true;
+    document.addEventListener('keydown',e=>{
+      if(!document.getElementById('galeria-ativo'))return;
+      if(e.key==='Escape')fecharGaleriaAtivo();
+      else if(e.key==='ArrowLeft')galNavegarAtivo(-1);
+      else if(e.key==='ArrowRight')galNavegarAtivo(1);
+    });
+  }
+  galRenderAtivo();
+}
+function fecharGaleriaAtivo(){
+  const el=document.getElementById('galeria-ativo');
+  if(el)el.remove();
+}
+function galNavegarAtivo(delta){
+  const g=window._galAtivo;
+  if(!g||g.urls.length<2)return;
+  g.idx=(g.idx+delta+g.urls.length)%g.urls.length;
+  galRenderAtivo();
+}
+function galIrAtivo(i){
+  const g=window._galAtivo;
+  if(!g)return;
+  g.idx=i;
+  galRenderAtivo();
+}
+function galRenderAtivo(){
+  const g=window._galAtivo;
+  if(!g||!document.getElementById('galeria-ativo'))return;
+  const n=g.urls.length;
+  document.getElementById('gal-titulo').textContent=g.titulo;
+  document.getElementById('gal-contador').textContent=`Foto ${g.idx+1} de ${n}`;
+  document.getElementById('gal-img').src=g.urls[g.idx];
+  document.getElementById('gal-abrir').href=g.urls[g.idx];
+  document.getElementById('gal-prev').style.display=n>1?'flex':'none';
+  document.getElementById('gal-next').style.display=n>1?'flex':'none';
+  const th=document.getElementById('gal-thumbs');
+  th.style.display=n>1?'flex':'none';
+  th.innerHTML=g.urls.map((u,i)=>`<img src="${u}" onclick="galIrAtivo(${i})" style="width:64px;height:64px;flex-shrink:0;border-radius:6px;object-fit:cover;cursor:pointer;border:2px solid ${i===g.idx?'#fff':'transparent'};opacity:${i===g.idx?1:.55};${i===0?'margin-left:auto;':''}${i===n-1?'margin-right:auto;':''}">`).join('');
+  const ativa=th.children[g.idx];
+  if(ativa&&ativa.scrollIntoView)ativa.scrollIntoView({inline:'center',block:'nearest'});
+}
+
 function renderAtivosImobilizados(){
   const hoje=new Date();hoje.setHours(0,0,0,0);
 
@@ -8232,7 +8310,7 @@ function renderAtivosImobilizados(){
         +'<div style="background:#fff;border:1px solid #E0E2E7;border-top:none;padding:12px 18px;font-size:12px;color:#6B7280">'
           +'<div style="display:flex;align-items:center;gap:12px">'
           +(fotosDoAtivo(sel.id).length
-            ?'<div style="display:flex;gap:6px">'+fotosDoAtivo(sel.id).slice(0,5).map(f=>'<a href="'+f.foto_url+'" target="_blank"><img src="'+f.foto_url+'" style="width:56px;height:56px;border-radius:6px;object-fit:cover;border:1px solid #E0E2E7"></a>').join('')+(fotosDoAtivo(sel.id).length>5?'<div style="width:56px;height:56px;border-radius:6px;background:var(--bg);border:1px solid #E0E2E7;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--text-muted)">+'+(fotosDoAtivo(sel.id).length-5)+'</div>':'')+'</div>'
+            ?'<div style="display:flex;gap:6px;flex-wrap:wrap;max-width:560px">'+fotosDoAtivo(sel.id).slice(0,8).map((f,i)=>'<img src="'+f.foto_url+'" onclick="abrirGaleriaAtivo(\''+sel.id+'\','+i+')" title="Ampliar foto '+(i+1)+'" style="width:56px;height:56px;border-radius:6px;object-fit:cover;border:1px solid #E0E2E7;cursor:zoom-in">').join('')+(fotosDoAtivo(sel.id).length>8?'<div onclick="abrirGaleriaAtivo(\''+sel.id+'\',8)" title="Ver todas as '+fotosDoAtivo(sel.id).length+' fotos" style="width:56px;height:56px;border-radius:6px;background:var(--bg);border:1px solid #E0E2E7;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--primary);cursor:pointer">+'+(fotosDoAtivo(sel.id).length-8)+'</div>':'')+'</div>'
             :'<div style="width:56px;height:56px;border-radius:6px;background:var(--bg);border:1px solid #E0E2E7;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#C9CCD3"><i class="ti ti-photo" style="font-size:22px"></i></div>')
           +'<div>Patrimônio '+escHtml(sel.patrimonio_numero||'—')+' · Série '+escHtml(sel.serie_numero||'—')+' · '+escHtml(sel.categoria||'—')+' · Obra: '+escHtml(obraAtualSel?.codigo||'—')+'</div>'
           +'</div>'
@@ -8301,9 +8379,9 @@ function openModalAtivoImob(id){
             <span style="font-size:11px;font-weight:700;color:var(--text-muted)">${a?fotosDoAtivo(a.id).length:0} foto(s) anexada(s)</span>
           </div>
           <div id="ai-fotos-existentes" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-            ${a?fotosDoAtivo(a.id).map(f=>`
+            ${a?fotosDoAtivo(a.id).map((f,i)=>`
               <div style="position:relative;width:72px;height:72px">
-                <img src="${f.foto_url}" style="width:72px;height:72px;border-radius:6px;object-fit:cover;border:1px solid var(--border)">
+                <img src="${f.foto_url}" onclick="abrirGaleriaAtivo('${a.id}',${i})" title="Ampliar" style="width:72px;height:72px;border-radius:6px;object-fit:cover;border:1px solid var(--border);cursor:zoom-in">
                 <span onclick="excluirFotoAtivo('${f.id}','${a.id}')" title="Remover foto" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--danger);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;cursor:pointer;line-height:1">✕</span>
               </div>`).join(''):''}
           </div>
@@ -8587,7 +8665,9 @@ function abrirModalResponsavelAtivo(ativoId){
       <div style="display:flex;align-items:center;gap:8px">
         ${atual.termo_url?`<a href="${atual.termo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-file-text"></i> Ver termo</a>`:`<span style="font-size:11px;font-weight:700;color:#991B1B;background:#FEE2E2;padding:3px 9px;border-radius:20px">SEM TERMO</span>`}
         <label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-upload"></i> ${atual.termo_url?'Trocar':'Anexar'} termo<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAtivo('${atual.id}',this)"></label>
+        ${atual.termo_url?`<button class="btn btn-sm" onclick="removerTermoAtivo('${atual.id}','${ativoId}')" title="Remover o termo anexado (anexado por engano)"><i class="ti ti-file-off"></i></button>`:''}
         <button class="btn btn-sm btn-danger" onclick="encerrarResponsavelAtivo('${atual.id}','${ativoId}')" title="Encerrar (o bem foi passado pra outra pessoa ou devolvido)"><i class="ti ti-x"></i></button>
+        <button class="btn btn-sm btn-danger" onclick="excluirResponsavelAtivo('${atual.id}','${ativoId}')" title="Excluir lançamento (feito por engano) — apaga o registro e o termo"><i class="ti ti-trash"></i></button>
       </div>
     </div>`:'<div style="color:var(--text-muted);font-size:13px;padding:10px 0">Nenhum responsável definido ainda.</div>';
 
@@ -8655,7 +8735,7 @@ function abrirModalResponsavelAtivo(ativoId){
         </div>
         ${historico.length?`<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
           <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Histórico (${historico.length})</div>
-          ${historico.map(r=>`<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-muted)"><div style="display:flex;align-items:center;justify-content:space-between"><span>${escHtml(nomeDe(r))} · ${formatDate(r.data_recebimento)||'—'} → ${formatDate(r.data_fim)||'—'}</span>${r.termo_url?`<a href="${r.termo_url}" target="_blank" style="color:var(--primary)">Ver termo</a>`:''}</div><div style="font-size:11px;margin-top:1px">NF ${escHtml(r.nota_fiscal_numero||'—')}${r.obra?' · Obra '+escHtml(r.obra?.codigo||''):''}</div></div>`).join('')}
+          ${historico.map(r=>`<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-muted)"><div style="display:flex;align-items:center;justify-content:space-between"><span>${escHtml(nomeDe(r))} · ${formatDate(r.data_recebimento)||'—'} → ${formatDate(r.data_fim)||'—'}</span><span style="display:flex;align-items:center;gap:8px">${r.termo_url?`<a href="${r.termo_url}" target="_blank" style="color:var(--primary)">Ver termo</a><a style="color:var(--text-muted);cursor:pointer" onclick="removerTermoAtivo('${r.id}','${ativoId}')" title="Remover o termo anexado"><i class="ti ti-file-off"></i></a>`:''}<a style="color:var(--danger);cursor:pointer" onclick="excluirResponsavelAtivo('${r.id}','${ativoId}')" title="Excluir lançamento (feito por engano)"><i class="ti ti-trash"></i></a></span></div><div style="font-size:11px;margin-top:1px">NF ${escHtml(r.nota_fiscal_numero||'—')}${r.obra?' · Obra '+escHtml(r.obra?.codigo||''):''}</div></div>`).join('')}
         </div>`:''}
       </div>
       <div class="modal-footer"><button class="btn" onclick="closeModal('modal-resp-ativo')">Fechar</button></div>
@@ -8732,6 +8812,57 @@ async function encerrarResponsavelAtivo(respId,ativoId){
   if(!confirm('Encerrar esse responsável para este ativo?'))return;
   await sb.from('ativos_imob_responsaveis').update({data_fim:new Date().toISOString().slice(0,10)}).eq('id',respId);
   showToast('Responsável encerrado.');
+  await loadAtivosImobilizados();
+  abrirModalResponsavelAtivo(ativoId);
+  renderAtivosImobilizados();
+}
+// Remove o arquivo do storage a partir da URL pública (melhor esforço; não impede a operação se falhar)
+async function ctrRemoverArquivoAtivoStorage(url){
+  try{
+    const marca='/ativos-imobilizados/';
+    const idx=(url||'').indexOf(marca);
+    if(idx>=0)await sb.storage.from('ativos-imobilizados').remove([decodeURIComponent(url.slice(idx+marca.length).split('?')[0])]);
+  }catch(e){console.warn('[Ativo GTEL] arquivo não removido do storage:',e);}
+}
+async function removerTermoAtivo(respId,ativoId){
+  const r=ativosImobResponsaveis.find(x=>String(x.id)===String(respId));
+  if(!r||!r.termo_url)return;
+  if(!confirm('Remover o termo anexado deste lançamento?\n\nO arquivo será apagado e o ativo volta a aparecer como "sem termo" até um novo termo ser anexado.'))return;
+  const{data,error}=await sb.from('ativos_imob_responsaveis').update({termo_url:null}).eq('id',respId).select();
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  if(!data||!data.length){showToast('Não foi possível remover o termo (sem permissão ou registro não encontrado).','error');return;}
+  await ctrRemoverArquivoAtivoStorage(r.termo_url);
+  showToast('Termo removido.');
+  await loadAtivosImobilizados();
+  abrirModalResponsavelAtivo(ativoId);
+  renderAtivosImobilizados();
+}
+async function excluirResponsavelAtivo(respId,ativoId){
+  const r=ativosImobResponsaveis.find(x=>String(x.id)===String(respId));
+  if(!r)return;
+  const nome=r.eh_terceirizado?r.nome:(r.funcionario?.nome_completo||r.nome||'—');
+  if(!confirm(`Excluir o lançamento de "${nome}" deste ativo?\n\nUse só para lançamento feito por engano: o registro e o termo anexado serão apagados definitivamente. Para apenas devolver o bem, use "Encerrar".`))return;
+  // Se era o responsável atual, o anterior foi encerrado na data de recebimento deste: oferece reativá-lo
+  let reativar=null;
+  if(!r.data_fim){
+    const anteriores=ativosImobResponsaveis
+      .filter(x=>String(x.ativo_id)===String(ativoId)&&String(x.id)!==String(respId)&&x.data_fim)
+      .sort((a,b)=>(b.data_fim||'').localeCompare(a.data_fim||'')||(b.data_recebimento||'').localeCompare(a.data_recebimento||''));
+    const cand=anteriores[0];
+    if(cand&&cand.data_fim===r.data_recebimento){
+      const nomeAnt=cand.eh_terceirizado?cand.nome:(cand.funcionario?.nome_completo||cand.nome||'—');
+      if(confirm(`O responsável anterior era "${nomeAnt}".\n\nReativá-lo como responsável atual do ativo?`))reativar=cand;
+    }
+  }
+  const{data,error}=await sb.from('ativos_imob_responsaveis').delete().eq('id',respId).select();
+  if(error){showToast('Erro ao excluir: '+error.message,'error');return;}
+  if(!data||!data.length){showToast('Não foi possível excluir (sem permissão ou registro não encontrado).','error');return;}
+  if(r.termo_url)await ctrRemoverArquivoAtivoStorage(r.termo_url);
+  if(reativar){
+    await sb.from('ativos_imob_responsaveis').update({data_fim:null}).eq('id',reativar.id);
+    if(reativar.obra_id)await sb.from('ativos_imobilizados').update({obra_id:reativar.obra_id}).eq('id',ativoId);
+  }
+  showToast(reativar?'Lançamento excluído e responsável anterior reativado.':'Lançamento excluído.');
   await loadAtivosImobilizados();
   abrirModalResponsavelAtivo(ativoId);
   renderAtivosImobilizados();
@@ -11474,7 +11605,7 @@ const DOCS_CONTRATACAO=[
   ['cert_eletrica','Certificado de Elétrica'],
 ];
 
-let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesFiltroNome='',contratacoesFiltroEtapa='',contratacoesFiltroDocPendente=false,contratacoesFiltroEtapaData='',contratacoesFiltroData='',contratacoesVagasFiltroObra='',contratacoesVagasFiltroObraTocado=false,contratacoesVagasFiltroFalta=false,ctrFuncaoModoManual=false,prospBusca='',prospFiltroFuncao='',prospFiltroRetorno='',prospFuncaoModoManual=false,desistBusca='',desistFiltroFuncao='',desistFiltroTipo='';
+let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesFiltroNome='',contratacoesFiltroEtapa='',contratacoesFiltroDocPendente=false,contratacoesFiltroEtapaData='',contratacoesFiltroData='',contratacoesVagasFiltroObra='',contratacoesVagasFiltroObraTocado=false,contratacoesVagasFiltroFalta=false,ctrFuncaoModoManual=false,prospBusca='',prospFiltroFuncao='',prospFiltroRetorno='',prospFuncaoModoManual=false,desistBusca='',desistFiltroFuncao='',desistFiltroTipo='',histBusca='',histFiltroFuncao='',histFiltroObra='',histFiltroMes='';
 
 function ctrAddDiasUteis(dataISO,dias){
   if(!dataISO)return null;
@@ -11518,7 +11649,6 @@ const CTR_ETAPAS=[
   {key:'envio_dp',label:'Envio DP → Registro',test:c=>!!c.data_envio_dp,icon:'ti-send'},
   {key:'integracao_prevista',label:'Aguardando Integração',test:c=>c.status==='aguardando_integracao',icon:'ti-calendar-event',todosStatus:true},
   {key:'integracao_liberada',label:'Integração Liberada',test:c=>c.status==='integracao_liberada',icon:'ti-lock-open',todosStatus:true},
-  {key:'mobilizacao',label:'Integrado',test:c=>c.status==='integrado',icon:'ti-plane-departure',todosStatus:true},
 ];
 function ctrStatusInfo(status){
   const map={
@@ -11565,7 +11695,7 @@ async function ctrAutoSyncStatusIntegracao(silencioso){
     await sb.from('contratacoes').update({status:alvo}).eq('id',c.id);
   }
   await loadContratacoes();
-  if(!silencioso)showToast(`${pendentes.length} candidato(s) com status sincronizado!`);
+  if(!silencioso){const nInt=pendentes.filter(c=>c.data_viagem_mobilizacao).length;showToast(`${pendentes.length} candidato(s) com status sincronizado!`+(nInt?` ${nInt} foi(ram) para o Histórico.`:''));}
   return true;
 }
 function renderContratacoes(){
@@ -11575,6 +11705,7 @@ function renderContratacoes(){
     ctrAutoSyncProspeccoes().then(mudou=>{if(mudou&&contratacoesTab==='prospeccao')renderContratacoesProspeccao();});
   }
   else if(contratacoesTab==='desistencias')renderContratacoesDesistencias();
+  else if(contratacoesTab==='historico')renderContratacoesHistorico();
   else{
     renderContratacoesCandidatos();
   }
@@ -11724,7 +11855,8 @@ async function ctrConfirmarData(id,campo,valor){
 }
 
 function ctrCandidatosFiltrados(){
-  const ativos=contratacoes.filter(c=>c.status!=='desistiu'&&(!globalObraFiltro||String(c.obra_id)===String(globalObraFiltro)));
+  // Integrados já concluíram o processo: ficam só na aba Histórico, fora de listas, cards e totais.
+  const ativos=contratacoes.filter(c=>c.status!=='desistiu'&&c.status!=='integrado'&&(!globalObraFiltro||String(c.obra_id)===String(globalObraFiltro)));
   const lista=ativos.filter(c=>{
     if(contratacoesFiltroStatus&&c.status!==contratacoesFiltroStatus)return false;
     if(contratacoesFiltroFuncao&&String(c.funcao_id)!==String(contratacoesFiltroFuncao))return false;
@@ -11764,14 +11896,15 @@ function renderContratacoesCandidatos(){
   const total=ativosFuncao.length;
   // Em Processo e Admitidos são mutuamente exclusivos (Admitido = já em_processo com data de
   // admissão confirmada, mas ainda não avançou para Aguardando Integração), assim como
-  // Aguardando Integração e Integrados já são status distintos. Soma das 4 = total.
+  // Aguardando Integração e Integrados já são status distintos. Integrados não entram aqui: vão para a aba Histórico.
   const emProcesso=ativosFuncao.filter(c=>c.status==='em_processo'&&!c.data_prevista_admissao).length;
   const admitidos=ativosFuncao.filter(c=>c.status==='em_processo'&&!!c.data_prevista_admissao).length;
   const aguardando=ativosFuncao.filter(c=>c.status==='aguardando_integracao').length;
   const integracaoLiberada=ativosFuncao.filter(c=>c.status==='integracao_liberada').length;
-  const integrados=ativosFuncao.filter(c=>c.status==='integrado').length;
+  // Integrados (Histórico): fora do total do processo, mas ainda contam como vaga preenchida.
+  const integrados=contratacoes.filter(c=>c.status==='integrado'&&(!globalObraFiltro||String(c.obra_id)===String(globalObraFiltro))&&(!contratacoesFiltroFuncao||String(c.funcao_id)===String(contratacoesFiltroFuncao))).length;
   const totalPrevisto=contratacoesVagas.filter(v=>(!globalObraFiltro||String(v.obra_id)===String(globalObraFiltro))&&(!contratacoesFiltroFuncao||String(v.funcao_id)===String(contratacoesFiltroFuncao))).reduce((s,v)=>s+(v.quantidade_prevista||0),0);
-  const faltaCaptacao=Math.max(totalPrevisto-total,0);
+  const faltaCaptacao=Math.max(totalPrevisto-(total+integrados),0);
 
   const listaOrdenada=lista.slice().sort((a,b)=>{
     const fa=(a.funcao?.nome||'Sem função').toUpperCase();
@@ -11895,7 +12028,7 @@ function renderContratacoesCandidatos(){
 
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
-      <div><div class="page-title"><i class="ti ti-user-plus"></i> Contratações</div><div class="page-subtitle">${total} candidato(s) cadastrado(s)</div></div>
+      <div><div class="page-title"><i class="ti ti-user-plus"></i> Contratações</div><div class="page-subtitle">${total} candidato(s) em processo · ${integrados} no Histórico</div></div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-sm" onclick="ctrAutoSyncStatusIntegracao(false).then(mudou=>{if(mudou)renderContratacoes()})" title="Corrige o status de candidatos cuja data de Integração/Mobilização já foi lançada"><i class="ti ti-refresh"></i> Sincronizar Status</button>
         <button class="btn btn-sm" onclick="exportContratacoesExcel()"><i class="ti ti-file-type-xls"></i> Exportar Excel</button>
@@ -11907,6 +12040,7 @@ function renderContratacoesCandidatos(){
       <div class="exp-tab${contratacoesTab==='prospeccao'?' active':''}" onclick="contratacoesTab='prospeccao';renderContratacoes()">Prospecção</div>
       <div class="exp-tab${contratacoesTab==='vagas'?' active':''}" onclick="contratacoesTab='vagas';renderContratacoes()">Vagas Previstas</div>
       <div class="exp-tab${contratacoesTab==='desistencias'?' active':''}" onclick="contratacoesTab='desistencias';renderContratacoes()">Desistências</div>
+      <div class="exp-tab${contratacoesTab==='historico'?' active':''}" onclick="contratacoesTab='historico';renderContratacoes()"><i class="ti ti-history"></i> Histórico</div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:10px;margin-bottom:16px">
       <div class="metric-card" onclick="contratacoesTab='vagas';contratacoesVagasFiltroFalta=false;renderContratacoes()" style="cursor:pointer;border-color:var(--border)">
@@ -11930,8 +12064,8 @@ function renderContratacoesCandidatos(){
       <div class="metric-card" onclick="contratacoesFiltroStatus='integracao_liberada';contratacoesFiltroEtapa='';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${contratacoesFiltroStatus==='integracao_liberada'?'var(--primary-dark)':'var(--border)'}">
         <div class="metric-label">Integração Liberada</div><div class="metric-value">${integracaoLiberada}</div>
       </div>
-      <div class="metric-card green" onclick="contratacoesFiltroStatus='integrado';contratacoesFiltroEtapa='';renderContratacoesCandidatos()" style="cursor:pointer;border-color:${contratacoesFiltroStatus==='integrado'?'var(--success)':'var(--border)'}">
-        <div class="metric-label">Integrados</div><div class="metric-value">${integrados}</div>
+      <div class="metric-card green" onclick="contratacoesTab='historico';renderContratacoes()" title="Integrados saem do processo e ficam no Histórico" style="cursor:pointer;border-color:var(--success)">
+        <div class="metric-label"><i class="ti ti-history"></i> Histórico</div><div class="metric-value">${integrados}</div>
       </div>
     </div>
     ${funcoesEmProcessoHtml}
@@ -11955,7 +12089,6 @@ function renderContratacoesCandidatos(){
         <option value="em_processo" ${contratacoesFiltroStatus==='em_processo'?'selected':''}>Em Processo</option>
         <option value="aguardando_integracao" ${contratacoesFiltroStatus==='aguardando_integracao'?'selected':''}>Aguardando Integração</option>
         <option value="integracao_liberada" ${contratacoesFiltroStatus==='integracao_liberada'?'selected':''}>Integração Liberada</option>
-        <option value="integrado" ${contratacoesFiltroStatus==='integrado'?'selected':''}>Integrado</option>
       </select>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text);cursor:pointer;white-space:nowrap;padding:0 4px">
         <input type="checkbox" ${contratacoesFiltroDocPendente?'checked':''} onchange="contratacoesFiltroDocPendente=this.checked;renderContratacoesCandidatos()" style="width:15px;height:15px">
@@ -12117,8 +12250,8 @@ async function exportContratacoesExcel(){
   const admitidos=ativos.filter(c=>c.status==='em_processo'&&!!c.data_prevista_admissao).length;
   const aguardando=ativos.filter(c=>c.status==='aguardando_integracao').length;
   const integracaoLiberada=ativos.filter(c=>c.status==='integracao_liberada').length;
-  const integrados=ativos.filter(c=>c.status==='integrado').length;
-  const faltaCaptacao=Math.max(totalPrevisto-ativos.length,0);
+  const integrados=contratacoes.filter(c=>c.status==='integrado'&&(!globalObraFiltro||String(c.obra_id)===String(globalObraFiltro))).length;
+  const faltaCaptacao=Math.max(totalPrevisto-(ativos.length+integrados),0);
 
   const funcoesMap={};
   ativos.filter(c=>c.status==='em_processo').forEach(c=>{
@@ -12134,12 +12267,12 @@ async function exportContratacoesExcel(){
     ['INDICADOR','VALOR',''],
     ['Vagas Previstas',totalPrevisto,''],
     ['Falta Captação',faltaCaptacao,''],
-    ['Total de Candidatos',ativos.length,''],
+    ['Candidatos em processo',ativos.length,''],
     ['Em Processo',emProcesso,''],
     ['Admitidos',admitidos,''],
     ['Aguardando Integração',aguardando,''],
     ['Integração Liberada',integracaoLiberada,''],
-    ['Integrados',integrados,''],
+    ['Integrados (Histórico)',integrados,''],
     ['','',''],
     ['FUNÇÕES EM PROCESSO','QTD.',''],
     ...funcoesArr.map(([nome,qtd])=>[nome,qtd,'']),
@@ -12259,6 +12392,7 @@ function renderContratacoesVagas(){
       <div class="exp-tab${contratacoesTab==='prospeccao'?' active':''}" onclick="contratacoesTab='prospeccao';renderContratacoes()">Prospecção</div>
       <div class="exp-tab${contratacoesTab==='vagas'?' active':''}" onclick="contratacoesTab='vagas';renderContratacoes()">Vagas Previstas</div>
       <div class="exp-tab${contratacoesTab==='desistencias'?' active':''}" onclick="contratacoesTab='desistencias';renderContratacoes()">Desistências</div>
+      <div class="exp-tab${contratacoesTab==='historico'?' active':''}" onclick="contratacoesTab='historico';renderContratacoes()"><i class="ti ti-history"></i> Histórico</div>
     </div>
     <div class="filters">
       <select class="filter-select" onchange="contratacoesVagasFiltroObra=this.value;contratacoesVagasFiltroObraTocado=true;renderContratacoesVagas()">
@@ -12342,6 +12476,7 @@ function renderContratacoesProspeccao(){
       <div class="exp-tab${contratacoesTab==='prospeccao'?' active':''}" onclick="contratacoesTab='prospeccao';renderContratacoes()">Prospecção</div>
       <div class="exp-tab${contratacoesTab==='vagas'?' active':''}" onclick="contratacoesTab='vagas';renderContratacoes()">Vagas Previstas</div>
       <div class="exp-tab${contratacoesTab==='desistencias'?' active':''}" onclick="contratacoesTab='desistencias';renderContratacoes()">Desistências</div>
+      <div class="exp-tab${contratacoesTab==='historico'?' active':''}" onclick="contratacoesTab='historico';renderContratacoes()"><i class="ti ti-history"></i> Histórico</div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
       <div class="metric-card" onclick="prospFiltroRetorno='';renderContratacoesProspeccao()" style="cursor:pointer;border-color:${!prospFiltroRetorno?'var(--primary)':'var(--border)'}">
@@ -12568,6 +12703,7 @@ function renderContratacoesDesistencias(){
       <div class="exp-tab${contratacoesTab==='prospeccao'?' active':''}" onclick="contratacoesTab='prospeccao';renderContratacoes()">Prospecção</div>
       <div class="exp-tab${contratacoesTab==='vagas'?' active':''}" onclick="contratacoesTab='vagas';renderContratacoes()">Vagas Previstas</div>
       <div class="exp-tab${contratacoesTab==='desistencias'?' active':''}" onclick="contratacoesTab='desistencias';renderContratacoes()">Desistências</div>
+      <div class="exp-tab${contratacoesTab==='historico'?' active':''}" onclick="contratacoesTab='historico';renderContratacoes()"><i class="ti ti-history"></i> Histórico</div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
       <div class="metric-card" onclick="desistFiltroTipo='';renderContratacoesDesistencias()" style="cursor:pointer;border-color:${!desistFiltroTipo?'var(--primary)':'var(--border)'}">
@@ -12602,6 +12738,181 @@ function renderContratacoesDesistencias(){
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
+}
+
+// ═══ HISTÓRICO — candidatos Admitidos e Integrados (saem do processo) ═══
+function ctrDataIntegracao(c){return c.data_integracao||c.data_viagem_mobilizacao||c.data_prevista_chegada||null;}
+function ctrDiasProcesso(c){
+  const ini=(c.created_at||'').slice(0,10)||c.data_exame||null;
+  const fim=ctrDataIntegracao(c);
+  if(!ini||!fim)return null;
+  const d=Math.round((new Date(fim+'T12:00:00')-new Date(ini+'T12:00:00'))/86400000);
+  return d>=0?d:null;
+}
+function ctrHistoricoBase(){
+  return contratacoes.filter(c=>c.status==='integrado'&&(!globalObraFiltro||String(c.obra_id)===String(globalObraFiltro)));
+}
+function ctrHistoricoFiltrado(){
+  const base=ctrHistoricoBase();
+  const lista=base.filter(c=>{
+    if(histFiltroFuncao&&String(c.funcao_id)!==String(histFiltroFuncao))return false;
+    if(histFiltroObra&&String(c.obra_id)!==String(histFiltroObra))return false;
+    if(histFiltroMes&&(ctrDataIntegracao(c)||'').slice(0,7)!==histFiltroMes)return false;
+    if(histBusca){
+      const b=histBusca.toLowerCase();
+      return(c.nome||'').toLowerCase().includes(b)||(c.origem||'').toLowerCase().includes(b)||(c.funcao?.nome||'').toLowerCase().includes(b);
+    }
+    return true;
+  }).sort((a,b)=>(ctrDataIntegracao(b)||'').localeCompare(ctrDataIntegracao(a)||'')||(a.nome||'').localeCompare(b.nome||'','pt-BR'));
+  return{base,lista};
+}
+function ctrMesLabel(ym){
+  const[y,m]=ym.split('-');
+  const nomes=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  return`${nomes[parseInt(m,10)-1]}/${y}`;
+}
+function renderContratacoesHistorico(){
+  const{base,lista}=ctrHistoricoFiltrado();
+  const mesAtual=ctrHojeISO().slice(0,7);
+  const esteMes=base.filter(c=>(ctrDataIntegracao(c)||'').slice(0,7)===mesAtual).length;
+  const dias=lista.map(ctrDiasProcesso).filter(d=>d!==null);
+  const mediaDias=dias.length?Math.round(dias.reduce((a,b)=>a+b,0)/dias.length):null;
+  const semFicha=lista.filter(c=>!c.funcionario_id).length;
+
+  const meses=[...new Set(base.map(c=>(ctrDataIntegracao(c)||'').slice(0,7)).filter(Boolean))].sort().reverse();
+  const mesOpts=meses.map(m=>`<option value="${m}" ${histFiltroMes===m?'selected':''}>${ctrMesLabel(m)}</option>`).join('');
+  const funcaoOpts=ctrFuncoesUnicas().map(f=>`<option value="${f.id}" ${histFiltroFuncao===String(f.id)?'selected':''}>${f.nome}</option>`).join('');
+  const obraOpts=obras.map(o=>`<option value="${o.id}" ${histFiltroObra===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
+
+  const rows=lista.map(c=>{
+    const d=ctrDiasProcesso(c);
+    const obraLabel=c.obra?`${c.obra.codigo?c.obra.codigo+' — ':''}${c.obra.nome||''}`:'—';
+    const nomeEsc=(c.nome||'').replace(/'/g,"\\'");
+    return`<tr>
+      <td>
+        ${nomeFichaHtml(c.funcionario_id,c.nome)}
+        ${c.origem?`<div style="font-size:11px;color:var(--text-muted)">${c.origem}</div>`:''}
+        ${c.funcionario_id?'':'<div style="font-size:10px;color:var(--warning)"><i class="ti ti-alert-triangle"></i> sem ficha em Funcionários</div>'}
+      </td>
+      <td style="font-size:12px">${c.funcao?.nome||'—'}</td>
+      <td style="font-size:12px">${obraLabel}</td>
+      <td style="font-size:12px">${ctrFmtData(c.data_prevista_admissao)}</td>
+      <td style="font-size:12px">${ctrFmtData(ctrDataIntegracao(c))}</td>
+      <td style="font-size:12px;text-align:center">${d!==null?d+' dia(s)':'—'}</td>
+      <td style="font-size:12px;max-width:220px">${c.observacao||'<span style="color:var(--text-muted)">—</span>'}</td>
+      <td>
+        <div class="action-btns">
+          <button class="btn btn-sm" onclick="openModalContratacao('${c.id}')" title="Ver / editar cadastro"><i class="ti ti-edit"></i></button>
+          <button class="btn btn-sm" onclick="ctrReabrirCandidato('${c.id}')" title="Reabrir: devolve ao processo de Candidatos"><i class="ti ti-arrow-back-up"></i></button>
+          <button class="btn btn-sm btn-danger" onclick="deleteContratacao('${c.id}','${nomeEsc}')" title="Excluir"><i class="ti ti-trash"></i></button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="8"><div class="empty-state"><i class="ti ti-history"></i><div>Nenhum candidato integrado no Histórico</div></div></td></tr>';
+
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title"><i class="ti ti-user-plus"></i> Contratações</div><div class="page-subtitle">Histórico — candidatos já admitidos e integrados (fora do processo em andamento)</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="exportContratacoesHistoricoExcel()"><i class="ti ti-file-type-xls"></i> Exportar Excel</button>
+      </div>
+    </div>
+    <div class="exp-tabs">
+      <div class="exp-tab${contratacoesTab==='candidatos'?' active':''}" onclick="contratacoesTab='candidatos';renderContratacoes()">Candidatos</div>
+      <div class="exp-tab${contratacoesTab==='prospeccao'?' active':''}" onclick="contratacoesTab='prospeccao';renderContratacoes()">Prospecção</div>
+      <div class="exp-tab${contratacoesTab==='vagas'?' active':''}" onclick="contratacoesTab='vagas';renderContratacoes()">Vagas Previstas</div>
+      <div class="exp-tab${contratacoesTab==='desistencias'?' active':''}" onclick="contratacoesTab='desistencias';renderContratacoes()">Desistências</div>
+      <div class="exp-tab${contratacoesTab==='historico'?' active':''}" onclick="contratacoesTab='historico';renderContratacoes()"><i class="ti ti-history"></i> Histórico</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+      <div class="metric-card green"><div class="metric-label">Integrados (total)</div><div class="metric-value">${base.length}</div></div>
+      <div class="metric-card"><div class="metric-label">Neste mês</div><div class="metric-value">${esteMes}</div></div>
+      <div class="metric-card" title="Do cadastro do candidato até a integração (média da lista filtrada)"><div class="metric-label">Tempo médio do processo</div><div class="metric-value">${mediaDias!==null?mediaDias+' d':'—'}</div></div>
+      <div class="metric-card${semFicha>0?' amber':''}" title="Integrados sem vínculo com a ficha em Funcionários"><div class="metric-label">Sem ficha vinculada</div><div class="metric-value">${semFicha}</div></div>
+    </div>
+    <div class="filters">
+      <div class="search-box"><i class="ti ti-search"></i>
+        <input placeholder="Buscar por nome, origem ou função..." value="${histBusca}"
+          oninput="histBusca=this.value;if(!_buscaHandlers.hist)_buscaHandlers.hist=makeBuscaHandler(v=>histBusca=v,renderContratacoesHistorico,300);_buscaHandlers.hist(this.value);this.focus()">
+      </div>
+      <select class="filter-select" onchange="histFiltroFuncao=this.value;renderContratacoesHistorico()">
+        <option value="">Todas as funções</option>${funcaoOpts}
+      </select>
+      <select class="filter-select" onchange="histFiltroObra=this.value;renderContratacoesHistorico()">
+        <option value="">Todas as obras</option>${obraOpts}
+      </select>
+      <select class="filter-select" onchange="histFiltroMes=this.value;renderContratacoesHistorico()">
+        <option value="">Todos os meses</option>${mesOpts}
+      </select>
+      <button class="btn btn-sm" onclick="histBusca='';histFiltroFuncao='';histFiltroObra='';histFiltroMes='';renderContratacoesHistorico()"><i class="ti ti-x"></i> Limpar</button>
+    </div>
+    <div class="table-container"><table>
+      <thead><tr>
+        <th>Candidato</th><th>Função</th><th>Obra</th><th>Admissão</th><th>Integração</th><th>Duração</th><th>Observação</th><th>Ações</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+async function ctrReabrirCandidato(id){
+  const c=contratacoes.find(x=>x.id===id);
+  if(!c)return;
+  if(!confirm(`Reabrir ${c.nome}?\n\nEle volta para a lista de Candidatos e sai do Histórico.`))return;
+  const alvo=c.data_integracao_liberada?'integracao_liberada':((c.data_integracao_prevista||c.data_prevista_admissao)?'aguardando_integracao':'em_processo');
+  const{error}=await sb.from('contratacoes').update({status:alvo,data_integracao:null}).eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast(c.data_viagem_mobilizacao
+    ?`${c.nome} voltou ao processo. Atenção: a data de mobilização continua lançada — apague-a no cadastro, senão "Sincronizar Status" o devolve ao Histórico.`
+    :`${c.nome} voltou para Candidatos.`);
+  contratacoesTab='candidatos';
+  await loadContratacoes();renderContratacoes();
+}
+
+async function exportContratacoesHistoricoExcel(){
+  try{await garantirXLSXStyle();}catch(e){showToast('Não foi possível carregar o gerador de Excel. Verifique a conexão.','error');return;}
+  try{
+    const{lista}=ctrHistoricoFiltrado();
+    if(!lista.length){showToast('Nenhum registro para exportar.','error');return;}
+    const dataEmissao=new Date().toLocaleDateString('pt-BR');
+    const NCOL=8;
+    const head=['NOME','FUNÇÃO','OBRA','ORIGEM','ADMISSÃO','INTEGRAÇÃO','DURAÇÃO (DIAS)','OBSERVAÇÃO'];
+    const rows=[
+      ['HISTÓRICO DE CONTRATAÇÕES — GTEL','','','','','','',''],
+      [`Emitido em: ${dataEmissao}  ·  ${lista.length} integrado(s)`,'','','','','','',''],
+      new Array(NCOL).fill(''),
+      head,
+      ...lista.map(c=>{
+        const d=ctrDiasProcesso(c);
+        return[c.nome||'',c.funcao?.nome||'',c.obra?`${c.obra.codigo?c.obra.codigo+' — ':''}${c.obra.nome||''}`:'',c.origem||'',
+          ctrFmtData(c.data_prevista_admissao),ctrFmtData(ctrDataIntegracao(c)),d!==null?d:'',c.observacao||''];
+      })
+    ];
+    const ws=XLSXStyle.utils.aoa_to_sheet(rows);
+    ws['!cols']=[{wch:32},{wch:24},{wch:28},{wch:18},{wch:12},{wch:12},{wch:14},{wch:36}];
+    ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:NCOL-1}},{s:{r:1,c:0},e:{r:1,c:NCOL-1}}];
+    const borda={top:{style:'thin',color:{rgb:'DCE5F0'}},bottom:{style:'thin',color:{rgb:'DCE5F0'}},left:{style:'thin',color:{rgb:'DCE5F0'}},right:{style:'thin',color:{rgb:'DCE5F0'}}};
+    if(ws['A1'])ws['A1'].s={font:{bold:true,sz:14,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1F5FA6'}},alignment:{vertical:'center',horizontal:'left',indent:1}};
+    if(ws['A2'])ws['A2'].s={font:{italic:true,sz:10,color:{rgb:'6B7280'}},fill:{fgColor:{rgb:'E3EEFB'}},alignment:{vertical:'center',horizontal:'left',indent:1}};
+    for(let c=0;c<NCOL;c++){
+      const a=XLSXStyle.utils.encode_cell({r:3,c});
+      if(ws[a])ws[a].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'123F73'}},border:borda,alignment:{horizontal:'center',vertical:'center'}};
+    }
+    for(let r=4;r<rows.length;r++){
+      for(let c=0;c<NCOL;c++){
+        const a=XLSXStyle.utils.encode_cell({r,c});
+        if(ws[a])ws[a].s={border:borda,font:{sz:10},alignment:{vertical:'center',horizontal:c<=3||c===7?'left':'center'}};
+      }
+    }
+    const wb=XLSXStyle.utils.book_new();
+    XLSXStyle.utils.book_append_sheet(wb,ws,'Histórico');
+    const obraId=histFiltroObra||globalObraFiltro;
+    const sufixo=obraId?`_${(obras.find(o=>String(o.id)===String(obraId))?.codigo)||'Obra'}`:'_TodasObras';
+    XLSXStyle.writeFile(wb,`Historico_Contratacoes_GTEL${sufixo}_${dataEmissao.replace(/\//g,'-')}.xlsx`);
+    showToast(`Excel exportado — ${lista.length} integrado(s)!`);
+  }catch(err){
+    console.error('Erro ao exportar Histórico:',err);
+    showToast('Erro ao exportar Excel: '+(err?.message||err),'error');
+  }
 }
 
 function toggleFuncaoModoCtr(){
@@ -12923,14 +13234,22 @@ async function saveContratacao(id){
     data_viagem_mobilizacao:document.getElementById('proj-viagem').value||null,
     data_prevista_chegada:document.getElementById('proj-chegada').value||null,
   };
+  let indoParaHistorico=false;
   if(payload.status==='integrado'){
     const atual=id?contratacoes.find(x=>x.id===id):null;
+    indoParaHistorico=!atual||atual.status!=='integrado';
+    if(indoParaHistorico){
+      let msg=`Marcar ${nome} como Integrado vai tirá-lo da lista de Candidatos e enviá-lo ao Histórico.`;
+      if(!payload.data_prevista_admissao)msg+='\n\nAtenção: a data de admissão ainda não foi lançada.';
+      msg+='\n\nContinuar?';
+      if(!confirm(msg))return;
+    }
     payload.data_integracao=atual?.data_integracao||toISO(new Date());
   }
   payload.data_desistencia=payload.status==='desistiu'?(document.getElementById('ctr-data-desistencia').value||ctrHojeISO()):null;
   const{error}=id?await sb.from('contratacoes').update(payload).eq('id',id):await sb.from('contratacoes').insert(payload);
   if(error){showToast('Erro: '+error.message,'error');return;}
-  showToast(id?'Candidato atualizado!':'Candidato cadastrado!');
+  showToast(indoParaHistorico?`${nome} foi para o Histórico.`:(id?'Candidato atualizado!':'Candidato cadastrado!'));
   closeModal('modal-contratacao');
   if(payload.status==='desistiu')contratacoesTab='desistencias';
   await loadContratacoes();renderContratacoes();
