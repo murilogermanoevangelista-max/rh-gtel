@@ -8226,10 +8226,10 @@ function renderAtivosImobilizados(){
     const obraAtualSel=obras.find(o=>String(o.id)===String(obraAtualIdSel));
     const historico=historicoResponsaveis(sel.id);
     const documentos=[
-      ...(sel.nf_remessa_url?[{nome:'NF de Remessa — '+(sel.nf_remessa_numero||'s/nº'),url:sel.nf_remessa_url}]:[]),
-      ...(sel.nf_venda_url?[{nome:'NF de Venda — '+(sel.nf_venda_numero||'s/nº'),url:sel.nf_venda_url}]:[]),
-      ...(respAtual&&respAtual.termo_url?[{nome:'Termo assinado — '+(nomeResponsavel(respAtual)||'atual'),url:respAtual.termo_url}]:[]),
-      ...historico.filter(h=>h.termo_url).map(h=>({nome:'Termo assinado — '+(nomeResponsavel(h)||'—')+' (histórico)',url:h.termo_url})),
+      ...(sel.nf_remessa_url?[{nome:'NF de Remessa — '+(sel.nf_remessa_numero||'s/nº'),url:sel.nf_remessa_url,tipo:'nf_remessa',id:sel.id}]:[]),
+      ...(sel.nf_venda_url?[{nome:'NF de Venda — '+(sel.nf_venda_numero||'s/nº'),url:sel.nf_venda_url,tipo:'nf_venda',id:sel.id}]:[]),
+      ...(respAtual&&respAtual.termo_url?[{nome:'Termo assinado — '+(nomeResponsavel(respAtual)||'atual'),url:respAtual.termo_url,tipo:'termo',id:respAtual.id}]:[]),
+      ...historico.filter(h=>h.termo_url).map(h=>({nome:'Termo assinado — '+(nomeResponsavel(h)||'—')+' (histórico)',url:h.termo_url,tipo:'termo',id:h.id})),
     ];
 
     const secao=(key,icone,titulo,resumo,status,corStatus,bgStatus,onclickOuNull)=>{
@@ -8276,7 +8276,7 @@ function renderAtivosImobilizados(){
             +'</div>';
         } else if(s.key==='documentos'){
           expandido='<div style="padding:12px 18px 14px 42px;background:#FAFBFC;border-bottom:1px solid #EEF0F2">'
-            +(documentos.length?documentos.map(d=>'<div style="margin-bottom:6px"><a href="'+d.url+'" target="_blank" style="font-size:12.5px;color:#1D4ED8;display:flex;align-items:center;gap:6px"><i class="ti ti-file-text"></i>'+escHtml(d.nome)+'</a></div>').join('')
+            +(documentos.length?documentos.map(d=>'<div style="margin-bottom:6px;display:flex;align-items:center;gap:12px"><a href="'+d.url+'" target="_blank" style="font-size:12.5px;color:#1D4ED8;display:flex;align-items:center;gap:6px"><i class="ti ti-file-text"></i>'+escHtml(d.nome)+'</a><a onclick="excluirDocumentoAtivo(\''+d.tipo+'\',\''+d.id+'\',\''+sel.id+'\')" title="Excluir este anexo (anexado por engano)" style="color:#B91C1C;cursor:pointer;font-size:14px;display:inline-flex"><i class="ti ti-trash"></i></a></div>').join('')
               :'<div style="font-size:12.5px;color:var(--text-muted)">Nenhum documento anexado ainda.</div>')
             +'</div>';
         }
@@ -8824,7 +8824,7 @@ async function ctrRemoverArquivoAtivoStorage(url){
     if(idx>=0)await sb.storage.from('ativos-imobilizados').remove([decodeURIComponent(url.slice(idx+marca.length).split('?')[0])]);
   }catch(e){console.warn('[Ativo GTEL] arquivo não removido do storage:',e);}
 }
-async function removerTermoAtivo(respId,ativoId){
+async function removerTermoAtivo(respId,ativoId,semModal){
   const r=ativosImobResponsaveis.find(x=>String(x.id)===String(respId));
   if(!r||!r.termo_url)return;
   if(!confirm('Remover o termo anexado deste lançamento?\n\nO arquivo será apagado e o ativo volta a aparecer como "sem termo" até um novo termo ser anexado.'))return;
@@ -8834,7 +8834,23 @@ async function removerTermoAtivo(respId,ativoId){
   await ctrRemoverArquivoAtivoStorage(r.termo_url);
   showToast('Termo removido.');
   await loadAtivosImobilizados();
-  abrirModalResponsavelAtivo(ativoId);
+  if(!semModal)abrirModalResponsavelAtivo(ativoId);
+  renderAtivosImobilizados();
+}
+// Exclui um anexo listado na seção "Documentos" do ativo (NF de remessa, NF de venda ou termo assinado)
+async function excluirDocumentoAtivo(tipo,id,ativoId){
+  if(tipo==='termo'){await removerTermoAtivo(id,ativoId,true);return;}
+  const campo=tipo==='nf_venda'?'nf_venda_url':'nf_remessa_url';
+  const rotulo=tipo==='nf_venda'?'NF de Venda':'NF de Remessa';
+  const a=ativosImob.find(x=>String(x.id)===String(id));
+  if(!a||!a[campo])return;
+  if(!confirm(`Excluir o anexo da ${rotulo}?\n\nO arquivo será apagado. O número e os demais dados da nota são mantidos, e você pode anexar o arquivo correto depois pelo cadastro do ativo.`))return;
+  const{data,error}=await sb.from('ativos_imobilizados').update({[campo]:null}).eq('id',id).select();
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  if(!data||!data.length){showToast('Não foi possível excluir o anexo (sem permissão ou registro não encontrado).','error');return;}
+  await ctrRemoverArquivoAtivoStorage(a[campo]);
+  showToast(rotulo+': anexo excluído.');
+  await loadAtivosImobilizados();
   renderAtivosImobilizados();
 }
 async function excluirResponsavelAtivo(respId,ativoId){
