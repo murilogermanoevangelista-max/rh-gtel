@@ -4579,38 +4579,42 @@ function renderFeriasLocal(){
       var jaVenc  = limMax && limMax < hoje;
       var temProx = !!per2Ref;
 
-      // Usar fimPer para saber se o período aquisitivo já passou
+      // Período aquisitivo já terminou? (então as férias já estão adquiridas e precisam ser tiradas)
       var perAqVenc = fimPer && fimPer < hoje;
       var dM = limMax ? Math.floor((limMax-hoje)/86400000) : null;
+      var ideal = parseDate(f.dt_limite_ideal);
+      var dI = ideal ? Math.floor((ideal-hoje)/86400000) : null;
+      var linhaIdeal = ideal
+        ? '<br><span style="font-size:10px;color:' + (dI<0?'var(--danger)':dI<=60?'#b45309':'var(--text-muted)') + '">Limite ideal: <strong>' + formatDate(ideal) + '</strong> (' + (dI<0 ? Math.abs(dI)+'d atrás' : dI+'d') + ')</span>'
+        : '';
 
       if (jaVenc) {
-        // Limite máximo legal (dt_limite_maxima) já passou — risco legal real, independente de haver 2º período
+        // Limite máximo legal (dt_limite_maxima) já passou — risco legal real
         cor='var(--danger)'; bg='var(--danger-light)'; border='1px solid #FCA5A5'; icon='⚠️ ';
         corpo = '<span style="font-size:11px;font-weight:700;color:var(--danger)">1º Período Vencido</span>'
-              + '<br><span style="font-size:10px;color:var(--danger)">Férias não gozadas — ação necessária</span>';
-      } else if (temProx && perAqVenc) {
-        // Período aquisitivo já encerrou, mas o prazo legal (limite máx.) ainda não venceu — não é risco, apenas informativo
-        cor='var(--text-muted)'; bg='transparent'; border='none'; icon='';
-        corpo = '<span style="font-size:11px;color:var(--text-muted)">1º Período Encerrado'
-              + (dM!==null ? ' · '+dM+'d até o limite legal' : '') + '</span>';
-      } else if (temProx) {
-        // Período aquisitivo ainda vigente com 2º — discreto
-        cor='var(--text-muted)'; bg='transparent'; border='none'; icon='';
-        corpo = '<span style="font-size:11px;color:var(--text-muted)">1º Período em curso</span>';
-      } else {
-        // Único período, ainda vigente — mostrar data e contador normal
+              + '<br><span style="font-size:10px;color:var(--danger)">Férias não gozadas — ação necessária</span>'
+              + linhaIdeal;
+      } else if (perAqVenc) {
+        // Período aquisitivo completo e férias ainda não tiradas: é o período "em aberto" da planilha do DP
         var warnMax = dM!==null && dM<=60;
-        cor = warnMax?'var(--warning)':'var(--text)';
-        bg = warnMax?'var(--warning-light)':'transparent';
-        border = warnMax?'1px solid #FCD34D':'none';
-        icon = warnMax?'⏰ ':'';
-        corpo = dM!==null ? '<span style="font-size:11px;font-weight:600;color:'+cor+'">' + dM + 'd restantes · ' + dias + 'd</span>' : '';
+        cor = warnMax ? '#b45309' : 'var(--text)';
+        bg = warnMax ? 'var(--warning-light)' : 'var(--info-light)';
+        border = warnMax ? '1px solid #FCD34D' : '1px solid #BFDBFE';
+        icon = warnMax ? '⏰ ' : '';
+        corpo = '<span style="font-size:11px;font-weight:700;color:' + cor + '">Férias a tirar · ' + dias + 'd</span>'
+              + (dM!==null ? '<br><span style="font-size:11px;color:' + cor + '">' + dM + 'd até o limite máx.</span>' : '')
+              + linhaIdeal;
+      } else {
+        // Período aquisitivo ainda em curso
+        cor='var(--text-muted)'; bg='transparent'; border='none'; icon='';
+        corpo = '<span style="font-size:11px;color:var(--text-muted)">Período aquisitivo em curso'
+              + (dM!==null ? ' · ' + dM + 'd até o limite máx.' : '') + '</span>';
       }
     }
 
     // Retorno padrão para 1º período
     // Mostrar a data do limite legal sempre que for o caso de risco real (jaVenc) ou quando não há 2º período
-    var mostrarData = jaVenc || !temProx;
+    var mostrarData = true; // sempre mostra a data do limite máximo
     return '<td style="padding:8px 12px">'
       + '<div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;white-space:nowrap">' + perAqui + '</div>'
       + '<div style="background:' + bg + ';border:' + border + ';border-radius:6px;padding:6px 10px;display:inline-block;min-width:140px">'
@@ -4675,7 +4679,7 @@ function renderFeriasLocal(){
           <button class="prog-btn programada" style="font-size:11px;padding:3px 8px" onclick="openModalProgramarFerias('${f.id}')"><i class="ti ti-edit" style="font-size:11px"></i> Alterar</button>
           <button class="prog-btn" style="background:#FEE2E2;color:#991B1B;border-color:#FCA5A5;font-size:11px;padding:3px 8px" onclick="cancelarProgFerias('${f.id}')"><i class="ti ti-x" style="font-size:11px"></i> Cancelar</button>
         </div>`).join('')}
-      ${pendente?`<button class="prog-btn" style="font-size:11px;padding:3px 8px" onclick="openModalProgramarFerias('${pendente.id}')">📅 Programar${arr.length>1?' Per.'+(arr.indexOf(pendente)+1):''}</button>`:''}
+      ${pendente?`<button class="prog-btn" style="font-size:11px;padding:3px 8px" onclick="openModalProgramarFerias('${pendente.id}')">📅 Programar${arr.length>1?' '+(pendente.periodo_aquisitivo_inicio||'').slice(0,4)+'/'+(pendente.periodo_aquisitivo_fim||'').slice(2,4):''}</button>`:''}
       ${(per1&&!per1._projetado&&!per1.programado&&!per1.gozado_manual)?`<button class="prog-btn" style="font-size:11px;padding:3px 8px;background:var(--bg)" title="As férias do 1º período exibido já foram tiradas: tira da frente e mostra o próximo período" onclick="marcarPeriodoGozado('${per1.id}')">✔ 1º já gozado</button>`:''}
     </div>`;
     const progResume=programados.map(f=>
@@ -5316,11 +5320,14 @@ function processImportFile(file){
       }
       if(headerRow===-1){showToast('Formato de planilha não reconhecido — linha de cabeçalho não encontrada','error');return;}
 
-      const headers=data[headerRow].map(h=>String(h||'').toLowerCase().replace(/\s+/g,' ').trim());
+      // Normaliza (sem acento, minúsculo) para "Máximo", "Maximo", "Máx." etc. serem reconhecidos igual
+      const normHdr=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+      const headers=data[headerRow].map(normHdr);
 
       // Mapeamento por posição — busca flexível nos cabeçalhos
       function findCol(...terms){
-        return headers.findIndex(h=>terms.some(t=>h.includes(t)));
+        const ts=terms.map(normHdr);
+        return headers.findIndex(h=>ts.some(t=>h.includes(t)));
       }
       const COL={
         centroCusto: findCol('centro','custo'),         // col 1
@@ -5329,7 +5336,7 @@ function processImportFile(file){
         dataAdmis:   findCol('admis','admissão','admissao'), // col 4 — Data Admis.
         periodoAqui: findCol('aquisitivo','periodo a'),  // col 6 — string "DD/MM/YYYY  DD/MM/YYYY"
         dtIdeal:     findCol('ideal'),                   // col 7 se existir — Date (opcional)
-        dtMaxima:    findCol('maxima','máxima','limite max'),// col 8 — Date (NUNCA usar 'dt.limite' aqui: bate com "Dt.Limite Ideal" também e pega a coluna errada — ver Bug 3 abaixo)
+        dtMaxima:    findCol('maxim','limite max'),// col 8 — Date (NUNCA usar 'dt.limite' aqui: bate com "Dt.Limite Ideal" também e pega a coluna errada — ver Bug 3 abaixo)
         feriasVenc:  findCol('vencidas'),                // col 8
         totalFerias: findCol('total'),                   // col 12
       };
@@ -5342,7 +5349,8 @@ function processImportFile(file){
       if(COL.centroCusto===-1) COL.centroCusto=1;
       if(COL.dataAdmis===-1) COL.dataAdmis=4;
       if(COL.periodoAqui===-1) COL.periodoAqui=6;
-      if(COL.dtMaxima===-1)  COL.dtMaxima=7;
+      // Se não achou o cabeçalho do Limite Máximo, usa a coluna logo após a do Limite Ideal (nunca a própria coluna Ideal)
+      if(COL.dtMaxima===-1)  COL.dtMaxima=(COL.dtIdeal>=0?COL.dtIdeal+1:7);
       if(COL.feriasVenc===-1) COL.feriasVenc=8;
       if(COL.totalFerias===-1) COL.totalFerias=12;
       // dtIdeal não existe neste layout — deixar -1 para gravar null
