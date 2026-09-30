@@ -362,7 +362,17 @@ input:focus,select:focus{border-color:var(--primary)}
 <script>
 const SUPABASE_URL='https://lqggoshphakeuufibdno.supabase.co';
 const SUPABASE_KEY='sb_publishable_QlnJaa5xdUXePvXFV6QFwQ_AmMk639T';
-const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+// Token de sessão (emitido pelo servidor no login). Vai em todo request no header x-session-token;
+// as regras do banco (RLS) só liberam dados para quem tem uma sessão válida.
+window.__gtelToken=null;
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY,{global:{fetch:(url,opts={})=>{
+  if(!window.__gtelToken)return fetch(url,opts);
+  const h=new Headers(opts.headers||{});
+  h.set('x-session-token',window.__gtelToken);
+  return fetch(url,{...opts,headers:h});
+}}});
+// função ainda não criada no banco (script 01 não rodou)?
+function rpcAusente(error){return !!error&&(error.code==='PGRST202'||/could not find the function|Could not find the .* function/i.test(error.message||''));}
 
 let funcionarios=[],obras=[],obrasTodas=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosTodos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[],contratacoes=[],contratacoesVagas=[],contratacoesProspeccoes=[],folgasTranslados=[],movimentacoesHistorico=[],folgasCiclos=[],veiculos=[],veiculosCondutores=[],veiculosKm=[],veiculosRevisoes=[],veiculosAbastecimentos=[],ativosImob=[],ativosImobResponsaveis=[],procedimentos=[],procedimentosVersoes=[];
 let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'nao_lancadas' | null
@@ -428,6 +438,9 @@ function checkSessao(){
     const raw=sessionStorage.getItem(SESSION_KEY);
     if(!raw)return false;
     currentUser=JSON.parse(raw);
+    if(currentUser){delete currentUser.senha;delete currentUser.senha_hash;window.__gtelToken=currentUser.token||null;}
+    // Sessão criada pela versão antiga (sem token e sem modo compatível): exige novo login
+    if(currentUser&&!currentUser.token&&currentUser.modo!=='compat'){sessionStorage.removeItem(SESSION_KEY);currentUser=null;window.__gtelToken=null;return false;}
     return !!currentUser;
   }catch(e){return false;}
 }
@@ -441,19 +454,46 @@ async function fazerLogin(){
   const btn=document.getElementById('login-btn');
   btn.disabled=true;btn.innerHTML='<i class="ti ti-loader ti-spin"></i> Entrando...';
   try{
-    const{data,error}=await sb.from('usuarios_acesso').select('*').eq('usuario',usuario).maybeSingle();
-    if(error||!data||String(data.senha||'')!==senha||data.ativo===false){
-      erroEl.textContent='Usuário ou senha inválidos.';
-      erroEl.style.display='block';
-      btn.disabled=false;btn.innerHTML='<i class="ti ti-login"></i> Entrar';
-      return;
+    let dadosUsuario=null,token=null;
+    const{data:resp,error:rpcErr}=await sb.rpc('login_gtel',{p_usuario:usuario,p_senha:senha});
+    if(!rpcErr){
+      if(!resp||resp.ok!==true){
+        erroEl.textContent=resp&&resp.erro==='bloqueado'?'Muitas tentativas incorretas. Aguarde 15 minutos e tente novamente.':'Usuário ou senha inválidos.';
+        erroEl.style.display='block';
+        btn.disabled=false;btn.innerHTML='<i class="ti ti-login"></i> Entrar';
+        return;
+      }
+      dadosUsuario=resp.usuario;token=resp.token;
+    }else if(rpcAusente(rpcErr)){
+      // MODO COMPATÍVEL (temporário): o script de segurança 01 ainda não foi rodado no banco.
+      console.warn('[Segurança] login_gtel não existe no banco — usando login antigo. Rode o script 01.');
+      const{data,error}=await sb.from('usuarios_acesso').select('*').eq('usuario',usuario).maybeSingle();
+      if(error||!data||String(data.senha||'')!==senha||data.ativo===false){
+        erroEl.textContent='Usuário ou senha inválidos.';
+        erroEl.style.display='block';
+        btn.disabled=false;btn.innerHTML='<i class="ti ti-login"></i> Entrar';
+        return;
+      }
+      dadosUsuario={...data};delete dadosUsuario.senha;delete dadosUsuario.senha_hash;
+      sb.from('usuarios_acesso').update({ultimo_acesso:new Date().toISOString()}).eq('id',data.id).then(()=>{});
+    }else{
+      throw new Error(rpcErr.message);
     }
-    // Guarda o acesso ANTERIOR (antes de sobrescrever) para mostrar "Último acesso" no banner do
-    // Dashboard, e só depois atualiza para agora.
-    const agoraISO=new Date().toISOString();
-    currentUser={...data,ultimo_acesso_anterior:data.ultimo_acesso||null};
+    // ultimo_acesso que veio do servidor é o ANTERIOR (usado no banner do Dashboard)
+    currentUser={...dadosUsuario,ultimo_acesso_anterior:dadosUsuario.ultimo_acesso||null,token:token||null,modo:token?null:'compat'};
+    window.__gtelToken=token||null;
+    if(token){
+      // confere que o banco reconhece o token (garante que o header chegou)
+      try{
+        const{data:ok,error:vErr}=await sb.rpc('validar_sessao');
+        if(vErr||ok!==true)throw new Error(vErr?vErr.message:'sessão não reconhecida pelo banco');
+      }catch(e){
+        console.error('[Segurança] o banco não reconheceu o token de sessão:',e);
+        window.__gtelToken=null;currentUser.token=null;currentUser.modo='compat';
+        showToast('Atenção: proteção de sessão indisponível. Avise o responsável pelo sistema.','error');
+      }
+    }
     sessionStorage.setItem(SESSION_KEY,JSON.stringify(currentUser));
-    sb.from('usuarios_acesso').update({ultimo_acesso:agoraISO}).eq('id',data.id).then(()=>{});
     entrarNoApp();
   }catch(e){
     erroEl.textContent='Erro ao conectar: '+e.message;
@@ -464,9 +504,8 @@ async function fazerLogin(){
 
 function fazerLogout(){
   if(!confirm('Deseja realmente sair?'))return;
-  sessionStorage.removeItem(SESSION_KEY);
-  currentUser=null;obrasPermitidasIds=null;
-  location.reload();
+  const fim=()=>{sessionStorage.removeItem(SESSION_KEY);window.__gtelToken=null;currentUser=null;obrasPermitidasIds=null;location.reload();};
+  if(window.__gtelToken){sb.rpc('logout_gtel').then(fim,fim);}else{fim();}
 }
 
 // Navega para um módulo a partir de um alerta do Dashboard, já aplicando o filtro correspondente
@@ -6186,12 +6225,10 @@ function exportarTreinamentosExcel(){
 
 // ─── USUÁRIOS ─────────────────────────────────────────────────────────────────
 async function renderUsuarios(){
-  const{data:usuarios,error}=await sb.from('usuarios_acesso').select('*').order('nome');
-  if(error){showToast('Erro ao carregar usuários: '+error.message,'error');return;}
+  const{data:usuarios,error}=await sb.rpc('listar_usuarios');
+  if(error){showToast(rpcAusente(error)?'Rode o script de segurança 01 no Supabase para usar esta tela.':'Erro ao carregar usuários: '+error.message,'error');return;}
   const nivelBadge=n=>n==='admin'?'<span class="badge badge-red">Admin</span>':n==='gerente'?'<span class="badge badge-amber">Gerente</span>':'<span class="badge badge-blue">Usuário</span>';
   const rows=(usuarios||[]).map(u=>{
-    let senhaLeg='—';
-    try{if(u.senha)senhaLeg=u.senha;}catch(e){senhaLeg='(criptografada)'}
     const obrasIds=(u.obras_acesso||[]).map(String);
     const obrasCodigos=obrasIds.map(oid=>obras.find(o=>String(o.id)===oid)?.codigo).filter(Boolean);
     const obrasCell=obrasIds.length===0
@@ -6203,15 +6240,15 @@ async function renderUsuarios(){
       <td>${u.ativo===false?'<span class="badge badge-red">Inativo</span>':'<span class="badge badge-green">Ativo</span>'}</td>
       <td>
         <div style="display:flex;align-items:center;gap:6px">
-          <span style="font-family:monospace;font-size:12px;background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border)" id="pw-${u.id}">••••••••</span>
-          <button class="btn btn-sm" style="padding:2px 6px;font-size:11px" onclick="toggleSenha('${u.id}','${u.senha||''}')"><i class="ti ti-eye" id="eye-${u.id}"></i></button>
+          <span style="font-family:monospace;font-size:12px;color:var(--text-muted)">••••••••</span>
+          <button class="btn btn-sm" style="padding:2px 8px;font-size:11px" title="Definir uma nova senha para este usuário" onclick="openModalUsuario('${u.id}',true)"><i class="ti ti-key"></i> Redefinir</button>
         </div>
       </td>
       <td>${obrasCell}</td>
       <td>
         <div style="display:flex;gap:6px">
           <button class="btn btn-sm" onclick="openModalUsuario('${u.id}')"><i class="ti ti-edit"></i> Editar</button>
-          <button class="btn btn-sm btn-danger" onclick="if(confirm('Remover usuário?')){sb.from('usuarios_acesso').delete().eq('id','${u.id}').then(()=>{showToast('Usuário removido!');renderUsuarios();})}">
+          <button class="btn btn-sm btn-danger" onclick="excluirUsuario('${u.id}')">
             <i class="ti ti-trash"></i> Remover
           </button>
         </div>
@@ -6232,8 +6269,9 @@ async function renderUsuarios(){
     </div>`;
 }
 
-function openModalUsuario(id){
-  sb.from('usuarios_acesso').select('*').eq('id',id||'00000000-0000-0000-0000-000000000000').single().then(({data:u})=>{
+function openModalUsuario(id,focarSenha){
+  (id?sb.rpc('obter_usuario',{p_id:id}):Promise.resolve({data:null})).then(({data:u,error:uErr})=>{
+    if(uErr){showToast(rpcAusente(uErr)?'Rode o script de segurança 01 no Supabase.':'Erro: '+uErr.message,'error');return;}
     const isEdit=!!id;
     const obrasAtuais=new Set((u?.obras_acesso||[]).map(String));
     const obrasOrdenadas=[...obras].sort((a,b)=>(a.codigo||a.nome||'').localeCompare(b.codigo||b.nome||'','pt-BR',{sensitivity:'base'}));
@@ -6259,12 +6297,12 @@ function openModalUsuario(id){
                 <input type="text" id="u-email" value="${u?.usuario||''}" placeholder="Nome de usuário para login" autocomplete="off">
               </div>
               <div class="form-group" style="grid-column:1/-1">
-                <label>Senha *</label>
+                <label>${isEdit?'Nova senha':'Senha *'}</label>
                 <div style="display:flex;gap:6px">
-                  <input type="password" id="u-senha" value="${(u?.senha||'').replace(/"/g,'&quot;')}" placeholder="Senha de acesso" autocomplete="new-password" style="flex:1">
+                  <input type="password" id="u-senha" value="" placeholder="${isEdit?'Deixe em branco para manter a atual':'Mínimo de 8 caracteres'}" autocomplete="new-password" style="flex:1">
                   <button type="button" class="btn btn-sm" onclick="toggleSenhaModal()" id="u-senha-eye-btn"><i class="ti ti-eye" id="u-senha-eye"></i></button>
                 </div>
-                <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${isEdit?'Senha atual preenchida acima — clique no olho para ver, ou edite para trocar.':'Defina a senha de acesso do usuário.'}</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${isEdit?'A senha atual não pode ser exibida (fica criptografada). Preencha só se quiser trocá-la — mínimo de 8 caracteres.':'Defina a senha de acesso do usuário — mínimo de 8 caracteres.'}</div>
               </div>
               <div class="form-group">
                 <label>Nível de acesso *</label>
@@ -6299,6 +6337,7 @@ function openModalUsuario(id){
           </div>
         </div>
       </div>`);
+    if(focarSenha)setTimeout(()=>document.getElementById('u-senha')?.focus(),50);
   });
 
 }
@@ -6311,18 +6350,6 @@ function toggleSenhaModal(){
   else{inp.type='password';icon.className='ti ti-eye';}
 }
 
-function toggleSenha(id, hash){
-  const el=document.getElementById('pw-'+id);
-  const eye=document.getElementById('eye-'+id);
-  if(el.textContent==='••••••••'){
-    try{el.textContent=hash||'sem senha';}catch(e){el.textContent='(erro)';}
-    eye.className='ti ti-eye-off';
-  } else {
-    el.textContent='••••••••';
-    eye.className='ti ti-eye';
-  }
-}
-
 async function salvarUsuario(id){
   const nome=document.getElementById('u-nome').value.trim();
   const email=document.getElementById('u-email').value.trim();
@@ -6331,13 +6358,18 @@ async function salvarUsuario(id){
   const ativo=document.getElementById('u-ativo').value==='true';
   const obrasAcesso=[...document.querySelectorAll('.u-obra-chk:checked')].map(c=>c.value);
   if(!nome||!email){showToast('Nome e usuário são obrigatórios','error');return;}
-  if(!senha){showToast('Senha é obrigatória','error');return;}
-  const payload={nome,usuario:email,perfil:nivel,senha,obras_acesso:obrasAcesso,ativo};
-  let error;
-  if(id){({error}=await sb.from('usuarios_acesso').update(payload).eq('id',id));}
-  else{({error}=await sb.from('usuarios_acesso').insert({...payload,}));}
-  if(error){showToast('Erro: '+error.message,'error');return;}
+  if(!id&&!senha){showToast('Senha é obrigatória para novo usuário','error');return;}
+  if(senha&&senha.length<8){showToast('A senha deve ter pelo menos 8 caracteres','error');return;}
+  const dados={nome,usuario:email,perfil:nivel,obras_acesso:obrasAcesso,ativo};
+  const{error}=await sb.rpc('salvar_usuario',{p_id:id||null,p_dados:dados,p_senha:senha||null});
+  if(error){showToast(rpcAusente(error)?'Rode o script de segurança 01 no Supabase.':'Erro: '+error.message,'error');return;}
   showToast(id?'Usuário atualizado!':'Usuário criado!');closeModal('modal-usuario');renderUsuarios();
+}
+async function excluirUsuario(id){
+  if(!confirm('Remover usuário?'))return;
+  const{error}=await sb.rpc('excluir_usuario',{p_id:id});
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Usuário removido!');renderUsuarios();
 }
 
 async function toggleUsuarioAtivo(id,novoStatus,nome){
@@ -12817,8 +12849,26 @@ async function deleteVaga(id){
   await loadContratacoesVagas();renderContratacoes();
 }
 
+// Confere de tempos em tempos se a sessão ainda vale (o servidor renova a cada conferência).
+// Só desloga quando o servidor responde "inválida"; falha de rede é ignorada.
+async function verificarSessao(){
+  if(!window.__gtelToken)return;
+  try{
+    const{data,error}=await sb.rpc('validar_sessao');
+    if(error)return;
+    if(data===false){
+      sessionStorage.removeItem(SESSION_KEY);window.__gtelToken=null;
+      alert('Sua sessão expirou. Faça login novamente.');
+      location.reload();
+    }
+  }catch(e){}
+}
+setInterval(verificarSessao,5*60*1000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)verificarSessao();});
+
 if(checkSessao()){
   entrarNoApp();
+  verificarSessao();
 } else {
   document.getElementById('login-screen').style.display='flex';
 }
