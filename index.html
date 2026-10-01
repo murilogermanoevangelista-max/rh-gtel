@@ -1224,8 +1224,8 @@ async function showPage(page){
 // Planilha padrão importada → GRDs vinculadas às obras. Consulta por fornecedor, período, pedido e valor.
 // Tabelas: grd, grd_importacoes (histórico: quem/quando), grd_obra_mapa (correspondência obra da planilha → obra do sistema).
 let grdLista=[],grdImportacoes=[],grdObraMapa=[];
-let grdFiltro={forn:'',obra:'',de:'',ate:'',sit:'',q:'',vmin:'',vmax:''};
-let grdPagina=0,grdHistAberto=false,grdTimer=null;
+let grdFiltro={forn:'',obras:[],de:'',ate:'',sit:'',q:'',vmin:'',vmax:''};
+let grdPagina=0,grdHistAberto=false,grdTimer=null,grdObraBusca='',grdObraAberto=false;
 const GRD_POR_PAGINA=20;
 
 function grdBRL(n){return Number(n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
@@ -1308,7 +1308,7 @@ function grdFiltrar(){
   const vmin=grdParseValor(f.vmin),vmax=grdParseValor(f.vmax);
   return grdLista.filter(x=>{
     if(forn&&_semAcento(x.fornecedor).indexOf(forn)<0)return false;
-    if(f.obra&&String(x.obra_id)!==String(f.obra))return false;
+    if(f.obras.length&&!f.obras.includes(String(x.obra_id)))return false;
     if(f.de&&(!x.dt_emissao||x.dt_emissao<f.de))return false;
     if(f.ate&&(!x.dt_emissao||x.dt_emissao>f.ate))return false;
     if(f.sit&&grdSituacao(x,substSet)!==f.sit)return false;
@@ -1319,13 +1319,58 @@ function grdFiltrar(){
   });
 }
 
+// ── Filtro de Obra com seleção múltipla ──
+function grdObraOpcoes(){
+  const ids=[...new Set(grdLista.map(x=>x.obra_id).filter(Boolean).map(String))];
+  return ids.map(id=>({id,l:grdObraLabel(id)})).sort((a,b)=>a.l.localeCompare(b.l,'pt-BR'));
+}
+function grdObraBtnLabel(){
+  const n=grdFiltro.obras.length;
+  return n===0?'Todas as obras':(n===1?grdObraLabel(grdFiltro.obras[0]):n+' obras selecionadas');
+}
+function grdRenderObraLista(){
+  const el=document.getElementById('grd-obra-list');if(!el)return;
+  const q=_semAcento(grdObraBusca).trim();
+  const itens=grdObraOpcoes().filter(o=>!q||_semAcento(o.l).indexOf(q)>=0);
+  window._grdObraListadas=itens.map(o=>o.id);
+  el.innerHTML=itens.map((o,i)=>`<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:13px;font-weight:400;color:var(--text);cursor:pointer"><input type="checkbox" style="width:16px;height:16px;min-width:16px;padding:0;margin:0;flex:0 0 auto;cursor:pointer" ${grdFiltro.obras.includes(o.id)?'checked':''} onchange="grdToggleObra(${i})"> <span style="flex:1;text-align:left">${escHtml(o.l)}</span></label>`).join('')
+    ||'<div style="padding:10px;font-size:12px;color:var(--text-muted)">Nenhuma obra encontrada</div>';
+}
+function grdObraMudou(){
+  grdPagina=0;
+  const b=document.getElementById('grd-obra-btn-label');if(b)b.textContent=grdObraBtnLabel();
+  grdRenderObraLista();
+  grdAtualizar();
+}
+function grdToggleObra(i){
+  const id=(window._grdObraListadas||[])[i];if(id==null)return;
+  const k=grdFiltro.obras.indexOf(id);
+  if(k>=0)grdFiltro.obras.splice(k,1);else grdFiltro.obras.push(id);
+  grdObraMudou();
+}
+function grdMarcarObras(){
+  (window._grdObraListadas||[]).forEach(id=>{if(!grdFiltro.obras.includes(id))grdFiltro.obras.push(id);});
+  grdObraMudou();
+}
+function grdLimparObras(){grdFiltro.obras=[];grdObraMudou();}
+function grdTogglePainelObra(ev){
+  ev.stopPropagation();grdObraAberto=!grdObraAberto;
+  const p=document.getElementById('grd-obra-panel');if(p)p.style.display=grdObraAberto?'block':'none';
+  if(grdObraAberto){grdRenderObraLista();const i=document.getElementById('grd-obra-busca');if(i)i.focus();}
+}
+document.addEventListener('click',e=>{
+  if(!grdObraAberto||!e.target.isConnected)return;
+  if(e.target.closest('#grd-obra-wrap'))return;
+  grdObraAberto=false;const p=document.getElementById('grd-obra-panel');if(p)p.style.display='none';
+});
+
 function grdSetFiltro(campo,valor,adiar){
   grdFiltro[campo]=valor;grdPagina=0;
   if(grdTimer)clearTimeout(grdTimer);
   if(adiar)grdTimer=setTimeout(grdAtualizar,250);else grdAtualizar();
 }
 function grdLimparFiltros(){
-  grdFiltro={forn:'',obra:'',de:'',ate:'',sit:'',q:'',vmin:'',vmax:''};grdPagina=0;renderGRD();
+  grdFiltro={forn:'',obras:[],de:'',ate:'',sit:'',q:'',vmin:'',vmax:''};grdPagina=0;grdObraBusca='';grdObraAberto=false;renderGRD();
 }
 function grdIrPagina(p){grdPagina=p;grdAtualizar();}
 
@@ -1384,7 +1429,15 @@ function renderGRD(){
         <div style="grid-column:span 2"><label class="grd-lbl">Fornecedor (digite parte do nome)</label><input list="grd-dl-forn" value="${escHtml(f.forn)}" placeholder="ex.: luitex" oninput="grdSetFiltro('forn',this.value,true)"></div>
         <div><label class="grd-lbl">Emissão da GRD — de</label><input type="date" value="${f.de}" onchange="grdSetFiltro('de',this.value)"></div>
         <div><label class="grd-lbl">Emissão da GRD — até</label><input type="date" value="${f.ate}" onchange="grdSetFiltro('ate',this.value)"></div>
-        <div><label class="grd-lbl">Obra</label><select onchange="grdSetFiltro('obra',this.value)"><option value="">Todas as obras</option>${obraOpts.map(o=>`<option value="${o.id}" ${String(f.obra)===String(o.id)?'selected':''}>${escHtml(o.l)}</option>`).join('')}</select></div>
+        <div><label class="grd-lbl">Obra</label>
+          <div id="grd-obra-wrap" style="position:relative">
+            <button type="button" class="filter-select" style="width:100%;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;padding:8px 10px;font-size:13px" onclick="grdTogglePainelObra(event)"><span id="grd-obra-btn-label" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(grdObraBtnLabel())}</span><i class="ti ti-chevron-down"></i></button>
+            <div id="grd-obra-panel" style="display:${grdObraAberto?'block':'none'};position:absolute;top:100%;left:0;z-index:50;margin-top:4px;min-width:100%;width:max-content;max-width:440px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.15)">
+              <div style="padding:8px"><input id="grd-obra-busca" style="width:100%" placeholder="Buscar obra (código ou nome)..." value="${escHtml(grdObraBusca)}" oninput="grdObraBusca=this.value;grdRenderObraLista()"></div>
+              <div style="display:flex;justify-content:space-between;gap:16px;padding:0 10px 6px;font-size:12px"><a href="#" onclick="event.preventDefault();grdMarcarObras()">Marcar todas listadas</a><a href="#" onclick="event.preventDefault();grdLimparObras()">Limpar seleção</a></div>
+              <div id="grd-obra-list" style="max-height:260px;overflow-y:auto;border-top:1px solid var(--border)"></div>
+            </div>
+          </div></div>
         <div><label class="grd-lbl">Situação</label><select onchange="grdSetFiltro('sit',this.value)"><option value="">Todas</option><option value="pend" ${f.sit==='pend'?'selected':''}>Pendente de aprovação</option><option value="aprov" ${f.sit==='aprov'?'selected':''}>Aprovada</option><option value="subst" ${f.sit==='subst'?'selected':''}>Substituída</option></select></div>
         <div><label class="grd-lbl">Nº da GRD ou N. Fiscal</label><input value="${escHtml(f.q)}" placeholder="ex.: 26554 ou 979125" oninput="grdSetFiltro('q',this.value,true)"></div>
         <div><label class="grd-lbl">Valor da NF (R$)</label><div style="display:flex;gap:8px"><input value="${escHtml(f.vmin)}" placeholder="mín." inputmode="decimal" oninput="grdSetFiltro('vmin',this.value,true)"><input value="${escHtml(f.vmax)}" placeholder="máx." inputmode="decimal" oninput="grdSetFiltro('vmax',this.value,true)"></div></div>
@@ -1396,6 +1449,7 @@ function renderGRD(){
     </div>
     <div id="grd-resultado"></div>
     <style>.grd-lbl{display:block;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}</style>`;
+  grdRenderObraLista();
   grdAtualizar();
 }
 
@@ -1478,7 +1532,7 @@ function grdAtualizar(){
         <tbody>${fatia.map(x=>`<tr>
           <td>${badge(grdSituacao(x,substSet))}</td>
           <td style="font-weight:600;color:var(--primary-dark);white-space:nowrap">${grdNum10(x.numero)}</td>
-          <td style="white-space:nowrap">${escHtml(grdObraCodigo(x.obra_id))}</td>
+          <td style="white-space:nowrap" title="${escHtml(grdObraLabel(x.obra_id))}">${escHtml(grdObraCodigo(x.obra_id))}</td>
           <td style="white-space:nowrap">${formatDate(x.dt_emissao)}</td>
           <td style="white-space:nowrap">${formatDate(x.aprovado_em)}</td>
           <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(x.fornecedor)}">${escHtml(x.fornecedor)}</td>
@@ -1516,7 +1570,7 @@ function grdTextoFiltro(){
   const f=grdFiltro;
   const partes=[f.forn.trim()||'todos os fornecedores'];
   if(f.de||f.ate)partes.push((f.de?formatDate(f.de):'início')+' a '+(f.ate?formatDate(f.ate):'hoje'));
-  if(f.obra)partes.push('obra '+grdObraCodigo(f.obra));
+  if(f.obras.length)partes.push((f.obras.length>1?'obras ':'obra ')+[...new Set(f.obras.map(grdObraCodigo))].join(', '));
   if(f.sit)partes.push({pend:'pendentes',aprov:'aprovadas',subst:'substituídas'}[f.sit]);
   if(f.q.trim())partes.push('busca "'+f.q.trim()+'"');
   const vmin=grdParseValor(f.vmin),vmax=grdParseValor(f.vmax);
