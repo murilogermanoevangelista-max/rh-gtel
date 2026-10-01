@@ -1088,6 +1088,7 @@ const MODULOS=[
   {page:'transferencias-pendentes',grupo:'obras',icone:'ti-transfer',nome:'Transferências Pendentes',desc:'Aprovações entre obras',badge:'transf'},
   {page:'matriz',grupo:'obras',icone:'ti-map-2',nome:'Matriz de Comunicação',desc:'Mapa de contatos'},
   {page:'fornecedores',grupo:'obras',icone:'ti-truck-delivery',nome:'Fornecedores',desc:'Cadastro e orçamentos'},
+  {page:'grd',grupo:'obras',icone:'ti-file-invoice',nome:'G.R.D.',desc:'Guias, fornecedores e valores'},
   {page:'ativos-imobilizados',grupo:'patrimonio',icone:'ti-package',nome:'Ativo GTEL',desc:'Ferramentas e equipamentos'},
   {page:'procedimentos',grupo:'patrimonio',icone:'ti-file-text',nome:'Procedimentos',desc:'Procedimentos e formulários'},
   {page:'empresas',grupo:'admin',icone:'ti-briefcase',nome:'Empresas',desc:'Cadastro de empresas'},
@@ -1204,6 +1205,7 @@ async function showPage(page){
     else if(page==='veiculos'){await loadVeiculos();renderVeiculos();}
     else if(page==='ativos-imobilizados'){await loadAtivosImobilizados();await loadFornecedores();renderAtivosImobilizados();}
     else if(page==='procedimentos'){await loadProcedimentos();renderProcedimentos();}
+    else if(page==='grd'){await loadGRD();renderGRD();}
     else if(page==='prestadores'){await loadPrestadores();renderPrestadores();}
     else if(page==='efetivo'){efetivoSituacaoFiltro='';await loadEfetivo();renderEfetivo();}
     else if(page==='usuarios')renderUsuarios();
@@ -1217,6 +1219,469 @@ async function showPage(page){
     document.getElementById('main-content').innerHTML='<div style="padding:40px;color:var(--danger)"><i class="ti ti-alert-circle" style="font-size:32px;display:block;margin-bottom:12px"></i><strong>Erro ao carregar página "'+page+'"</strong><br><br><code style="font-size:12px">'+e.message+'</code><br><br><button class="btn" onclick="showPage(\''+page+'\')" >Tentar novamente</button></div>';
   }
 }
+
+// ─── MÓDULO G.R.D. (Guia de Remessa de Documentos) ──────────────────────────
+// Planilha padrão importada → GRDs vinculadas às obras. Consulta por fornecedor, período, pedido e valor.
+// Tabelas: grd, grd_importacoes (histórico: quem/quando), grd_obra_mapa (correspondência obra da planilha → obra do sistema).
+let grdLista=[],grdImportacoes=[],grdObraMapa=[];
+let grdFiltro={forn:'',obra:'',de:'',ate:'',sit:'',q:'',vmin:'',vmax:''};
+let grdPagina=0,grdHistAberto=false,grdTimer=null;
+const GRD_POR_PAGINA=20;
+
+function grdBRL(n){return Number(n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function grdNum10(n){return String(n).padStart(10,'0');}
+function grdDataHora(iso){
+  if(!iso)return'—';const d=new Date(iso);if(isNaN(d.getTime()))return'—';
+  return d.toLocaleDateString('pt-BR')+' às '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+}
+function grdChave(t){return String(t||'').replace(/\s+/g,' ').trim().toUpperCase();}
+function grdParseValor(t){
+  if(typeof t==='number')return isFinite(t)?t:null;
+  const s=String(t==null?'':t).trim().replace(/[R$\s]/g,'');
+  if(!s)return null;
+  const v=s.indexOf(',')>=0?parseFloat(s.replace(/\./g,'').replace(',','.')):parseFloat(s);
+  return isNaN(v)?null:v;
+}
+function grdDataValida(y,m,d){
+  if(y<2000||y>2100||m<1||m>12||d<1||d>31)return null;
+  const dt=new Date(Date.UTC(y,m-1,d));
+  if(dt.getUTCFullYear()!==y||dt.getUTCMonth()!==m-1||dt.getUTCDate()!==d)return null;
+  return y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+}
+function grdParseData(v){
+  if(v===''||v==null)return null;
+  if(typeof v==='number'){
+    if(v<20000||v>80000)return null;
+    const d=new Date(Math.round((v-25569)*86400000));
+    return grdDataValida(d.getUTCFullYear(),d.getUTCMonth()+1,d.getUTCDate());
+  }
+  if(v instanceof Date){return isNaN(v.getTime())?null:grdDataValida(v.getFullYear(),v.getMonth()+1,v.getDate());}
+  const s=String(v).trim();
+  let m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(m)return grdDataValida(+m[3],+m[2],+m[1]);
+  m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m)return grdDataValida(+m[1],+m[2],+m[3]);
+  return null;
+}
+function grdObraLabel(id){
+  const o=obras.find(x=>String(x.id)===String(id));
+  return o?(o.codigo?o.codigo+' — ':'')+o.nome:'—';
+}
+function grdObraCodigo(id){
+  const o=obras.find(x=>String(x.id)===String(id));
+  return o?(o.codigo||o.nome):'—';
+}
+function grdPermitida(obraId){
+  if(!obrasPermitidasIds)return true;
+  return !!obraId&&obrasPermitidasIds.has(String(obraId));
+}
+
+async function loadGRD(){
+  window._grdErroTabela=null;
+  const[g,i,m]=await Promise.all([
+    pagAll(r=>{let q=sb.from('grd').select('*');if(r)q=q.in('obra_id',[...obrasPermitidasIds]);return q.order('numero',{ascending:false});}),
+    pagAll(r=>sb.from('grd_importacoes').select('*').order('created_at',{ascending:false})),
+    pagAll(r=>sb.from('grd_obra_mapa').select('*')),
+  ]);
+  const erro=g.error||i.error||m.error;
+  if(erro){
+    window._grdErroTabela=erro.message||'erro desconhecido';
+    grdLista=[];grdImportacoes=[];grdObraMapa=[];
+    return;
+  }
+  let lista=g.data||[];
+  if(obrasPermitidasIds)lista=lista.filter(x=>grdPermitida(x.obra_id));
+  grdLista=lista;grdImportacoes=i.data||[];grdObraMapa=m.data||[];
+}
+function grdImportacoesVisiveis(){
+  if(!obrasPermitidasIds)return grdImportacoes;
+  return grdImportacoes.filter(x=>(x.obra_ids||[]).some(id=>grdPermitida(id)));
+}
+function grdSituacao(x,substSet){
+  if(substSet.has(Number(x.numero)))return'subst';
+  return x.aprovado_em?'aprov':'pend';
+}
+function grdFiltrar(){
+  const f=grdFiltro,substSet=new Set(grdLista.map(x=>Number(x.substituida_numero)).filter(Boolean));
+  const forn=_semAcento(f.forn).trim(),q=String(f.q||'').trim().toLowerCase();
+  const vmin=grdParseValor(f.vmin),vmax=grdParseValor(f.vmax);
+  return grdLista.filter(x=>{
+    if(forn&&_semAcento(x.fornecedor).indexOf(forn)<0)return false;
+    if(f.obra&&String(x.obra_id)!==String(f.obra))return false;
+    if(f.de&&(!x.dt_emissao||x.dt_emissao<f.de))return false;
+    if(f.ate&&(!x.dt_emissao||x.dt_emissao>f.ate))return false;
+    if(f.sit&&grdSituacao(x,substSet)!==f.sit)return false;
+    if(q&&String(x.numero).indexOf(q)<0&&String(x.nf||'').toLowerCase().indexOf(q)<0)return false;
+    if(vmin!==null&&Number(x.valor)<vmin)return false;
+    if(vmax!==null&&Number(x.valor)>vmax)return false;
+    return true;
+  });
+}
+
+function grdSetFiltro(campo,valor,adiar){
+  grdFiltro[campo]=valor;grdPagina=0;
+  if(grdTimer)clearTimeout(grdTimer);
+  if(adiar)grdTimer=setTimeout(grdAtualizar,250);else grdAtualizar();
+}
+function grdLimparFiltros(){
+  grdFiltro={forn:'',obra:'',de:'',ate:'',sit:'',q:'',vmin:'',vmax:''};grdPagina=0;renderGRD();
+}
+function grdIrPagina(p){grdPagina=p;grdAtualizar();}
+
+function renderGRD(){
+  const el=document.getElementById('main-content');
+  if(window._grdErroTabela){
+    el.innerHTML=`<div class="page-header"><div><div class="page-title">G.R.D.</div></div></div>
+      <div style="background:var(--warning-light);border:1px solid #E7CFA0;border-radius:var(--radius-lg);padding:18px 20px;color:#6B4A0E">
+        <strong>As tabelas do módulo G.R.D. ainda não existem no banco.</strong><br>
+        Rode o script <code>grd_modulo.sql</code> no SQL Editor do Supabase e abra esta tela de novo.<br>
+        <span style="font-size:12px;opacity:.8">Detalhe: ${escHtml(window._grdErroTabela)}</span>
+      </div>`;
+    return;
+  }
+  const imps=grdImportacoesVisiveis(),ult=imps[0];
+  const fornList=[...new Set(grdLista.map(x=>x.fornecedor).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  const obraIds=[...new Set(grdLista.map(x=>x.obra_id).filter(Boolean))];
+  const obraOpts=obraIds.map(id=>({id,l:grdObraLabel(id)})).sort((a,b)=>a.l.localeCompare(b.l,'pt-BR'));
+  const f=grdFiltro;
+  const hist=grdHistAberto?`<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+      <div style="font-size:12px;font-weight:700;color:var(--primary-dark);margin-bottom:6px">Histórico de importações</div>
+      <div style="overflow-x:auto"><table style="font-size:12px"><thead><tr><th>Data e hora</th><th>Usuário</th><th>Obra(s)</th><th style="text-align:right">Novas</th><th style="text-align:right">Atualizadas</th><th style="text-align:right">Sem alteração</th><th>Arquivo</th></tr></thead><tbody>
+      ${imps.slice(0,15).map(h=>`<tr><td style="white-space:nowrap">${grdDataHora(h.created_at)}</td><td>${escHtml(h.usuario_nome||h.usuario_login||'—')}</td><td>${escHtml(h.obras_resumo||'—')}</td><td style="text-align:right">${h.novas??0}</td><td style="text-align:right">${h.atualizadas??0}</td><td style="text-align:right">${h.sem_alteracao??0}</td><td>${escHtml(h.arquivo||'—')}${h.status==='erro'?' <span class="badge badge-red">erro</span>':''}</td></tr>`).join('')||'<tr><td colspan="7" style="color:var(--text-muted)">Nenhuma importação registrada.</td></tr>'}
+      </tbody></table></div></div>`:'';
+  el.innerHTML=`
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+      <div><div class="page-title">G.R.D.</div><div class="page-subtitle">${grdLista.length} guias · consulta por fornecedor, período, pedido e valor</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" onclick="grdExportarExcel()"><i class="ti ti-download"></i> Exportar filtro (Excel)</button>
+        <button class="btn btn-primary" onclick="openModalImportarGRD()"><i class="ti ti-upload"></i> Importar planilha</button>
+      </div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 18px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:38px;height:38px;border-radius:10px;background:var(--primary-light);color:var(--primary);display:flex;align-items:center;justify-content:center"><i class="ti ti-clock" style="font-size:20px"></i></div>
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Última importação da planilha</div>
+            <div style="font-size:14px;font-weight:700;color:var(--primary-dark)">${ult?`${grdDataHora(ult.created_at)} <span style="font-weight:500;color:var(--text)">por</span> ${escHtml(ult.usuario_nome||ult.usuario_login||'—')}`:'Nenhuma importação ainda'}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          ${ult?`<span style="font-size:12.5px;color:var(--text-muted)">${escHtml(ult.obras_resumo||'')} · ${(ult.novas||0)+(ult.atualizadas||0)} GRD(s) novas/atualizadas</span>`:''}
+          <button class="btn btn-sm" onclick="grdHistAberto=!grdHistAberto;renderGRD()">${grdHistAberto?'Ocultar histórico':'Ver histórico'}</button>
+        </div>
+      </div>${hist}
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px;margin-bottom:16px">
+      <datalist id="grd-dl-forn">${fornList.map(n=>`<option value="${escHtml(n)}">`).join('')}</datalist>
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px 14px">
+        <div style="grid-column:span 2"><label class="grd-lbl">Fornecedor (digite parte do nome)</label><input list="grd-dl-forn" value="${escHtml(f.forn)}" placeholder="ex.: luitex" oninput="grdSetFiltro('forn',this.value,true)"></div>
+        <div><label class="grd-lbl">Emissão da GRD — de</label><input type="date" value="${f.de}" onchange="grdSetFiltro('de',this.value)"></div>
+        <div><label class="grd-lbl">Emissão da GRD — até</label><input type="date" value="${f.ate}" onchange="grdSetFiltro('ate',this.value)"></div>
+        <div><label class="grd-lbl">Obra</label><select onchange="grdSetFiltro('obra',this.value)"><option value="">Todas as obras</option>${obraOpts.map(o=>`<option value="${o.id}" ${String(f.obra)===String(o.id)?'selected':''}>${escHtml(o.l)}</option>`).join('')}</select></div>
+        <div><label class="grd-lbl">Situação</label><select onchange="grdSetFiltro('sit',this.value)"><option value="">Todas</option><option value="pend" ${f.sit==='pend'?'selected':''}>Pendente de aprovação</option><option value="aprov" ${f.sit==='aprov'?'selected':''}>Aprovada</option><option value="subst" ${f.sit==='subst'?'selected':''}>Substituída</option></select></div>
+        <div><label class="grd-lbl">Nº da GRD ou N. Fiscal</label><input value="${escHtml(f.q)}" placeholder="ex.: 26554 ou 979125" oninput="grdSetFiltro('q',this.value,true)"></div>
+        <div><label class="grd-lbl">Valor da NF (R$)</label><div style="display:flex;gap:8px"><input value="${escHtml(f.vmin)}" placeholder="mín." inputmode="decimal" oninput="grdSetFiltro('vmin',this.value,true)"><input value="${escHtml(f.vmax)}" placeholder="máx." inputmode="decimal" oninput="grdSetFiltro('vmax',this.value,true)"></div></div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);flex-wrap:wrap">
+        <div style="font-size:12.5px;color:var(--text-muted)">Filtro atual: <strong id="grd-resumo-filtro" style="color:var(--primary-dark)"></strong></div>
+        <button class="btn btn-sm" onclick="grdLimparFiltros()">Limpar filtros</button>
+      </div>
+    </div>
+    <div id="grd-resultado"></div>
+    <style>.grd-lbl{display:block;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}</style>`;
+  grdAtualizar();
+}
+
+function grdAtualizar(){
+  const box=document.getElementById('grd-resultado');
+  if(!box)return;
+  const lista=grdFiltrar(),f=grdFiltro;
+  const substSet=new Set(grdLista.map(x=>Number(x.substituida_numero)).filter(Boolean));
+  let total=0,maior=null,pendQtd=0,pendVal=0;const porForn={};
+  lista.forEach(x=>{
+    const v=Number(x.valor)||0;total+=v;
+    if(!maior||v>Number(maior.valor))maior=x;
+    if(grdSituacao(x,substSet)==='pend'){pendQtd++;pendVal+=v;}
+    const o=porForn[x.fornecedor]||(porForn[x.fornecedor]={forn:x.fornecedor,qtd:0,total:0});o.qtd++;o.total+=v;
+  });
+  const resumo=Object.values(porForn).sort((a,b)=>b.total-a.total);
+  const topo=resumo.length?resumo[0].total:1;
+  const paginas=Math.max(1,Math.ceil(lista.length/GRD_POR_PAGINA));
+  if(grdPagina>paginas-1)grdPagina=paginas-1;
+  const ini=grdPagina*GRD_POR_PAGINA,fatia=lista.slice(ini,ini+GRD_POR_PAGINA);
+  const partes=[f.forn.trim()||'todos os fornecedores'];
+  if(f.de||f.ate)partes.push((f.de?formatDate(f.de):'início')+' a '+(f.ate?formatDate(f.ate):'hoje'));
+  if(f.obra)partes.push('obra '+grdObraCodigo(f.obra));
+  if(f.sit)partes.push({pend:'pendentes',aprov:'aprovadas',subst:'substituídas'}[f.sit]);
+  if(f.q.trim())partes.push('busca "'+f.q.trim()+'"');
+  const vmin=grdParseValor(f.vmin),vmax=grdParseValor(f.vmax);
+  if(vmin!==null||vmax!==null)partes.push('valor '+(vmin!==null?'de '+grdBRL(vmin):'')+(vmax!==null?' até '+grdBRL(vmax):''));
+  const rf=document.getElementById('grd-resumo-filtro');if(rf)rf.textContent=partes.join(' · ');
+  const badge=s=>s==='subst'?'<span class="badge" style="background:#EEF1F5;color:#4B5563">Substituída</span>':s==='aprov'?'<span class="badge" style="background:var(--accent-light);color:#8A4300">Aprovada</span>':'<span class="badge badge-blue">Pendente</span>';
+  box.innerHTML=`
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px">
+      <div class="metric-card"><div class="metric-label">Valor total do filtro</div><div class="metric-value" style="color:var(--primary-dark);font-size:22px">R$ ${grdBRL(total)}</div><div style="font-size:12px;color:var(--text-muted)">${lista.length} GRD(s)</div></div>
+      <div class="metric-card"><div class="metric-label">Valor médio por GRD</div><div class="metric-value" style="font-size:22px">R$ ${grdBRL(lista.length?total/lista.length:0)}</div><div style="font-size:12px;color:var(--text-muted)">${resumo.length} fornecedor(es) no filtro</div></div>
+      <div class="metric-card"><div class="metric-label">Maior GRD do filtro</div><div class="metric-value" style="font-size:22px">R$ ${grdBRL(maior?maior.valor:0)}</div><div style="font-size:12px;color:var(--text-muted)">${maior?'GRD '+grdNum10(maior.numero):'—'}</div></div>
+      <div class="metric-card" style="background:var(--accent-light);border-color:#F5D3AE"><div class="metric-label" style="color:#8A4300">Pendentes de aprovação</div><div class="metric-value" style="font-size:22px;color:#A24A00">R$ ${grdBRL(pendVal)}</div><div style="font-size:12px;color:#8A4300">${pendQtd} GRD(s)</div></div>
+    </div>
+    <div class="table-container" style="margin-bottom:16px">
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>Situação</th><th>G.R.D.</th><th>Obra</th><th>Dt. Emissão</th><th>Aprovado em</th><th>Fornecedor</th><th>Emissão NF</th><th>Vencto. NF</th><th>N.Fiscal / Série</th><th style="text-align:right">Valor NF R$</th><th>Solic.</th><th>Atualizada em / por</th></tr></thead>
+        <tbody>${fatia.map(x=>`<tr>
+          <td>${badge(grdSituacao(x,substSet))}</td>
+          <td style="font-weight:600;color:var(--primary-dark);white-space:nowrap">${grdNum10(x.numero)}</td>
+          <td style="white-space:nowrap">${escHtml(grdObraCodigo(x.obra_id))}</td>
+          <td style="white-space:nowrap">${formatDate(x.dt_emissao)}</td>
+          <td style="white-space:nowrap">${formatDate(x.aprovado_em)}</td>
+          <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(x.fornecedor)}">${escHtml(x.fornecedor)}</td>
+          <td style="white-space:nowrap">${formatDate(x.emissao_nf)}</td>
+          <td style="white-space:nowrap">${formatDate(x.vencto_nf)}</td>
+          <td style="white-space:nowrap">${escHtml(x.nf||'—')}</td>
+          <td style="text-align:right;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums">${grdBRL(x.valor)}</td>
+          <td style="white-space:nowrap">${escHtml(x.solicitante||'—')}</td>
+          <td style="white-space:nowrap;font-size:12px;color:var(--text-muted)">${x.atualizado_em?grdDataHora(x.atualizado_em)+' · '+escHtml(x.atualizado_por||'—'):'—'}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+      ${lista.length?'':'<div style="padding:36px;text-align:center;color:var(--text-muted)">Nenhuma GRD encontrada com esses filtros.</div>'}
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-top:1px solid var(--border);flex-wrap:wrap;gap:8px">
+        <div style="font-size:12.5px;color:var(--text-muted)">${lista.length?`Mostrando ${ini+1}–${ini+fatia.length} de ${lista.length}`:'Sem resultados'}</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-sm" ${grdPagina<=0?'disabled':''} onclick="grdIrPagina(${grdPagina-1})">Anterior</button>
+          <span style="font-size:12.5px;color:var(--text-muted)">Página ${grdPagina+1} de ${paginas}</span>
+          <button class="btn btn-sm" ${grdPagina>=paginas-1?'disabled':''} onclick="grdIrPagina(${grdPagina+1})">Próxima</button>
+        </div>
+      </div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px"><div style="font-weight:700;color:var(--primary-dark)">Resumo por fornecedor</div><div style="font-size:12px;color:var(--text-muted)">maiores valores dentro do filtro atual</div></div>
+      <div style="display:flex;flex-direction:column;gap:8px">${resumo.slice(0,8).map(s=>`
+        <div style="display:grid;grid-template-columns:minmax(0,300px) 80px 140px minmax(0,1fr);gap:12px;align-items:center;font-size:12.5px">
+          <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600" title="${escHtml(s.forn)}">${escHtml(s.forn)}</div>
+          <div style="color:var(--text-muted)">${s.qtd} GRD(s)</div>
+          <div style="text-align:right;font-weight:600;font-variant-numeric:tabular-nums">R$ ${grdBRL(s.total)}</div>
+          <div style="height:8px;background:var(--primary-light);border-radius:4px;overflow:hidden"><div style="height:8px;background:var(--primary);border-radius:4px;width:${Math.max(2,Math.round(s.total/topo*100))}%"></div></div>
+        </div>`).join('')||'<div style="color:var(--text-muted);font-size:13px">Sem dados para resumir.</div>'}</div>
+    </div>`;
+}
+
+async function grdExportarExcel(){
+  const lista=grdFiltrar();
+  if(!lista.length){showToast('Nada para exportar com o filtro atual.','error');return;}
+  const substSet=new Set(grdLista.map(x=>Number(x.substituida_numero)).filter(Boolean));
+  const nomeSit={pend:'Pendente',aprov:'Aprovada',subst:'Substituída'};
+  const rows=[['G.R.D.','Situação','Obra','Dt. Emissão','Aprovado em','Fornecedor','Emissão NF','Vencto. NF','N.Fiscal / Série','Valor NF R$','GRD Substituída','Solic.','Atualizada em','Atualizada por']];
+  lista.forEach(x=>rows.push([Number(x.numero),nomeSit[grdSituacao(x,substSet)],grdObraLabel(x.obra_id),x.dt_emissao?formatDate(x.dt_emissao):'',x.aprovado_em?formatDate(x.aprovado_em):'',x.fornecedor,x.emissao_nf?formatDate(x.emissao_nf):'',x.vencto_nf?formatDate(x.vencto_nf):'',x.nf||'',Number(x.valor),x.substituida_numero?Number(x.substituida_numero):'',x.solicitante||'',x.atualizado_em?grdDataHora(x.atualizado_em):'',x.atualizado_por||'']));
+  rows.push([]);rows.push(['','','','','','TOTAL','','','',lista.reduce((s,x)=>s+(Number(x.valor)||0),0)]);
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[{wch:12},{wch:12},{wch:30},{wch:12},{wch:12},{wch:36},{wch:12},{wch:12},{wch:18},{wch:14},{wch:14},{wch:24},{wch:20},{wch:22}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'GRD');
+  XLSX.writeFile(wb,'GRD_GTEL_'+new Date().toISOString().slice(0,10)+'.xlsx');
+  showToast('Excel exportado!');
+}
+
+// ─── IMPORTAÇÃO DA PLANILHA ─────────────────────────────────────────────────
+function openModalImportarGRD(){
+  window._grdImp=null;
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-grd-imp" onclick="if(event.target===this)closeModal('modal-grd-imp')">
+      <div class="modal" style="max-width:940px">
+        <div class="modal-header"><span class="modal-title">Importar planilha de G.R.D.</span><button class="btn btn-sm" onclick="closeModal('modal-grd-imp')"><i class="ti ti-x"></i></button></div>
+        <div class="modal-body" id="grd-imp-corpo">
+          <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px">Importação por <strong style="color:var(--primary-dark)">${escHtml(currentUser?.nome||currentUser?.usuario||'—')}</strong>. A data e a hora ficam registradas ao confirmar.</div>
+          <div onclick="document.getElementById('grd-file-input').click()" ondragover="event.preventDefault()" ondrop="event.preventDefault();grdLerArquivo({files:event.dataTransfer.files})" style="border:2px dashed #9DB8DB;border-radius:12px;background:var(--primary-light);padding:34px;text-align:center;cursor:pointer">
+            <i class="ti ti-file-spreadsheet" style="font-size:34px;color:var(--primary)"></i>
+            <div style="font-weight:600;font-size:15px;margin:6px 0 2px">Clique ou arraste a planilha de GRD (.xlsx)</div>
+            <div style="font-size:12px;color:var(--text-muted)">Você confere tudo antes de gravar. Nada é salvo até confirmar.</div>
+          </div>
+          <input type="file" id="grd-file-input" accept=".xlsx,.xls" style="display:none" onchange="grdLerArquivo(this)">
+        </div>
+      </div>
+    </div>`);
+}
+
+const GRD_COLS={grd:'numero',obra:'obra',dtemissao:'dt_emissao',aprovadoem:'aprovado_em',fornecedor:'fornecedor',emissaonf:'emissao_nf',venctonf:'vencto_nf',nfiscalserie:'nf',valornfr:'valor',grdsubstituida:'substituida',solic:'solic'};
+function grdNormCab(t){return _semAcento(t).replace(/[^a-z0-9]/g,'');}
+
+async function grdLerArquivo(input){
+  const file=input.files&&input.files[0];if(!file)return;
+  const box=document.getElementById('grd-imp-corpo');
+  box.innerHTML='<div class="loading"><i class="ti ti-loader ti-spin"></i> Lendo planilha...</div>';
+  try{
+    const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const mat=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
+    let hi=-1,col={};
+    for(let r=0;r<Math.min(mat.length,15)&&hi<0;r++){
+      const m={};mat[r].forEach((c,i)=>{const k=GRD_COLS[grdNormCab(c)];if(k&&m[k]===undefined)m[k]=i;});
+      if(m.numero!==undefined&&m.fornecedor!==undefined&&m.valor!==undefined){hi=r;col=m;}
+    }
+    const obrig=['numero','obra','dt_emissao','fornecedor','valor'];
+    const falta=obrig.filter(k=>col[k]===undefined);
+    if(hi<0||falta.length)throw new Error('Não encontrei as colunas obrigatórias da planilha padrão (G.R.D., Obra, Dt. Emissão, Fornecedor, Valor NF R$).');
+    const get=(row,k)=>col[k]===undefined?'':row[col[k]];
+    const ignoradas=[],venctoInvalidos=[],porNumero=new Map();let dupArquivo=0,vazias=0;
+    for(let r=hi+1;r<mat.length;r++){
+      const row=mat[r];
+      if(!row||!row.some(c=>String(c).trim()!==''&&String(c).trim()!=='\u00a0\u00a0'))continue;
+      const rawNum=get(row,'numero'),numero=parseInt(String(rawNum).replace(/\D/g,''),10);
+      if(!numero||numero<=0){if(String(rawNum).trim()==='')vazias++;else ignoradas.push({linha:r+1,motivo:'nº da GRD inválido'});continue;}
+      const obra=String(get(row,'obra')||'').replace(/\s+/g,' ').trim();
+      const fornecedor=String(get(row,'fornecedor')||'').replace(/\s+/g,' ').trim();
+      const dt=grdParseData(get(row,'dt_emissao')),valor=grdParseValor(get(row,'valor'));
+      const falhas=[];
+      if(!obra)falhas.push('obra vazia');if(!fornecedor)falhas.push('fornecedor vazio');
+      if(!dt)falhas.push('data de emissão inválida');if(valor===null)falhas.push('valor inválido');
+      if(falhas.length){ignoradas.push({linha:r+1,numero,motivo:falhas.join(', ')});continue;}
+      const vcRaw=get(row,'vencto_nf'),vc=grdParseData(vcRaw);
+      if(String(vcRaw).trim()!==''&&!vc)venctoInvalidos.push(numero);
+      const subst=parseInt(String(get(row,'substituida')).replace(/\D/g,''),10);
+      if(porNumero.has(numero))dupArquivo++;
+      porNumero.set(numero,{numero,obra_planilha:obra,dt_emissao:dt,aprovado_em:grdParseData(get(row,'aprovado_em')),fornecedor,emissao_nf:grdParseData(get(row,'emissao_nf')),vencto_nf:vc,nf:String(get(row,'nf')||'').trim()||null,valor:Math.round(valor*100)/100,substituida_numero:subst>0?subst:null,solicitante:String(get(row,'solic')||'').replace(/\s+/g,' ').trim()||null});
+    }
+    const linhas=[...porNumero.values()];
+    if(!linhas.length)throw new Error('Nenhuma GRD válida encontrada na planilha.');
+    // GRDs que já existem no banco (sem filtro de obra, para não sobrescrever GRD de obra que o usuário não acessa)
+    const ex=await pagAll(r=>sb.from('grd').select('id,numero,obra_id,obra_planilha,dt_emissao,aprovado_em,fornecedor,emissao_nf,vencto_nf,nf,valor,substituida_numero,solicitante').order('numero'));
+    if(ex.error)throw new Error('Erro ao consultar GRDs existentes: '+ex.error.message);
+    const existentes=new Map((ex.data||[]).map(x=>[Number(x.numero),x]));
+    // correspondência obra da planilha → obra do sistema (já salva, ou sugerida pelo código)
+    const mapaSalvo=new Map(grdObraMapa.map(m=>[grdChave(m.obra_planilha),String(m.obra_id)]));
+    const contagem={};linhas.forEach(l=>{const k=grdChave(l.obra_planilha);contagem[k]=contagem[k]||{key:k,nome:l.obra_planilha,qtd:0};contagem[k].qtd++;});
+    const mapa={};
+    Object.values(contagem).forEach(c=>{
+      let id=mapaSalvo.get(c.key)||'';
+      if(!id){
+        const cod=c.nome.split(' - ')[0].trim().toUpperCase();
+        const o=obras.find(x=>String(x.codigo||'').trim().toUpperCase()===cod)||obras.find(x=>String(x.centro_custo||'').toUpperCase().split(/[\s·,;]+/).indexOf(cod)>=0);
+        if(o)id=String(o.id);
+      }
+      mapa[c.key]=id;
+    });
+    window._grdImp={arquivo:file.name,linhas,ignoradas,vazias,dupArquivo,venctoInvalidos,existentes,contagem:Object.values(contagem),mapa};
+    grdImpRender();
+  }catch(e){
+    console.error('[GRD] erro ao ler planilha:',e);
+    box.innerHTML=`<div style="background:var(--danger-light);color:var(--danger);border-radius:var(--radius);padding:14px 16px;margin-bottom:12px"><strong>Não foi possível ler a planilha.</strong><br>${escHtml(e.message)}</div><button class="btn" onclick="closeModal('modal-grd-imp');openModalImportarGRD()">Tentar outro arquivo</button>`;
+  }
+}
+
+function grdImpClassificar(){
+  const I=window._grdImp,res={novas:[],atualizadas:[],iguais:[],semObra:[],bloqObra:[],bloqExistente:[]};
+  const norm=v=>v==null?'':String(v);
+  I.linhas.forEach(l=>{
+    const obraId=I.mapa[grdChave(l.obra_planilha)]||'';
+    if(!obraId){res.semObra.push(l);return;}
+    if(!grdPermitida(obraId)){res.bloqObra.push(l);return;}
+    const ex=I.existentes.get(l.numero);
+    if(!ex){res.novas.push({...l,obra_id:obraId});return;}
+    if(obrasPermitidasIds&&ex.obra_id&&!grdPermitida(ex.obra_id)){res.bloqExistente.push(l);return;}
+    const igual=norm(ex.obra_id)===norm(obraId)&&norm(ex.obra_planilha)===norm(l.obra_planilha)&&norm(ex.dt_emissao)===norm(l.dt_emissao)&&norm(ex.aprovado_em)===norm(l.aprovado_em)&&norm(ex.fornecedor)===norm(l.fornecedor)&&norm(ex.emissao_nf)===norm(l.emissao_nf)&&norm(ex.vencto_nf)===norm(l.vencto_nf)&&norm(ex.nf)===norm(l.nf)&&Number(ex.valor).toFixed(2)===l.valor.toFixed(2)&&norm(ex.substituida_numero)===norm(l.substituida_numero)&&norm(ex.solicitante)===norm(l.solicitante);
+    if(igual)res.iguais.push(l);else res.atualizadas.push({...l,obra_id:obraId});
+  });
+  return res;
+}
+
+function grdImpRender(){
+  const I=window._grdImp,box=document.getElementById('grd-imp-corpo');if(!I||!box)return;
+  const c=grdImpClassificar();
+  const datas=I.linhas.map(l=>l.dt_emissao).sort();
+  const totalValor=I.linhas.reduce((s,l)=>s+l.valor,0);
+  const nObras=new Set(I.linhas.map(l=>I.mapa[grdChave(l.obra_planilha)]).filter(Boolean));
+  const obraIds=[...nObras];
+  // aviso de planilha possivelmente antiga / última importação das obras
+  const ultImp=grdImportacoes.find(h=>(h.obra_ids||[]).some(id=>obraIds.indexOf(String(id))>=0));
+  let maxBanco='';I.existentes.forEach(x=>{if(obraIds.indexOf(String(x.obra_id))>=0&&x.dt_emissao&&x.dt_emissao>maxBanco)maxBanco=x.dt_emissao;});
+  const maxArq=datas[datas.length-1];
+  // repetidas NF + fornecedor
+  const chavesNf={};I.linhas.forEach(l=>{if(l.nf){const k=l.nf+'|'+l.fornecedor;chavesNf[k]=(chavesNf[k]||0)+1;}});
+  const nfRep=Object.values(chavesNf).filter(n=>n>1);
+  // substituições sem GRD correspondente
+  const nums=new Set(I.linhas.map(l=>l.numero));
+  const substSem=I.linhas.filter(l=>l.substituida_numero&&!nums.has(l.substituida_numero)&&!I.existentes.has(l.substituida_numero));
+  const tag=(t,txt)=>`<div style="display:flex;gap:10px;align-items:baseline"><span class="badge" style="min-width:58px;justify-content:center;${t==='ok'?'background:var(--success-light);color:#2F5A0D':t==='erro'?'background:var(--danger-light);color:var(--danger)':'background:var(--warning-light);color:#7A4A0E'}">${t==='ok'?'OK':t==='erro'?'Erro':'Atenção'}</span><span>${txt}</span></div>`;
+  const checks=[];
+  checks.push(tag('ok',`${I.linhas.length} GRD(s) válidas lidas${I.dupArquivo?`; ${I.dupArquivo} número(s) repetido(s) na planilha (valeu a última linha de cada um)`:'; nenhum número repetido na planilha'}.`));
+  if(I.dupArquivo)checks[0]=tag('aviso',`${I.linhas.length} GRD(s) válidas; ${I.dupArquivo} número(s) apareciam mais de uma vez na planilha (valeu a última linha de cada um).`);
+  if(I.ignoradas.length)checks.push(tag('erro',`${I.ignoradas.length} linha(s) ignorada(s): ${I.ignoradas.slice(0,6).map(x=>'linha '+x.linha+' ('+x.motivo+')').join('; ')}${I.ignoradas.length>6?'…':''}.`));
+  if(I.venctoInvalidos.length)checks.push(tag('aviso',`${I.venctoInvalidos.length} vencimento(s) de NF inválido(s) (GRD ${I.venctoInvalidos.slice(0,5).map(grdNum10).join(', ')}${I.venctoInvalidos.length>5?'…':''}). Entram com o vencimento em branco.`));
+  if(nfRep.length)checks.push(tag('aviso',`${nfRep.length} combinação(ões) de N. Fiscal + fornecedor aparecem em mais de uma GRD. Entram normalmente, só para você conferir.`));
+  if(substSem.length)checks.push(tag('aviso',`${substSem.length} GRD(s) dizem substituir uma GRD que não está na planilha nem no sistema (ex.: ${grdNum10(substSem[0].substituida_numero)}).`));
+  if(ultImp)checks.push(tag('aviso',`A última importação ${nObras.size>1?'dessas obras':'dessa obra'} foi em ${grdDataHora(ultImp.created_at)} por ${escHtml(ultImp.usuario_nome||ultImp.usuario_login||'—')}. Confira se esta planilha é mais recente.`));
+  if(maxBanco&&maxArq<maxBanco)checks.push(tag('aviso',`Esta planilha termina em ${formatDate(maxArq)}, mas o sistema já tem GRD emitida em ${formatDate(maxBanco)} para ${nObras.size>1?'essas obras':'essa obra'}. Ela pode ser mais antiga que a última importação.`));
+  if(c.bloqObra.length)checks.push(tag('erro',`${c.bloqObra.length} GRD(s) são de obra(s) que o seu acesso não permite. Elas não serão importadas.`));
+  if(c.bloqExistente.length)checks.push(tag('erro',`${c.bloqExistente.length} GRD(s) já existem em obra(s) que o seu acesso não permite. Elas não serão alteradas.`));
+  const faltaMapa=c.semObra.length>0;
+  const aGravar=c.novas.length+c.atualizadas.length;
+  const kpi=(l,v,s)=>`<div style="border:1px solid var(--border);border-radius:10px;padding:10px 14px"><div style="font-size:12px;color:var(--text-muted)">${l}</div><div style="font-size:20px;font-weight:700;color:var(--primary-dark)">${v}</div>${s?`<div style="font-size:11.5px;color:var(--text-muted)">${s}</div>`:''}</div>`;
+  const opcoes=sel=>'<option value="">Selecionar obra cadastrada…</option>'+obras.map(o=>`<option value="${o.id}" ${String(o.id)===String(sel)?'selected':''}>${escHtml((o.codigo?o.codigo+' — ':'')+o.nome)}</option>`).join('');
+  box.innerHTML=`
+    <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px dashed #9DB8DB;border-radius:10px;background:var(--primary-light);margin-bottom:14px">
+      <i class="ti ti-file-spreadsheet" style="font-size:22px;color:var(--primary)"></i>
+      <div style="flex:1"><div style="font-weight:600;color:var(--primary-dark)">${escHtml(I.arquivo)}</div><div style="font-size:12px;color:var(--text-muted)">${I.linhas.length} GRD(s) · emissão de ${formatDate(datas[0])} a ${formatDate(maxArq)} · R$ ${grdBRL(totalValor)}</div></div>
+      <button class="btn btn-sm" onclick="closeModal('modal-grd-imp');openModalImportarGRD()">Trocar arquivo</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px">
+      ${kpi('Novas',c.novas.length)}${kpi('Atualizadas',c.atualizadas.length,'já existiam e mudaram')}${kpi('Sem alteração',c.iguais.length,'não serão regravadas')}${kpi('Ignoradas',I.ignoradas.length+c.bloqObra.length+c.bloqExistente.length)}
+    </div>
+    <div style="font-weight:700;color:var(--primary-dark);margin-bottom:6px">Conferências automáticas</div>
+    <div style="display:flex;flex-direction:column;gap:6px;font-size:12.5px;margin-bottom:16px">${checks.join('')}</div>
+    <div style="font-weight:700;color:var(--primary-dark);margin-bottom:6px">Para qual obra cada GRD vai</div>
+    <div class="table-container" style="margin-bottom:6px"><table><thead><tr><th>Obra na planilha</th><th style="text-align:right">Linhas</th><th style="width:330px">Obra no GTEL Obras</th></tr></thead><tbody>
+      ${I.contagem.map((x,i)=>`<tr><td>${escHtml(x.nome)}</td><td style="text-align:right">${x.qtd}</td><td><select onchange="grdImpMapear(${i},this.value)">${opcoes(I.mapa[x.key])}</select></td></tr>`).join('')}
+    </tbody></table></div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">O sistema guarda essa correspondência: nas próximas importações, quem já foi mapeado segue direto para a obra.</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:12px;border-top:1px solid var(--border);flex-wrap:wrap">
+      <div style="font-size:12px;color:var(--text-muted);max-width:520px">Importar de novo a mesma planilha atualiza as GRDs pelo número, sem duplicar. ${faltaMapa?'<strong style="color:var(--danger)">Escolha a obra de todas as linhas acima para continuar.</strong>':''}</div>
+      <div style="display:flex;gap:8px"><button class="btn" onclick="closeModal('modal-grd-imp')">Cancelar</button>
+      <button class="btn btn-primary" id="grd-imp-btn" ${faltaMapa||!aGravar?'disabled':''} onclick="grdConfirmarImportacao()"><i class="ti ti-check"></i> ${aGravar?`Importar ${aGravar} GRD(s)`:'Nada a importar'}</button></div>
+    </div>`;
+}
+function grdImpMapear(i,obraId){
+  const I=window._grdImp;I.mapa[I.contagem[i].key]=obraId;grdImpRender();
+}
+
+async function grdConfirmarImportacao(){
+  const I=window._grdImp;if(!I)return;
+  const c=grdImpClassificar();
+  if(c.semObra.length){showToast('Escolha a obra de todas as linhas.','error');return;}
+  const gravar=[...c.novas,...c.atualizadas];
+  if(!gravar.length){showToast('Nada a importar.','error');return;}
+  const btn=document.getElementById('grd-imp-btn');
+  btn.disabled=true;btn.innerHTML='<i class="ti ti-loader ti-spin"></i> Importando...';
+  const agora=new Date().toISOString();
+  const quem=currentUser?.nome||currentUser?.usuario||'—';
+  const obraIds=[...new Set(gravar.map(l=>String(l.obra_id)))];
+  const resumoObras=obraIds.map(id=>grdObraCodigo(id)).join(', ');
+  let impId=null;
+  try{
+    // 1) correspondência obra da planilha → obra do sistema
+    const mapaLinhas=Object.entries(I.mapa).filter(([k,v])=>v).map(([k,v])=>({obra_planilha:k,obra_id:v,atualizado_por:quem,atualizado_em:agora}));
+    if(mapaLinhas.length){const r=await sb.from('grd_obra_mapa').upsert(mapaLinhas,{onConflict:'obra_planilha'});if(r.error)throw r.error;}
+    // 2) registro da importação (quem, quando, o quê)
+    const ins=await sb.from('grd_importacoes').insert({usuario_login:currentUser?.usuario||null,usuario_nome:quem,arquivo:I.arquivo,total_lidas:I.linhas.length,novas:c.novas.length,atualizadas:c.atualizadas.length,sem_alteracao:c.iguais.length,obra_ids:obraIds,obras_resumo:resumoObras,status:'em_andamento'}).select('id').single();
+    if(ins.error)throw ins.error;
+    impId=ins.data.id;
+    // 3) grava as GRDs novas e alteradas (upsert pelo número da GRD)
+    const payload=gravar.map(l=>({numero:l.numero,obra_id:l.obra_id,obra_planilha:l.obra_planilha,dt_emissao:l.dt_emissao,aprovado_em:l.aprovado_em,fornecedor:l.fornecedor,emissao_nf:l.emissao_nf,vencto_nf:l.vencto_nf,nf:l.nf,valor:l.valor,substituida_numero:l.substituida_numero,solicitante:l.solicitante,importacao_id:impId,atualizado_por:quem,atualizado_em:agora}));
+    for(let i=0;i<payload.length;i+=300){
+      const r=await sb.from('grd').upsert(payload.slice(i,i+300),{onConflict:'numero'});
+      if(r.error)throw r.error;
+    }
+    await sb.from('grd_importacoes').update({status:'concluida'}).eq('id',impId);
+    closeModal('modal-grd-imp');
+    showToast(`Importação concluída: ${c.novas.length} nova(s), ${c.atualizadas.length} atualizada(s).`);
+    window._grdImp=null;
+    await showPage('grd');
+  }catch(e){
+    console.error('[GRD] erro na importação:',e);
+    if(impId)await sb.from('grd_importacoes').update({status:'erro'}).eq('id',impId);
+    showToast('Erro ao importar: '+(e.message||e),'error');
+    btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Tentar novamente';
+  }
+}
+
 
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
 async function renderDashboard(){
