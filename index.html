@@ -3796,7 +3796,47 @@ async function deleteFuncionario(id,nome){
 }
 
 // ─── EXPERIÊNCIA ──────────────────────────────────────────────────────────────
-let expFiltro='',expBuscaVal='';
+let expFiltro='',expBuscaVal='',expFiltroFuncao='',expFiltroPeriodo='',expAdmDe='',expAdmAte='',expFimDe='',expFimAte='';
+
+function expIso(d){
+  if(!(d instanceof Date)||isNaN(d.getTime()))return'';
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function expFuncaoNome(f){return f.funcao?.nome||f.funcao_manual||'—';}
+// Em qual período o colaborador está hoje: '1' (1º), '2' (2º) ou '' (efetivado/vencido)
+function expPeriodoAtual(f){
+  const e=f._exp;if(!e||e.status==='efetivado'||e.status==='vencida')return'';
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  if(e.fim1&&hoje<=e.fim1)return'1';
+  if(e.fim2&&hoje<=e.fim2)return'2';
+  return'';
+}
+function expTemFiltroExtra(){return !!(expFiltro||expBuscaVal||expFiltroFuncao||expFiltroPeriodo||expAdmDe||expAdmAte||expFimDe||expFimAte);}
+function expLimparFiltros(){expFiltro='';expBuscaVal='';expFiltroFuncao='';expFiltroPeriodo='';expAdmDe='';expAdmAte='';expFimDe='';expFimAte='';renderExperiencia();}
+// Aplica todos os filtros (cards + nome/matrícula + função + período + datas) sobre a lista com _exp calculado
+function expAplicarFiltros(comExp){
+  let lista=comExp;
+  if(expFiltro==='emexp')lista=lista.filter(f=>['exp1','exp1_hoje','exp2','vencendo'].includes(f._exp.status));
+  else if(expFiltro==='vencehoje')lista=lista.filter(f=>f._exp.restantes===0&&f._exp.status!=='efetivado');
+  else if(expFiltro&&expFiltro!=='todos')lista=lista.filter(f=>f._exp.status===expFiltro);
+  if(expBuscaVal){const q=expBuscaVal.toLowerCase();lista=lista.filter(f=>(f.nome_completo||'').toLowerCase().includes(q)||(f.matricula||'').includes(expBuscaVal));}
+  if(expFiltroFuncao)lista=lista.filter(f=>expFuncaoNome(f)===expFiltroFuncao);
+  if(expFiltroPeriodo)lista=lista.filter(f=>expPeriodoAtual(f)===expFiltroPeriodo);
+  // Início = data de admissão (início da experiência)
+  if(expAdmDe)lista=lista.filter(f=>f.data_admissao&&f.data_admissao>=expAdmDe);
+  if(expAdmAte)lista=lista.filter(f=>f.data_admissao&&f.data_admissao<=expAdmAte);
+  // Término = fim do último período da experiência (2º período, ou o único de 30 dias)
+  if(expFimDe||expFimAte){
+    lista=lista.filter(f=>{
+      const e=f._exp;const fim=expIso(e.fim2||e.fim1);
+      if(!fim)return false;
+      if(expFimDe&&fim<expFimDe)return false;
+      if(expFimAte&&fim>expFimAte)return false;
+      return true;
+    });
+  }
+  return lista;
+}
 
 function calcExp(f){
   if(!f.data_admissao)return null;
@@ -3830,11 +3870,8 @@ function renderExperiencia(){
   counts.vencehoje=comExp.filter(f=>f._exp.restantes===0&&f._exp.status!=='efetivado').length;
   const emExpTotal=(counts.exp1||0)+(counts.exp1_hoje||0)+(counts.exp2||0)+(counts.vencendo||0);
   const taxaEfet=comExp.length?Math.round((counts.efetivado||0)/comExp.length*100):0;
-  let lista=comExp;
-  if(expFiltro==='emexp')lista=comExp.filter(f=>['exp1','exp1_hoje','exp2','vencendo'].includes(f._exp.status));
-  else if(expFiltro==='vencehoje')lista=comExp.filter(f=>f._exp.restantes===0&&f._exp.status!=='efetivado');
-  else if(expFiltro&&expFiltro!=='todos')lista=comExp.filter(f=>f._exp.status===expFiltro);
-  if(expBuscaVal)lista=lista.filter(f=>(f.nome_completo||'').toLowerCase().includes(expBuscaVal.toLowerCase())||(f.matricula||'').includes(expBuscaVal));
+  const funcoesOpts=[...new Set(comExp.map(expFuncaoNome).filter(n=>n&&n!=='—'))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  let lista=expAplicarFiltros(comExp);
   lista=[...lista].sort((a,b)=>{
     const order={vencida:0,vencendo:1,exp1_hoje:2,exp2:3,exp1:4,efetivado:5};
     const od=(order[a._exp.status]||0)-(order[b._exp.status]||0);
@@ -3885,7 +3922,7 @@ function renderExperiencia(){
         <td>${efetBtn}</td>
       </tr>`;}).join('')||`<tr><td colspan="9"><div class="empty-state"><i class="ti ti-certificate"></i><div>Nenhum registro encontrado</div></div></td></tr>`;
     tableContent=`<div class="table-container"><table>
-      <thead><tr><th>Funcionário</th><th>Função</th><th>Período</th><th>Fim 1º</th><th>Fim 2º</th><th>Restantes</th><th>Obs.</th><th></th></tr></thead>
+      <thead><tr><th>Funcionário</th><th>Função</th><th>Período</th><th>Fim 1º</th><th>Fim 2º</th><th>Restantes</th><th>Status</th><th>Obs.</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
   }
@@ -3899,11 +3936,24 @@ function renderExperiencia(){
     </div>
     ${alertCardsRow(alertas)}
     <div class="exp-cards">${cardsHtml}</div>
-    <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:12px">
-      <div style="display:flex;gap:8px">
-        <div class="search-box" style="min-width:180px"><i class="ti ti-search"></i><input placeholder="Buscar..." oninput="expBuscaVal=this.value;if(!_buscaHandlers.exp)_buscaHandlers.exp=makeBuscaHandler(v=>expBuscaVal=v,renderExperiencia,300);_buscaHandlers.exp(this.value);this.focus()" id="exp-search" value="${expBuscaVal}"></div>
-        <button class="btn btn-sm" onclick="expFiltro='';expBuscaVal='';renderExperiencia()"><i class="ti ti-x"></i> Limpar</button>
-      </div>
+    <div class="filters" style="align-items:flex-end;margin-bottom:8px">
+      <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar por nome ou matrícula..." oninput="expBuscaVal=this.value;if(!_buscaHandlers.exp)_buscaHandlers.exp=makeBuscaHandler(v=>expBuscaVal=v,renderExperiencia,300);_buscaHandlers.exp(this.value);this.focus()" id="exp-search" value="${expBuscaVal}"></div>
+      <select class="filter-select" onchange="expFiltroFuncao=this.value;renderExperiencia()">
+        <option value="">Todas as funções</option>${funcoesOpts.map(n=>`<option value="${n.replace(/"/g,'&quot;')}" ${expFiltroFuncao===n?'selected':''}>${n}</option>`).join('')}
+      </select>
+      <select class="filter-select" onchange="expFiltroPeriodo=this.value;renderExperiencia()">
+        <option value="">1º e 2º período</option>
+        <option value="1" ${expFiltroPeriodo==='1'?'selected':''}>Somente 1º período</option>
+        <option value="2" ${expFiltroPeriodo==='2'?'selected':''}>Somente 2º período</option>
+      </select>
+      <button class="btn btn-sm" onclick="expLimparFiltros()"><i class="ti ti-x"></i> Limpar</button>
+    </div>
+    <div class="filters" style="align-items:flex-end;margin-bottom:12px">
+      <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:11px;color:var(--text-muted)">Início (admissão) — de</span><input type="date" class="filter-select" value="${expAdmDe}" onchange="expAdmDe=this.value;renderExperiencia()"></div>
+      <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:11px;color:var(--text-muted)">Início (admissão) — até</span><input type="date" class="filter-select" value="${expAdmAte}" onchange="expAdmAte=this.value;renderExperiencia()"></div>
+      <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:11px;color:var(--text-muted)">Término da experiência — de</span><input type="date" class="filter-select" value="${expFimDe}" onchange="expFimDe=this.value;renderExperiencia()"></div>
+      <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:11px;color:var(--text-muted)">Término da experiência — até</span><input type="date" class="filter-select" value="${expFimAte}" onchange="expFimAte=this.value;renderExperiencia()"></div>
+      <div style="font-size:12px;color:var(--text-muted);padding-bottom:8px">${lista.length} de ${comExp.length} colaborador(es)</div>
     </div>
     ${tableContent}`;
 }
@@ -3943,9 +3993,10 @@ async function saveObs(id){
 
 function exportExpExcel(){
   const ativosLista=funcionarios.filter(f=>f.situacao==='ativo'&&(!globalObraFiltro||f.obra_id===globalObraFiltro));
+  const comExpX=ativosLista.map(f=>({...f,_exp:calcExp(f)})).filter(f=>f._exp);
   const rows=[['Funcionário','Matrícula','Função','Período','Fim 1º','Fim 2º','Restantes','Status']];
-  ativosLista.forEach(f=>{
-    const e=calcExp(f);if(!e)return;
+  expAplicarFiltros(comExpX).forEach(f=>{
+    const e=f._exp;
     rows.push([f.nome_completo,f.matricula,f.funcao?.nome||f.funcao_manual||'—',f.periodo_experiencia==='30s'?'30 único':`${f.periodo_experiencia||45}+${f.periodo_experiencia||45}`,formatDate(e.fim1),formatDate(e.fim2),e.restantes+'d',e.status]);
   });
   const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:30},{wch:12},{wch:20},{wch:10},{wch:14},{wch:14},{wch:10},{wch:12}];
