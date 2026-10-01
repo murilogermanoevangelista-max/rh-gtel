@@ -7486,7 +7486,32 @@ async function salvarUsuario(id){
   const dados={nome,usuario:email,perfil:nivel,obras_acesso:obrasAcesso,ativo};
   const{error}=await sb.rpc('salvar_usuario',{p_id:id||null,p_dados:dados,p_senha:senha||null});
   if(error){showToast(rpcAusente(error)?'Rode o script de segurança 01 no Supabase.':'Erro: '+error.message,'error');return;}
-  showToast(id?'Usuário atualizado!':'Usuário criado!');closeModal('modal-usuario');renderUsuarios();
+  showToast(id?'Usuário atualizado! Se mudou as obras ou o nível, ele precisa sair e entrar de novo no sistema para valer.':'Usuário criado!');
+  closeModal('modal-usuario');renderUsuarios();
+  if(senha)mostrarCredenciaisUsuario(nome,email,senha);
+}
+// Depois de salvar com senha nova, mostra usuário + senha uma única vez para o admin repassar (a senha fica criptografada no banco).
+function mostrarCredenciaisUsuario(nome,usuario,senha){
+  const msg='Acesso ao GTEL Obras\nEndereço: '+location.origin+'\nUsuário: '+usuario+'\nSenha: '+senha;
+  window._credMsg=msg;
+  closeModal('modal-cred');
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-cred" onclick="if(event.target===this)closeModal('modal-cred')">
+      <div class="modal" style="max-width:460px">
+        <div class="modal-header"><span class="modal-title">Acesso de ${escHtml(nome)}</span><button class="btn btn-sm" onclick="closeModal('modal-cred')"><i class="ti ti-x"></i></button></div>
+        <div class="modal-body">
+          <div style="background:var(--primary-light);border-radius:var(--radius);padding:14px 16px;font-size:14px;line-height:1.9">
+            <div><span style="color:var(--text-muted)">Usuário:</span> <strong style="font-family:monospace">${escHtml(usuario)}</strong></div>
+            <div><span style="color:var(--text-muted)">Senha:</span> <strong style="font-family:monospace;font-size:16px">${escHtml(senha)}</strong></div>
+          </div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:10px">Copie e envie ao usuário agora. Por segurança, depois de fechar esta janela a senha não pode ser vista de novo — se precisar, gere uma nova em Redefinir.</div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" onclick="closeModal('modal-cred')">Fechar</button>
+          <button class="btn btn-primary" onclick="navigator.clipboard.writeText(window._credMsg).then(()=>showToast('Dados de acesso copiados!'),()=>showToast('Não foi possível copiar. Anote os dados.','error'))"><i class="ti ti-copy"></i> Copiar mensagem</button>
+        </div>
+      </div>
+    </div>`);
 }
 async function excluirUsuario(id){
   if(!confirm('Remover usuário?'))return;
