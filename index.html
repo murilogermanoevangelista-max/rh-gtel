@@ -1412,6 +1412,11 @@ async function grdDiagnostico(){
     const ok=obraExiste(o.obra_id);
     return`<tr><td>${escHtml(o.planilha)}</td><td>${ok?escHtml(grdObraLabel(o.obra_id)):'<span style="color:var(--danger);font-weight:600">'+(o.obra_id?'Obra não encontrada no sistema':'Sem obra ligada')+'</span>'}</td><td style="text-align:right">${o.qtd}</td></tr>`;
   }).join('')||'<tr><td colspan="3" style="color:var(--text-muted)">Nenhuma GRD carregada.</td></tr>';
+  // Obras com o mesmo código: o usuário liberado só para uma delas não enxerga as GRDs ligadas às outras
+  const porCod={};
+  obras.forEach(o=>{const c=String(o.codigo||'').trim().toUpperCase();if(c)(porCod[c]=porCod[c]||[]).push(o);});
+  const dups=Object.entries(porCod).filter(([c,l])=>l.length>1).map(([c,l])=>({c,l:l.map(o=>({o,qtd:grdLista.filter(x=>String(x.obra_id)===String(o.id)).length}))})).filter(d=>d.l.some(i=>i.qtd>0));
+  const avisoDup=dups.length?`<div style="background:var(--danger-light);color:#7A1F1F;border-radius:var(--radius);padding:10px 12px;font-size:12.5px;margin-bottom:14px"><strong>Atenção: há obras com o mesmo código.</strong> As GRDs estão divididas entre elas, e um usuário liberado para apenas uma não enxerga as GRDs das outras.${dups.map(d=>`<div style="margin-top:6px">Código <strong>${escHtml(d.c)}</strong>: ${d.l.map(i=>escHtml(i.o.nome||'sem nome')+' — <strong>'+i.qtd+' GRD(s)</strong>').join(' &nbsp;|&nbsp; ')}</div>`).join('')}</div>`:'';
   let usuarios=[],erroU='';
   try{const{data,error}=await sb.rpc('listar_usuarios');if(error)erroU=error.message;else usuarios=data||[];}catch(e){erroU=e.message||'erro';}
   const linhasUsu=usuarios.map(u=>{
@@ -1430,6 +1435,7 @@ async function grdDiagnostico(){
         <div class="modal-header"><span class="modal-title">Diagnóstico de acesso — G.R.D.</span><button class="btn btn-sm" onclick="closeModal('modal-grd-diag')"><i class="ti ti-x"></i></button></div>
         <div class="modal-body">
           ${restritoAdmin?'<div style="background:var(--warning-light);border-radius:var(--radius);padding:10px 12px;font-size:12.5px;margin-bottom:12px">Seu próprio usuário tem acesso restrito a obras, então este diagnóstico só enxerga as GRDs das suas obras e pode estar incompleto.</div>':''}
+          ${avisoDup}
           <div style="font-size:13px;font-weight:700;color:var(--primary-dark);margin-bottom:6px">1) Cada obra da planilha está ligada a qual obra do sistema?</div>
           <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Um usuário só enxerga a GRD se a obra ligada a ela estiver entre as obras liberadas para ele. Em vermelho: GRDs que nenhum usuário restrito consegue ver.</div>
           <div style="overflow-x:auto;max-height:240px;overflow-y:auto;margin-bottom:18px"><table style="font-size:12px"><thead><tr><th>Obra na planilha</th><th>Obra no sistema</th><th style="text-align:right">GRDs</th></tr></thead><tbody>${linhasMapa}</tbody></table></div>
