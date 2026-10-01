@@ -1286,6 +1286,7 @@ async function loadGRD(){
   const erro=g.error||i.error||m.error;
   if(erro){
     window._grdErroTabela=erro.message||'erro desconhecido';
+    window._grdErroCodigo=erro.code||'';
     grdLista=[];grdImportacoes=[];grdObraMapa=[];
     return;
   }
@@ -1331,11 +1332,15 @@ function grdIrPagina(p){grdPagina=p;grdAtualizar();}
 function renderGRD(){
   const el=document.getElementById('main-content');
   if(window._grdErroTabela){
+    const msg=window._grdErroTabela,cod=window._grdErroCodigo||'';
+    const faltaTabela=cod==='PGRST205'||cod==='42P01'||/could not find the table|does not exist|schema cache/i.test(msg);
+    const somenteLeitura=/read-only transaction/i.test(msg);
+    const titulo=faltaTabela?'As tabelas do módulo G.R.D. ainda não existem no banco.':somenteLeitura?'O banco recusou a leitura por causa da regra de segurança das tabelas do G.R.D.':'Não foi possível carregar as GRDs.';
+    const acao=faltaTabela?'Rode o script <code>grd_modulo.sql</code> no SQL Editor do Supabase e abra esta tela de novo.':somenteLeitura?'Rode o script <code>grd_corrigir_politicas.sql</code> no SQL Editor do Supabase e abra esta tela de novo.':'Tente novamente. Se continuar, envie o detalhe abaixo para quem cuida do sistema.';
     el.innerHTML=`<div class="page-header"><div><div class="page-title">G.R.D.</div></div></div>
       <div style="background:var(--warning-light);border:1px solid #E7CFA0;border-radius:var(--radius-lg);padding:18px 20px;color:#6B4A0E">
-        <strong>As tabelas do módulo G.R.D. ainda não existem no banco.</strong><br>
-        Rode o script <code>grd_modulo.sql</code> no SQL Editor do Supabase e abra esta tela de novo.<br>
-        <span style="font-size:12px;opacity:.8">Detalhe: ${escHtml(window._grdErroTabela)}</span>
+        <strong>${titulo}</strong><br>${acao}<br>
+        <span style="font-size:12px;opacity:.8">Detalhe: ${escHtml(msg)}</span>
       </div>`;
     return;
   }
