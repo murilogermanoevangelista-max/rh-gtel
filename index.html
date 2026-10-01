@@ -3796,7 +3796,7 @@ async function deleteFuncionario(id,nome){
 }
 
 // ─── EXPERIÊNCIA ──────────────────────────────────────────────────────────────
-let expFiltro='',expBuscaVal='',expFiltroFuncao='',expFiltroPeriodo='',expAdmDe='',expAdmAte='',expFimDe='',expFimAte='';
+let expFiltro='',expBuscaVal='',expFiltroFuncao=[],expFiltroPeriodo='',expAdmDe='',expAdmAte='',expFimDe='',expFimAte='',expFuncaoAberto=false,expFuncaoBusca='';
 
 function expIso(d){
   if(!(d instanceof Date)||isNaN(d.getTime()))return'';
@@ -3811,8 +3811,48 @@ function expPeriodoAtual(f){
   if(e.fim2&&hoje<=e.fim2)return'2';
   return'';
 }
-function expTemFiltroExtra(){return !!(expFiltro||expBuscaVal||expFiltroFuncao||expFiltroPeriodo||expAdmDe||expAdmAte||expFimDe||expFimAte);}
-function expLimparFiltros(){expFiltro='';expBuscaVal='';expFiltroFuncao='';expFiltroPeriodo='';expAdmDe='';expAdmAte='';expFimDe='';expFimAte='';renderExperiencia();}
+function expNorm(t){return String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();}
+function expFuncaoLabel(){
+  const n=expFiltroFuncao.length;
+  return n===0?'Todas as funções':(n===1?expFiltroFuncao[0]:n+' funções selecionadas');
+}
+function expRenderFuncaoLista(){
+  const el=document.getElementById('exp-func-list');if(!el)return;
+  const opts=window._expFuncoesOpts||[];const q=expNorm(expFuncaoBusca);
+  const itens=opts.map((n,i)=>({n,i})).filter(o=>!q||expNorm(o.n).includes(q));
+  el.innerHTML=itens.map(o=>`<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:13px;font-weight:400;color:var(--text);cursor:pointer"><input type="checkbox" style="width:16px;height:16px;min-width:16px;padding:0;margin:0;flex:0 0 auto;cursor:pointer" ${expFiltroFuncao.includes(o.n)?'checked':''} onchange="expToggleFuncao(${o.i})"> <span style="flex:1;text-align:left">${o.n}</span></label>`).join('')
+    ||'<div style="padding:10px;font-size:12px;color:var(--text-muted)">Nenhuma função encontrada</div>';
+}
+function expToggleFuncaoPanel(ev){
+  ev.stopPropagation();expFuncaoAberto=!expFuncaoAberto;
+  const p=document.getElementById('exp-func-panel');if(p)p.style.display=expFuncaoAberto?'block':'none';
+  if(expFuncaoAberto){const i=document.getElementById('exp-func-busca');if(i)i.focus();}
+}
+function expToggleFuncao(i){
+  const n=(window._expFuncoesOpts||[])[i];if(n==null)return;
+  const k=expFiltroFuncao.indexOf(n);
+  if(k>=0)expFiltroFuncao.splice(k,1);else expFiltroFuncao.push(n);
+  expRerenderMantendoLista();
+}
+// Marca todas as funções que aparecem na lista (respeitando o texto digitado na busca). Ex.: digitar "solda" e marcar todas.
+function expMarcarListadas(){
+  const q=expNorm(expFuncaoBusca);
+  (window._expFuncoesOpts||[]).forEach(n=>{if((!q||expNorm(n).includes(q))&&!expFiltroFuncao.includes(n))expFiltroFuncao.push(n);});
+  expRerenderMantendoLista();
+}
+function expLimparFuncoes(){expFiltroFuncao=[];expRerenderMantendoLista();}
+function expRerenderMantendoLista(){
+  const sc=document.getElementById('exp-func-list')?.scrollTop||0;
+  renderExperiencia();
+  const el=document.getElementById('exp-func-list');if(el)el.scrollTop=sc;
+}
+document.addEventListener('click',e=>{
+  if(!expFuncaoAberto||!e.target.isConnected)return;
+  if(e.target.closest('#exp-func-wrap'))return;
+  expFuncaoAberto=false;const p=document.getElementById('exp-func-panel');if(p)p.style.display='none';
+});
+function expTemFiltroExtra(){return !!(expFiltro||expBuscaVal||expFiltroFuncao.length||expFiltroPeriodo||expAdmDe||expAdmAte||expFimDe||expFimAte);}
+function expLimparFiltros(){expFiltro='';expBuscaVal='';expFiltroFuncao=[];expFuncaoBusca='';expFiltroPeriodo='';expAdmDe='';expAdmAte='';expFimDe='';expFimAte='';renderExperiencia();}
 // Aplica todos os filtros (cards + nome/matrícula + função + período + datas) sobre a lista com _exp calculado
 function expAplicarFiltros(comExp){
   let lista=comExp;
@@ -3820,7 +3860,7 @@ function expAplicarFiltros(comExp){
   else if(expFiltro==='vencehoje')lista=lista.filter(f=>f._exp.restantes===0&&f._exp.status!=='efetivado');
   else if(expFiltro&&expFiltro!=='todos')lista=lista.filter(f=>f._exp.status===expFiltro);
   if(expBuscaVal){const q=expBuscaVal.toLowerCase();lista=lista.filter(f=>(f.nome_completo||'').toLowerCase().includes(q)||(f.matricula||'').includes(expBuscaVal));}
-  if(expFiltroFuncao)lista=lista.filter(f=>expFuncaoNome(f)===expFiltroFuncao);
+  if(expFiltroFuncao.length)lista=lista.filter(f=>expFiltroFuncao.includes(expFuncaoNome(f)));
   if(expFiltroPeriodo)lista=lista.filter(f=>expPeriodoAtual(f)===expFiltroPeriodo);
   // Início = data de admissão (início da experiência)
   if(expAdmDe)lista=lista.filter(f=>f.data_admissao&&f.data_admissao>=expAdmDe);
@@ -3871,6 +3911,8 @@ function renderExperiencia(){
   const emExpTotal=(counts.exp1||0)+(counts.exp1_hoje||0)+(counts.exp2||0)+(counts.vencendo||0);
   const taxaEfet=comExp.length?Math.round((counts.efetivado||0)/comExp.length*100):0;
   const funcoesOpts=[...new Set(comExp.map(expFuncaoNome).filter(n=>n&&n!=='—'))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  window._expFuncoesOpts=funcoesOpts;
+  expFiltroFuncao=expFiltroFuncao.filter(n=>funcoesOpts.includes(n));
   let lista=expAplicarFiltros(comExp);
   lista=[...lista].sort((a,b)=>{
     const order={vencida:0,vencendo:1,exp1_hoje:2,exp2:3,exp1:4,efetivado:5};
@@ -3938,9 +3980,14 @@ function renderExperiencia(){
     <div class="exp-cards">${cardsHtml}</div>
     <div class="filters" style="align-items:flex-end;margin-bottom:8px">
       <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar por nome ou matrícula..." oninput="expBuscaVal=this.value;if(!_buscaHandlers.exp)_buscaHandlers.exp=makeBuscaHandler(v=>expBuscaVal=v,renderExperiencia,300);_buscaHandlers.exp(this.value);this.focus()" id="exp-search" value="${expBuscaVal}"></div>
-      <select class="filter-select" onchange="expFiltroFuncao=this.value;renderExperiencia()">
-        <option value="">Todas as funções</option>${funcoesOpts.map(n=>`<option value="${n.replace(/"/g,'&quot;')}" ${expFiltroFuncao===n?'selected':''}>${n}</option>`).join('')}
-      </select>
+      <div id="exp-func-wrap" style="position:relative">
+        <button type="button" class="filter-select" style="min-width:190px;max-width:260px;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer" onclick="expToggleFuncaoPanel(event)"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${expFuncaoLabel()}</span><i class="ti ti-chevron-down"></i></button>
+        <div id="exp-func-panel" style="display:${expFuncaoAberto?'block':'none'};position:absolute;top:100%;left:0;z-index:50;margin-top:4px;width:280px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.15)">
+          <div style="padding:8px"><input id="exp-func-busca" class="filter-select" style="width:100%" placeholder="Buscar função (ex.: soldador)..." value="${expFuncaoBusca}" oninput="expFuncaoBusca=this.value;expRenderFuncaoLista()"></div>
+          <div style="display:flex;justify-content:space-between;padding:0 10px 6px;font-size:12px"><a href="#" onclick="event.preventDefault();expMarcarListadas()">Marcar todas listadas</a><a href="#" onclick="event.preventDefault();expLimparFuncoes()">Limpar seleção</a></div>
+          <div id="exp-func-list" style="max-height:260px;overflow-y:auto;border-top:1px solid var(--border)">${funcoesOpts.filter(n=>!expFuncaoBusca||expNorm(n).includes(expNorm(expFuncaoBusca))).map(n=>{const i=funcoesOpts.indexOf(n);return`<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:13px;font-weight:400;color:var(--text);cursor:pointer"><input type="checkbox" style="width:16px;height:16px;min-width:16px;padding:0;margin:0;flex:0 0 auto;cursor:pointer" ${expFiltroFuncao.includes(n)?'checked':''} onchange="expToggleFuncao(${i})"> <span style="flex:1;text-align:left">${n}</span></label>`}).join('')||'<div style="padding:10px;font-size:12px;color:var(--text-muted)">Nenhuma função encontrada</div>'}</div>
+        </div>
+      </div>
       <select class="filter-select" onchange="expFiltroPeriodo=this.value;renderExperiencia()">
         <option value="">1º e 2º período</option>
         <option value="1" ${expFiltroPeriodo==='1'?'selected':''}>Somente 1º período</option>
