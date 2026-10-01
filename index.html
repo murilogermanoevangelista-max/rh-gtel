@@ -1356,8 +1356,9 @@ function renderGRD(){
       </tbody></table></div></div>`:'';
   el.innerHTML=`
     <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
-      <div><div class="page-title">G.R.D.</div><div class="page-subtitle">${grdLista.length} guias · consulta por fornecedor, período, pedido e valor</div></div>
+      <div><div class="page-title">G.R.D.</div><div class="page-subtitle">${grdLista.length} guias · consulta por fornecedor, período, pedido e valor${obrasPermitidasIds?` · seu acesso: ${[...obrasPermitidasIds].map(id=>escHtml(grdObraCodigo(id))).join(', ')}`:''}</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${currentUser?.perfil==='admin'?'<button class="btn" onclick="grdDiagnostico()" title="Conferir se as GRDs estão ligadas às obras certas e quantas cada usuário enxerga"><i class="ti ti-stethoscope"></i> Diagnóstico de acesso</button>':''}
         <button class="btn" onclick="grdExportarExcel()"><i class="ti ti-download"></i> Exportar filtro (Excel)</button>
         <button class="btn btn-primary" onclick="openModalImportarGRD()"><i class="ti ti-upload"></i> Importar planilha</button>
       </div>
@@ -1396,6 +1397,47 @@ function renderGRD(){
     <div id="grd-resultado"></div>
     <style>.grd-lbl{display:block;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}</style>`;
   grdAtualizar();
+}
+
+// Diagnóstico (admin): mostra como as GRDs estão ligadas às obras e quantas GRDs cada usuário enxerga.
+async function grdDiagnostico(){
+  const restritoAdmin=!!obrasPermitidasIds;
+  const porMapa={};
+  grdLista.forEach(x=>{
+    const k=(x.obra_planilha||'—')+'|'+(x.obra_id||'');
+    const o=porMapa[k]||(porMapa[k]={planilha:x.obra_planilha||'—',obra_id:x.obra_id,qtd:0});o.qtd++;
+  });
+  const obraExiste=id=>!!id&&obras.some(o=>String(o.id)===String(id));
+  const linhasMapa=Object.values(porMapa).sort((a,b)=>b.qtd-a.qtd).map(o=>{
+    const ok=obraExiste(o.obra_id);
+    return`<tr><td>${escHtml(o.planilha)}</td><td>${ok?escHtml(grdObraLabel(o.obra_id)):'<span style="color:var(--danger);font-weight:600">'+(o.obra_id?'Obra não encontrada no sistema':'Sem obra ligada')+'</span>'}</td><td style="text-align:right">${o.qtd}</td></tr>`;
+  }).join('')||'<tr><td colspan="3" style="color:var(--text-muted)">Nenhuma GRD carregada.</td></tr>';
+  let usuarios=[],erroU='';
+  try{const{data,error}=await sb.rpc('listar_usuarios');if(error)erroU=error.message;else usuarios=data||[];}catch(e){erroU=e.message||'erro';}
+  const linhasUsu=usuarios.map(u=>{
+    const ids=(u.obras_acesso||[]).map(String);
+    const restrito=ids.length>0;
+    const visiveis=restrito?grdLista.filter(x=>x.obra_id&&ids.includes(String(x.obra_id))).length:grdLista.length;
+    const paginas=Math.max(1,Math.ceil(visiveis/GRD_POR_PAGINA));
+    const obrasTxt=restrito?ids.map(id=>obraExiste(id)?escHtml(grdObraCodigo(id)):'<span style="color:var(--danger)" title="Esta obra não existe mais no sistema">obra inexistente</span>').join(', '):'<span style="color:var(--text-muted)">Sem restrição (vê todas)</span>';
+    const semGrd=restrito&&visiveis===0;
+    return`<tr><td>${escHtml(u.nome||u.usuario||'—')}<div style="font-size:11px;color:var(--text-muted)">${escHtml(u.usuario||'')} · ${escHtml(u.perfil||'')}${u.ativo===false?' · inativo':''}</div></td><td style="font-size:12px">${obrasTxt}</td><td style="text-align:right;${semGrd?'color:var(--danger);font-weight:600':''}">${visiveis}</td><td style="text-align:right">${paginas}</td></tr>`;
+  }).join('')||`<tr><td colspan="4" style="color:var(--text-muted)">${erroU?'Não foi possível listar os usuários: '+escHtml(erroU):'Nenhum usuário.'}</td></tr>`;
+  closeModal('modal-grd-diag');
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-grd-diag" onclick="if(event.target===this)closeModal('modal-grd-diag')">
+      <div class="modal" style="max-width:940px">
+        <div class="modal-header"><span class="modal-title">Diagnóstico de acesso — G.R.D.</span><button class="btn btn-sm" onclick="closeModal('modal-grd-diag')"><i class="ti ti-x"></i></button></div>
+        <div class="modal-body">
+          ${restritoAdmin?'<div style="background:var(--warning-light);border-radius:var(--radius);padding:10px 12px;font-size:12.5px;margin-bottom:12px">Seu próprio usuário tem acesso restrito a obras, então este diagnóstico só enxerga as GRDs das suas obras e pode estar incompleto.</div>':''}
+          <div style="font-size:13px;font-weight:700;color:var(--primary-dark);margin-bottom:6px">1) Cada obra da planilha está ligada a qual obra do sistema?</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Um usuário só enxerga a GRD se a obra ligada a ela estiver entre as obras liberadas para ele. Em vermelho: GRDs que nenhum usuário restrito consegue ver.</div>
+          <div style="overflow-x:auto;max-height:240px;overflow-y:auto;margin-bottom:18px"><table style="font-size:12px"><thead><tr><th>Obra na planilha</th><th>Obra no sistema</th><th style="text-align:right">GRDs</th></tr></thead><tbody>${linhasMapa}</tbody></table></div>
+          <div style="font-size:13px;font-weight:700;color:var(--primary-dark);margin-bottom:6px">2) Quantas GRDs cada usuário enxerga?</div>
+          <div style="overflow-x:auto;max-height:300px;overflow-y:auto"><table style="font-size:12px"><thead><tr><th>Usuário</th><th>Obras liberadas</th><th style="text-align:right">GRDs visíveis</th><th style="text-align:right">Páginas</th></tr></thead><tbody>${linhasUsu}</tbody></table></div>
+        </div>
+      </div>
+    </div>`);
 }
 
 function grdAtualizar(){
@@ -7360,9 +7402,10 @@ function openModalUsuario(id,focarSenha){
                 <label>${isEdit?'Nova senha':'Senha *'}</label>
                 <div style="display:flex;gap:6px">
                   <input type="password" id="u-senha" value="" placeholder="${isEdit?'Deixe em branco para manter a atual':'Mínimo de 8 caracteres'}" autocomplete="new-password" style="flex:1">
-                  <button type="button" class="btn btn-sm" onclick="toggleSenhaModal()" id="u-senha-eye-btn"><i class="ti ti-eye" id="u-senha-eye"></i></button>
+                  <button type="button" class="btn btn-sm" onclick="toggleSenhaModal()" id="u-senha-eye-btn" title="Mostrar/ocultar"><i class="ti ti-eye" id="u-senha-eye"></i></button>
+                  <button type="button" class="btn btn-sm" onclick="gerarSenhaUsuario()" title="Gerar uma senha aleatória, mostrar aqui e copiar"><i class="ti ti-wand"></i> Gerar</button>
                 </div>
-                <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${isEdit?'A senha atual não pode ser exibida (fica criptografada). Preencha só se quiser trocá-la — mínimo de 8 caracteres.':'Defina a senha de acesso do usuário — mínimo de 8 caracteres.'}</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${isEdit?'A senha atual não pode ser exibida (fica criptografada). Para dar acesso novamente, clique em Gerar (ou digite uma), salve e passe a nova senha ao usuário.':'Defina a senha de acesso do usuário — mínimo de 8 caracteres.'}</div>
               </div>
               <div class="form-group">
                 <label>Nível de acesso *</label>
@@ -7402,6 +7445,20 @@ function openModalUsuario(id,focarSenha){
 
 }
 
+// Gera senha aleatória segura (sem caracteres que se confundem: 0/O, 1/l/I), mostra na tela e copia.
+function gerarSenhaUsuario(){
+  const inp=document.getElementById('u-senha');if(!inp)return;
+  const A='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  let senha='';
+  do{
+    const buf=new Uint32Array(10);crypto.getRandomValues(buf);
+    senha=[...buf].map(n=>A[n%A.length]).join('');
+  }while(!(/[A-Z]/.test(senha)&&/[a-z]/.test(senha)&&/[0-9]/.test(senha)));
+  inp.value=senha;inp.type='text';
+  const icon=document.getElementById('u-senha-eye');if(icon)icon.className='ti ti-eye-off';
+  try{navigator.clipboard.writeText(senha).then(()=>showToast('Senha gerada e copiada. Salve o usuário e passe a senha a ele.'),()=>showToast('Senha gerada. Salve o usuário e anote a senha.'));}
+  catch(e){showToast('Senha gerada. Salve o usuário e anote a senha.');}
+}
 function toggleSenhaModal(){
   const inp=document.getElementById('u-senha');
   const icon=document.getElementById('u-senha-eye');
