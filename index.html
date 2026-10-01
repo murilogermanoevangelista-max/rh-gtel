@@ -415,7 +415,8 @@ let ativoImobFiltroAtivo=null; // 'sem_responsavel'|'sem_termo'|'ressalva_penden
 let procSelecionadoId=null;
 let procSecoesAbertas={};
 let procBusca='';
-let procFiltroTipo=''; // ''|'procedimento'|'formulario'
+let procFiltroTipo=''; // (legado, não usado)
+let procTipoAberto=''; // ''=tela inicial (Formulário/Procedimento) | 'formulario' | 'procedimento'
 let procMostrarObsoletos=true;
 let procFiltroSemArquivo=false;
 let bannerNaoLancadasAberto=false;
@@ -1204,7 +1205,7 @@ async function showPage(page){
     else if(page==='alojamentos'){if(!_vindoDeAlerta)alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';bannerRelatoriosAberto=false;bannerRelatoriosFiltroObra='';await loadAlojamentos();await loadPrestadores();renderAlojamentos();}
     else if(page==='veiculos'){await loadVeiculos();renderVeiculos();}
     else if(page==='ativos-imobilizados'){await loadAtivosImobilizados();await loadFornecedores();renderAtivosImobilizados();}
-    else if(page==='procedimentos'){await loadProcedimentos();renderProcedimentos();}
+    else if(page==='procedimentos'){procTipoAberto='';procBusca='';procFiltroSemArquivo=false;await loadProcedimentos();renderProcedimentos();}
     else if(page==='grd'){await loadGRD();renderGRD();}
     else if(page==='prestadores'){await loadPrestadores();renderPrestadores();}
     else if(page==='efetivo'){efetivoSituacaoFiltro='';await loadEfetivo();renderEfetivo();}
@@ -9943,7 +9944,7 @@ function renderProcedimentos(){
   const procsFiltrados=(()=>{
     let lista=procedimentos.slice();
     if(!procMostrarObsoletos)lista=lista.filter(p=>!p.obsoleto);
-    if(procFiltroTipo)lista=lista.filter(p=>p.tipo===procFiltroTipo);
+    if(procTipoAberto)lista=lista.filter(p=>p.tipo===procTipoAberto);
     if(procFiltroSemArquivo)lista=lista.filter(p=>!versaoAtualProc(p.id)?.arquivo_url);
     if(procBusca){
       const b=procBusca.toLowerCase();
@@ -10090,10 +10091,52 @@ function renderProcedimentos(){
     }
   })();
 
+  // Tela inicial: escolher entre Formulário e Procedimento (some quando há busca, que procura nos dois)
+  const procNaHome=!procTipoAberto&&!procBusca;
+  if(procNaHome){
+    const baseLista=procedimentos.filter(p=>procMostrarObsoletos||!p.obsoleto);
+    const cardTipo=(tipo,icone,titulo,desc)=>{
+      const doTipo=baseLista.filter(p=>p.tipo===tipo);
+      const sem=doTipo.filter(p=>!versaoAtualProc(p.id)?.arquivo_url).length;
+      const obs=doTipo.filter(p=>p.obsoleto).length;
+      return '<div onclick="procTipoAberto=\''+tipo+'\';procSelecionadoId=null;renderProcedimentos()" style="background:#fff;border:1px solid #D8DAE0;border-radius:8px;padding:28px 24px;cursor:pointer;display:flex;flex-direction:column;gap:10px;transition:box-shadow .15s,border-color .15s" onmouseover="this.style.boxShadow=\'0 4px 14px rgba(31,95,166,.15)\';this.style.borderColor=\'#1F5FA6\'" onmouseout="this.style.boxShadow=\'none\';this.style.borderColor=\'#D8DAE0\'">'
+        +'<div style="width:52px;height:52px;border-radius:10px;background:#E8F0FA;color:#1F5FA6;display:flex;align-items:center;justify-content:center;font-size:26px"><i class="ti ti-'+icone+'"></i></div>'
+        +'<div style="font-size:19px;font-weight:700;color:#1A1F29">'+titulo+'</div>'
+        +'<div style="font-size:12.5px;color:#6B7280">'+desc+'</div>'
+        +'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px">'
+          +'<span style="font-size:12px;font-weight:700;color:#1D4ED8;background:#DBEAFE;padding:3px 10px;border-radius:3px">'+doTipo.length+' documento(s)</span>'
+          +(sem?'<span style="font-size:12px;font-weight:700;color:#991B1B;background:#FEE2E2;padding:3px 10px;border-radius:3px">'+sem+' sem arquivo</span>':'')
+          +(obs?'<span style="font-size:12px;font-weight:700;color:#92400E;background:#FFFBEB;padding:3px 10px;border-radius:3px">'+obs+' obsoleto(s)</span>':'')
+        +'</div>'
+        +'<div style="margin-top:auto;padding-top:8px;font-size:12.5px;font-weight:600;color:#1F5FA6;display:flex;align-items:center;gap:4px">Abrir lista <i class="ti ti-arrow-narrow-right"></i></div>'
+      +'</div>';
+    };
+    document.getElementById('main-content').innerHTML=`
+      <div class="page-header">
+        <div><div class="page-title"><i class="ti ti-file-text"></i> Procedimentos</div>
+          <div class="page-subtitle">${procedimentos.length} documento(s)${totalObsoletos?' · '+totalObsoletos+' obsoleto(s)':''} · escolha o que deseja consultar</div></div>
+        <div style="display:flex;gap:8px"><button class="btn btn-primary" onclick="openModalProcedimento()"><i class="ti ti-plus"></i> Novo</button></div>
+      </div>
+      <div style="margin-bottom:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <div class="search-box" style="max-width:320px"><i class="ti ti-search"></i><input placeholder="Buscar em todos por título ou código..." value="" oninput="procBusca=this.value;if(!_buscaHandlers.proc)_buscaHandlers.proc=makeBuscaHandler(v=>procBusca=v,renderProcedimentos,300);_buscaHandlers.proc(this.value);this.focus()"></div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" ${procMostrarObsoletos?'checked':''} onchange="procMostrarObsoletos=this.checked;renderProcedimentos()"> Mostrar obsoletos</label>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;max-width:760px">
+        ${cardTipo('formulario','forms','Formulário','Formulários padrão da empresa (ADM 00)')}
+        ${cardTipo('procedimento','list-details','Procedimento','Procedimentos padrão da empresa (ADM 000)')}
+      </div>`;
+    return;
+  }
+  const procTituloTipo=procTipoAberto?(TIPOS_PROC[procTipoAberto]?.label||'Procedimentos'):'Resultado da busca';
+  const procTotalTipo=procTipoAberto?procedimentos.filter(p=>p.tipo===procTipoAberto):procedimentos;
+
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
-      <div><div class="page-title"><i class="ti ti-file-text"></i> Procedimentos</div>
-        <div class="page-subtitle">${procedimentos.length} documento(s)${totalObsoletos?' · '+totalObsoletos+' obsoleto(s)':''}</div></div>
+      <div style="display:flex;align-items:center;gap:12px;min-width:0">
+        <button class="btn btn-sm" onclick="procTipoAberto='';procBusca='';procFiltroSemArquivo=false;procSelecionadoId=null;renderProcedimentos()" title="Voltar para Formulário / Procedimento"><i class="ti ti-arrow-left"></i> Voltar</button>
+        <div><div class="page-title"><i class="ti ti-file-text"></i> Procedimentos <span style="color:var(--text-muted);font-weight:500">›</span> ${procTituloTipo}</div>
+        <div class="page-subtitle">${procTotalTipo.length} documento(s)${procTotalTipo.filter(p=>p.obsoleto).length?' · '+procTotalTipo.filter(p=>p.obsoleto).length+' obsoleto(s)':''}</div></div>
+      </div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-primary" onclick="openModalProcedimento()"><i class="ti ti-plus"></i> Novo</button>
       </div>
@@ -10103,13 +10146,8 @@ function renderProcedimentos(){
 
     <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <div class="search-box" style="max-width:320px"><i class="ti ti-search"></i><input placeholder="Buscar por título ou código..." value="${procBusca}" oninput="procBusca=this.value;if(!_buscaHandlers.proc)_buscaHandlers.proc=makeBuscaHandler(v=>procBusca=v,renderProcedimentos,300);_buscaHandlers.proc(this.value);this.focus()"></div>
-      <select onchange="procFiltroTipo=this.value;renderProcedimentos()" style="padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px">
-        <option value="">Todos os tipos</option>
-        <option value="procedimento" ${procFiltroTipo==='procedimento'?'selected':''}>Só Procedimentos</option>
-        <option value="formulario" ${procFiltroTipo==='formulario'?'selected':''}>Só Formulários</option>
-      </select>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" ${procMostrarObsoletos?'checked':''} onchange="procMostrarObsoletos=this.checked;renderProcedimentos()"> Mostrar obsoletos</label>
-      <button class="btn btn-sm" onclick="procBusca='';procFiltroTipo='';procFiltroSemArquivo=false;document.querySelectorAll('.search-box input').forEach(i=>i.value='');renderProcedimentos()"><i class="ti ti-filter-x"></i> Limpar filtros</button>
+      <button class="btn btn-sm" onclick="procBusca='';procFiltroSemArquivo=false;document.querySelectorAll('.search-box input').forEach(i=>i.value='');renderProcedimentos()"><i class="ti ti-filter-x"></i> Limpar filtros</button>
     </div>
 
     <div id="proc-tabela-secao">${masterDetailHtml}</div>`;
@@ -10118,7 +10156,7 @@ function renderProcedimentos(){
 function openModalProcedimento(id){
   const p=id?procedimentos.find(x=>x.id===id):null;
   const isEdit=!!p;
-  const tipoDefault=p?.tipo||'procedimento';
+  const tipoDefault=p?.tipo||procTipoAberto||'procedimento';
   const proximoNumero=(tipo)=>{
     const doTipo=procedimentos.filter(x=>x.tipo===tipo);
     return doTipo.length?Math.max(...doTipo.map(x=>x.numero))+1:1;
@@ -10193,6 +10231,7 @@ async function saveProcedimento(id){
   closeModal('modal-proc');
   await loadProcedimentos();
   if(!id&&novoId)procSelecionadoId=novoId;
+  if(procTipoAberto)procTipoAberto=tipo;
   renderProcedimentos();
 }
 async function deleteProcedimento(id,codigo){
