@@ -1415,14 +1415,7 @@ function grdAtualizar(){
   const paginas=Math.max(1,Math.ceil(lista.length/GRD_POR_PAGINA));
   if(grdPagina>paginas-1)grdPagina=paginas-1;
   const ini=grdPagina*GRD_POR_PAGINA,fatia=lista.slice(ini,ini+GRD_POR_PAGINA);
-  const partes=[f.forn.trim()||'todos os fornecedores'];
-  if(f.de||f.ate)partes.push((f.de?formatDate(f.de):'início')+' a '+(f.ate?formatDate(f.ate):'hoje'));
-  if(f.obra)partes.push('obra '+grdObraCodigo(f.obra));
-  if(f.sit)partes.push({pend:'pendentes',aprov:'aprovadas',subst:'substituídas'}[f.sit]);
-  if(f.q.trim())partes.push('busca "'+f.q.trim()+'"');
-  const vmin=grdParseValor(f.vmin),vmax=grdParseValor(f.vmax);
-  if(vmin!==null||vmax!==null)partes.push('valor '+(vmin!==null?'de '+grdBRL(vmin):'')+(vmax!==null?' até '+grdBRL(vmax):''));
-  const rf=document.getElementById('grd-resumo-filtro');if(rf)rf.textContent=partes.join(' · ');
+  const rf=document.getElementById('grd-resumo-filtro');if(rf)rf.textContent=grdTextoFiltro();
   const badge=s=>s==='subst'?'<span class="badge" style="background:#EEF1F5;color:#4B5563">Substituída</span>':s==='aprov'?'<span class="badge" style="background:var(--accent-light);color:#8A4300">Aprovada</span>':'<span class="badge badge-blue">Pendente</span>';
   box.innerHTML=`
     <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px">
@@ -1471,18 +1464,149 @@ function grdAtualizar(){
     </div>`;
 }
 
+function grdTextoFiltro(){
+  const f=grdFiltro;
+  const partes=[f.forn.trim()||'todos os fornecedores'];
+  if(f.de||f.ate)partes.push((f.de?formatDate(f.de):'início')+' a '+(f.ate?formatDate(f.ate):'hoje'));
+  if(f.obra)partes.push('obra '+grdObraCodigo(f.obra));
+  if(f.sit)partes.push({pend:'pendentes',aprov:'aprovadas',subst:'substituídas'}[f.sit]);
+  if(f.q.trim())partes.push('busca "'+f.q.trim()+'"');
+  const vmin=grdParseValor(f.vmin),vmax=grdParseValor(f.vmax);
+  if(vmin!==null||vmax!==null)partes.push('valor '+(vmin!==null?'de '+grdBRL(vmin):'')+(vmax!==null?' até '+grdBRL(vmax):''));
+  return partes.join(' · ');
+}
+
+// Excel no formato de painel: título, cartões de totais, resumo por fornecedor com barras e a tabela de guias.
 async function grdExportarExcel(){
   const lista=grdFiltrar();
   if(!lista.length){showToast('Nada para exportar com o filtro atual.','error');return;}
+  try{await garantirXLSXStyle();}catch(e){showToast('Não foi possível carregar o gerador de Excel. Verifique a conexão.','error');return;}
+  const X=window.XLSXStyle;
   const substSet=new Set(grdLista.map(x=>Number(x.substituida_numero)).filter(Boolean));
+  const NC=12;
+  const COR={navy:'123F73',azul:'1F5FA6',azulClaro:'E3EEFB',borda:'DCE5F0',cinza:'5B6472',zebra:'F8FAFD',laranjaBg:'FFF1E3',laranja:'A24A00',branco:'FFFFFF'};
+  const fnt=o=>Object.assign({name:'Calibri',sz:11,color:{rgb:'1A1A1A'}},o||{});
+  const fill=rgb=>({patternType:'solid',fgColor:{rgb}});
+  const lin=c=>({style:'thin',color:{rgb:c||COR.borda}});
+  const bord=c=>({top:lin(c),bottom:lin(c),left:lin(c),right:lin(c)});
+  const ws={},merges=[],alturas=[];
+  const put=(r,c,v,s,z)=>{
+    const cell={s:s||{}};
+    if(typeof v==='number'){cell.t='n';cell.v=v;}else{cell.t='s';cell.v=v==null?'':String(v);}
+    if(z)cell.z=z;
+    ws[X.utils.encode_cell({r,c})]=cell;
+  };
+  const mesclar=(r1,c1,r2,c2,v,s,z)=>{
+    for(let r=r1;r<=r2;r++)for(let c=c1;c<=c2;c++)put(r,c,(r===r1&&c===c1)?v:'',s,(r===r1&&c===c1)?z:undefined);
+    if(r1!==r2||c1!==c2)merges.push({s:{r:r1,c:c1},e:{r:r2,c:c2}});
+  };
+  const serial=iso=>{if(!iso)return null;const p=String(iso).split('-').map(Number);return Date.UTC(p[0],p[1]-1,p[2])/86400000+25569;};
+
+  // totais
+  let total=0,maior=null,pendQtd=0,pendVal=0;const porForn={};
+  lista.forEach(x=>{
+    const v=Number(x.valor)||0;total+=v;
+    if(!maior||v>Number(maior.valor))maior=x;
+    if(grdSituacao(x,substSet)==='pend'){pendQtd++;pendVal+=v;}
+    const o=porForn[x.fornecedor]||(porForn[x.fornecedor]={forn:x.fornecedor,qtd:0,total:0});o.qtd++;o.total+=v;
+  });
+  const resumo=Object.values(porForn).sort((a,b)=>b.total-a.total);
+  const topo=resumo.length?resumo[0].total:1;
+  const agora=new Date();
+  const quem=currentUser?.nome||currentUser?.usuario||'—';
+  const MOEDA='"R$" #,##0.00';
+  let r=0;
+
+  // título
+  mesclar(r,0,r,NC-1,'G.R.D. — Guias de Remessa de Documentos',{font:fnt({sz:18,bold:true,color:{rgb:COR.branco}}),fill:fill(COR.navy),alignment:{vertical:'center',horizontal:'left',indent:1}});
+  alturas[r]=34;r++;
+  mesclar(r,0,r,NC-1,'Filtro: '+grdTextoFiltro()+'   |   Gerado em '+agora.toLocaleDateString('pt-BR')+' às '+agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+' por '+quem,{font:fnt({sz:10,color:{rgb:COR.navy}}),fill:fill(COR.azulClaro),alignment:{vertical:'center',horizontal:'left',indent:1,wrapText:true}});
+  alturas[r]=24;r+=2;
+
+  // cartões de totais (4 cartões de 3 colunas)
+  const cards=[
+    {c:0,rot:'VALOR TOTAL DO FILTRO',val:total,fmt:MOEDA,sub:lista.length+' GRD(s)',bg:COR.branco,cv:COR.navy,cr:COR.cinza},
+    {c:3,rot:'VALOR MÉDIO POR GRD',val:lista.length?total/lista.length:0,fmt:MOEDA,sub:resumo.length+' fornecedor(es) no filtro',bg:COR.branco,cv:'1A1A1A',cr:COR.cinza},
+    {c:6,rot:'MAIOR GRD DO FILTRO',val:maior?Number(maior.valor):0,fmt:MOEDA,sub:maior?'GRD '+grdNum10(maior.numero):'—',bg:COR.branco,cv:'1A1A1A',cr:COR.cinza},
+    {c:9,rot:'PENDENTES DE APROVAÇÃO',val:pendVal,fmt:MOEDA,sub:pendQtd+' GRD(s)',bg:COR.laranjaBg,cv:COR.laranja,cr:'8A4300'}
+  ];
+  const bc=lin(COR.borda);
+  cards.forEach(k=>{
+    const sRot={font:fnt({sz:9,bold:true,color:{rgb:k.cr}}),fill:fill(k.bg),alignment:{vertical:'center',horizontal:'left',indent:1},border:{top:bc,left:bc,right:bc}};
+    const sVal={font:fnt({sz:20,bold:true,color:{rgb:k.cv}}),fill:fill(k.bg),alignment:{vertical:'center',horizontal:'left',indent:1},border:{left:bc,right:bc}};
+    const sSub={font:fnt({sz:10,color:{rgb:k.cr}}),fill:fill(k.bg),alignment:{vertical:'center',horizontal:'left',indent:1},border:{bottom:bc,left:bc,right:bc}};
+    mesclar(r,k.c,r,k.c+2,k.rot,sRot);
+    mesclar(r+1,k.c,r+1,k.c+2,k.val,sVal,k.fmt);
+    mesclar(r+2,k.c,r+2,k.c+2,k.sub,sSub);
+  });
+  alturas[r]=20;alturas[r+1]=34;alturas[r+2]=20;r+=4;
+
+  // resumo por fornecedor com barras
+  mesclar(r,0,r,NC-1,'Resumo por fornecedor (maiores valores do filtro)',{font:fnt({sz:13,bold:true,color:{rgb:COR.navy}}),alignment:{vertical:'center',horizontal:'left'}});
+  alturas[r]=26;r++;
+  const sHead={font:fnt({sz:10,bold:true,color:{rgb:COR.branco}}),fill:fill(COR.azul),alignment:{vertical:'center',horizontal:'left',indent:1},border:bord(COR.azul)};
+  const sHeadD={...sHead,alignment:{vertical:'center',horizontal:'right',indent:1}};
+  mesclar(r,0,r,2,'FORNECEDOR',sHead);put(r,3,'GRDs',sHeadD);mesclar(r,4,r,5,'VALOR TOTAL',sHeadD);put(r,6,'% DO TOTAL',sHeadD);mesclar(r,7,r,NC-1,'PROPORÇÃO',sHead);
+  alturas[r]=22;r++;
+  resumo.slice(0,10).forEach((s,i)=>{
+    const bg=i%2?COR.zebra:COR.branco,b=bord(COR.borda);
+    const sT={font:fnt({sz:10.5,bold:true}),fill:fill(bg),alignment:{vertical:'center',horizontal:'left',indent:1},border:b};
+    const sN={font:fnt({sz:10.5}),fill:fill(bg),alignment:{vertical:'center',horizontal:'right',indent:1},border:b};
+    const sB={font:fnt({sz:10,color:{rgb:COR.azul}}),fill:fill(bg),alignment:{vertical:'center',horizontal:'left',indent:1},border:b};
+    mesclar(r,0,r,2,s.forn,sT);put(r,3,s.qtd,sN,'0');
+    mesclar(r,4,r,5,Math.round(s.total*100)/100,{...sN,font:fnt({sz:10.5,bold:true})},MOEDA);
+    put(r,6,total?s.total/total:0,sN,'0.0%');
+    mesclar(r,7,r,NC-1,'█'.repeat(Math.max(1,Math.round(s.total/topo*40))),sB);
+    alturas[r]=20;r++;
+  });
+  if(resumo.length>10){mesclar(r,0,r,NC-1,'… e mais '+(resumo.length-10)+' fornecedor(es) no filtro (veja a tabela abaixo).',{font:fnt({sz:9,italic:true,color:{rgb:COR.cinza}}),alignment:{horizontal:'left',indent:1}});r++;}
+  r++;
+
+  // tabela de guias
+  mesclar(r,0,r,NC-1,'Guias do filtro ('+lista.length+')',{font:fnt({sz:13,bold:true,color:{rgb:COR.navy}}),alignment:{vertical:'center',horizontal:'left'}});
+  alturas[r]=26;r++;
+  const cab=['SITUAÇÃO','G.R.D.','OBRA','DT. EMISSÃO','APROVADO EM','FORNECEDOR','EMISSÃO NF','VENCTO. NF','N.FISCAL / SÉRIE','VALOR NF R$','SOLIC.','ATUALIZADA EM / POR'];
+  const hdrRow=r;
+  cab.forEach((t,c)=>put(r,c,t,{font:fnt({sz:10,bold:true,color:{rgb:COR.branco}}),fill:fill(COR.navy),alignment:{vertical:'center',horizontal:c===9?'right':(c===1||c===3||c===4||c===6||c===7)?'center':'left',wrapText:true,indent:c===9?1:0},border:bord(COR.navy)}));
+  alturas[r]=24;r++;
   const nomeSit={pend:'Pendente',aprov:'Aprovada',subst:'Substituída'};
-  const rows=[['G.R.D.','Situação','Obra','Dt. Emissão','Aprovado em','Fornecedor','Emissão NF','Vencto. NF','N.Fiscal / Série','Valor NF R$','GRD Substituída','Solic.','Atualizada em','Atualizada por']];
-  lista.forEach(x=>rows.push([Number(x.numero),nomeSit[grdSituacao(x,substSet)],grdObraLabel(x.obra_id),x.dt_emissao?formatDate(x.dt_emissao):'',x.aprovado_em?formatDate(x.aprovado_em):'',x.fornecedor,x.emissao_nf?formatDate(x.emissao_nf):'',x.vencto_nf?formatDate(x.vencto_nf):'',x.nf||'',Number(x.valor),x.substituida_numero?Number(x.substituida_numero):'',x.solicitante||'',x.atualizado_em?grdDataHora(x.atualizado_em):'',x.atualizado_por||'']));
-  rows.push([]);rows.push(['','','','','','TOTAL','','','',lista.reduce((s,x)=>s+(Number(x.valor)||0),0)]);
-  const ws=XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=[{wch:12},{wch:12},{wch:30},{wch:12},{wch:12},{wch:36},{wch:12},{wch:12},{wch:18},{wch:14},{wch:14},{wch:24},{wch:20},{wch:22}];
-  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'GRD');
-  XLSX.writeFile(wb,'GRD_GTEL_'+new Date().toISOString().slice(0,10)+'.xlsx');
+  const corSit={pend:{bg:'E6F1FB',fg:'134E86'},aprov:{bg:'FFF1E3',fg:'8A4300'},subst:{bg:'EEF1F5',fg:'4B5563'}};
+  const primeira=r;
+  lista.forEach((x,i)=>{
+    const bg=i%2?COR.zebra:COR.branco,b=bord(COR.borda),st=grdSituacao(x,substSet);
+    const base=h=>({font:fnt({sz:10.5}),fill:fill(bg),alignment:{vertical:'center',horizontal:h||'left',indent:h==='center'?0:1},border:b});
+    put(r,0,nomeSit[st],{font:fnt({sz:10,bold:true,color:{rgb:corSit[st].fg}}),fill:fill(corSit[st].bg),alignment:{vertical:'center',horizontal:'center'},border:b});
+    put(r,1,grdNum10(x.numero),{...base('center'),font:fnt({sz:10.5,bold:true,color:{rgb:COR.navy}})});
+    put(r,2,grdObraCodigo(x.obra_id),base());
+    const d=(c,iso,h)=>{const sv=serial(iso);if(sv===null)put(r,c,'—',base('center'));else put(r,c,sv,base('center'),'dd/mm/yyyy');};
+    d(3,x.dt_emissao);d(4,x.aprovado_em);
+    put(r,5,x.fornecedor,base());
+    d(6,x.emissao_nf);d(7,x.vencto_nf);
+    put(r,8,x.nf||'',base());
+    put(r,9,Number(x.valor)||0,{...base('right'),font:fnt({sz:10.5,bold:true})},'#,##0.00');
+    put(r,10,x.solicitante||'',base());
+    put(r,11,x.atualizado_em?grdDataHora(x.atualizado_em)+' · '+(x.atualizado_por||'—'):'—',{...base(),font:fnt({sz:9.5,color:{rgb:COR.cinza}})});
+    alturas[r]=19;r++;
+  });
+  const ultima=r-1;
+  // total (SUBTOTAL acompanha o filtro aplicado dentro do próprio Excel)
+  const sTot={font:fnt({sz:11,bold:true,color:{rgb:COR.navy}}),fill:fill(COR.azulClaro),alignment:{vertical:'center',horizontal:'right'},border:bord(COR.borda)};
+  for(let c=0;c<NC;c++)put(r,c,'',sTot);
+  put(r,8,'TOTAL (acompanha o filtro do Excel)',{...sTot});
+  ws[X.utils.encode_cell({r,c:9})]={t:'n',v:Math.round(total*100)/100,f:'SUBTOTAL(109,J'+(primeira+1)+':J'+(ultima+1)+')',z:'#,##0.00',s:{...sTot,font:fnt({sz:11,bold:true,color:{rgb:COR.navy}})}};
+  alturas[r]=22;r++;
+
+  ws['!ref']=X.utils.encode_range({s:{r:0,c:0},e:{r:r-1,c:NC-1}});
+  ws['!merges']=merges;
+  ws['!cols']=[13,13,15,12,12,40,12,12,19,15,22,28].map(w=>({wch:w}));
+  ws['!rows']=Array.from({length:r},(_,i)=>alturas[i]?{hpt:alturas[i]}:{});
+  ws['!autofilter']={ref:X.utils.encode_range({s:{r:hdrRow,c:0},e:{r:ultima,c:NC-1}})};
+  ws['!views']=[{showGridLines:false}];
+  ws['!pageSetup']={orientation:'landscape',paperSize:9,fitToWidth:1,fitToHeight:0};
+  ws['!sheetPr']={pageSetUpPr:{fitToPage:true}};
+  ws['!margins']={left:0.4,right:0.4,top:0.5,bottom:0.5,header:0.3,footer:0.3};
+  const wb=X.utils.book_new();X.utils.book_append_sheet(wb,ws,'GRD');
+  X.writeFile(wb,'GRD_GTEL_'+agora.toISOString().slice(0,10)+'.xlsx');
   showToast('Excel exportado!');
 }
 
