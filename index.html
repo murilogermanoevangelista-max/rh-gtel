@@ -1313,6 +1313,12 @@ function renderBackup(){
 }
 
 async function backupLerTabela(t){
+  if(t==='usuarios_acesso'){
+    // tabela travada para leitura direta (guarda os hashes de senha) — vem pela mesma função da tela de Usuários, já sem senha
+    const{data,error}=await sb.rpc('listar_usuarios');
+    if(error)return{data:null,error};
+    return{data:(data||[]).map(l=>{const o={};for(const k in l){if(!BACKUP_CAMPOS_SECRETOS.test(k))o[k]=l[k];}return o;}),error:null};
+  }
   let r=await _pagRun(()=>sb.from(t).select('*'),true);
   if(r.error)r=await _pagRun(()=>sb.from(t).select('*'),false); // tabela sem coluna id
   if(r.error)return r;
