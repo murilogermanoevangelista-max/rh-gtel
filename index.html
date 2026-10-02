@@ -220,6 +220,27 @@ input:focus,select:focus{border-color:var(--primary)}
 .menu-card-pill{flex-shrink:0;padding:4px 10px;border-radius:999px;background:var(--accent-light);color:#8F3F00;font-size:11px;font-weight:700}
 .menu-card-seta{flex-shrink:0;font-size:18px;color:#8FA4C0}
 .menu-vazio{display:none;padding:32px;text-align:center;color:var(--text-muted)}
+.bkp-aviso{display:flex;align-items:center;gap:14px;background:var(--accent-light);border:1px solid #F5C08A;border-left:4px solid var(--accent);border-radius:var(--radius-lg);padding:14px 18px;margin-bottom:22px;flex-wrap:wrap}
+.bkp-aviso i.ti-database-exclamation{font-size:26px;color:var(--accent)}
+.bkp-aviso .txt{flex:1;min-width:200px;font-size:13.5px;color:#7A3B00}
+.bkp-aviso .txt strong{display:block;font-size:14px;color:#5C2C00}
+.bkp-status{display:flex;align-items:center;gap:18px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:22px 24px;margin-bottom:18px;flex-wrap:wrap}
+.bkp-status .ic{width:56px;height:56px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0}
+.bkp-status .ic.ok{background:var(--success-light);color:var(--success)}
+.bkp-status .ic.atraso{background:var(--accent-light);color:var(--accent)}
+.bkp-status .info{flex:1;min-width:220px}
+.bkp-status .info .t{font-family:Sora,sans-serif;font-size:17px;font-weight:700;color:var(--navy)}
+.bkp-status .info .s{color:var(--text-muted);font-size:13px;margin-top:2px}
+.bkp-opcoes{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;margin:4px 0 0}
+.bkp-opcoes label{display:flex!important;align-items:center;gap:6px;cursor:pointer;margin:0!important;font-size:13px!important;font-weight:500!important;color:var(--text)!important;text-transform:none!important;letter-spacing:0!important;width:auto!important}
+.bkp-opcoes input[type=checkbox]{width:16px!important;height:16px;margin:0;flex-shrink:0;accent-color:var(--primary)}
+.bkp-progresso{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 20px;margin-bottom:18px}
+.bkp-barra{height:8px;background:var(--primary-light);border-radius:8px;overflow:hidden;margin:8px 0 12px}
+.bkp-barra>div{height:100%;background:var(--accent);width:0;transition:width .2s}
+.bkp-tabs{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 18px;font-size:12.5px}
+.bkp-tabs div{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px dashed var(--border)}
+.bkp-tabs .err{color:var(--danger)}
+.bkp-nota{font-size:12.5px;color:var(--text-muted);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 18px;line-height:1.6}
 .btn-menu-mobile{display:none}
 @media(max-width:1180px){.menu-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:900px){.menu-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -1094,6 +1115,7 @@ const MODULOS=[
   {page:'procedimentos',grupo:'patrimonio',icone:'ti-file-text',nome:'Procedimentos',desc:'Procedimentos e formulários'},
   {page:'empresas',grupo:'admin',icone:'ti-briefcase',nome:'Empresas',desc:'Cadastro de empresas'},
   {page:'usuarios',grupo:'admin',icone:'ti-shield-lock',nome:'Usuários',desc:'Acessos por obra',somenteAdmin:true},
+  {page:'backup',grupo:'admin',icone:'ti-database-export',nome:'Backup',desc:'Cópia semanal dos dados',somenteAdmin:true},
 ];
 function modulosVisiveis(){return MODULOS.filter(m=>!m.somenteAdmin||currentUser?.perfil==='admin');}
 function qtdTransferenciasPendentes(){
@@ -1153,6 +1175,7 @@ function renderMenu(){
         <button type="button" class="menu-btn-dash" onclick="showPage('dashboard')"><i class="ti ti-dashboard"></i> Dashboard</button>
       </div>
     </div>
+    ${backupAvisoHTML()}
     ${grupos}
     <div class="menu-vazio" id="menu-vazio">Nenhum módulo encontrado.</div>`;
 }
@@ -1180,7 +1203,7 @@ let dashPendDropdownAberto=null; // null|'danger'|'warning'|'info' — qual drop
 async function showPage(page){
   const _vindoDeAlerta=window._filtroViaAlerta;
   window._filtroViaAlerta=false;
-  if(page==='usuarios'&&currentUser?.perfil!=='admin'){
+  if((page==='usuarios'||page==='backup')&&currentUser?.perfil!=='admin'){
     showToast('Acesso restrito a administradores','error');
     page='dashboard';
   }
@@ -1210,6 +1233,7 @@ async function showPage(page){
     else if(page==='prestadores'){await loadPrestadores();renderPrestadores();}
     else if(page==='efetivo'){efetivoSituacaoFiltro='';await loadEfetivo();renderEfetivo();}
     else if(page==='usuarios')renderUsuarios();
+    else if(page==='backup')renderBackup();
     else if(page==='obras')renderObras();
     else if(page==='empresas')renderEmpresas();
     else if(page==='fornecedores'){await loadFornecedores();renderFornecedores();}
@@ -1218,6 +1242,222 @@ async function showPage(page){
   }catch(e){
     console.error('showPage erro em '+page+':',e);
     document.getElementById('main-content').innerHTML='<div style="padding:40px;color:var(--danger)"><i class="ti ti-alert-circle" style="font-size:32px;display:block;margin-bottom:12px"></i><strong>Erro ao carregar página "'+page+'"</strong><br><br><code style="font-size:12px">'+e.message+'</code><br><br><button class="btn" onclick="showPage(\''+page+'\')" >Tentar novamente</button></div>';
+  }
+}
+
+// ─── BACKUP (somente admin) ──────────────────────────────────────────────────
+// Gera UM arquivo .zip com tudo que é preciso para reconstruir o sistema:
+//   dados/      → todas as tabelas (.json completo para restaurar + .xlsx para consulta)
+//   banco/      → estrutura.sql: tabelas, funções (login, sessão…), gatilhos, RLS, políticas, permissões e buckets
+//                 (vem da função public.backup_estrutura — script sql/backup_estrutura.sql, rodar 1x no Supabase)
+//   sistema/    → index.html: o código do próprio sistema, como está publicado agora
+// A data do último backup fica salva neste navegador; passando de 7 dias, o Menu principal mostra um aviso para o admin.
+// Arquivos enviados (fotos, PDFs) NÃO entram — no backup ficam só os links deles.
+const BACKUP_TABELAS=['alojamentos','alojamentos_contas','alojamentos_relatorios','ativos_imob_fotos','ativos_imob_responsaveis','ativos_imobilizados',
+  'contratacoes','contratacoes_prospeccoes','contratacoes_vagas','efetivo_he','efetivo_horas','efetivo_presenca','empresas','ferias',
+  'folgas','folgas_ciclos','folgas_translados','fornecedor_orcamentos','fornecedores','funcionarios','funcoes','grd','grd_importacoes','grd_obra_mapa',
+  'matriz_contatos','movimentacoes_historico','obras','prestadores','prestadores_presenca','procedimentos','procedimentos_anexos','procedimentos_versoes',
+  'treinamentos','usuarios_acesso','veiculos','veiculos_abastecimentos','veiculos_condutores','veiculos_km','veiculos_revisoes'];
+const BACKUP_DIAS=7;
+const BACKUP_KEY='gtel_ultimo_backup';
+const BACKUP_CAMPOS_SECRETOS=/senha|hash|token|salt/i; // nunca vão para o arquivo
+let backupRodando=false;
+
+function backupUltimo(){
+  try{const v=JSON.parse(localStorage.getItem(BACKUP_KEY)||'null');return v&&v.em?v:null;}catch(e){return null;}
+}
+function backupDiasDesde(){
+  const u=backupUltimo();if(!u)return null;
+  const d=new Date(u.em);if(isNaN(d))return null;
+  return Math.floor((Date.now()-d.getTime())/86400000);
+}
+function backupAtrasado(){const d=backupDiasDesde();return d===null||d>=BACKUP_DIAS;}
+function backupAvisoHTML(){
+  if(currentUser?.perfil!=='admin'||!backupAtrasado())return'';
+  const d=backupDiasDesde();
+  const txt=d===null?'Nenhum backup foi feito neste computador ainda.':`Último backup há ${d} dias (${new Date(backupUltimo().em).toLocaleDateString('pt-BR')}).`;
+  return `<div class="bkp-aviso"><i class="ti ti-database-exclamation"></i>
+    <div class="txt"><strong>Backup semanal pendente</strong>${txt}</div>
+    <button class="btn btn-primary" onclick="showPage('backup')"><i class="ti ti-database-export"></i> Fazer backup agora</button></div>`;
+}
+
+function renderBackup(){
+  const u=backupUltimo(),d=backupDiasDesde(),atraso=backupAtrasado();
+  const quando=u?new Date(u.em).toLocaleDateString('pt-BR')+' às '+new Date(u.em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';
+  const titulo=!u?'Nenhum backup feito neste computador':atraso?`Backup atrasado — último há ${d} dias`:(d===0?'Backup em dia — feito hoje':`Backup em dia — feito há ${d} dia${d>1?'s':''}`);
+  const sub=u?`Último: ${quando}${u.por?' por '+u.por:''} · ${Number(u.registros||0).toLocaleString('pt-BR')} registros em ${u.tabelas||'?'} tabelas`:`Recomendado: 1 backup a cada ${BACKUP_DIAS} dias.`;
+  const prox=u?new Date(new Date(u.em).getTime()+BACKUP_DIAS*86400000).toLocaleDateString('pt-BR'):'';
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header"><div><h1 class="page-title">Backup</h1><div class="page-subtitle" style="color:var(--text-muted);font-size:13px">Cópia de segurança completa do GTEL Obras: dados, banco e código</div></div></div>
+    <div class="bkp-status">
+      <div class="ic ${atraso?'atraso':'ok'}"><i class="ti ${atraso?'ti-database-exclamation':'ti-database-check'}"></i></div>
+      <div class="info"><div class="t">${titulo}</div><div class="s">${sub}${prox&&!atraso?' · Próximo até '+prox:''}</div></div>
+      <button class="btn btn-primary" id="bkp-btn" onclick="executarBackup()" ${backupRodando?'disabled':''}><i class="ti ti-database-export"></i> Gerar backup agora</button>
+    </div>
+    <div class="bkp-progresso" id="bkp-progresso" style="display:none">
+      <div style="display:flex;justify-content:space-between;font-size:13px"><strong id="bkp-etapa">Preparando…</strong><span id="bkp-pct">0%</span></div>
+      <div class="bkp-barra"><div id="bkp-barra"></div></div>
+      <div class="bkp-tabs" id="bkp-tabs"></div>
+      <div id="bkp-erros" style="display:none;margin-top:12px;background:var(--danger-light);color:#7A1F1F;border-radius:var(--radius);padding:10px 12px;font-size:12.5px;line-height:1.6"></div>
+    </div>
+    <div class="bkp-nota">
+      <strong>O que vem no arquivo .zip:</strong><br>
+      &nbsp;• <b>dados</b> — as ${BACKUP_TABELAS.length} tabelas do sistema (.json para restaurar e .xlsx para consultar no Excel). Senhas e tokens <u>não</u> são copiados.<br>
+      &nbsp;• <b>banco</b> — estrutura.sql: tabelas, funções de login/sessão/usuários, gatilhos, regras de segurança (RLS), permissões e pastas de arquivos.<br>
+      &nbsp;• <b>sistema</b> — o index.html do jeito que está publicado agora.<br>
+      &nbsp;• <b>LEIA-ME.txt</b> — passo a passo para restaurar.<br>
+      <strong>O que não entra:</strong> fotos e PDFs enviados (ficam no armazenamento do Supabase) — no backup ficam só os links deles.<br>
+      <strong>Como guardar:</strong> mova o .zip da pasta Downloads para o Google Drive, OneDrive ou pendrive e mantenha pelo menos as últimas 4 semanas.<br>
+      <strong>Aviso semanal:</strong> a data do último backup fica salva neste navegador. Passando de ${BACKUP_DIAS} dias, aparece um aviso no Menu principal.
+    </div>`;
+}
+
+async function backupLerTabela(t){
+  let r=await _pagRun(()=>sb.from(t).select('*'),true);
+  if(r.error)r=await _pagRun(()=>sb.from(t).select('*'),false); // tabela sem coluna id
+  if(r.error)return r;
+  const dados=(r.data||[]).map(l=>{const o={};for(const k in l){if(!BACKUP_CAMPOS_SECRETOS.test(k))o[k]=l[k];}return o;});
+  return{data:dados,error:null};
+}
+
+function backupBaixar(blob,nome){
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=nome;
+  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+}
+
+function backupCarregarZip(){
+  if(window.JSZip)return Promise.resolve();
+  return new Promise((ok,falha)=>{
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    s.onload=()=>window.JSZip?ok():falha(new Error('JSZip não carregou'));
+    s.onerror=()=>falha(new Error('não foi possível carregar o compactador (JSZip) — verifique a internet'));
+    document.head.appendChild(s);
+  });
+}
+
+function backupGerarXlsx(tabelas,meta){
+  const wb=XLSX.utils.book_new();
+  const resumo=[['GTEL Obras — Backup'],['Gerado em',meta.gerado_em_br],['Gerado por',meta.gerado_por],[],['Tabela','Registros','Situação']];
+  Object.keys(meta.contagens).forEach(t=>resumo.push([t,meta.contagens[t],meta.erros[t]?'ERRO: '+meta.erros[t]:'OK']));
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(resumo),'_resumo');
+  let cortadas=0;
+  Object.keys(tabelas).forEach(t=>{
+    const linhas=tabelas[t].map(l=>{const o={};for(const k in l){let v=l[k];
+      if(v!==null&&typeof v==='object')v=JSON.stringify(v);
+      if(typeof v==='string'&&v.length>32000){v=v.slice(0,32000);cortadas++;} // limite de célula do Excel (o .json guarda completo)
+      o[k]=v;}return o;});
+    const ws=linhas.length?XLSX.utils.json_to_sheet(linhas):XLSX.utils.aoa_to_sheet([['(sem registros)']]);
+    XLSX.utils.book_append_sheet(wb,ws,t.slice(0,31));
+  });
+  return{bin:XLSX.write(wb,{type:'array',bookType:'xlsx',compression:true}),cortadas};
+}
+
+function backupLeiaMe(meta){
+  const est=meta.estrutura_resumo;
+  return [
+    'GTEL Obras — BACKUP COMPLETO',
+    'Gerado em: '+meta.gerado_em_br+(meta.gerado_por?' por '+meta.gerado_por:''),
+    '',
+    'CONTEÚDO',
+    '  dados/dados.json     -> todas as tabelas, completas ('+meta.total_registros.toLocaleString('pt-BR')+' registros). É o arquivo para restaurar.',
+    '  dados/dados.xlsx     -> as mesmas tabelas em planilha (uma aba por tabela), só para consulta.',
+    '  banco/estrutura.sql  -> '+(est?`estrutura do banco: ${est.tabelas} tabelas, ${est.funcoes} funções, ${est.politicas} políticas de segurança, ${est.gatilhos} gatilhos, ${est.indices} índices.`:'NÃO INCLUÍDO (ver erros abaixo).'),
+    '  sistema/index.html   -> '+(meta.codigo_ok?'código do sistema como estava publicado.':'NÃO INCLUÍDO (ver erros abaixo).'),
+    '',
+    'COMO RESTAURAR (se o projeto do Supabase for perdido)',
+    '  1. Crie um projeto novo no Supabase.',
+    '  2. SQL Editor -> New query -> cole todo o banco/estrutura.sql -> Run.',
+    '  3. Importe os dados de dados/dados.json (peça ajuda ao Claude/T.I. com esse arquivo:',
+    '     a importação é feita tabela por tabela, respeitando os relacionamentos).',
+    '  4. Recrie os usuários e as senhas (senhas não vão no backup, por segurança).',
+    '  5. Troque SUPABASE_URL e SUPABASE_KEY no sistema/index.html para os do projeto novo e publique.',
+    '  6. Fotos e PDFs não estão no backup: só os links. Se o projeto antigo sumiu, eles precisam ser reenviados.',
+    '',
+    'SENHAS E TOKENS NÃO ESTÃO NESTE BACKUP.',
+    ...(Object.keys(meta.erros).length?['','ERROS NESTE BACKUP:',...Object.entries(meta.erros).map(([k,v])=>'  - '+k+': '+v)]:[]),
+  ].join('\r\n');
+}
+
+async function executarBackup(){
+  if(backupRodando)return;
+  if(currentUser?.perfil!=='admin'){showToast('Acesso restrito a administradores','error');return;}
+  backupRodando=true;
+  const btn=document.getElementById('bkp-btn');if(btn){btn.disabled=true;btn.innerHTML='<i class="ti ti-loader ti-spin"></i> Gerando…';}
+  const box=document.getElementById('bkp-progresso');if(box)box.style.display='block';
+  const tabsBox=document.getElementById('bkp-tabs');if(tabsBox)tabsBox.innerHTML='';const errBox=document.getElementById('bkp-erros');if(errBox){errBox.innerHTML='';errBox.style.display='none';}
+  const PASSOS=BACKUP_TABELAS.length+3; // tabelas + estrutura + código + zip
+  const etapa=t=>{const e=document.getElementById('bkp-etapa');if(e)e.textContent=t;};
+  const prog=(i)=>{const p=Math.round(i/PASSOS*100);const b=document.getElementById('bkp-barra');if(b)b.style.width=p+'%';const x=document.getElementById('bkp-pct');if(x)x.textContent=p+'%';};
+  const linhaTab=(t,txt,erro)=>{const c=document.getElementById('bkp-tabs');if(c)c.insertAdjacentHTML('beforeend',`<div class="${erro?'err':''}"${erro?' title="'+escHtml(erro)+'"':''}><span>${t}</span><span>${txt}</span></div>`);if(erro){const e=document.getElementById('bkp-erros');if(e){e.style.display='block';e.insertAdjacentHTML('beforeend',`<div>• <b>${t}:</b> ${escHtml(erro)}</div>`);}}};
+  const tabelas={},contagens={},erros={};
+  try{
+    await backupCarregarZip();
+    // 1) DADOS
+    for(let i=0;i<BACKUP_TABELAS.length;i++){
+      const t=BACKUP_TABELAS[i];
+      etapa(`Lendo ${t} (${i+1}/${BACKUP_TABELAS.length})…`);
+      let r;try{r=await backupLerTabela(t);}catch(e){r={error:{message:e.message}};}
+      if(r.error){erros[t]=r.error.message||'erro';contagens[t]=0;linhaTab(t,'erro',erros[t]);console.error('[backup] '+t,r.error);}
+      else{tabelas[t]=r.data;contagens[t]=r.data.length;linhaTab(t,r.data.length.toLocaleString('pt-BR'));}
+      prog(i+1);
+    }
+    // 2) ESTRUTURA DO BANCO (funções, segurança, permissões…)
+    etapa('Lendo a estrutura do banco (funções e segurança)…');
+    let estrutura=null;
+    try{
+      const{data,error}=await sb.rpc('backup_estrutura');
+      if(error)throw new Error(rpcAusente(error)?'função backup_estrutura não existe — rode o script sql/backup_estrutura.sql no Supabase':error.message);
+      if(!data||!data.script)throw new Error('resposta vazia');
+      estrutura=data;
+      linhaTab('estrutura do banco',`${data.resumo?.funcoes??'?'} funções · ${data.resumo?.politicas??'?'} políticas`);
+    }catch(e){erros['estrutura do banco']=e.message;linhaTab('estrutura do banco','erro',e.message);console.error('[backup] estrutura',e);}
+    prog(BACKUP_TABELAS.length+1);
+    // 3) CÓDIGO DO SISTEMA (o próprio index.html publicado)
+    etapa('Copiando o código do sistema…');
+    let codigo=null;
+    try{
+      const resp=await fetch(location.href.split('#')[0],{cache:'no-store'});
+      if(!resp.ok)throw new Error('HTTP '+resp.status);
+      codigo=await resp.text();
+      if(!/GTEL Obras/.test(codigo))throw new Error('o arquivo baixado não parece ser o GTEL Obras');
+      linhaTab('código do sistema',Math.round(codigo.length/1024).toLocaleString('pt-BR')+' KB');
+    }catch(e){erros['código do sistema']=e.message;linhaTab('código do sistema','erro',e.message);console.error('[backup] código',e);}
+    prog(BACKUP_TABELAS.length+2);
+    // 4) MONTA O ZIP
+    etapa('Compactando o arquivo .zip…');await new Promise(r=>setTimeout(r,30));
+    const agora=new Date();
+    const carimbo=agora.getFullYear()+'-'+String(agora.getMonth()+1).padStart(2,'0')+'-'+String(agora.getDate()).padStart(2,'0')+'_'+String(agora.getHours()).padStart(2,'0')+String(agora.getMinutes()).padStart(2,'0');
+    const total=Object.values(contagens).reduce((a,b)=>a+b,0);
+    const meta={sistema:'GTEL Obras',versao_backup:2,gerado_em:agora.toISOString(),gerado_em_br:agora.toLocaleString('pt-BR'),
+      gerado_por:currentUser?.nome||currentUser?.usuario||'',total_registros:total,contagens,erros,
+      estrutura_resumo:estrutura?.resumo||null,codigo_ok:!!codigo};
+    const zip=new JSZip();
+    zip.file('LEIA-ME.txt',backupLeiaMe(meta));
+    zip.file('dados/dados.json',JSON.stringify({...meta,tabelas}));
+    const xl=backupGerarXlsx(tabelas,meta);
+    zip.file('dados/dados.xlsx',xl.bin);
+    if(estrutura)zip.file('banco/estrutura.sql',estrutura.script);
+    if(codigo)zip.file('sistema/index.html',codigo);
+    const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:6}});
+    backupBaixar(blob,`GTEL_Obras_backup_${carimbo}.zip`);
+    prog(PASSOS);
+    const nErros=Object.keys(erros).length;
+    if(nErros){
+      etapa(`Arquivo gerado com ${nErros} pendência(s) — confira os itens em vermelho`);
+      showToast(`Backup baixado, mas incompleto (${nErros} item(ns) com erro). Não foi marcado como concluído.`,'error');
+    }else{
+      try{localStorage.setItem(BACKUP_KEY,JSON.stringify({em:agora.toISOString(),por:meta.gerado_por,registros:total,tabelas:BACKUP_TABELAS.length}));}catch(e){}
+      showToast(`Backup completo baixado: ${total.toLocaleString('pt-BR')} registros + banco + código`+(xl.cortadas?` (${xl.cortadas} texto(s) longos cortados só na planilha)`:''));
+      renderBackup();
+    }
+  }catch(e){
+    console.error('[backup] falhou:',e);
+    etapa('Falhou: '+e.message);
+    showToast('Erro ao gerar backup: '+e.message,'error');
+  }finally{
+    backupRodando=false;
+    const b=document.getElementById('bkp-btn');if(b){b.disabled=false;b.innerHTML='<i class="ti ti-database-export"></i> Gerar backup agora';}
   }
 }
 
