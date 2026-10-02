@@ -339,7 +339,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <div class="login-screen" id="login-screen">
   <div class="login-card">
     <div class="login-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 02/10/2026-b</span></div>
+    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 02/10/2026-d</span></div>
     <div class="login-error" id="login-erro"></div>
     <div class="login-field">
       <label>Usuário</label>
@@ -356,7 +356,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <aside class="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 02/10/2026-b</div>
+    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 02/10/2026-d</div>
   </div>
   <div class="sidebar-obra-filter">
     <label><i class="ti ti-building-skyscraper"></i> Filtrar por Obra</label>
@@ -9494,6 +9494,7 @@ function openModalAtivoImob(id){
         <button class="btn btn-sm" onclick="closeModal('modal-ativoimob')"><i class="ti ti-x"></i></button>
       </div>
       <div class="modal-body">
+        ${isEdit?'<div style="margin:-10px 0 14px">'+ativoTermosEditHtml(a)+'</div>':''}
         <div style="margin-bottom:14px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <label style="margin:0">📷 Fotos do equipamento</label>
@@ -9751,6 +9752,12 @@ async function saveAtivoImob(id){
       });
       if(errResp)showToast('Ativo salvo, mas houve erro ao definir o responsável: '+errResp.message,'error');
     }
+  }
+
+  // Edição: novo termo incluído pela seção "Termos do equipamento"
+  if(id&&document.getElementById('ait-tipo')){
+    const ok=await salvarNovoTermoEditAtivo(id);
+    if(!ok){closeModal('modal-ativoimob');await loadAtivosImobilizados();renderAtivosImobilizados();return;} // erro já mostrado
   }
 
   showToast('Ativo salvo!');
@@ -10084,6 +10091,28 @@ function abrirModalDevolucaoAtivo(ativoId){
       </div>
     </div>`);
 }
+// Núcleo da devolução (usado pelo modal "Devolução" e pela seção de termos do "Editar")
+async function executarDevolucaoAtivo(o){
+  let termoUrl=null;
+  if(o.termoFile){
+    showToast('Enviando termo de devolução...');
+    const path='termos-devolucao/'+Date.now()+'_'+sanitizeFilename(o.termoFile.name);
+    const{error:upErr}=await sb.storage.from('ativos-imobilizados').upload(path,o.termoFile,{upsert:true});
+    if(upErr)throw new Error('Upload do termo: '+upErr.message);
+    termoUrl=sb.storage.from('ativos-imobilizados').getPublicUrl(path).data.publicUrl;
+  }
+  const{data:d1,error:e1}=await sb.from('ativos_imob_responsaveis').update({
+    data_fim:o.data,devolucao_motivo:o.motivo,devolucao_estado:o.estado,
+    devolucao_recebido_por:o.recebidoPor||null,devolucao_obs:o.obs||null,termo_devolucao_url:termoUrl,
+  }).eq('id',o.respId).select();
+  if(e1)throw new Error(e1.message);
+  if(!d1||!d1.length)throw new Error('registro do responsável não encontrado ou sem permissão');
+  const{error:e2}=await sb.from('ativos_imobilizados').update({
+    destinacao:o.destino,destinacao_desde:o.data,
+    destinacao_local:o.destino==='almoxarifado'?'Almoxarifado':(o.local||null),destinacao_obs:null,
+  }).eq('id',o.ativoId);
+  if(e2)throw new Error('Devolução salva, mas a sinalização falhou: '+e2.message);
+}
 async function salvarDevolucaoAtivo(ativoId,respId){
   const btnS=document.getElementById('dev-btn-salvar');
   try{
@@ -10092,30 +10121,10 @@ async function salvarDevolucaoAtivo(ativoId,respId){
     const termoFile=document.getElementById('dev-termo-file')?.files?.[0];
     if(!termoFile&&!confirm('Nenhum termo de devolução foi anexado.\n\nRegistrar a devolução mesmo assim? (o ativo ficará sinalizado como "Devolução sem termo" até você anexar)'))return;
     if(btnS){btnS.disabled=true;btnS.innerHTML='<i class="ti ti-loader ti-spin"></i> Salvando...';}
-    let termoUrl=null;
-    if(termoFile){
-      showToast('Enviando termo de devolução...');
-      const path='termos-devolucao/'+Date.now()+'_'+sanitizeFilename(termoFile.name);
-      const{error:upErr}=await sb.storage.from('ativos-imobilizados').upload(path,termoFile,{upsert:true});
-      if(upErr)throw new Error('Upload do termo: '+upErr.message);
-      termoUrl=sb.storage.from('ativos-imobilizados').getPublicUrl(path).data.publicUrl;
-    }
-    const{data:d1,error:e1}=await sb.from('ativos_imob_responsaveis').update({
-      data_fim:data,
-      devolucao_motivo:document.getElementById('dev-motivo').value,
-      devolucao_estado:document.getElementById('dev-estado').value,
-      devolucao_recebido_por:document.getElementById('dev-recebido').value.trim()||null,
-      devolucao_obs:document.getElementById('dev-obs').value.trim()||null,
-      termo_devolucao_url:termoUrl,
-    }).eq('id',respId).select();
-    if(e1)throw new Error(e1.message);
-    if(!d1||!d1.length)throw new Error('registro do responsável não encontrado ou sem permissão');
-    const{error:e2}=await sb.from('ativos_imobilizados').update({
-      destinacao:destino,destinacao_desde:data,
-      destinacao_local:destino==='almoxarifado'?'Almoxarifado':(document.getElementById('dev-local').value.trim()||null),
-      destinacao_obs:null,
-    }).eq('id',ativoId);
-    if(e2)throw new Error('Devolução salva, mas a sinalização falhou: '+e2.message);
+    await executarDevolucaoAtivo({ativoId,respId,data,destino,termoFile,
+      motivo:document.getElementById('dev-motivo').value,estado:document.getElementById('dev-estado').value,
+      recebidoPor:document.getElementById('dev-recebido').value.trim(),obs:document.getElementById('dev-obs').value.trim(),
+      local:document.getElementById('dev-local').value.trim()});
     closeModal('modal-dev-ativo');closeModal('modal-resp-ativo');
     showToast('Devolução registrada — '+DESTINACAO_ATIVO[destino].t.toLowerCase()+'.');
     ativoImobSelecionadoId=ativoId;
@@ -10144,6 +10153,93 @@ async function uploadTermoDevolucaoAtivo(respId,input){
     if(r&&document.getElementById('modal-resp-ativo'))abrirModalResponsavelAtivo(r.ativo_id);
     renderAtivosImobilizados();
   }catch(err){showToast('Erro ao anexar termo de devolução: '+(err.message||err),'error');}
+}
+// ── Seção "Termos do equipamento" no modal Editar: lista todos os termos (entrega e devolução, antigos e atuais)
+// e permite incluir um novo termo sem apagar os anteriores.
+function ativoTermosEditHtml(a){
+  const nomeDe=r=>r.eh_terceirizado?r.nome:(r.funcionario?.nome_completo||r.nome||'—');
+  const lancs=ativosImobResponsaveis.filter(r=>String(r.ativo_id)===String(a.id))
+    .sort((x,y)=>(y.data_recebimento||'').localeCompare(x.data_recebimento||''));
+  const linhas=[];
+  lancs.forEach(r=>{
+    if(r.data_fim&&(r.devolucao_motivo||r.termo_devolucao_url))linhas.push({tipo:'DEVOLUÇÃO',cor:'#9A3412',bg:'#FFEDD5',nome:nomeDe(r),data:r.data_fim,url:r.termo_devolucao_url});
+    linhas.push({tipo:'ENTREGA',cor:'#166534',bg:'#DCFCE7',nome:nomeDe(r),data:r.data_recebimento,url:r.termo_url,atual:!r.data_fim});
+  });
+  const listaHtml=linhas.length?linhas.map(l=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12.5px">
+      <div style="display:flex;align-items:center;gap:8px;min-width:0"><span style="font-size:10px;font-weight:700;color:${l.cor};background:${l.bg};padding:2px 8px;border-radius:20px;flex-shrink:0">${l.tipo}</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(l.nome)} · ${formatDate(l.data)||'—'}${l.atual?' <strong style="color:var(--primary)">(atual)</strong>':''}</span></div>
+      ${l.url?`<a href="${l.url}" target="_blank" class="btn btn-sm btn-info" style="flex-shrink:0"><i class="ti ti-eye"></i> Ver</a>`:`<span style="font-size:11px;font-weight:700;color:#991B1B;flex-shrink:0">SEM ARQUIVO</span>`}
+    </div>`).join(''):'<div style="font-size:12.5px;color:var(--text-muted)">Nenhum termo lançado ainda.</div>';
+
+  const atual=respAtualDoAtivo(a.id);
+  const devSemTermo=devolucoesSemTermo(a.id).sort((x,y)=>(y.data_fim||'').localeCompare(x.data_fim||''))[0];
+  const opcoes=[];
+  if(atual)opcoes.push(['devolucao','Termo de devolução — '+nomeDe(atual)+' está devolvendo']);
+  if(!atual&&devSemTermo)opcoes.push(['devolucao_pendente','Termo de devolução — anexar à devolução de '+nomeDe(devSemTermo)+' ('+formatDate(devSemTermo.data_fim)+')']);
+  if(atual&&!atual.termo_url)opcoes.push(['entrega_atual','Termo de entrega — '+nomeDe(atual)+' (responsável atual, sem termo)']);
+  const hojeIso=new Date().toISOString().slice(0,10);
+  const optsSel=o=>Object.entries(o).map(([k,v])=>`<option value="${k}">${v}</option>`).join('');
+  const blocoNovo=opcoes.length?`
+    <div style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--border)">
+      <div class="form-grid">
+        <div class="form-group full"><label>Incluir novo termo</label>
+          <select id="ait-tipo" onchange="document.getElementById('ait-dev-campos').style.display=this.value==='devolucao'?'grid':'none';document.getElementById('ait-arquivo-wrap').style.display=this.value?'block':'none'">
+            <option value="">— Não incluir —</option>${opcoes.map(([k,l])=>`<option value="${k}">${escHtml(l)}</option>`).join('')}
+          </select></div>
+        <div class="form-group full" id="ait-arquivo-wrap" style="display:none"><label>Arquivo do termo (PDF ou foto)</label><input type="file" id="ait-file" accept=".pdf,.jpg,.jpeg,.png"></div>
+      </div>
+      <div class="form-grid" id="ait-dev-campos" style="display:none;margin-top:8px;background:#FFF7ED;border:1px solid #FDBA74;border-radius:8px;padding:10px">
+        <div class="form-group"><label>Data da devolução</label><input type="date" id="ait-data" value="${hojeIso}"></div>
+        <div class="form-group"><label>Motivo</label><select id="ait-motivo">${optsSel(MOTIVO_DEVOLUCAO_ATIVO)}</select></div>
+        <div class="form-group"><label>Estado na devolução</label><select id="ait-estado">${optsSel(ESTADO_DEVOLUCAO_ATIVO)}</select></div>
+        <div class="form-group"><label>Recebido por</label><input id="ait-recebido" placeholder="Quem conferiu"></div>
+        <div class="form-group"><label>E agora, o equipamento…</label><select id="ait-destino">
+          <option value="transferencia_pendente">Transferência pendente (fica na obra aguardando novo responsável)</option>
+          <option value="devolver_almoxarifado">Devolver ao almoxarifado</option>
+          <option value="almoxarifado">Já está no almoxarifado</option></select></div>
+        <div class="form-group"><label>Onde fica guardado até lá</label><input id="ait-local" placeholder="Ex.: container da obra"></div>
+        <div class="form-group full"><label>Observações</label><input id="ait-obs"></div>
+      </div>
+    </div>`:'<div style="margin-top:10px;font-size:12px;color:var(--text-muted)">Para entregar a um novo responsável (com novo termo de entrega), use o botão <strong>Responsável</strong> no painel do ativo.</div>';
+  return `<div style="background:var(--bg);border-radius:var(--radius);padding:12px;border:1px solid var(--border);margin-top:10px">
+      <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">📄 Termos do equipamento (${linhas.length})</div>
+      ${listaHtml}${blocoNovo}
+    </div>`;
+}
+async function salvarNovoTermoEditAtivo(ativoId){
+  const tipo=document.getElementById('ait-tipo')?.value;
+  if(!tipo)return true;
+  const file=document.getElementById('ait-file')?.files?.[0];
+  try{
+    if(tipo==='devolucao'){
+      const atual=respAtualDoAtivo(ativoId);
+      if(!atual)throw new Error('o ativo não está mais com nenhum responsável');
+      if(!file&&!confirm('Nenhum arquivo de termo de devolução foi selecionado.\n\nRegistrar a devolução mesmo assim?'))return false;
+      await executarDevolucaoAtivo({ativoId,respId:atual.id,termoFile:file,
+        data:document.getElementById('ait-data').value||new Date().toISOString().slice(0,10),
+        motivo:document.getElementById('ait-motivo').value,estado:document.getElementById('ait-estado').value,
+        recebidoPor:document.getElementById('ait-recebido').value.trim(),obs:document.getElementById('ait-obs').value.trim(),
+        destino:document.getElementById('ait-destino').value,local:document.getElementById('ait-local').value.trim()});
+      showToast('Devolução registrada.');
+      return true;
+    }
+    if(!file)throw new Error('selecione o arquivo do termo');
+    const devolucao=tipo==='devolucao_pendente';
+    const alvo=devolucao?devolucoesSemTermo(ativoId).sort((x,y)=>(y.data_fim||'').localeCompare(x.data_fim||''))[0]:respAtualDoAtivo(ativoId);
+    if(!alvo)throw new Error('lançamento não encontrado');
+    const path=(devolucao?'termos-devolucao/':'termos/')+Date.now()+'_'+sanitizeFilename(file.name);
+    const{error:upErr}=await sb.storage.from('ativos-imobilizados').upload(path,file,{upsert:true});
+    if(upErr)throw new Error('upload: '+upErr.message);
+    const url=sb.storage.from('ativos-imobilizados').getPublicUrl(path).data.publicUrl;
+    const{data,error}=await sb.from('ativos_imob_responsaveis').update(devolucao?{termo_devolucao_url:url}:{termo_url:url}).eq('id',alvo.id).select();
+    if(error)throw new Error(error.message);
+    if(!data||!data.length)throw new Error('registro não encontrado ou sem permissão');
+    showToast(devolucao?'Termo de devolução anexado.':'Termo de entrega anexado.');
+    return true;
+  }catch(err){
+    console.error('[Ativo GTEL] novo termo:',err);
+    showToast('Ativo salvo, mas o termo não foi incluído: '+(err.message||err),'error');
+    return false;
+  }
 }
 async function confirmarAlmoxarifadoAtivo(ativoId){
   const a=ativosImob.find(x=>String(x.id)===String(ativoId));if(!a)return;
