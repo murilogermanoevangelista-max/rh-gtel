@@ -413,7 +413,8 @@ let ativoImobSelecionadoId=null;
 let ativoImobSecoesAbertas={};
 let ativoImobCategoriasAbertas={}; // {categoria(encoded):true|false} — acordeão da lista de ativos por categoria
 let ativoImobBusca='';
-let ativoImobFiltroAtivo=null; // 'sem_responsavel'|'sem_termo'|'ressalva_pendente'|null
+let ativoImobFiltroAtivo=null; // 'sem_responsavel'|'sem_termo'|'ressalva_pendente'|'transferencia_pendente'|'devolver_almoxarifado'|'sem_termo_dev'|null
+let ativoImobAba='todos'; // 'todos'|'em_uso'|'pendentes'|'almoxarifado' — divisão da lista de ativos
 let procSelecionadoId=null;
 let procSecoesAbertas={};
 let procBusca='';
@@ -985,6 +986,26 @@ async function loadAtivosImobilizados(){
   }
   ativosImob=listaAtivos;ativosImobResponsaveis=listaResp;ativosImobFotos=listaFotos;
 }
+// ── Devolução / destinação de ativos ──
+// Quando o responsável devolve o bem, o ativo fica SEM responsável e recebe uma sinalização (destinacao)
+// para ninguém esquecer que precisa ser direcionado: nova pessoa (transferência pendente) ou almoxarifado.
+const DESTINACAO_ATIVO={
+  transferencia_pendente:{t:'TRANSFERÊNCIA PENDENTE',c:'#9A3412',b:'#FFEDD5',bd:'#FDBA74',icon:'arrows-exchange',desc:'Devolvido — aguardando um novo responsável'},
+  devolver_almoxarifado:{t:'DEVOLVER AO ALMOXARIFADO',c:'#6B21A8',b:'#F3E8FF',bd:'#D8B4FE',icon:'truck-return',desc:'Devolvido — precisa ser enviado ao almoxarifado'},
+  almoxarifado:{t:'NO ALMOXARIFADO',c:'#1D4ED8',b:'#DBEAFE',bd:'#93C5FD',icon:'building-warehouse',desc:'Guardado no almoxarifado — disponível'},
+  sem_responsavel:{t:'SEM RESPONSÁVEL',c:'#991B1B',b:'#FEE2E2',bd:'#FCA5A5',icon:'user-x',desc:'Sem responsável e sem sinalização de destino'},
+};
+const MOTIVO_DEVOLUCAO_ATIVO={demissao:'Desligamento / demissão',transferencia_func:'Transferência do funcionário',troca:'Troca de equipamento',fim_uso:'Fim da utilização',manutencao:'Manutenção / defeito',outro:'Outro'};
+const ESTADO_DEVOLUCAO_ATIVO={bom:'Bom estado',com_avaria:'Com avaria',incompleto:'Incompleto (faltando itens)'};
+function respAtualDoAtivo(ativoId){return ativosImobResponsaveis.find(r=>String(r.ativo_id)===String(ativoId)&&!r.data_fim);}
+// Situação do ativo: em_uso | transferencia_pendente | devolver_almoxarifado | almoxarifado | sem_responsavel
+function situacaoAtivo(a){
+  if(respAtualDoAtivo(a.id))return'em_uso';
+  if(a.destinacao&&DESTINACAO_ATIVO[a.destinacao])return a.destinacao;
+  return'sem_responsavel';
+}
+function diasDesdeAtivo(d){const x=parseDate(d);if(!x)return null;const h=new Date();h.setHours(0,0,0,0);x.setHours(0,0,0,0);return Math.max(0,Math.round((h-x)/86400000));}
+function devolucoesSemTermo(ativoId){return ativosImobResponsaveis.filter(r=>String(r.ativo_id)===String(ativoId)&&r.data_fim&&r.devolucao_motivo&&!r.termo_devolucao_url);}
 function fotosDoAtivo(ativoId){return ativosImobFotos.filter(f=>String(f.ativo_id)===String(ativoId)).sort((a,b)=>(a.ordem||0)-(b.ordem||0));}
 
 // Procedimentos e Formulários são gerais da empresa — não filtram por obra, todo mundo vê tudo.
@@ -2795,14 +2816,14 @@ async function verFicha(id,historico=false){
       sb.from('ativos_imob_responsaveis').select('*,ativo:ativos_imobilizados(descricao,patrimonio_numero)').eq('funcionario_id',id).is('data_fim',null),
       sb.from('veiculos_condutores').select('*,veiculo:veiculos(placa,modelo)').eq('funcionario_id',id).is('data_fim',null),
     ]);
-    const itensAtivos=(respAtivosRes.data||[]).map(r=>({tipo:'Ativo GTEL',nome:(r.ativo?.descricao||'—')+' (Pat. '+(r.ativo?.patrimonio_numero||'—')+')',termoOk:!!r.termo_url}));
+    const itensAtivos=(respAtivosRes.data||[]).map(r=>({tipo:'Ativo GTEL',nome:(r.ativo?.descricao||'—')+' (Pat. '+(r.ativo?.patrimonio_numero||'—')+')',termoOk:!!r.termo_url,ativoId:r.ativo_id}));
     const itensVeic=(respVeicRes.data||[]).map(r=>({tipo:'Veículo',nome:(r.veiculo?.placa||'—')+' — '+(r.veiculo?.modelo||'—'),termoOk:!!r.termo_url}));
     const todosItens=[...itensAtivos,...itensVeic];
     if(todosItens.length){
       responsavelSection='<div style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:16px">'
         +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#92400E;margin-bottom:8px">⚠️ '+todosItens.length+' ativo(s)/veículo(s) no nome deste funcionário</div>'
-        +'<div style="font-size:12px;color:#78350F;margin-bottom:8px">Antes de desligar ou transferir, transfira a responsabilidade destes itens pra outra pessoa:</div>'
-        +todosItens.map(it=>'<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12.5px;color:#78350F"><span style="font-size:10px;font-weight:700;background:#FDE68A;padding:1px 7px;border-radius:20px">'+it.tipo+'</span>'+it.nome+(it.termoOk?'':' <span style="color:#991B1B;font-size:11px">(sem termo assinado)</span>')+'</div>').join('')
+        +'<div style="font-size:12px;color:#78350F;margin-bottom:8px">Antes de desligar ou transferir, registre a devolução (com o termo) ou passe a responsabilidade destes itens pra outra pessoa:</div>'
+        +todosItens.map(it=>'<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12.5px;color:#78350F;flex-wrap:wrap"><span style="font-size:10px;font-weight:700;background:#FDE68A;padding:1px 7px;border-radius:20px">'+it.tipo+'</span>'+it.nome+(it.termoOk?'':' <span style="color:#991B1B;font-size:11px">(sem termo assinado)</span>')+(it.ativoId?' <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:#FFEDD5;color:#9A3412;border-color:#FDBA74" onclick="irDevolucaoAtivo(\''+it.ativoId+'\')"><i class="ti ti-arrow-back-up"></i> Registrar devolução</button>':'')+'</div>').join('')
         +'</div>';
     }
   }catch(e){console.warn('Não foi possível checar ativos/veículos do funcionário:',e);}
@@ -3527,7 +3548,7 @@ async function saveFuncionario(id){
           ...(respVeicRes.data||[]).map(r=>'Veículo: '+(r.veiculo?.placa||'—')+' — '+(r.veiculo?.modelo||'—')),
         ];
         if(nomesItens.length){
-          const confirmar=confirm('⚠️ Este funcionário ainda está no nome de:\n\n'+nomesItens.join('\n')+'\n\nTransfira a responsabilidade desses itens pra outra pessoa antes de desligar.\n\nSalvar mesmo assim?');
+          const confirmar=confirm('⚠️ Este funcionário ainda está no nome de:\n\n'+nomesItens.join('\n')+'\n\nRegistre a devolução (Ativo GTEL › Responsável › Devolução, com o termo) ou passe pra outra pessoa antes de desligar.\n\nSalvar mesmo assim?');
           if(!confirmar)return;
         }
       }catch(e){console.warn('Não foi possível checar ativos/veículos antes da demissão:',e);}
@@ -9193,7 +9214,12 @@ function renderAtivosImobilizados(){
   const ativosFiltrados=(()=>{
     let lista=globalObraFiltro?ativosImob.filter(a=>String(obraAtualDoAtivo(a))===String(globalObraFiltro)):ativosImob;
     lista=lista.filter(a=>a.status!=='baixado'); // baixados saem do dia a dia, mas continuam no banco
-    if(ativoImobFiltroAtivo==='sem_responsavel')lista=lista.filter(a=>!responsavelAtual(a.id));
+    if(ativoImobAba==='em_uso')lista=lista.filter(a=>situacaoAtivo(a)==='em_uso');
+    else if(ativoImobAba==='pendentes')lista=lista.filter(a=>['transferencia_pendente','devolver_almoxarifado','sem_responsavel'].includes(situacaoAtivo(a)));
+    else if(ativoImobAba==='almoxarifado')lista=lista.filter(a=>situacaoAtivo(a)==='almoxarifado');
+    if(ativoImobFiltroAtivo==='sem_responsavel')lista=lista.filter(a=>situacaoAtivo(a)==='sem_responsavel');
+    else if(ativoImobFiltroAtivo==='transferencia_pendente'||ativoImobFiltroAtivo==='devolver_almoxarifado')lista=lista.filter(a=>situacaoAtivo(a)===ativoImobFiltroAtivo);
+    else if(ativoImobFiltroAtivo==='sem_termo_dev')lista=lista.filter(a=>devolucoesSemTermo(a.id).length>0);
     else if(ativoImobFiltroAtivo==='sem_termo')lista=lista.filter(a=>{const r=responsavelAtual(a.id);return r&&!r.termo_url;});
     else if(ativoImobFiltroAtivo==='ressalva_pendente')lista=lista.filter(a=>{const r=responsavelAtual(a.id);return r&&r.condicao==='com_ressalva';});
     else if(ativoImobFiltroAtivo==='sem_fotos')lista=lista.filter(a=>fotosDoAtivo(a.id).length<5);
@@ -9206,6 +9232,8 @@ function renderAtivosImobilizados(){
           ||(a.patrimonio_numero||'').toLowerCase().includes(b)
           ||(a.serie_numero||'').toLowerCase().includes(b)
           ||(nomeResponsavel(r)||'').toLowerCase().includes(b)
+          ||(a.destinacao_local||'').toLowerCase().includes(b)
+          ||(DESTINACAO_ATIVO[situacaoAtivo(a)]?.t||'').toLowerCase().includes(b)
           ||todasNfs.some(x=>(x.nota_fiscal_numero||'').toLowerCase().includes(b));
       });
     }
@@ -9214,19 +9242,29 @@ function renderAtivosImobilizados(){
 
   const temAlertaAtivo=(a)=>{
     const r=responsavelAtual(a.id);
-    if(!r)return true;
+    if(devolucoesSemTermo(a.id).length)return true;
+    if(!r)return situacaoAtivo(a)!=='almoxarifado';
     if(!r.termo_url)return true;
     if(r.condicao==='com_ressalva')return true;
     return false;
   };
 
-  const semResponsavel=ativosFiltrados.filter(a=>!responsavelAtual(a.id)).length;
+  // Contagens dos cards/abas: base = todos os ativos visíveis (obra + não baixados), independente da aba
+  const baseAtivos=(globalObraFiltro?ativosImob.filter(a=>String(obraAtualDoAtivo(a))===String(globalObraFiltro)):ativosImob).filter(a=>a.status!=='baixado');
+  const qtdSit=k=>baseAtivos.filter(a=>situacaoAtivo(a)===k).length;
+  const qtdTransfPend=qtdSit('transferencia_pendente'),qtdDevAlmox=qtdSit('devolver_almoxarifado'),qtdAlmox=qtdSit('almoxarifado'),qtdEmUso=qtdSit('em_uso');
+  const qtdPendentesAba=qtdTransfPend+qtdDevAlmox+qtdSit('sem_responsavel');
+  const qtdSemTermoDev=baseAtivos.filter(a=>devolucoesSemTermo(a.id).length>0).length;
+  const semResponsavel=ativosFiltrados.filter(a=>situacaoAtivo(a)==='sem_responsavel').length;
   const semTermo=ativosFiltrados.filter(a=>{const r=responsavelAtual(a.id);return r&&!r.termo_url;}).length;
   const ressalvaPendente=ativosFiltrados.filter(a=>{const r=responsavelAtual(a.id);return r&&r.condicao==='com_ressalva';}).length;
   const menosDe5Fotos=ativosFiltrados.filter(a=>fotosDoAtivo(a.id).length<5).length;
 
   const alertCardsHtml=alertCardsRow([
-    semResponsavel>0?{count:semResponsavel,label:'Sem responsável definido',icon:'user-x',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"ativoImobFiltroAtivo=ativoImobFiltroAtivo==='sem_responsavel'?null:'sem_responsavel';renderAtivosImobilizados()"}:null,
+    qtdTransfPend>0?{count:qtdTransfPend,label:'Transferência pendente — devolvido, sem novo responsável',icon:'arrows-exchange',cor:'#9A3412',bg:'#FFEDD5',border:'#FDBA74',onclick:"ativoImobFiltroAtivo=ativoImobFiltroAtivo==='transferencia_pendente'?null:'transferencia_pendente';renderAtivosImobilizados()"}:null,
+    qtdDevAlmox>0?{count:qtdDevAlmox,label:'Devolver ao almoxarifado',icon:'truck-return',cor:'#6B21A8',bg:'#F3E8FF',border:'#D8B4FE',onclick:"ativoImobFiltroAtivo=ativoImobFiltroAtivo==='devolver_almoxarifado'?null:'devolver_almoxarifado';renderAtivosImobilizados()"}:null,
+    qtdSemTermoDev>0?{count:qtdSemTermoDev,label:'Devolução sem termo anexado',icon:'file-alert',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"ativoImobFiltroAtivo=ativoImobFiltroAtivo==='sem_termo_dev'?null:'sem_termo_dev';renderAtivosImobilizados()"}:null,
+    semResponsavel>0?{count:semResponsavel,label:'Sem responsável e sem destino',icon:'user-x',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"ativoImobFiltroAtivo=ativoImobFiltroAtivo==='sem_responsavel'?null:'sem_responsavel';renderAtivosImobilizados()"}:null,
     semTermo>0?{count:semTermo,label:'Termo sem anexo',icon:'file-alert',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"ativoImobFiltroAtivo=ativoImobFiltroAtivo==='sem_termo'?null:'sem_termo';renderAtivosImobilizados()"}:null,
     ressalvaPendente>0?{count:ressalvaPendente,label:'Recebido com ressalva',icon:'alert-triangle',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"ativoImobFiltroAtivo=ativoImobFiltroAtivo==='ressalva_pendente'?null:'ressalva_pendente';renderAtivosImobilizados()"}:null,
     menosDe5Fotos>0?{count:menosDe5Fotos,label:'Com menos de 5 fotos',icon:'photo-off',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"ativoImobFiltroAtivo=ativoImobFiltroAtivo==='sem_fotos'?null:'sem_fotos';renderAtivosImobilizados()"}:null,
@@ -9246,7 +9284,7 @@ function renderAtivosImobilizados(){
   const masterDetailHtml=(()=>{
     try{
     return (()=>{
-    if(!ativosFiltrados.length)return '<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-package-off" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum ativo cadastrado</div>';
+    if(!ativosFiltrados.length)return '<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-package-off" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i>'+(ativoImobAba==='pendentes'?'Nenhum ativo aguardando destinação 👍':ativoImobAba==='almoxarifado'?'Nenhum ativo no almoxarifado':(ativoImobFiltroAtivo||ativoImobBusca)?'Nenhum ativo encontrado com esse filtro':'Nenhum ativo cadastrado')+'</div>';
 
     let sel=ativosFiltrados.find(a=>String(a.id)===String(ativoImobSelecionadoId));
     if(!sel){sel=_byCategoria[categoriasOrdenadas[0]][0];ativoImobSelecionadoId=sel.id;}
@@ -9290,6 +9328,8 @@ function renderAtivosImobilizados(){
           +'<div style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:'+(alerta?'#DC2626':'#16A34A')+'"></div>'
           +'</div>'
           +'<div style="font-size:10.5px;color:'+(isSel?'rgba(255,255,255,.85)':'#8B95A5')+';margin-top:2px;margin-left:30px">Pat. '+escHtml(a.patrimonio_numero||'—')+(obraCod?' · '+escHtml(obraCod):'')+'</div>'
+          +(()=>{const sit=situacaoAtivo(a);if(sit==='em_uso')return'';const d=DESTINACAO_ATIVO[sit];const dias=diasDesdeAtivo(a.destinacao_desde);
+            return '<div style="margin:4px 0 0 30px"><span style="font-size:9.5px;font-weight:700;color:'+d.c+';background:'+d.b+';border:1px solid '+d.bd+';padding:1px 6px;border-radius:20px">'+d.t+(dias!=null&&sit!=='almoxarifado'?' · '+dias+'d':'')+'</span></div>';})()
           +'</div>';
       }).join('')+'</div>';
 
@@ -9305,6 +9345,7 @@ function renderAtivosImobilizados(){
       ...(sel.nf_venda_url?[{nome:'NF de Venda — '+(sel.nf_venda_numero||'s/nº'),url:sel.nf_venda_url,tipo:'nf_venda',id:sel.id}]:[]),
       ...(respAtual&&respAtual.termo_url?[{nome:'Termo assinado — '+(nomeResponsavel(respAtual)||'atual'),url:respAtual.termo_url,tipo:'termo',id:respAtual.id}]:[]),
       ...historico.filter(h=>h.termo_url).map(h=>({nome:'Termo assinado — '+(nomeResponsavel(h)||'—')+' (histórico)',url:h.termo_url,tipo:'termo',id:h.id})),
+      ...historico.filter(h=>h.termo_devolucao_url).map(h=>({nome:'Termo de DEVOLUÇÃO — '+(nomeResponsavel(h)||'—')+' ('+(formatDate(h.data_fim)||'—')+')',url:h.termo_devolucao_url,tipo:'termo_dev',id:h.id})),
     ];
 
     const secao=(key,icone,titulo,resumo,status,corStatus,bgStatus,onclickOuNull)=>{
@@ -9318,9 +9359,9 @@ function renderAtivosImobilizados(){
 
     const secoes=[
       secao('responsavel','user','Responsável Atual',
-        respAtual?(nomeResponsavel(respAtual)+(respAtual.cargo?' — '+escHtml(respAtual.cargo):'')+(respAtual.eh_terceirizado?' (terceirizado)':'')):'Nenhum responsável definido',
-        respAtual?(respAtual.termo_url?'TERMO OK':'SEM TERMO'):'PENDENTE',
-        respAtual&&respAtual.termo_url?'#166534':'#991B1B', respAtual&&respAtual.termo_url?'#DCFCE7':'#FEE2E2',
+        respAtual?(nomeResponsavel(respAtual)+(respAtual.cargo?' — '+escHtml(respAtual.cargo):'')+(respAtual.eh_terceirizado?' (terceirizado)':'')):(historico[0]?'Devolvido por '+escHtml(nomeResponsavel(historico[0])||'—')+' em '+(formatDate(historico[0].data_fim)||'—'):'Nenhum responsável definido'),
+        respAtual?(respAtual.termo_url?'TERMO OK':'SEM TERMO'):DESTINACAO_ATIVO[situacaoAtivo(sel)].t,
+        respAtual?(respAtual.termo_url?'#166534':'#991B1B'):DESTINACAO_ATIVO[situacaoAtivo(sel)].c, respAtual?(respAtual.termo_url?'#DCFCE7':'#FEE2E2'):DESTINACAO_ATIVO[situacaoAtivo(sel)].b,
         "abrirModalResponsavelAtivo('"+sel.id+"')"),
       secao('termo','file-text','Dados do Termo',
         respAtual?('NF '+(respAtual.nota_fiscal_numero||'—')+' · '+(tipoMovLabel[respAtual.tipo_movimentacao]||'—')+(respAtual.condicao==='com_ressalva'?' · Com ressalvas':' · Sem ressalvas')):'Sem termo ativo',
@@ -9357,7 +9398,7 @@ function renderAtivosImobilizados(){
         }
       }
       return '<div>'
-        +'<div class="aloj-secao-row" onclick="'+s.clickAttr+'" style="display:grid;grid-template-columns:180px 1fr 150px;align-items:center;padding:12px 18px;border-bottom:1px solid #EEF0F2;cursor:pointer;background:'+(s.aberto?'#FAFBFC':'#fff')+'">'
+        +'<div class="aloj-secao-row" onclick="'+s.clickAttr+'" style="display:grid;grid-template-columns:180px 1fr 190px;align-items:center;padding:12px 18px;border-bottom:1px solid #EEF0F2;cursor:pointer;background:'+(s.aberto?'#FAFBFC':'#fff')+'">'
         +'<span style="font-size:13px;font-weight:600;color:#1A1F29;display:flex;align-items:center;gap:8px">'+chevronHtml+'<i class="ti ti-'+s.icone+'" style="font-size:14px;color:#4B5160"></i>'+s.titulo+'</span>'
         +'<span style="font-size:12.5px;color:#4B5563">'+s.resumo+'</span>'
         +'<span style="font-size:11px;font-weight:700;color:'+s.corStatus+';background:'+s.bgStatus+';padding:3px 10px;border-radius:3px;display:inline-block;width:fit-content">'+s.status+'</span>'
@@ -9375,7 +9416,8 @@ function renderAtivosImobilizados(){
           +'<div style="display:flex;align-items:center;gap:10px;min-width:0">'
           +'<i class="ti ti-package" style="color:var(--primary);flex-shrink:0"></i>'
           +'<span style="color:#fff;font-size:14.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">'+escHtml(sel.descricao)+'</span>'
-          +'<span style="font-size:10px;font-weight:700;color:'+statusBadge.c+';background:'+statusBadge.b+';padding:2px 8px;border-radius:20px;flex-shrink:0">'+statusBadge.t+'</span>'
+          +(situacaoAtivo(sel)==='em_uso'||sel.status&&sel.status!=='em_uso'?'<span style="font-size:10px;font-weight:700;color:'+statusBadge.c+';background:'+statusBadge.b+';padding:2px 8px;border-radius:20px;flex-shrink:0">'+statusBadge.t+'</span>':'')
+          +(situacaoAtivo(sel)!=='em_uso'?'<span style="font-size:10px;font-weight:700;color:'+DESTINACAO_ATIVO[situacaoAtivo(sel)].c+';background:'+DESTINACAO_ATIVO[situacaoAtivo(sel)].b+';padding:2px 8px;border-radius:20px;flex-shrink:0">'+DESTINACAO_ATIVO[situacaoAtivo(sel)].t+'</span>':'')
           +'</div>'
           +'<div style="display:flex;gap:6px;flex-shrink:0">'
           +'<button class="btn btn-sm" onclick="openModalAtivoImob(\''+sel.id+'\')" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2)"><i class="ti ti-edit"></i> Editar</button>'
@@ -9391,12 +9433,13 @@ function renderAtivosImobilizados(){
           +'</div>'
           +(fotosDoAtivo(sel.id).length<5?'<div style="margin-top:6px;font-size:11px;font-weight:600;color:#92400E">⚠ '+fotosDoAtivo(sel.id).length+'/5 fotos — clique em Editar pra completar</div>':'')
         +'</div>'
+        +ativoBannerDestinacaoHtml(sel,historico[0],nomeResponsavel)
         +(sel.observacoes?'<div style="background:#FEF3C7;border:1px solid #FCD34D;border-left:4px solid #D97706;padding:10px 14px;margin:10px 0;border-radius:4px;display:flex;gap:10px;align-items:flex-start">'
           +'<i class="ti ti-note" style="color:#92400E;font-size:16px;flex-shrink:0;margin-top:1px"></i>'
           +'<div><div style="font-size:11px;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:.03em;margin-bottom:2px">Observação / Lembrete</div>'
           +'<div style="font-size:12.5px;color:#78350F">'+escHtml(sel.observacoes)+'</div></div>'
         +'</div>':'')
-        +'<div style="background:#3A4658;display:grid;grid-template-columns:180px 1fr 150px;padding:9px 18px">'
+        +'<div style="background:#3A4658;display:grid;grid-template-columns:180px 1fr 190px;padding:9px 18px">'
           +'<span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">SEÇÃO</span>'
           +'<span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">RESUMO</span>'
           +'<span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">STATUS</span>'
@@ -9427,6 +9470,9 @@ function renderAtivosImobilizados(){
     ${alertCardsHtml}
     ${(()=>{const temFiltro=ativoImobFiltroAtivo||ativoImobBusca;return `<div style="margin-bottom:10px"><button class="btn btn-sm" ${temFiltro?'':'disabled style="opacity:.5;cursor:default"'} onclick="ativoImobFiltroAtivo=null;ativoImobBusca='';document.querySelectorAll('.search-box input').forEach(i=>i.value='');renderAtivosImobilizados()"><i class="ti ti-filter-x"></i> Limpar filtros</button></div>`;})()}
 
+    <div class="exp-tabs" style="margin-bottom:12px">
+      ${[['todos','Todos',baseAtivos.length,'list'],['em_uso','Em uso',qtdEmUso,'user-check'],['pendentes','Aguardando destinação',qtdPendentesAba,'alert-circle'],['almoxarifado','No almoxarifado',qtdAlmox,'building-warehouse']].map(([k,l,n,ic])=>`<div class="exp-tab ${ativoImobAba===k?'active':''}" onclick="ativoImobAba='${k}';ativoImobSelecionadoId=null;renderAtivosImobilizados()" style="display:flex;align-items:center;gap:6px"><i class="ti ti-${ic}"></i>${l} <span style="font-size:10.5px;font-weight:700;background:${k==='pendentes'&&n>0?'#FEE2E2':'#E5E7EB'};color:${k==='pendentes'&&n>0?'#991B1B':'#374151'};border-radius:20px;padding:0 7px">${n}</span></div>`).join('')}
+    </div>
     <div style="margin-bottom:12px;display:flex;gap:8px">
       <div class="search-box" style="max-width:340px"><i class="ti ti-search"></i><input placeholder="Buscar por equipamento, patrimônio, NF ou responsável..." value="${ativoImobBusca}" oninput="ativoImobBusca=this.value;if(!_buscaHandlers.ativoImob)_buscaHandlers.ativoImob=makeBuscaHandler(v=>ativoImobBusca=v,renderAtivosImobilizados,300);_buscaHandlers.ativoImob(this.value);this.focus()"></div>
     </div>
@@ -9741,7 +9787,7 @@ function abrirModalResponsavelAtivo(ativoId){
         ${atual.termo_url?`<a href="${atual.termo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-file-text"></i> Ver termo</a>`:`<span style="font-size:11px;font-weight:700;color:#991B1B;background:#FEE2E2;padding:3px 9px;border-radius:20px">SEM TERMO</span>`}
         <label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-upload"></i> ${atual.termo_url?'Trocar':'Anexar'} termo<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAtivo('${atual.id}',this)"></label>
         ${atual.termo_url?`<button class="btn btn-sm" onclick="removerTermoAtivo('${atual.id}','${ativoId}')" title="Remover o termo anexado (anexado por engano)"><i class="ti ti-file-off"></i></button>`:''}
-        <button class="btn btn-sm btn-danger" onclick="encerrarResponsavelAtivo('${atual.id}','${ativoId}')" title="Encerrar (o bem foi passado pra outra pessoa ou devolvido)"><i class="ti ti-x"></i></button>
+        <button class="btn btn-sm" style="background:#FFEDD5;color:#9A3412;border-color:#FDBA74" onclick="abrirModalDevolucaoAtivo('${ativoId}')" title="O responsável devolveu o bem — anexar termo de devolução e sinalizar o destino"><i class="ti ti-arrow-back-up"></i> Devolução</button>
         <button class="btn btn-sm btn-danger" onclick="excluirResponsavelAtivo('${atual.id}','${ativoId}')" title="Excluir lançamento (feito por engano) — apaga o registro e o termo"><i class="ti ti-trash"></i></button>
       </div>
     </div>`:'<div style="color:var(--text-muted);font-size:13px;padding:10px 0">Nenhum responsável definido ainda.</div>';
@@ -9755,6 +9801,7 @@ function abrirModalResponsavelAtivo(ativoId){
       <div class="modal-body">
         <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Responsável atual</div>
         ${linhaAtual}
+        ${!atual&&situacaoAtivo(a)!=='sem_responsavel'?`<div style="margin-top:8px;font-size:12px;font-weight:600;color:${DESTINACAO_ATIVO[situacaoAtivo(a)].c};background:${DESTINACAO_ATIVO[situacaoAtivo(a)].b};border:1px solid ${DESTINACAO_ATIVO[situacaoAtivo(a)].bd};border-radius:6px;padding:8px 10px"><i class="ti ti-${DESTINACAO_ATIVO[situacaoAtivo(a)].icon}"></i> ${DESTINACAO_ATIVO[situacaoAtivo(a)].t} — ao definir o novo responsável abaixo, a sinalização é encerrada automaticamente.</div>`:''}
         <div style="margin-top:14px;padding-top:14px;border-top:2px solid var(--border)">
           <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Novo responsável (${atual?'substitui o atual':'define o primeiro'})</div>
           <div style="display:flex;gap:12px;margin-bottom:10px">
@@ -9810,7 +9857,7 @@ function abrirModalResponsavelAtivo(ativoId){
         </div>
         ${historico.length?`<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
           <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Histórico (${historico.length})</div>
-          ${historico.map(r=>`<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-muted)"><div style="display:flex;align-items:center;justify-content:space-between"><span>${escHtml(nomeDe(r))} · ${formatDate(r.data_recebimento)||'—'} → ${formatDate(r.data_fim)||'—'}</span><span style="display:flex;align-items:center;gap:8px">${r.termo_url?`<a href="${r.termo_url}" target="_blank" style="color:var(--primary)">Ver termo</a><a style="color:var(--text-muted);cursor:pointer" onclick="removerTermoAtivo('${r.id}','${ativoId}')" title="Remover o termo anexado"><i class="ti ti-file-off"></i></a>`:''}<a style="color:var(--danger);cursor:pointer" onclick="excluirResponsavelAtivo('${r.id}','${ativoId}')" title="Excluir lançamento (feito por engano)"><i class="ti ti-trash"></i></a></span></div><div style="font-size:11px;margin-top:1px">NF ${escHtml(r.nota_fiscal_numero||'—')}${r.obra?' · Obra '+escHtml(r.obra?.codigo||''):''}</div></div>`).join('')}
+          ${historico.map(r=>`<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-muted)"><div style="display:flex;align-items:center;justify-content:space-between"><span>${escHtml(nomeDe(r))} · ${formatDate(r.data_recebimento)||'—'} → ${formatDate(r.data_fim)||'—'}</span><span style="display:flex;align-items:center;gap:8px">${r.termo_url?`<a href="${r.termo_url}" target="_blank" style="color:var(--primary)">Ver termo</a><a style="color:var(--text-muted);cursor:pointer" onclick="removerTermoAtivo('${r.id}','${ativoId}')" title="Remover o termo anexado"><i class="ti ti-file-off"></i></a>`:''}<a style="color:var(--danger);cursor:pointer" onclick="excluirResponsavelAtivo('${r.id}','${ativoId}')" title="Excluir lançamento (feito por engano)"><i class="ti ti-trash"></i></a></span></div><div style="font-size:11px;margin-top:1px">NF ${escHtml(r.nota_fiscal_numero||'—')}${r.obra?' · Obra '+escHtml(r.obra?.codigo||''):''}</div>${r.devolucao_motivo?`<div style="font-size:11px;margin-top:3px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:700;color:#9A3412">↩ Devolução:</span> ${escHtml(MOTIVO_DEVOLUCAO_ATIVO[r.devolucao_motivo]||r.devolucao_motivo)} · ${escHtml(ESTADO_DEVOLUCAO_ATIVO[r.devolucao_estado]||'—')}${r.devolucao_recebido_por?' · recebido por '+escHtml(r.devolucao_recebido_por):''} ${r.termo_devolucao_url?`<a href="${r.termo_devolucao_url}" target="_blank" style="color:var(--primary)">Ver termo de devolução</a>`:`<span style="font-weight:700;color:#991B1B">SEM TERMO DE DEVOLUÇÃO</span><label style="color:var(--primary);cursor:pointer;text-decoration:underline">anexar<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoDevolucaoAtivo('${r.id}',this)"></label>`}</div>${r.devolucao_obs?`<div style="font-size:11px;color:#78350F">Obs.: ${escHtml(r.devolucao_obs)}</div>`:''}`:''}</div>`).join('')}
         </div>`:''}
       </div>
       <div class="modal-footer"><button class="btn" onclick="closeModal('modal-resp-ativo')">Fechar</button></div>
@@ -9878,6 +9925,12 @@ async function adicionarResponsavelAtivo(ativoId){
   // saber, olhando só o cadastro do ativo, onde ele está agora; o histórico de cada termo continua
   // guardando em qual obra aquela NF específica foi emitida.
   if(obraMovimentacao)await sb.from('ativos_imobilizados').update({obra_id:obraMovimentacao}).eq('id',ativoId);
+  // Tinha sinalização de destino (transferência pendente / almoxarifado)? Com novo responsável, encerra.
+  const ativoSinal=ativosImob.find(x=>String(x.id)===String(ativoId));
+  if(ativoSinal&&ativoSinal.destinacao){
+    const{error:errDest}=await sb.from('ativos_imobilizados').update({destinacao:null,destinacao_desde:null,destinacao_local:null,destinacao_obs:null}).eq('id',ativoId);
+    if(errDest)showToast('Responsável definido, mas não foi possível limpar a sinalização: '+errDest.message,'error');
+  }
   showToast('Responsável definido!'+(termoUrl?'':' Não esqueça de anexar o termo assinado.'));
   await loadAtivosImobilizados();
   abrirModalResponsavelAtivo(ativoId);
@@ -9915,6 +9968,15 @@ async function removerTermoAtivo(respId,ativoId,semModal){
 // Exclui um anexo listado na seção "Documentos" do ativo (NF de remessa, NF de venda ou termo assinado)
 async function excluirDocumentoAtivo(tipo,id,ativoId){
   if(tipo==='termo'){await removerTermoAtivo(id,ativoId,true);return;}
+  if(tipo==='termo_dev'){
+    const r=ativosImobResponsaveis.find(x=>String(x.id)===String(id));if(!r||!r.termo_devolucao_url)return;
+    if(!confirm('Excluir o termo de devolução anexado?\n\nO arquivo será apagado e a devolução volta a aparecer como "sem termo".'))return;
+    const{data,error}=await sb.from('ativos_imob_responsaveis').update({termo_devolucao_url:null}).eq('id',id).select();
+    if(error){showToast('Erro: '+error.message,'error');return;}
+    if(!data||!data.length){showToast('Não foi possível excluir (sem permissão ou registro não encontrado).','error');return;}
+    await ctrRemoverArquivoAtivoStorage(r.termo_devolucao_url);
+    showToast('Termo de devolução excluído.');await loadAtivosImobilizados();renderAtivosImobilizados();return;
+  }
   const campo=tipo==='nf_venda'?'nf_venda_url':'nf_remessa_url';
   const rotulo=tipo==='nf_venda'?'NF de Venda':'NF de Remessa';
   const a=ativosImob.find(x=>String(x.id)===String(id));
@@ -9957,6 +10019,171 @@ async function excluirResponsavelAtivo(respId,ativoId){
   await loadAtivosImobilizados();
   abrirModalResponsavelAtivo(ativoId);
   renderAtivosImobilizados();
+}
+// ═══ DEVOLUÇÃO DE ATIVO ═══
+// Banner no painel do ativo quando ele não está com ninguém: mostra a sinalização, há quantos dias, onde está e ações.
+function ativoBannerDestinacaoHtml(sel,ultimoResp,nomeResponsavel){
+  const sit=situacaoAtivo(sel);if(sit==='em_uso')return'';
+  const d=DESTINACAO_ATIVO[sit];const dias=diasDesdeAtivo(sel.destinacao_desde);
+  const btn=(txt,ic,fn,primario)=>'<button class="btn btn-sm'+(primario?' btn-primary':'')+'" onclick="'+fn+'"><i class="ti ti-'+ic+'"></i> '+txt+'</button>';
+  let acoes='';
+  if(sit==='transferencia_pendente')acoes=btn('Definir novo responsável','user-plus',"abrirModalResponsavelAtivo('"+sel.id+"')",true)+btn('Recebido no almoxarifado','building-warehouse',"confirmarAlmoxarifadoAtivo('"+sel.id+"')")+btn('Alterar sinalização','flag',"abrirModalDestinacaoAtivo('"+sel.id+"')");
+  else if(sit==='devolver_almoxarifado')acoes=btn('Recebido no almoxarifado','building-warehouse',"confirmarAlmoxarifadoAtivo('"+sel.id+"')",true)+btn('Definir novo responsável','user-plus',"abrirModalResponsavelAtivo('"+sel.id+"')")+btn('Alterar sinalização','flag',"abrirModalDestinacaoAtivo('"+sel.id+"')");
+  else if(sit==='almoxarifado')acoes=btn('Entregar a um responsável','user-plus',"abrirModalResponsavelAtivo('"+sel.id+"')",true)+btn('Alterar sinalização','flag',"abrirModalDestinacaoAtivo('"+sel.id+"')");
+  else acoes=btn('Definir responsável','user-plus',"abrirModalResponsavelAtivo('"+sel.id+"')",true)+btn('Sinalizar destino','flag',"abrirModalDestinacaoAtivo('"+sel.id+"')");
+  const semTermoDev=devolucoesSemTermo(sel.id);
+  return '<div style="background:'+d.b+';border:1px solid '+d.bd+';border-left:4px solid '+d.c+';padding:12px 14px;margin:10px 0;border-radius:4px">'
+    +'<div style="display:flex;align-items:flex-start;gap:10px">'
+    +'<i class="ti ti-'+d.icon+'" style="color:'+d.c+';font-size:20px;flex-shrink:0;margin-top:1px"></i>'
+    +'<div style="flex:1;min-width:0">'
+    +'<div style="font-size:12px;font-weight:800;color:'+d.c+';letter-spacing:.03em">'+d.t+(dias!=null&&sit!=='almoxarifado'?' · há '+dias+' dia(s)':'')+'</div>'
+    +'<div style="font-size:12.5px;color:#374151;margin-top:2px">'+d.desc
+      +(ultimoResp&&ultimoResp.devolucao_motivo?' — devolvido por <strong>'+escHtml(nomeResponsavel(ultimoResp)||'—')+'</strong> em '+(formatDate(ultimoResp.data_fim)||'—')+' ('+escHtml(MOTIVO_DEVOLUCAO_ATIVO[ultimoResp.devolucao_motivo]||'')+', '+escHtml(ESTADO_DEVOLUCAO_ATIVO[ultimoResp.devolucao_estado]||'—')+')':'')
+    +'</div>'
+    +(sel.destinacao_local?'<div style="font-size:12px;color:#374151;margin-top:2px"><i class="ti ti-map-pin"></i> Onde está agora: <strong>'+escHtml(sel.destinacao_local)+'</strong></div>':'')
+    +(sel.destinacao_obs?'<div style="font-size:12px;color:#4B5563;margin-top:2px">Obs.: '+escHtml(sel.destinacao_obs)+'</div>':'')
+    +(semTermoDev.length?'<div style="font-size:12px;font-weight:700;color:#991B1B;margin-top:4px">⚠ Termo de devolução não anexado — <label style="cursor:pointer;text-decoration:underline">anexar agora<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoDevolucaoAtivo(\''+semTermoDev[0].id+'\',this)"></label></div>':'')
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+acoes+'</div>'
+    +'</div></div></div>';
+}
+function abrirModalDevolucaoAtivo(ativoId){
+  const a=ativosImob.find(x=>String(x.id)===String(ativoId));if(!a)return;
+  const atual=respAtualDoAtivo(ativoId);
+  if(!atual){showToast('Este ativo não está com nenhum responsável.','error');return;}
+  const nome=atual.eh_terceirizado?atual.nome:(atual.funcionario?.nome_completo||atual.nome||'—');
+  const hojeIso=new Date().toISOString().slice(0,10);
+  const opt=(obj)=>Object.entries(obj).map(([k,v])=>`<option value="${k}">${v}</option>`).join('');
+  const radio=(v,titulo,desc,checked)=>`<label style="display:flex;gap:10px;align-items:flex-start;border:1px solid ${DESTINACAO_ATIVO[v].bd};background:${DESTINACAO_ATIVO[v].b};border-radius:8px;padding:10px 12px;cursor:pointer"><input type="radio" name="dev-destino" value="${v}" ${checked?'checked':''} style="width:16px;height:16px;margin-top:2px;flex:0 0 auto"><span><span style="display:block;font-size:13px;font-weight:700;color:${DESTINACAO_ATIVO[v].c}"><i class="ti ti-${DESTINACAO_ATIVO[v].icon}"></i> ${titulo}</span><span style="display:block;font-size:12px;color:#4B5563">${desc}</span></span></label>`;
+  insertModal('modal-dev-ativo',`
+    <div class="modal" style="max-width:620px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-arrow-back-up"></i> Devolução — ${escHtml(a.descricao)}</span>
+        <button class="btn btn-sm" onclick="closeModal('modal-dev-ativo')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:13px;margin-bottom:12px">Devolvido por <strong>${escHtml(nome)}</strong> · Pat. ${escHtml(a.patrimonio_numero||'—')} · com ele desde ${formatDate(atual.data_recebimento)||'—'}</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Data da devolução</label><input type="date" id="dev-data" value="${hojeIso}"></div>
+          <div class="form-group"><label>Motivo</label><select id="dev-motivo">${opt(MOTIVO_DEVOLUCAO_ATIVO)}</select></div>
+          <div class="form-group"><label>Estado na devolução</label><select id="dev-estado">${opt(ESTADO_DEVOLUCAO_ATIVO)}</select></div>
+          <div class="form-group"><label>Recebido por (quem conferiu)</label><input id="dev-recebido" placeholder="Ex.: encarregado, almoxarife..."></div>
+          <div class="form-group full"><label>Observações da devolução</label><textarea id="dev-obs" rows="2" placeholder="Ex.: acompanha carregador e capa; antena quebrada..."></textarea></div>
+          <div class="form-group full"><label>Termo de devolução assinado (PDF ou foto)</label><input type="file" id="dev-termo-file" accept=".pdf,.jpg,.jpeg,.png"></div>
+        </div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px">E agora, o que vai acontecer com o equipamento?</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${radio('transferencia_pendente','Transferência pendente','Fica na obra aguardando ser passado para outra pessoa.',true)}
+          ${radio('devolver_almoxarifado','Devolver ao almoxarifado','Precisa ser enviado ao almoxarifado (ainda não chegou lá).',false)}
+          ${radio('almoxarifado','Já está no almoxarifado','Foi entregue direto no almoxarifado — fica disponível.',false)}
+        </div>
+        <div class="form-group" style="margin-top:10px"><label>Onde o equipamento fica guardado até lá</label><input id="dev-local" placeholder="Ex.: container da obra, com o encarregado João"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal('modal-dev-ativo')">Cancelar</button>
+        <button class="btn btn-primary" id="dev-btn-salvar" onclick="salvarDevolucaoAtivo('${ativoId}','${atual.id}')"><i class="ti ti-check"></i> Registrar devolução</button>
+      </div>
+    </div>`);
+}
+async function salvarDevolucaoAtivo(ativoId,respId){
+  const btnS=document.getElementById('dev-btn-salvar');
+  try{
+    const data=document.getElementById('dev-data').value||new Date().toISOString().slice(0,10);
+    const destino=document.querySelector('input[name="dev-destino"]:checked')?.value||'transferencia_pendente';
+    const termoFile=document.getElementById('dev-termo-file')?.files?.[0];
+    if(!termoFile&&!confirm('Nenhum termo de devolução foi anexado.\n\nRegistrar a devolução mesmo assim? (o ativo ficará sinalizado como "Devolução sem termo" até você anexar)'))return;
+    if(btnS){btnS.disabled=true;btnS.innerHTML='<i class="ti ti-loader ti-spin"></i> Salvando...';}
+    let termoUrl=null;
+    if(termoFile){
+      showToast('Enviando termo de devolução...');
+      const path='termos-devolucao/'+Date.now()+'_'+sanitizeFilename(termoFile.name);
+      const{error:upErr}=await sb.storage.from('ativos-imobilizados').upload(path,termoFile,{upsert:true});
+      if(upErr)throw new Error('Upload do termo: '+upErr.message);
+      termoUrl=sb.storage.from('ativos-imobilizados').getPublicUrl(path).data.publicUrl;
+    }
+    const{data:d1,error:e1}=await sb.from('ativos_imob_responsaveis').update({
+      data_fim:data,
+      devolucao_motivo:document.getElementById('dev-motivo').value,
+      devolucao_estado:document.getElementById('dev-estado').value,
+      devolucao_recebido_por:document.getElementById('dev-recebido').value.trim()||null,
+      devolucao_obs:document.getElementById('dev-obs').value.trim()||null,
+      termo_devolucao_url:termoUrl,
+    }).eq('id',respId).select();
+    if(e1)throw new Error(e1.message);
+    if(!d1||!d1.length)throw new Error('registro do responsável não encontrado ou sem permissão');
+    const{error:e2}=await sb.from('ativos_imobilizados').update({
+      destinacao:destino,destinacao_desde:data,
+      destinacao_local:destino==='almoxarifado'?'Almoxarifado':(document.getElementById('dev-local').value.trim()||null),
+      destinacao_obs:null,
+    }).eq('id',ativoId);
+    if(e2)throw new Error('Devolução salva, mas a sinalização falhou: '+e2.message);
+    closeModal('modal-dev-ativo');closeModal('modal-resp-ativo');
+    showToast('Devolução registrada — '+DESTINACAO_ATIVO[destino].t.toLowerCase()+'.');
+    ativoImobSelecionadoId=ativoId;
+    await loadAtivosImobilizados();
+    if(currentPage==='ativos-imobilizados')renderAtivosImobilizados();
+  }catch(err){
+    console.error('[Ativo GTEL] devolução:',err);
+    showToast('Erro ao registrar devolução: '+(err.message||err),'error');
+    if(btnS){btnS.disabled=false;btnS.innerHTML='<i class="ti ti-check"></i> Registrar devolução';}
+  }
+}
+async function uploadTermoDevolucaoAtivo(respId,input){
+  const file=input.files[0];if(!file)return;
+  try{
+    showToast('Enviando termo de devolução...');
+    const path='termos-devolucao/'+Date.now()+'_'+sanitizeFilename(file.name);
+    const{error:upErr}=await sb.storage.from('ativos-imobilizados').upload(path,file,{upsert:true});
+    if(upErr)throw new Error(upErr.message);
+    const url=sb.storage.from('ativos-imobilizados').getPublicUrl(path).data.publicUrl;
+    const{data,error}=await sb.from('ativos_imob_responsaveis').update({termo_devolucao_url:url}).eq('id',respId).select();
+    if(error)throw new Error(error.message);
+    if(!data||!data.length)throw new Error('registro não encontrado ou sem permissão');
+    showToast('Termo de devolução anexado!');
+    const r=ativosImobResponsaveis.find(x=>String(x.id)===String(respId));
+    await loadAtivosImobilizados();
+    if(r&&document.getElementById('modal-resp-ativo'))abrirModalResponsavelAtivo(r.ativo_id);
+    renderAtivosImobilizados();
+  }catch(err){showToast('Erro ao anexar termo de devolução: '+(err.message||err),'error');}
+}
+async function confirmarAlmoxarifadoAtivo(ativoId){
+  const a=ativosImob.find(x=>String(x.id)===String(ativoId));if(!a)return;
+  if(!confirm(`Confirmar que "${a.descricao}" chegou e está guardado no almoxarifado?`))return;
+  const{error}=await sb.from('ativos_imobilizados').update({destinacao:'almoxarifado',destinacao_desde:new Date().toISOString().slice(0,10),destinacao_local:'Almoxarifado'}).eq('id',ativoId);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Ativo marcado como no almoxarifado.');
+  await loadAtivosImobilizados();renderAtivosImobilizados();
+}
+function abrirModalDestinacaoAtivo(ativoId){
+  const a=ativosImob.find(x=>String(x.id)===String(ativoId));if(!a)return;
+  const atualDest=a.destinacao||'transferencia_pendente';
+  insertModal('modal-dest-ativo',`
+    <div class="modal" style="max-width:480px">
+      <div class="modal-header"><span class="modal-title"><i class="ti ti-flag"></i> Sinalização — ${escHtml(a.descricao)}</span><button class="btn btn-sm" onclick="closeModal('modal-dest-ativo')"><i class="ti ti-x"></i></button></div>
+      <div class="modal-body">
+        <div class="form-group"><label>Situação / destino</label>
+          <select id="dest-sel">${['transferencia_pendente','devolver_almoxarifado','almoxarifado'].map(k=>`<option value="${k}" ${atualDest===k?'selected':''}>${DESTINACAO_ATIVO[k].t.charAt(0)+DESTINACAO_ATIVO[k].t.slice(1).toLowerCase()}</option>`).join('')}<option value="">Sem sinalização</option></select></div>
+        <div class="form-group" style="margin-top:8px"><label>Onde o equipamento está agora</label><input id="dest-local" value="${escHtml(a.destinacao_local||'')}" placeholder="Ex.: container da obra"></div>
+        <div class="form-group" style="margin-top:8px"><label>Observação</label><textarea id="dest-obs" rows="2" placeholder="Ex.: reservado para o novo eletricista que entra dia 10">${escHtml(a.destinacao_obs||'')}</textarea></div>
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeModal('modal-dest-ativo')">Cancelar</button><button class="btn btn-primary" onclick="salvarDestinacaoAtivo('${ativoId}')"><i class="ti ti-check"></i> Salvar</button></div>
+    </div>`);
+}
+async function salvarDestinacaoAtivo(ativoId){
+  const a=ativosImob.find(x=>String(x.id)===String(ativoId));if(!a)return;
+  const dest=document.getElementById('dest-sel').value||null;
+  const payload={destinacao:dest,destinacao_local:document.getElementById('dest-local').value.trim()||null,destinacao_obs:document.getElementById('dest-obs').value.trim()||null};
+  payload.destinacao_desde=dest?(dest===a.destinacao&&a.destinacao_desde?a.destinacao_desde:new Date().toISOString().slice(0,10)):null;
+  const{error}=await sb.from('ativos_imobilizados').update(payload).eq('id',ativoId);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  closeModal('modal-dest-ativo');showToast('Sinalização atualizada.');
+  await loadAtivosImobilizados();renderAtivosImobilizados();
+}
+// Atalho a partir da ficha do funcionário (ex.: demissão): abre o Ativo GTEL já no equipamento e na tela de devolução
+async function irDevolucaoAtivo(ativoId){
+  ativoImobAba='todos';ativoImobFiltroAtivo=null;ativoImobBusca='';ativoImobSelecionadoId=ativoId;
+  document.querySelectorAll('.modal-overlay').forEach(m=>m.remove());
+  await showPage('ativos-imobilizados');
+  abrirModalDevolucaoAtivo(ativoId);
 }
 async function uploadTermoAtivo(respId,input){
   const file=input.files[0];
