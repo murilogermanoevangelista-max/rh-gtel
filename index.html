@@ -16061,6 +16061,7 @@ function cronoHtmlDatas(ano,mes){
     atrasadas:pool.filter(r=>r.status==='nao_entregue'||(r.status==='parcial'&&r.atrasado)),
     semana:pool.filter(r=>pendente(r)&&diasAte(r)<=7),
     quinzena:pool.filter(r=>pendente(r)&&diasAte(r)>7&&diasAte(r)<=15),
+    adiante:pool.filter(r=>pendente(r)&&diasAte(r)>15),
     aguardando:pool.filter(r=>r.status==='aguardando'),
     concluidas:pool.filter(r=>r.status==='ok'&&r.prazoDia.getFullYear()===ano&&r.prazoDia.getMonth()+1===mes),
     concl_atraso:pool.filter(r=>r.status==='atraso'&&r.prazoDia.getFullYear()===ano&&r.prazoDia.getMonth()+1===mes),
@@ -16069,12 +16070,13 @@ function cronoHtmlDatas(ano,mes){
     ['atrasadas','Atrasadas','ti-alert-triangle','#991B1B','#FEE2E2','#FCA5A5','Prazo já passou'],
     ['semana','Próximos 7 dias','ti-calendar-due','#92400E','#FEF3C7','#FCD34D','Entregar esta semana'],
     ['quinzena','De 8 a 15 dias','ti-calendar-time','#1E40AF','#DBEAFE','#93C5FD','Já pode ir preparando'],
+    ['adiante','Mais de 15 dias','ti-calendar-plus','#0F766E','#CCFBF1','#5EEAD4','Programadas até '+new Date(hojeD.getFullYear(),hojeD.getMonth()+2,0).toLocaleDateString('pt-BR')],
     ['aguardando','Aguardando confirmação','ti-hourglass','#5B21B6','#EDE9FE','#C4B5FD','Enviadas, em conferência'],
     ['concluidas','Concluídas no prazo','ti-circle-check','#166534','#DCFCE7','#86EFAC',_cronoNomeMes(ano,mes)],
     ['concl_atraso','Concluídas com atraso','ti-clock-exclamation','#9A3412','#FFEDD5','#FDBA74','Feitas fora da data · '+_cronoNomeMes(ano,mes)],
   ];
   if(cronoDatasFiltro&&!grupos[cronoDatasFiltro])cronoDatasFiltro=null;
-  const cards='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">'+defs.map(([id,label,icone,cor,bg,borda,sub])=>{
+  const cards='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">'+defs.map(([id,label,icone,cor,bg,borda,sub])=>{
     const n=grupos[id].length,sel=cronoDatasFiltro===id,vazio=!n;
     return '<div onclick="cronoDatasFiltro='+(sel?'null':'\''+id+'\'')+';renderCronograma()" style="cursor:pointer;border-radius:12px;padding:12px 14px;background:'+(vazio?'#fff':bg)+';border:'+(sel?'2px solid '+cor:'1px solid '+(vazio?'var(--border)':borda))+';'+(vazio?'opacity:.75':'')+'">'
       +'<div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:'+(vazio?'var(--text-muted)':cor)+'"><i class="ti '+icone+'" style="font-size:16px"></i>'+label+(sel?'<i class="ti ti-filter" style="margin-left:auto"></i>':'')+'</div>'
