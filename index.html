@@ -7485,9 +7485,33 @@ function exportarTreinamentosExcel(){
 }
 
 // ─── USUÁRIOS ─────────────────────────────────────────────────────────────────
+function _usrUltimoAcesso(u){
+  if(!('ultimo_acesso' in u))return '<span style="font-size:11px;color:var(--text-muted)">—</span>';
+  if(!u.ultimo_acesso)return '<span style="font-size:11.5px;color:var(--text-muted)">Nunca acessou</span>';
+  const d=new Date(u.ultimo_acesso);if(isNaN(d))return '—';
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  const dia=new Date(d);dia.setHours(0,0,0,0);
+  const dias=Math.round((hoje-dia)/86400000);
+  const hora=d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  const txt=dias===0?'Hoje às '+hora:dias===1?'Ontem às '+hora:'Há '+dias+' dias';
+  const cor=dias<=7?'var(--success)':dias<=15?'var(--warning)':'var(--danger)';
+  return '<div style="font-size:12.5px;font-weight:600;color:'+cor+'">'+txt+'</div><div style="font-size:11px;color:var(--text-muted)">'+d.toLocaleDateString('pt-BR')+' '+hora+'</div>';
+}
+async function alternarBloqueioUsuario(id){
+  const u=(window._usuariosLista||[]).find(x=>String(x.id)===String(id));if(!u)return;
+  if(String(u.usuario||'').toLowerCase()===String(currentUser?.usuario||'').toLowerCase()){showToast('Você não pode bloquear o seu próprio acesso','error');return;}
+  const bloquear=u.ativo!==false;
+  if(!confirm(bloquear?'Bloquear o acesso de '+(u.nome||u.usuario)+'?\n\nEle não consegue mais entrar no sistema até você desbloquear.':'Desbloquear o acesso de '+(u.nome||u.usuario)+'?'))return;
+  const dados={nome:u.nome,usuario:u.usuario,perfil:u.perfil,obras_acesso:(u.obras_acesso||[]).map(String),ativo:!bloquear};
+  const{error}=await sb.rpc('salvar_usuario',{p_id:id,p_dados:dados,p_senha:null});
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast(bloquear?'Acesso bloqueado':'Acesso liberado');
+  renderUsuarios();
+}
 async function renderUsuarios(){
   const{data:usuarios,error}=await sb.rpc('listar_usuarios');
   if(error){showToast(rpcAusente(error)?'Rode o script de segurança 01 no Supabase para usar esta tela.':'Erro ao carregar usuários: '+error.message,'error');return;}
+  window._usuariosLista=usuarios||[];
   const nivelBadge=n=>n==='admin'?'<span class="badge badge-red">Admin</span>':n==='gerente'?'<span class="badge badge-amber">Gerente</span>':'<span class="badge badge-blue">Usuário</span>';
   const rows=(usuarios||[]).map(u=>{
     const obrasIds=(u.obras_acesso||[]).map(String);
@@ -7498,7 +7522,8 @@ async function renderUsuarios(){
     return`<tr>
       <td><div style="font-weight:500">${u.nome||'—'}</div><div style="font-size:11px;color:var(--text-muted)">👤 ${u.usuario||'—'}</div></td>
       <td>${nivelBadge(u.perfil)}</td>
-      <td>${u.ativo===false?'<span class="badge badge-red">Inativo</span>':'<span class="badge badge-green">Ativo</span>'}</td>
+      <td>${u.ativo===false?'<span class="badge badge-red"><i class="ti ti-lock"></i> Bloqueado</span>':'<span class="badge badge-green">Ativo</span>'}</td>
+      <td>${_usrUltimoAcesso(u)}</td>
       <td>
         <div style="display:flex;align-items:center;gap:6px">
           <span style="font-family:monospace;font-size:12px;color:var(--text-muted)">••••••••</span>
@@ -7509,12 +7534,13 @@ async function renderUsuarios(){
       <td>
         <div style="display:flex;gap:6px">
           <button class="btn btn-sm" onclick="openModalUsuario('${u.id}')"><i class="ti ti-edit"></i> Editar</button>
+          <button class="btn btn-sm" style="${u.ativo===false?'color:var(--success);border-color:var(--success)':'color:#B45309;border-color:#F59E0B'}" onclick="alternarBloqueioUsuario('${u.id}')">${u.ativo===false?'<i class="ti ti-lock-open"></i> Desbloquear':'<i class="ti ti-lock"></i> Bloquear'}</button>
           <button class="btn btn-sm btn-danger" onclick="excluirUsuario('${u.id}')">
             <i class="ti ti-trash"></i> Remover
           </button>
         </div>
       </td>
-    </tr>`;}).join('')||'<tr><td colspan="6"><div class="empty-state"><i class="ti ti-users"></i><div>Nenhum usuário cadastrado</div></div></td></tr>';
+    </tr>`;}).join('')||'<tr><td colspan="7"><div class="empty-state"><i class="ti ti-users"></i><div>Nenhum usuário cadastrado</div></div></td></tr>';
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div><div class="page-title">Usuários do Sistema</div><div class="page-subtitle">${(usuarios||[]).length} usuários cadastrados</div></div>
@@ -7523,7 +7549,7 @@ async function renderUsuarios(){
     <div class="table-container">
       <table class="table">
         <thead><tr>
-          <th>Nome / Usuário</th><th>Nível de Acesso</th><th>Status</th><th>Senha</th><th>Obras com acesso</th><th>Ações</th>
+          <th>Nome / Usuário</th><th>Nível de Acesso</th><th>Status</th><th>Último acesso</th><th>Senha</th><th>Obras com acesso</th><th>Ações</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
@@ -7578,7 +7604,7 @@ function openModalUsuario(id,focarSenha){
                 <label>Status</label>
                 <select id="u-ativo">
                   <option value="true" ${u?.ativo!==false?'selected':''}>Ativo</option>
-                  <option value="false" ${u?.ativo===false?'selected':''}>Inativo</option>
+                  <option value="false" ${u?.ativo===false?'selected':''}>Bloqueado (sem acesso)</option>
                 </select>
               </div>
               <div class="form-group" style="grid-column:1/-1">
