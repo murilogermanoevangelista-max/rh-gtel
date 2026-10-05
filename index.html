@@ -11417,10 +11417,15 @@ function abrirModalKm(veiculoId,mes,ano){
           <div class="form-group full"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400"><input type="checkbox" id="km-isento" style="width:16px;height:16px" onchange="document.getElementById('km-valor').disabled=this.checked;document.getElementById('km-valor').value='';"> Isento este mês (veículo parado / fora de uso — não precisa de KM)</label></div>
           <div class="form-group full"><label>Comprovante (foto do painel, PDF ou imagem)</label><input type="file" id="km-anexo-file" accept=".pdf,.jpg,.jpeg,.png"></div>
         </div>
-        <button class="btn btn-primary" style="margin-top:8px" onclick="salvarKm('${veiculoId}',${mes},${ano})"><i class="ti ti-check"></i> Lançar KM</button>
+        <button class="btn btn-primary" style="margin-top:8px" onclick="salvarKm('${veiculoId}',${mes},${ano})"><i class="ti ti-device-floppy"></i> Salvar lançamento</button>
         ${registros.length?`<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
           <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Últimos lançamentos</div>
-          ${registros.map(k=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px"><span>${mesesNomes[k.mes-1]}/${k.ano}</span><strong>${k.isento?'Isento':Number(k.km_registrado).toLocaleString('pt-BR')+'km'}</strong><span style="display:flex;gap:6px">${k.anexo_url?`<a href="${k.anexo_url}" target="_blank" class="btn btn-sm btn-info" title="Ver comprovante"><i class="ti ti-paperclip"></i></a>`:(k.isento?'':`<label class="btn btn-sm" style="cursor:pointer;color:var(--danger);border-color:var(--danger)" title="Este lançamento está sem comprovante — anexe o controle de KM"><i class="ti ti-upload"></i> Anexar controle<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="anexarComprovanteKm('${k.id}',this.files[0],'${veiculoId}',${mes},${ano})"></label>`)}<button class="btn btn-sm btn-danger" onclick="excluirKm('${k.id}','${veiculoId}',${mes},${ano})" title="Excluir este lançamento"><i class="ti ti-trash"></i></button></span></div>`).join('')}
+          ${registros.map(k=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px"><span>${mesesNomes[k.mes-1]}/${k.ano}</span><strong>${k.isento?'Isento':Number(k.km_registrado).toLocaleString('pt-BR')+'km'}</strong><span style="display:flex;gap:6px">${k.anexo_url?`<a href="${k.anexo_url}" target="_blank" class="btn btn-sm btn-info" title="Ver comprovante"><i class="ti ti-paperclip"></i></a>`:(k.isento?'':`<button class="btn btn-sm" style="color:var(--danger);border-color:var(--danger)" title="Este lançamento está sem comprovante — anexe o controle de KM" onclick="document.getElementById('km-anx-${k.id}').style.display='flex';this.style.display='none'"><i class="ti ti-upload"></i> Anexar controle</button>`)}<button class="btn btn-sm btn-danger" onclick="excluirKm('${k.id}','${veiculoId}',${mes},${ano})" title="Excluir este lançamento"><i class="ti ti-trash"></i></button></span></div>${!k.anexo_url&&!k.isento?`<div id="km-anx-${k.id}" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;margin:4px 0 6px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px">
+            <span style="font-size:12px;font-weight:600;color:#991B1B">Controle de ${mesesNomes[k.mes-1]}/${k.ano}:</span>
+            <input type="file" id="km-anx-file-${k.id}" accept=".pdf,.jpg,.jpeg,.png" style="flex:1;min-width:180px;font-size:12px">
+            <button class="btn btn-sm btn-primary" id="km-anx-btn-${k.id}" onclick="const f=document.getElementById('km-anx-file-${k.id}').files[0];if(!f){showToast('Escolha o arquivo do controle','error');return;}this.disabled=true;this.innerHTML='<i class=&quot;ti ti-loader ti-spin&quot;></i> Salvando...';anexarComprovanteKm('${k.id}',f,'${veiculoId}',${mes},${ano})"><i class="ti ti-device-floppy"></i> Salvar</button>
+            <button class="btn btn-sm" onclick="abrirModalKm('${veiculoId}',${mes},${ano})">Cancelar</button>
+          </div>`:''}`).join('')}
         </div>`:''}
       </div>
       <div class="modal-footer"><button class="btn" onclick="closeModal('modal-km')">Fechar</button></div>
@@ -11469,6 +11474,8 @@ async function salvarKm(veiculoId,mes,ano){
   const isento=document.getElementById('km-isento').checked;
   const kmValor=isento?null:parseInt(document.getElementById('km-valor').value);
   if(!isento&&!kmValor){showToast('Informe a KM registrada (ou marque Isento)','error');return;}
+  {const _v=veiculos.find(x=>String(x.id)===String(veiculoId));
+   if(!isento&&_v&&_v.km_atual&&kmValor<Number(_v.km_atual)&&!confirm('A KM informada ('+kmValor.toLocaleString('pt-BR')+') é MENOR que a KM atual do veículo ('+Number(_v.km_atual).toLocaleString('pt-BR')+').\n\nConfira se não faltou algum dígito. Salvar mesmo assim?'))return;}
   let anexoUrl=null;
   const anexoFile=document.getElementById('km-anexo-file')?.files?.[0];
   if(anexoFile){
@@ -16013,7 +16020,8 @@ function cronoHtmlDatas(ano,mes){
     const chave=t.id+'|'+r.obra.id+'|'+r.ymd;
     if(t.tipo==='manual'&&['a_vencer','nao_entregue'].includes(r.status)&&cronoPodeEnviar(r.obra.id))dir='<button class="btn btn-sm btn-primary" onclick="openModalCronoEnviar(\''+chave+'\')"><i class="ti ti-send"></i> '+(r.recusado||r.reaberto?'Enviar de novo':'Enviei')+'</button>';
     else if(r.status==='aguardando')dir='<span style="font-size:12px;color:var(--info)"><i class="ti ti-hourglass"></i> Aguardando confirmação</span>';
-    else if(r.status==='ok'||r.status==='atraso')dir='<span style="font-size:12px;color:var(--success)"><i class="ti ti-circle-check"></i> Concluída'+(r.status==='atraso'?' com atraso':'')+'</span>';
+    else if(r.status==='ok')dir='<span style="font-size:12px;color:var(--success)"><i class="ti ti-circle-check"></i> Concluída'+(r.usouTol?' (na tolerância)':'')+'</span>';
+    else if(r.status==='atraso')dir='<span style="font-size:12px;color:#9A3412;background:#FFEDD5;padding:3px 9px;border-radius:20px;white-space:nowrap"><i class="ti ti-clock-exclamation"></i> Concluída com '+r.diasAtraso+' dia'+(r.diasAtraso>1?'s':'')+' de atraso'+(r.entrega?' · '+r.entrega.toLocaleDateString('pt-BR'):'')+'</span>';
     else if(t.tipo==='auto')dir='<button class="btn btn-sm" onclick="showPage(\''+CRONO_VINCULOS[t.vinculo].page+'\')"><i class="ti ti-external-link"></i> Lançar em '+CRONO_VINCULOS[t.vinculo].curto+'</button>';
     let sub=[];
     if(t.hora_limite)sub.push('até '+escHtml(t.hora_limite));
@@ -16054,17 +16062,19 @@ function cronoHtmlDatas(ano,mes){
     semana:pool.filter(r=>pendente(r)&&diasAte(r)<=7),
     quinzena:pool.filter(r=>pendente(r)&&diasAte(r)>7&&diasAte(r)<=15),
     aguardando:pool.filter(r=>r.status==='aguardando'),
-    concluidas:pool.filter(r=>(r.status==='ok'||r.status==='atraso')&&r.prazoDia.getFullYear()===ano&&r.prazoDia.getMonth()+1===mes),
+    concluidas:pool.filter(r=>r.status==='ok'&&r.prazoDia.getFullYear()===ano&&r.prazoDia.getMonth()+1===mes),
+    concl_atraso:pool.filter(r=>r.status==='atraso'&&r.prazoDia.getFullYear()===ano&&r.prazoDia.getMonth()+1===mes),
   };
   const defs=[
     ['atrasadas','Atrasadas','ti-alert-triangle','#991B1B','#FEE2E2','#FCA5A5','Prazo já passou'],
     ['semana','Próximos 7 dias','ti-calendar-due','#92400E','#FEF3C7','#FCD34D','Entregar esta semana'],
     ['quinzena','De 8 a 15 dias','ti-calendar-time','#1E40AF','#DBEAFE','#93C5FD','Já pode ir preparando'],
     ['aguardando','Aguardando confirmação','ti-hourglass','#5B21B6','#EDE9FE','#C4B5FD','Enviadas, em conferência'],
-    ['concluidas','Concluídas no mês','ti-circle-check','#166534','#DCFCE7','#86EFAC',_cronoNomeMes(ano,mes)],
+    ['concluidas','Concluídas no prazo','ti-circle-check','#166534','#DCFCE7','#86EFAC',_cronoNomeMes(ano,mes)],
+    ['concl_atraso','Concluídas com atraso','ti-clock-exclamation','#9A3412','#FFEDD5','#FDBA74','Feitas fora da data · '+_cronoNomeMes(ano,mes)],
   ];
   if(cronoDatasFiltro&&!grupos[cronoDatasFiltro])cronoDatasFiltro=null;
-  const cards='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:16px">'+defs.map(([id,label,icone,cor,bg,borda,sub])=>{
+  const cards='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">'+defs.map(([id,label,icone,cor,bg,borda,sub])=>{
     const n=grupos[id].length,sel=cronoDatasFiltro===id,vazio=!n;
     return '<div onclick="cronoDatasFiltro='+(sel?'null':'\''+id+'\'')+';renderCronograma()" style="cursor:pointer;border-radius:12px;padding:12px 14px;background:'+(vazio?'#fff':bg)+';border:'+(sel?'2px solid '+cor:'1px solid '+(vazio?'var(--border)':borda))+';'+(vazio?'opacity:.75':'')+'">'
       +'<div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:'+(vazio?'var(--text-muted)':cor)+'"><i class="ti '+icone+'" style="font-size:16px"></i>'+label+(sel?'<i class="ti ti-filter" style="margin-left:auto"></i>':'')+'</div>'
