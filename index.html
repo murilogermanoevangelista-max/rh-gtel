@@ -11577,28 +11577,68 @@ async function salvarRevisao(veiculoId,numeroRevisao){
 }
 
 // ── Abastecimentos ──
-function abrirModalAbastecimento(veiculoId,mes,ano){
+// Envios de abastecimento previstos no Cronograma ADM para a obra do veículo (1º/2º envio do mês)
+function abastEnviosDaObra(obraId){
+  if(typeof cronoTarefas==='undefined'||!cronoTarefas.length)return[];
+  const tarefas=cronoTarefas.filter(t=>t.ativo!==false&&t.tipo==='auto'&&t.vinculo==='veic_abastecimento'&&(!t.obras_ids||!t.obras_ids.length||t.obras_ids.map(String).includes(String(obraId))));
+  if(!tarefas.length)return[];
+  const hoje=_cronoHoje();const mapa={};
+  for(let k=-2;k<=1;k++){
+    let a=hoje.getFullYear(),m=hoje.getMonth()+1+k;while(m<1){m+=12;a--;}while(m>12){m-=12;a++;}
+    tarefas.forEach(t=>cronoPrazosNoMes(t,a,m).forEach(oc=>{
+      const ymd=_cronoYmd(oc.prazo);
+      if(mapa[ymd])return;
+      const mesNome=oc.prazo.toLocaleDateString('pt-BR',{month:'long'});
+      mapa[ymd]={ymd,prazo:oc.prazo,limite:_cronoAddDias(_cronoDia(oc.prazo),parseInt(t.tolerancia_dias)||0),
+        label:'Envio de '+oc.prazo.toLocaleDateString('pt-BR')+(oc.qtd>1?' — '+oc.n+'º envio de '+mesNome:'')};
+    }));
+  }
+  return Object.values(mapa).sort((x,y)=>x.prazo-y.prazo);
+}
+function _abastAnexos(a){return(Array.isArray(a.anexos)&&a.anexos.length)?a.anexos:(a.anexo_url?[a.anexo_url]:[]);}
+async function abrirModalAbastecimento(veiculoId,mes,ano,envioSel){
   const v=veiculos.find(x=>String(x.id)===String(veiculoId));
   if(!v)return;
-  const registros=veiculosAbastecimentos.filter(a=>String(a.veiculo_id)===String(veiculoId)).sort((a,b)=>(b.ano-a.ano)||(b.mes-a.mes)).slice(0,6);
+  if(typeof loadCronograma==='function'&&!cronoTarefas.length&&!cronoErro){try{await loadCronograma();}catch(e){}}
+  const envios=abastEnviosDaObra(v.obra_id);
+  const hoje=_cronoHoje();
+  let envio=envioSel!==undefined?envioSel:((envios.find(e=>e.limite>=hoje)||envios[envios.length-1]||{}).ymd||'');
   const mesesNomes=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const regsVeic=veiculosAbastecimentos.filter(a=>String(a.veiculo_id)===String(veiculoId));
+  const doEnvio=envio?regsVeic.filter(a=>a.envio_prazo===envio):[];
+  const outros=regsVeic.filter(a=>!envio||a.envio_prazo!==envio).sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||''))||(b.ano-a.ano)||(b.mes-a.mes)).slice(0,6);
+  const linha=a=>{
+    const anx=_abastAnexos(a);
+    const ref=a.envio_prazo?'Envio '+formatDate(a.envio_prazo):(mesesNomes[a.mes-1]+'/'+a.ano);
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px">
+      <span style="min-width:96px">${ref}</span>
+      <span style="flex:1">${a.sem_abastecimento?'<span style="color:var(--text-muted)">Sem abastecimento no período</span>':((a.litros?a.litros+' L':'')+(a.valor_total?' · R$ '+Number(a.valor_total).toLocaleString('pt-BR',{minimumFractionDigits:2}):'')||'—')}</span>
+      <span style="display:flex;gap:4px">${anx.map((u,i)=>`<a href="${escHtml(u)}" target="_blank" class="btn btn-sm btn-info" title="Comprovante ${i+1}"><i class="ti ti-paperclip"></i>${anx.length>1?' '+(i+1):''}</a>`).join('')}${!anx.length&&!a.sem_abastecimento?'<span style="font-size:11px;color:var(--danger)">sem comprovante</span>':''}
+      <button class="btn btn-sm btn-danger" onclick="excluirAbastecimento('${a.id}','${veiculoId}',${mes},${ano})" title="Excluir"><i class="ti ti-trash"></i></button></span></div>`;
+  };
+  const optEnvios=envios.map(e=>`<option value="${e.ymd}" ${e.ymd===envio?'selected':''}>${e.label}</option>`).join('');
   insertModal('modal-abastecimento',`
-    <div class="modal" style="max-width:520px">
+    <div class="modal" style="max-width:560px">
       <div class="modal-header">
         <span class="modal-title"><i class="ti ti-gas-station"></i> Abastecimentos — ${escHtml(v.placa)}</span>
         <button class="btn btn-sm" onclick="closeModal('modal-abastecimento')"><i class="ti ti-x"></i></button>
       </div>
       <div class="modal-body">
         <div class="form-grid">
-          <div class="form-group"><label>Mês/Ano de referência</label><input value="${mesesNomes[mes-1]}/${ano}" disabled></div>
+          ${envios.length?`<div class="form-group full"><label>Referente ao envio do cronograma</label><select id="abast-envio" onchange="abrirModalAbastecimento('${veiculoId}',${mes},${ano},this.value)">${optEnvios}</select></div>`:`<div class="form-group"><label>Mês/Ano de referência</label><input value="${mesesNomes[mes-1]}/${ano}" disabled></div>`}
           <div class="form-group"><label>Litros</label><input id="abast-litros" type="text" inputmode="decimal" placeholder="Ex: 350,5"></div>
           <div class="form-group"><label>Valor total (R$)</label><input id="abast-valor" type="text" inputmode="decimal" placeholder="0,00"></div>
-          <div class="form-group full"><label>Formulário de abastecimento (PDF)</label><input type="file" id="abast-anexo-file" accept=".pdf,.jpg,.jpeg,.png"></div>
+          <div class="form-group full"><label>Comprovantes / formulário de abastecimento <span style="font-weight:400;color:var(--text-muted)">(pode selecionar vários)</span></label><input type="file" id="abast-anexo-file" accept=".pdf,.jpg,.jpeg,.png" multiple></div>
+          <div class="form-group full"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:400"><input type="checkbox" id="abast-sem" style="width:16px;height:16px;flex:none;margin:0"> Veículo sem abastecimento neste período (parado / não usou cartão)</label></div>
         </div>
-        <button class="btn btn-primary" style="margin-top:8px" onclick="salvarAbastecimento('${veiculoId}',${mes},${ano})"><i class="ti ti-check"></i> Lançar abastecimento</button>
-        ${registros.length?`<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
-          <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Últimos lançamentos</div>
-          ${registros.map(a=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px"><span>${mesesNomes[a.mes-1]}/${a.ano}</span><span>${a.litros?a.litros+'L':''}${a.valor_total?' · R$ '+Number(a.valor_total).toLocaleString('pt-BR',{minimumFractionDigits:2}):''}</span><span style="display:flex;gap:6px">${a.anexo_url?`<a href="${a.anexo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-paperclip"></i></a>`:''}<button class="btn btn-sm btn-danger" onclick="excluirAbastecimento('${a.id}','${veiculoId}',${mes},${ano})" title="Excluir este lançamento"><i class="ti ti-trash"></i></button></span></div>`).join('')}
+        <button class="btn btn-primary" style="margin-top:8px" onclick="salvarAbastecimento('${veiculoId}',${mes},${ano})"><i class="ti ti-check"></i> Lançar</button>
+        ${envio?`<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Lançados neste envio (${doEnvio.length})</div>
+          ${doEnvio.length?doEnvio.map(linha).join(''):'<div style="font-size:12.5px;color:var(--danger)">Nenhum comprovante lançado para este envio ainda.</div>'}
+        </div>`:''}
+        ${outros.length?`<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">${envio?'Outros lançamentos':'Últimos lançamentos'}</div>
+          ${outros.map(linha).join('')}
         </div>`:''}
       </div>
       <div class="modal-footer"><button class="btn" onclick="closeModal('modal-abastecimento')">Fechar</button></div>
@@ -11615,26 +11655,36 @@ async function excluirAbastecimento(id,veiculoId,mes,ano){
 }
 async function salvarAbastecimento(veiculoId,mes,ano){
   function parseBRL(v){if(!v&&v!==0)return null;const s=String(v).trim();if(s.includes(',')){return parseFloat(s.replace(/\./g,'').replace(',','.'))||null;}return parseFloat(s)||null;}
-  let anexoUrl=null;
-  const anexoFile=document.getElementById('abast-anexo-file')?.files?.[0];
-  if(anexoFile){
-    showToast('Enviando formulário...');
-    const path='abastecimentos/'+Date.now()+'_'+sanitizeFilename(anexoFile.name);
-    const{error:upErr}=await sb.storage.from('veiculos').upload(path,anexoFile,{upsert:true});
-    if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
-    anexoUrl=sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl;
+  const envio=document.getElementById('abast-envio')?.value||null;
+  const sem=!!document.getElementById('abast-sem')?.checked;
+  const arquivos=[...(document.getElementById('abast-anexo-file')?.files||[])];
+  const litros=parseBRL(document.getElementById('abast-litros').value);
+  const valor=parseBRL(document.getElementById('abast-valor').value);
+  if(!sem&&!arquivos.length&&!litros&&!valor){showToast('Anexe o comprovante (ou marque "sem abastecimento neste período")','error');return;}
+  for(const f of arquivos)if(f.size>10*1024*1024){showToast('"'+f.name+'" passa de 10 MB. Reduza e tente de novo.','error');return;}
+  const urls=[];
+  try{
+    for(let i=0;i<arquivos.length;i++){
+      showToast('Enviando comprovante '+(i+1)+' de '+arquivos.length+'...');
+      let f=arquivos[i];
+      if((f.type||'').startsWith('image/')&&typeof comprimirImagem==='function'){try{f=await comprimirImagem(f);}catch(e){}}
+      const path='abastecimentos/'+Date.now()+'_'+i+'_'+sanitizeFilename(arquivos[i].name);
+      const{error:upErr}=await sb.storage.from('veiculos').upload(path,f,{upsert:true,contentType:f.type||arquivos[i].type||undefined});
+      if(upErr)throw new Error('upload: '+upErr.message);
+      urls.push(sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl);
+    }
+  }catch(e){showToast('Erro no '+e.message,'error');return;}
+  const base={veiculo_id:veiculoId,mes,ano,litros:sem?null:litros,valor_total:sem?null:valor,anexo_url:urls[0]||null};
+  let{error}=await sb.from('veiculos_abastecimentos').insert({...base,anexos:urls.length?urls:null,envio_prazo:envio,sem_abastecimento:sem});
+  if(error&&/anexos|envio_prazo|sem_abastecimento/.test(error.message||'')){
+    showToast('Rode o script cronograma_adm_v2.sql no Supabase para lançar vários comprovantes por envio.','error');return;
   }
-  const{error}=await sb.from('veiculos_abastecimentos').insert({
-    veiculo_id:veiculoId,mes,ano,
-    litros:parseBRL(document.getElementById('abast-litros').value),
-    valor_total:parseBRL(document.getElementById('abast-valor').value),
-    anexo_url:anexoUrl,
-  });
   if(error){showToast('Erro: '+error.message,'error');return;}
-  showToast('Abastecimento lançado!');
-  closeModal('modal-abastecimento');
+  showToast(sem?'Registrado: sem abastecimento no período':(urls.length>1?urls.length+' comprovantes lançados!':'Abastecimento lançado!'));
   await loadVeiculos();
+  if(typeof _cronoIdx!=='undefined')_cronoIdx=null;
   renderVeiculos();
+  abrirModalAbastecimento(veiculoId,mes,ano,envio||undefined); // continua aberto para lançar mais
 }
 
 function openModalAlojamento(id){
@@ -15274,6 +15324,7 @@ function _cronoDataLanc(v){
 function _cronoMaxData(lista){let m=null;lista.forEach(d=>{if(d&&(!m||d>m))m=d;});return m;}
 function _cronoMesAtual(){if(!cronoMes){const h=new Date();cronoMes=h.getFullYear()+'-'+String(h.getMonth()+1).padStart(2,'0');}const[a,m]=cronoMes.split('-').map(Number);return{ano:a,mes:m};}
 function _cronoNomeMes(ano,mes){return new Date(ano,mes-1,1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'});}
+function _cronoEnvioTag(oc){return oc&&oc.qtd>1?' <span style="font-size:10.5px;font-weight:700;padding:1px 8px;border-radius:20px;background:#E0E7FF;color:#3730A3;white-space:nowrap">'+oc.n+'º envio</span>':'';}
 function _cronoObraLabel(o){return o?((o.codigo?o.codigo+' — ':'')+(o.nome||'')):'—';}
 
 // ---------- permissões ----------
@@ -15320,9 +15371,13 @@ function _cronoIndices(){
   (alojamentosContas||[]).forEach(c=>{const k=c.alojamento_id+'|'+c.ano+'|'+c.mes;(contas[k]=contas[k]||[]).push(c);});
   (alojamentosRelatorios||[]).forEach(r=>{const k=r.alojamento_id+'|'+r.ano+'|'+r.mes;(rels[k]=rels[k]||[]).push(r);});
   (typeof veiculosKm!=='undefined'?veiculosKm:[]).forEach(r=>{const k=r.veiculo_id+'|'+r.ano+'|'+r.mes;(km[k]=km[k]||[]).push(r);});
-  (typeof veiculosAbastecimentos!=='undefined'?veiculosAbastecimentos:[]).forEach(r=>{const k=r.veiculo_id+'|'+r.ano+'|'+r.mes;(abast[k]=abast[k]||[]).push(r);});
+  const abastEnv={};
+  (typeof veiculosAbastecimentos!=='undefined'?veiculosAbastecimentos:[]).forEach(r=>{
+    if(r.envio_prazo){const k=r.veiculo_id+'|'+r.envio_prazo;(abastEnv[k]=abastEnv[k]||[]).push(r);return;}
+    const k=r.veiculo_id+'|'+r.ano+'|'+r.mes;(abast[k]=abast[k]||[]).push(r);
+  });
   cronoEntregas.forEach(x=>{ent[x.tarefa_id+'|'+x.obra_id+'|'+x.data_prazo]=x;});
-  _cronoIdx={contas,rels,km,abast,ent};
+  _cronoIdx={contas,rels,km,abast,abastEnv,ent};
   return _cronoIdx;
 }
 function cronoEntregaDe(tarefaId,obraId,ymd){return _cronoIndices().ent[tarefaId+'|'+obraId+'|'+ymd]||null;}
@@ -15347,11 +15402,11 @@ function cronoPrazosNoMes(t,ano,mes){
   else dias=[...new Set((t.dias_prazo||[]).map(n=>Math.min(Math.max(1,parseInt(n)||1),ultimo)))].sort((a,b)=>a-b);
   const vig=parseDate(t.vigencia_inicio);
   const inicioVig=vig?new Date(vig.getFullYear(),vig.getMonth(),1):null;
-  return dias.map((d,i)=>({prazo:new Date(ano,mes-1,d,12),janelaIni:i>0?new Date(ano,mes-1,dias[i-1]+1,0):null}))
+  return dias.map((d,i)=>({prazo:new Date(ano,mes-1,d,12),janelaIni:i>0?new Date(ano,mes-1,dias[i-1]+1,0):null,n:i+1,qtd:dias.length}))
     .filter(o=>!inicioVig||o.prazo>=inicioVig);
 }
 // Itens (alojamentos/veículos) de uma tarefa automática numa obra
-function cronoItensAuto(t,obraId,cAno,cMes,janelaIni){
+function cronoItensAuto(t,obraId,cAno,cMes,janelaIni,ymd){
   const idx=_cronoIndices();const itens=[];const oid=String(obraId);
   if(t.vinculo==='aloj_contas'||t.vinculo==='aloj_relatorio'){
     (alojamentos||[]).filter(a=>String(a.obra_id)===oid&&a.tipo_alojamento!=='hotel').forEach(a=>{
@@ -15374,13 +15429,20 @@ function cronoItensAuto(t,obraId,cAno,cMes,janelaIni){
   }else if(t.vinculo==='veic_km'||t.vinculo==='veic_abastecimento'){
     const inativos=typeof VEIC_STATUS_INATIVOS!=='undefined'?VEIC_STATUS_INATIVOS:['devolvido','vendido','sinistrado'];
     (typeof veiculos!=='undefined'?veiculos:[]).filter(v=>String(v.obra_id)===oid&&!inativos.includes(v.status)).forEach(v=>{
-      let todos=(t.vinculo==='veic_km'?idx.km:idx.abast)[v.id+'|'+cAno+'|'+cMes]||[];
-      if(janelaIni&&t.vinculo==='veic_abastecimento')todos=todos.filter(r=>{const d=_cronoDataLanc(r.created_at);return !d||d>=janelaIni;});
+      let todos;
+      if(t.vinculo==='veic_abastecimento'){
+        todos=idx.abastEnv[v.id+'|'+ymd]||[];                       // lançado para este envio
+        if(!todos.length){                                          // lançamentos antigos (sem envio escolhido)
+          todos=idx.abast[v.id+'|'+cAno+'|'+cMes]||[];
+          if(janelaIni)todos=todos.filter(r=>{const d=_cronoDataLanc(r.created_at);return !d||d>=janelaIni;});
+        }
+      }else todos=idx.km[v.id+'|'+cAno+'|'+cMes]||[];
       // Só vale com o controle anexado (KM digitada só para manutenção não conta); veículo isento conta.
-      const regs=todos.filter(r=>r.anexo_url||(t.vinculo==='veic_km'&&r.isento));
+      const regs=todos.filter(r=>r.anexo_url||(t.vinculo==='veic_km'&&r.isento)||(t.vinculo==='veic_abastecimento'&&r.sem_abastecimento));
       const datas=regs.map(r=>_cronoDataLanc(t.vinculo==='veic_km'?(r.data_registro||r.created_at):r.created_at));
       const nomeCtrl=t.vinculo==='veic_km'?'controle de KM':'controle de abastecimento';
-      itens.push({nome:v.placa||v.modelo||'Veículo',ok:regs.length>0,data:regs.length?_cronoMaxData(datas):null,falta:regs.length?'':(todos.length?'lançado sem anexo do '+nomeCtrl:'sem '+nomeCtrl)});
+      const nComp=t.vinculo==='veic_abastecimento'?regs.reduce((s,r)=>s+(Array.isArray(r.anexos)&&r.anexos.length?r.anexos.length:(r.anexo_url?1:0)),0):0;
+      itens.push({nome:(v.placa||v.modelo||'Veículo')+(nComp>1?' ('+nComp+' comprovantes)':''),ok:regs.length>0,data:regs.length?_cronoMaxData(datas):null,falta:regs.length?'':(todos.length?'lançado sem anexo do '+nomeCtrl:'sem '+nomeCtrl)});
     });
   }
   return itens;
@@ -15412,7 +15474,7 @@ function cronoCalc(t,obra,oc){
   if(t.tipo==='auto'){
     let cAno=oc.prazo.getFullYear(),cMes=oc.prazo.getMonth()+1+(parseInt(t.competencia_offset)||0);
     while(cMes<1){cMes+=12;cAno--;}while(cMes>12){cMes-=12;cAno++;}
-    const itens=cronoItensAuto(t,obra.id,cAno,cMes,oc.janelaIni);
+    const itens=cronoItensAuto(t,obra.id,cAno,cMes,oc.janelaIni,ymd);
     const r={...base,itens,total:itens.length,feitos:itens.filter(i=>i.ok).length,compAno:cAno,compMes:cMes};
     if(!itens.length)return{...r,status:'na',semItens:true};
     const completo=r.feitos===r.total;
@@ -15608,7 +15670,7 @@ function cronoHtmlTabelaTarefas(ano,mes,ocs,cols){
     const tipoIco=c.t.tipo==='auto'?'<i class="ti ti-bolt" title="Automática: '+escHtml(CRONO_VINCULOS[c.t.vinculo]?.label||'')+'" style="color:var(--accent)"></i> ':'';
     let html='<tr onclick="cronoAbertos[\''+k+'\']=!cronoAbertos[\''+k+'\'];renderCronograma()" style="cursor:pointer;background:'+(aberto?'#F3F7FC':'#fff')+'">'
       +'<td style="border-left:4px solid '+bordaEsq+';text-align:center;font-weight:700;color:var(--navy)">'+item+'</td>'
-      +'<td style="min-width:260px"><div style="font-weight:600;font-size:13px;line-height:1.35">'+tipoIco+escHtml(c.t.titulo)+'</div>'+(c.t.area?'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(c.t.area)+'</div>':'')+'</td>'
+      +'<td style="min-width:260px"><div style="font-weight:600;font-size:13px;line-height:1.35">'+tipoIco+escHtml(c.t.titulo)+_cronoEnvioTag(c.oc)+'</div>'+(c.t.area?'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(c.t.area)+'</div>':'')+'</td>'
       +'<td style="white-space:nowrap;text-align:center"><div style="font-weight:700">'+c.oc.prazo.toLocaleDateString('pt-BR')+'</div><div style="font-size:11px;color:var(--text-muted)">'+c.oc.prazo.toLocaleDateString('pt-BR',{weekday:'short'})+(c.t.hora_limite?' · até '+escHtml(c.t.hora_limite):'')+'</div></td>'
       +'<td style="text-align:center;font-size:12.5px">'+(freqLbl[c.t.frequencia]||'')+'</td>'
       +'<td>'+critDot(c.t.criticidade)+'</td>'
@@ -15949,7 +16011,7 @@ function cronoHtmlDatas(ano,mes){
     const quando=late?'<span style="font-size:11.5px;color:var(--danger);font-weight:600">'+r.diasAtraso+' dia'+(r.diasAtraso>1?'s':'')+' de atraso</span>':r.status==='a_vencer'?'<span style="font-size:11.5px;color:var(--text-muted)">'+(diff===0?'hoje':diff===1?'amanhã':diff<0?'na tolerância':'em '+diff+' dias')+'</span>':'';
     return '<div style="display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">'
       +'<span style="min-width:54px;text-align:center;font-size:12.5px;font-weight:700;padding:4px 8px;border-radius:8px;background:'+pillBg+';color:'+pillCor+'">'+_cronoDDMM(r.prazoDia)+'</span>'
-      +'<div style="flex:1;min-width:220px;cursor:pointer" onclick="cronoAbrirDetalhe(\''+t.id+'\',\''+r.obra.id+'\',\''+r.ymd+'\')"><div style="font-size:13.5px;font-weight:600">'+escHtml(t.titulo)+(t.criticidade&&t.criticidade!=='normal'?' <span style="font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:20px;background:'+crit.bg+';color:'+crit.cor+'">'+crit.label+'</span>':'')+'</div>'
+      +'<div style="flex:1;min-width:220px;cursor:pointer" onclick="cronoAbrirDetalhe(\''+t.id+'\',\''+r.obra.id+'\',\''+r.ymd+'\')"><div style="font-size:13.5px;font-weight:600">'+escHtml(t.titulo)+_cronoEnvioTag(r.oc)+(t.criticidade&&t.criticidade!=='normal'?' <span style="font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:20px;background:'+crit.bg+';color:'+crit.cor+'">'+crit.label+'</span>':'')+'</div>'
       +(sub.length?'<div style="font-size:12px;color:var(--text-muted)">'+sub.join(' · ')+'</div>':'')+motivo+'</div>'
       +quando+dir+'</div>';
   };
@@ -16148,7 +16210,7 @@ function openModalCronoTarefa(id){
             <div class="form-group full" id="ct-g-anexos"><label>Comprovante exigido</label>
               <label style="display:flex;align-items:center;gap:6px;font-weight:400;cursor:pointer"><input type="checkbox" id="ct-print" ${v('exige_print',false)?'checked':''}> Print do e-mail enviado</label>
               <label style="display:flex;align-items:center;gap:6px;font-weight:400;cursor:pointer"><input type="checkbox" id="ct-arq" ${v('exige_arquivo',false)?'checked':''}> Arquivo enviado</label></div>
-            <div class="form-group" id="ct-g-vinc"><label>Módulo vinculado *</label><select id="ct-vinc">${Object.entries(CRONO_VINCULOS).map(([k,x])=>opt(k,x.label,v('vinculo','aloj_contas'))).join('')}</select></div>
+            <div class="form-group" id="ct-g-vinc"><label>Módulo vinculado *</label><select id="ct-vinc"><option value="">Selecione o módulo…</option>${Object.entries(CRONO_VINCULOS).map(([k,x])=>opt(k,x.label,v('vinculo',''))).join('')}</select></div>
             <div class="form-group" id="ct-g-comp"><label>Lançamento referente a</label><select id="ct-comp">${opt(0,'Mês do prazo',v('competencia_offset',0))}${opt(-1,'Mês anterior ao prazo',v('competencia_offset',0))}</select></div>
             <div class="form-group full"><label>Obras <span style="font-weight:400;color:var(--text-muted)">(nenhuma marcada = todas as obras do cronograma)</span></label>
               <div style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px">${todasObras.map(o=>'<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;padding:2px 0;font-weight:400"><input type="checkbox" class="ct-obra" value="'+o.id+'" '+(obrasSel.has(String(o.id))?'checked':'')+'> '+escHtml(_cronoObraLabel(o))+'</label>').join('')}</div></div>
@@ -16172,6 +16234,11 @@ function cronoFormAtualizar(){
   mostra('ct-g-data',freq==='unica');
   mostra('ct-g-anexos',tipo==='manual');
   mostra('ct-g-vinc',tipo==='auto');
+  const vs=document.getElementById('ct-vinc');
+  if(tipo==='auto'&&vs&&!vs.value){
+    const tt=_semAcento(document.getElementById('ct-titulo').value);
+    vs.value=/abastec/.test(tt)?'veic_abastecimento':/\bkm\b|quilomet/.test(tt)?'veic_km':/fotogra|relatorio|adm 31/.test(tt)?'aloj_relatorio':/conta|agua|energia|condominio/.test(tt)?'aloj_contas':'';
+  }
   mostra('ct-g-comp',tipo==='auto');
   const q=freq==='quinzenal';
   document.getElementById('ct-l-dias').textContent=q?'Dias do prazo * (1ª e 2ª quinzena)':'Dia do prazo *';
@@ -16189,6 +16256,7 @@ async function salvarCronoTarefa(id){
   if((freq==='mensal'||freq==='quinzenal')&&tipo!=='exibir'&&!dias.length)return mostrar('Informe o dia do prazo.');
   if(freq==='quinzenal'&&tipo!=='exibir'&&new Set(dias).size<2)return mostrar('Na quinzenal, informe os dois dias diferentes (ex.: 11 e 25).');
   if(freq==='unica'&&!g('ct-data').value)return mostrar('Informe a data.');
+  if(tipo==='auto'&&!g('ct-vinc').value)return mostrar('Escolha o módulo vinculado (ex.: Veículos › Abastecimento).');
   const obrasIds=[...document.querySelectorAll('.ct-obra:checked')].map(c=>c.value);
   const dados={
     titulo,descricao:g('ct-desc').value.trim()||null,area:g('ct-area').value.trim()||null,
