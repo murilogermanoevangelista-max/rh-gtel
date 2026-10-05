@@ -408,6 +408,10 @@ let alojSecoesAbertas={}; // {contrato:true, documentos:true} — quais seções
 let veiculoSelecionadoId=null;
 let veiculoSecoesAbertas={};
 let veiculoBusca='';
+let veiculosMov=[]; // movimentações (recebimento/transferência/devolução) com fotos
+let _veicKmAvisoAtivo=false; // pop-up de KM atrasada aberto nesta visita ao módulo
+let _movFotos=[]; // fotos selecionadas no formulário de movimentação
+let veiculoVerHistorico=false; // true = mostra só devolvidos/vendidos/sinistrados
 let veiculoFiltroAtivo=null; // 'revisao_vencida'|'revisao_proxima'|'km_pendente'|'contrato_vencendo'|null
 let ativoImobSelecionadoId=null;
 let ativoImobSecoesAbertas={};
@@ -950,23 +954,33 @@ async function loadAlojamentos(){
 }
 
 async function loadVeiculos(){
-  const [v,cd,km,rv,ab]=await Promise.all([
+  const [v,cd,km,rv,ab,_veicMovRes]=await Promise.all([
     pagAll(r=>{let q=sb.from('veiculos').select('*,obra:obras(nome,codigo)');if(r)q=q.in('obra_id',[...obrasPermitidasIds]);return q.order('placa');}),
     pagAll(r=>{let q=sb.from('veiculos_condutores').select('*,funcionario:funcionarios(nome_completo,matricula)');return q.order('data_inicio',{ascending:false});}),
     pagAll(r=>{let q=sb.from('veiculos_km').select('*');return q.order('ano',{ascending:false}).order('mes',{ascending:false});}),
     pagAll(r=>{let q=sb.from('veiculos_revisoes').select('*');return q.order('km_revisao',{ascending:false});}),
     pagAll(r=>{let q=sb.from('veiculos_abastecimentos').select('*');return q.order('ano',{ascending:false}).order('mes',{ascending:false});}),
+    pagAll(r=>{let q=sb.from('veiculos_movimentacoes').select('*');return q.order('data',{ascending:false});}), // se a tabela ainda não existir, volta vazio
   ]);
   let listaVei=v.data||[],listaCond=cd.data||[],listaKm=km.data||[],listaRev=rv.data||[],listaAbast=ab.data||[];
+  let listaMov=(_veicMovRes&&_veicMovRes.data)||[];
   if(obrasPermitidasIds){
     listaVei=listaVei.filter(x=>x.obra_id&&obrasPermitidasIds.has(String(x.obra_id)));
+    // Veículos que SAÍRAM de uma obra do usuário por transferência continuam visíveis lá como histórico
+    const idsSaida=[...new Set(listaMov.filter(m=>m.tipo==='transferencia'&&m.obra_origem_id&&obrasPermitidasIds.has(String(m.obra_origem_id))).map(m=>String(m.veiculo_id)))]
+      .filter(id=>!listaVei.some(x=>String(x.id)===id));
+    if(idsSaida.length){
+      const rs=await sb.from('veiculos').select('*,obra:obras(nome,codigo)').in('id',idsSaida);
+      if(rs.data)listaVei=listaVei.concat(rs.data);
+    }
     const idsVeiPermitidos=new Set(listaVei.map(x=>String(x.id)));
+    listaMov=listaMov.filter(x=>idsVeiPermitidos.has(String(x.veiculo_id)));
     listaCond=listaCond.filter(x=>idsVeiPermitidos.has(String(x.veiculo_id)));
     listaKm=listaKm.filter(x=>idsVeiPermitidos.has(String(x.veiculo_id)));
     listaRev=listaRev.filter(x=>idsVeiPermitidos.has(String(x.veiculo_id)));
     listaAbast=listaAbast.filter(x=>idsVeiPermitidos.has(String(x.veiculo_id)));
   }
-  veiculos=listaVei;veiculosCondutores=listaCond;veiculosKm=listaKm;veiculosRevisoes=listaRev;veiculosAbastecimentos=listaAbast;
+  veiculos=listaVei;veiculosCondutores=listaCond;veiculosKm=listaKm;veiculosRevisoes=listaRev;veiculosAbastecimentos=listaAbast;veiculosMov=listaMov;
 }
 
 const CATEGORIAS_ATIVO_IMOB=['Instrumentos de Medição','Ferramentas','Equipamentos de TI','EPI','Máquinas e Equipamentos','Mobiliário','Outros'];
@@ -1226,7 +1240,7 @@ async function showPage(page){
     else if(page==='folgas')renderFolgas();
     else if(page==='ferias')renderFerias();
     else if(page==='alojamentos'){if(!_vindoDeAlerta)alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';bannerRelatoriosAberto=false;bannerRelatoriosFiltroObra='';await loadAlojamentos();await loadPrestadores();renderAlojamentos();}
-    else if(page==='veiculos'){await loadVeiculos();renderVeiculos();}
+    else if(page==='veiculos'){await loadVeiculos();renderVeiculos();verificarKmAtrasadaVeiculos();}
     else if(page==='ativos-imobilizados'){await loadAtivosImobilizados();await loadFornecedores();renderAtivosImobilizados();}
     else if(page==='procedimentos'){procTipoAberto='';procBusca='';procFiltroSemArquivo=false;await loadProcedimentos();renderProcedimentos();}
     else if(page==='grd'){await loadGRD();renderGRD();}
@@ -8833,11 +8847,11 @@ function renderVeiculos(){
     const ultimaKm=revisoesVeic.length?Math.max(...revisoesVeic.map(r=>r.km_revisao||0)):0;
     return (Math.floor(ultimaKm/intervalo)+1)*intervalo;
   };
-  const kmMesLancado=(veiculoId)=>veiculosKm.find(k=>String(k.veiculo_id)===String(veiculoId)&&k.mes===_mesTabela&&k.ano===_anoTabela);
+  const kmMesLancado=(veiculoId)=>{const doMes=veiculosKm.filter(k=>String(k.veiculo_id)===String(veiculoId)&&k.mes===_mesTabela&&k.ano===_anoTabela);return doMes.find(k=>k.isento||k.anexo_url)||doMes[0];};
   // Só considera "resolvido" se tiver comprovante anexado OU foi marcado como isento — um lançamento
   // sem anexo continua contando como pendência, pra não deixar passar sem comprovar.
   const kmMesOk=(veiculoId)=>{const k=kmMesLancado(veiculoId);return!!(k&&(k.isento||k.anexo_url));};
-  const abastecMesLancado=(veiculoId)=>veiculosAbastecimentos.find(a=>String(a.veiculo_id)===String(veiculoId)&&a.mes===_mesTabela&&a.ano===_anoTabela);
+  const abastecMesLancado=(veiculoId)=>{const doMes=veiculosAbastecimentos.filter(a=>String(a.veiculo_id)===String(veiculoId)&&a.mes===_mesTabela&&a.ano===_anoTabela);if(!doMes.length)return null;return{qtd:doMes.length,litros:doMes.reduce((t,a)=>t+(Number(a.litros)||0),0),valor_total:doMes.reduce((t,a)=>t+(Number(a.valor_total)||0),0)};};
 
   // Locado só passa a existir a partir do mês em que o contrato começa — antes disso não faz sentido
   // aparecer (nem cobrar KM/abastecimento). Sem data de início (ou veículo próprio) segue sempre visível.
@@ -8848,15 +8862,28 @@ function renderVeiculos(){
     return !ini||ini<=_ultimoDiaMesTabela;
   };
 
+  const _statusInativos=VEIC_STATUS_INATIVOS;
+  const _veicDaObra=veiculos.filter(v=>veicNoContexto(v.obra_id));
+  // Transferidos para outra obra: continuam no histórico da obra de origem (somente leitura)
+  const _transfFora=veiculos.filter(v=>!veicNoContexto(v.obra_id)&&veiculosMov.some(m=>String(m.veiculo_id)===String(v.id)&&m.tipo==='transferencia'&&veicNoContexto(m.obra_origem_id)));
+  const _transfForaIds=new Set(_transfFora.map(v=>String(v.id)));
+  const veiculosInativos=_veicDaObra.filter(v=>_statusInativos.includes(v.status)).concat(_transfFora);
+  // Lista base do dia a dia (sem filtro de card nem busca) — os cards de alerta contam em cima dela,
+  // assim clicar num card não faz os outros sumirem.
+  const veiculosBase=_veicDaObra.filter(v=>!_statusInativos.includes(v.status)).filter(veiculoJaIniciado);
   const veiculosFiltrados=(()=>{
-    let lista=globalObraFiltro?veiculos.filter(v=>String(v.obra_id)===String(globalObraFiltro)):veiculos;
-    lista=lista.filter(v=>v.status!=='devolvido'&&v.status!=='vendido'); // sumiram do dia a dia — histórico continua no banco
-    lista=lista.filter(veiculoJaIniciado);
+    if(veiculoVerHistorico){
+      let lista=veiculosInativos;
+      if(veiculoBusca){const b=veiculoBusca.toLowerCase();lista=lista.filter(v=>(v.placa||'').toLowerCase().includes(b)||(v.modelo||'').toLowerCase().includes(b));}
+      return lista;
+    }
+    let lista=veiculosBase;
     if(veiculoFiltroAtivo==='revisao_vencida')lista=lista.filter(v=>(v.km_atual||0)>=proximaRevisaoKm(v));
     else if(veiculoFiltroAtivo==='revisao_proxima')lista=lista.filter(v=>{const f=proximaRevisaoKm(v)-(v.km_atual||0);return f>0&&f<=1000;});
     else if(veiculoFiltroAtivo==='km_pendente')lista=lista.filter(v=>!kmMesOk(v.id));
     else if(veiculoFiltroAtivo==='contrato_vencendo')lista=lista.filter(v=>{if(v.tipo!=='locado')return false;const d=parseDate(v.contrato_fim);if(!d)return false;const dias=Math.floor((d-hoje)/86400000);return dias<=60;});
     else if(veiculoFiltroAtivo==='sem_termo')lista=lista.filter(v=>condutoresAtuais(v.id).some(c=>!c.termo_url));
+    else if(veiculoFiltroAtivo==='km_30d')lista=lista.filter(v=>veicKmAtrasado(v));
     if(veiculoBusca){
       const b=veiculoBusca.toLowerCase();
       lista=lista.filter(v=>
@@ -8874,17 +8901,20 @@ function renderVeiculos(){
     const semTermo=condutoresAtuais(v.id).some(c=>!c.termo_url);
     let contratoVenc=false;
     if(v.tipo==='locado'){const d=parseDate(v.contrato_fim);if(d)contratoVenc=d<hoje;}
-    return revVencida||semKmMes||semTermo||contratoVenc;
+    return revVencida||semKmMes||semTermo||contratoVenc||veicKmAtrasado(v);
   };
 
   // Contadores para os cards de alerta
-  const revVencidas=veiculosFiltrados.filter(v=>(v.km_atual||0)>=proximaRevisaoKm(v)).length;
-  const revProximas=veiculosFiltrados.filter(v=>{const f=proximaRevisaoKm(v)-(v.km_atual||0);return f>0&&f<=1000;}).length;
-  const kmPendentes=veiculosFiltrados.filter(v=>!kmMesOk(v.id)).length;
-  const contratosVenc=veiculosFiltrados.filter(v=>{if(v.tipo!=='locado')return false;const d=parseDate(v.contrato_fim);if(!d)return false;const dias=Math.floor((d-hoje)/86400000);return dias<=60;}).length;
-  const semTermoCount=veiculosFiltrados.filter(v=>condutoresAtuais(v.id).some(c=>!c.termo_url)).length;
+  const _baseCards=veiculoVerHistorico?[]:veiculosBase;
+  const revVencidas=_baseCards.filter(v=>(v.km_atual||0)>=proximaRevisaoKm(v)).length;
+  const revProximas=_baseCards.filter(v=>{const f=proximaRevisaoKm(v)-(v.km_atual||0);return f>0&&f<=1000;}).length;
+  const kmPendentes=_baseCards.filter(v=>!kmMesOk(v.id)).length;
+  const contratosVenc=_baseCards.filter(v=>{if(v.tipo!=='locado')return false;const d=parseDate(v.contrato_fim);if(!d)return false;const dias=Math.floor((d-hoje)/86400000);return dias<=60;}).length;
+  const semTermoCount=_baseCards.filter(v=>condutoresAtuais(v.id).some(c=>!c.termo_url)).length;
+  const kmAtrasadosCount=_baseCards.filter(v=>veicKmAtrasado(v)).length;
 
   const alertCardsHtml=alertCardsRow([
+    kmAtrasadosCount>0?{count:kmAtrasadosCount,label:'KM sem atualizar há +'+VEIC_KM_DIAS+' dias',icon:'tool',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"veiculoFiltroAtivo=veiculoFiltroAtivo==='km_30d'?null:'km_30d';renderVeiculos()"}:null,
     revVencidas>0?{count:revVencidas,label:'Revisão vencida',icon:'engine',cor:'#991B1B',bg:'#FEE2E2',border:'#FCA5A5',onclick:"veiculoFiltroAtivo=veiculoFiltroAtivo==='revisao_vencida'?null:'revisao_vencida';renderVeiculos()"}:null,
     revProximas>0?{count:revProximas,label:'Revisão próxima (≤1.000km)',icon:'gauge',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"veiculoFiltroAtivo=veiculoFiltroAtivo==='revisao_proxima'?null:'revisao_proxima';renderVeiculos()"}:null,
     kmPendentes>0?{count:kmPendentes,label:'KM não lançada em '+_mesLabel,icon:'road',cor:'#92400E',bg:'#FFFBEB',border:'#FCD34D',onclick:"veiculoFiltroAtivo=veiculoFiltroAtivo==='km_pendente'?null:'km_pendente';renderVeiculos()"}:null,
@@ -8898,7 +8928,7 @@ function renderVeiculos(){
   // ── Painel mestre-detalhe ──
   const _byObra={};
   veiculosFiltrados.forEach(v=>{
-    const obraKey=v.obra?.codigo?(v.obra.codigo+' — '+v.obra.nome):'Sem obra vinculada';
+    const obraKey=_transfForaIds.has(String(v.id))?'Transferidos para outras obras':v.obra?.codigo?(v.obra.codigo+' — '+v.obra.nome):'Sem obra vinculada';
     if(!_byObra[obraKey])_byObra[obraKey]=[];
     _byObra[obraKey].push(v);
   });
@@ -8906,7 +8936,7 @@ function renderVeiculos(){
   const masterDetailHtml=(()=>{
     try{
     return (()=>{
-    if(!veiculosFiltrados.length)return '<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-car-off" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i>Nenhum veículo cadastrado</div>';
+    if(!veiculosFiltrados.length)return '<div style="text-align:center;padding:40px;color:var(--text-muted)"><i class="ti ti-car-off" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i>'+(veiculoVerHistorico?'Nenhum veículo no histórico':(veiculoFiltroAtivo||veiculoBusca)?'Nenhum veículo com esse filtro':'Nenhum veículo cadastrado')+'</div>';
 
     let sel=veiculosFiltrados.find(v=>String(v.id)===String(veiculoSelecionadoId));
     if(!sel){sel=veiculosFiltrados[0];veiculoSelecionadoId=sel.id;}
@@ -8933,6 +8963,13 @@ function renderVeiculos(){
 
     // ── Painel direito ──
     const isLocado=sel.tipo==='locado';
+    const somenteHistorico=_transfForaIds.has(String(sel.id)); // veio de outra obra por transferência: só leitura
+    const _uKm=veicUltimaKm(sel);
+    const _kmAtras=veicKmAtrasado(sel);
+    const _movsSel=veiculosMov.filter(m=>String(m.veiculo_id)===String(sel.id));
+    const _temReceb=_movsSel.some(m=>m.tipo==='recebimento');
+    const _ultMov=_movsSel[0];
+    const _hojeMes=hoje.getMonth()+1,_hojeAno=hoje.getFullYear();
     const condPrinc=condutorPrincipal(sel.id);
     const condSecundarios=condutoresAtuais(sel.id).filter(c=>!c.principal);
     const proxRev=proximaRevisaoKm(sel);
@@ -8949,6 +8986,7 @@ function renderVeiculos(){
     ];
 
     const secao=(key,icone,titulo,resumo,status,corStatus,bgStatus,onclickOuNull)=>{
+      if(somenteHistorico&&key!=='movimentacoes')return{key,icone,titulo,resumo,status,corStatus,bgStatus,clickAttr:'',aberto:false,expandivel:false};
       const aberto=!onclickOuNull&&!!veiculoSecoesAbertas[key];
       const clickAttr=onclickOuNull?onclickOuNull:"veiculoSecoesAbertas['"+key+"']=!veiculoSecoesAbertas['"+key+"'];renderVeiculos()";
       return{key,icone,titulo,resumo,status,corStatus,bgStatus,clickAttr,aberto,expandivel:!onclickOuNull};
@@ -8966,6 +9004,17 @@ function renderVeiculos(){
         kmMes?(kmMes.isento||kmMes.anexo_url?'#166534':'#92400E'):'#92400E',
         kmMes?(kmMes.isento||kmMes.anexo_url?'#DCFCE7':'#FFFBEB'):'#FFFBEB',
         "abrirModalKm('"+sel.id+"',"+_mesTabela+","+_anoTabela+")"),
+      secao('manutencao','tool','Manutenção (KM 30 dias)',
+        (_uKm.data?'Última KM: '+formatDate(_uKm.dataStr)+' ('+(_uKm.dias===0?'hoje':'há '+_uKm.dias+' dia(s)')+')':'KM nunca atualizada')
+          +' · próxima revisão aos '+proximaRevisaoKm(sel).toLocaleString('pt-BR')+'km'+(faltamKm>0?' (faltam '+faltamKm.toLocaleString('pt-BR')+'km)':' (vencida)'),
+        _kmAtras?'ATUALIZAR KM':'EM DIA ATÉ '+formatDate(_uKm.vence),
+        _kmAtras?'#991B1B':'#166534', _kmAtras?'#FEE2E2':'#DCFCE7',
+        "abrirModalKm('"+sel.id+"',"+_hojeMes+","+_hojeAno+")"),
+      secao('movimentacoes','arrows-exchange','Movimentações / Fotos',
+        _ultMov?(VEIC_MOV_TIPOS[_ultMov.tipo]?.label||_ultMov.tipo)+' em '+formatDate(_ultMov.data)+' · '+(_ultMov.fotos||[]).length+' foto(s)'+(_movsSel.length>1?' · '+_movsSel.length+' registros':''):'Nenhuma movimentação registrada',
+        _temReceb?_movsSel.length+' REGISTRO(S)':'SEM RECEBIMENTO',
+        _temReceb?'#1D4ED8':'#991B1B', _temReceb?'#DBEAFE':'#FEE2E2',
+        "abrirModalMovimentacoes('"+sel.id+"',"+(somenteHistorico?'true':'false')+")"),
       secao('revisao','engine','Revisões',
         'Nº '+proxRevNumero+' prevista aos '+proxRev.toLocaleString('pt-BR')+'km (a cada '+(sel.intervalo_revisao_km||10000).toLocaleString('pt-BR')+'km)',
         faltamKm<=0?'VENCIDA':faltamKm<=1000?faltamKm+'KM P/ VENCER':'EM DIA',
@@ -8973,7 +9022,7 @@ function renderVeiculos(){
         faltamKm<=0?'#FEE2E2':faltamKm<=1000?'#FFFBEB':'#DCFCE7',
         "abrirModalRevisoes('"+sel.id+"')"),
       secao('abastecimento','gas-station','Abastecimentos',
-        abastMes?(abastMes.litros?abastMes.litros+'L':'')+(abastMes.valor_total?' · R$ '+Number(abastMes.valor_total).toLocaleString('pt-BR',{minimumFractionDigits:2}):'')+' em '+_mesLabel:'Nenhum lançamento em '+_mesLabel,
+        abastMes?(abastMes.litros?abastMes.litros.toLocaleString('pt-BR',{maximumFractionDigits:2})+'L':'')+(abastMes.valor_total?' · R$ '+abastMes.valor_total.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):'')+(abastMes.qtd>1?' ('+abastMes.qtd+' lançamentos)':'')+' em '+_mesLabel:'Nenhum lançamento em '+_mesLabel,
         abastMes?'LANÇADO':'PENDENTE', abastMes?'#166534':'#92400E', abastMes?'#DCFCE7':'#FFFBEB',
         "abrirModalAbastecimento('"+sel.id+"',"+_mesTabela+","+_anoTabela+")"),
       secao('ticketlog','credit-card','Cartão TicketLog',
@@ -9003,7 +9052,7 @@ function renderVeiculos(){
         if(s.key==='ticketlog'){
           expandido='<div style="padding:12px 18px 14px 42px;background:#FAFBFC;border-bottom:1px solid #EEF0F2;font-size:12.5px;color:#4B5563">'
             +'Nº Controle: <strong>'+escHtml(sel.ticketlog_numero_controle||'—')+'</strong> · Nº Frota: <strong>'+escHtml(sel.ticketlog_numero_frota||'—')+'</strong>'
-            +'<br>Senha: <span id="ticketlog-senha-'+sel.id+'" style="font-family:monospace">••••••</span> <span style="cursor:pointer;color:var(--primary);font-size:11px" onclick="document.getElementById(\'ticketlog-senha-'+sel.id+'\').textContent='+JSON.stringify(escHtml(sel.ticketlog_senha||'—'))+'">mostrar</span>'
+            +'<br>Senha: <span id="ticketlog-senha-'+sel.id+'" style="font-family:monospace">••••••</span> <span style="cursor:pointer;color:var(--primary);font-size:11px" onclick="mostrarSenhaTicketlog(\''+sel.id+'\',this)">mostrar</span>'
             +'<div style="margin-top:6px"><button class="btn btn-sm" onclick="openModalVeiculo(\''+sel.id+'\')"><i class="ti ti-edit"></i> Editar cartão</button></div>'
             +'</div>';
         } else if(s.key==='contrato'){
@@ -9013,7 +9062,7 @@ function renderVeiculos(){
             +(sel.contrato_url?' · <a href="'+sel.contrato_url+'" target="_blank" style="color:var(--primary)">Ver PDF do contrato</a>':'')
             +'<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-sm" onclick="openModalVeiculo(\''+sel.id+'\')"><i class="ti ti-edit"></i> Editar contrato</button>'
             +'<button class="btn btn-sm btn-primary" onclick="openModalRenovarContrato(\''+sel.id+'\')"><i class="ti ti-refresh"></i> Renovar contrato</button>'
-            +'<button class="btn btn-sm btn-danger" onclick="encerrarContratoVeiculo(\''+sel.id+'\')"><i class="ti ti-circle-x"></i> Encerrar contrato</button></div>'
+            +'<button class="btn btn-sm btn-danger" onclick="abrirFormMovimentacao(\''+sel.id+'\',\'devolucao\')"><i class="ti ti-circle-x"></i> Encerrar contrato</button></div>'
             +'</div>';
         } else if(s.key==='documentos'){
           expandido='<div style="padding:12px 18px 14px 42px;background:#FAFBFC;border-bottom:1px solid #EEF0F2">'
@@ -9032,7 +9081,7 @@ function renderVeiculos(){
         +'</div>';
     }).join('');
 
-    const statusBadge=sel.status==='transferido'?{t:'TRANSFERIDO',c:'#92400E',b:'#FFFBEB'}:{t:'ATIVO',c:'#166534',b:'#DCFCE7'};
+    const statusBadge=somenteHistorico?{t:'TRANSFERIDO',c:'#92400E',b:'#FFFBEB'}:({transferido:{t:'TRANSFERIDO',c:'#92400E',b:'#FFFBEB'},devolvido:{t:'DEVOLVIDO',c:'#374151',b:'#E5E7EB'},vendido:{t:'VENDIDO',c:'#374151',b:'#E5E7EB'},sinistrado:{t:'SINISTRADO',c:'#991B1B',b:'#FEE2E2'}})[sel.status]||{t:'ATIVO',c:'#166534',b:'#DCFCE7'};
 
     return '<div style="display:flex;gap:16px;align-items:flex-start">'
       +'<div style="width:280px;flex-shrink:0">'+listaHtml+'</div>'
@@ -9045,14 +9094,25 @@ function renderVeiculos(){
           +'<span style="font-size:10px;font-weight:700;color:'+statusBadge.c+';background:'+statusBadge.b+';padding:2px 8px;border-radius:20px;flex-shrink:0">'+statusBadge.t+'</span>'
           +'</div>'
           +'<div style="display:flex;gap:6px;flex-shrink:0">'
-          +'<button class="btn btn-sm" onclick="openModalVeiculo(\''+sel.id+'\')" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2)"><i class="ti ti-edit"></i> Editar</button>'
-          +'<button class="btn btn-sm btn-danger" onclick="deleteVeiculo(\''+sel.id+'\',\''+escHtml(sel.placa)+'\')"><i class="ti ti-trash"></i></button>'
+          +(somenteHistorico?'':'<button class="btn btn-sm" onclick="openModalVeiculo(\''+sel.id+'\')" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2)"><i class="ti ti-edit"></i> Editar</button>'
+          +'<button class="btn btn-sm btn-danger" onclick="deleteVeiculo(\''+sel.id+'\',\''+escHtml(sel.placa)+'\')"><i class="ti ti-trash"></i></button>')
           +'</div>'
         +'</div>'
         +'<div style="background:#fff;border:1px solid #E0E2E7;border-top:none;padding:9px 18px;font-size:12px;color:#6B7280">'
           +escHtml(sel.modelo||'—')+(sel.ano?' · '+sel.ano:'')+(isLocado&&sel.locadora?' · '+escHtml(sel.locadora):'')
         +'</div>'
-        +(isLocado&&diasContrato!==null&&diasContrato<=60?(()=>{
+        +(somenteHistorico?(()=>{
+          const t=_movsSel.find(m=>m.tipo==='transferencia'&&veicNoContexto(m.obra_origem_id));
+          const dest=(obrasTodas.length?obrasTodas:obras).find(o=>String(o.id)===String(t?.obra_destino_id));
+          return '<div style="background:#FFFBEB;border:1px solid #FCD34D;border-left:4px solid #D97706;padding:10px 14px;margin:10px 0;border-radius:4px;font-size:12.5px;color:#78350F;display:flex;gap:10px;align-items:center">'
+            +'<i class="ti ti-arrows-exchange" style="font-size:18px;color:#92400E"></i><div>Transferido para <strong>'+escHtml(dest?(dest.codigo+' — '+dest.nome):'outra obra')+'</strong> em <strong>'+(formatDate(t?.data)||'—')+'</strong>. Aqui fica apenas o histórico (somente leitura).</div></div>';
+        })():'')
+        +(!somenteHistorico&&_statusInativos.includes(sel.status)?'<div style="background:#F3F4F6;border:1px solid #D1D5DB;border-left:4px solid #6B7280;padding:10px 14px;margin:10px 0;border-radius:4px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
+          +'<i class="ti ti-archive" style="color:#374151;font-size:18px;flex-shrink:0"></i>'
+          +'<div style="flex:1;min-width:200px;font-size:12.5px;color:#374151">Veículo fora do dia a dia (<strong>'+statusBadge.t.toLowerCase()+'</strong>). O histórico de KM, revisões, abastecimentos e condutores continua disponível abaixo.</div>'
+          +'<button class="btn btn-sm btn-primary" onclick="reativarVeiculo(\''+sel.id+'\')"><i class="ti ti-arrow-back-up"></i> Reativar</button>'
+          +'</div>':'')
+        +(!somenteHistorico&&!_statusInativos.includes(sel.status)&&isLocado&&diasContrato!==null&&diasContrato<=60?(()=>{
           const venc=diasContrato<0;
           const msg=venc
             ?'Contrato venceu em <strong>'+formatDate(sel.contrato_fim)+'</strong> ('+Math.abs(diasContrato)+' dia(s) atrás). Renove o contrato ou encerre o veículo.'
@@ -9062,7 +9122,7 @@ function renderVeiculos(){
             +'<div style="flex:1;min-width:200px;font-size:12.5px;color:'+(venc?'#7F1D1D':'#78350F')+'">'+msg+'</div>'
             +'<div style="display:flex;gap:6px;flex-shrink:0">'
             +'<button class="btn btn-sm btn-primary" onclick="openModalRenovarContrato(\''+sel.id+'\')"><i class="ti ti-refresh"></i> Renovar</button>'
-            +'<button class="btn btn-sm btn-danger" onclick="encerrarContratoVeiculo(\''+sel.id+'\')"><i class="ti ti-circle-x"></i> Encerrar</button>'
+            +'<button class="btn btn-sm btn-danger" onclick="abrirFormMovimentacao(\''+sel.id+'\',\'devolucao\')"><i class="ti ti-circle-x"></i> Encerrar</button>'
             +'</div></div>';
         })():'')
         +(sel.observacoes?'<div style="background:#FEF3C7;border:1px solid #FCD34D;border-left:4px solid #D97706;padding:10px 14px;margin:10px 0;border-radius:4px;display:flex;gap:10px;align-items:flex-start">'
@@ -9092,17 +9152,19 @@ function renderVeiculos(){
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div><div class="page-title"><i class="ti ti-car"></i> Veículos</div>
-        <div class="page-subtitle">${veiculosFiltrados.length} veículo(s) · ${totalProprios} próprio(s) · ${totalLocados} locado(s)</div></div>
+        <div class="page-subtitle">${veiculosFiltrados.length} veículo(s)${veiculoVerHistorico?' no histórico':''} · ${totalProprios} próprio(s) · ${totalLocados} locado(s)</div></div>
       <div style="display:flex;gap:8px">
+        <button class="btn${veiculoVerHistorico?' btn-primary':''}" onclick="veiculoVerHistorico=!veiculoVerHistorico;veiculoFiltroAtivo=null;veiculoSelecionadoId=null;renderVeiculos()" title="Devolvidos, vendidos e sinistrados"><i class="ti ti-${veiculoVerHistorico?'arrow-left':'archive'}"></i> ${veiculoVerHistorico?'Voltar à frota ativa':'Histórico ('+veiculosInativos.length+')'}</button>
         <button class="btn btn-primary" onclick="openModalVeiculo()"><i class="ti ti-plus"></i> Novo veículo</button>
       </div>
     </div>
 
+    ${veiculoVerHistorico?'<div style="background:#F3F4F6;border:1px solid #D1D5DB;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:12.5px;color:#374151"><i class="ti ti-archive"></i> Mostrando o <strong>histórico</strong>: veículos devolvidos, vendidos ou sinistrados.</div>':''}
     ${alertCardsHtml}
     ${(()=>{const temFiltro=veiculoFiltroAtivo||veiculoBusca;return `<div style="margin-bottom:10px"><button class="btn btn-sm" ${temFiltro?'':'disabled style="opacity:.5;cursor:default"'} onclick="veiculoFiltroAtivo=null;veiculoBusca='';document.querySelectorAll('.search-box input').forEach(i=>i.value='');renderVeiculos()"><i class="ti ti-filter-x"></i> Limpar filtros</button></div>`;})()}
 
     <div style="margin-bottom:12px;display:flex;gap:8px">
-      <div class="search-box" style="max-width:320px"><i class="ti ti-search"></i><input placeholder="Buscar por placa, modelo ou condutor..." value="${veiculoBusca}" oninput="veiculoBusca=this.value;if(!_buscaHandlers.veic)_buscaHandlers.veic=makeBuscaHandler(v=>veiculoBusca=v,renderVeiculos,300);_buscaHandlers.veic(this.value);this.focus()"></div>
+      <div class="search-box" style="max-width:320px"><i class="ti ti-search"></i><input placeholder="Buscar por placa, modelo ou condutor..." value="${escHtml(veiculoBusca)}" oninput="veiculoBusca=this.value;if(!_buscaHandlers.veic)_buscaHandlers.veic=makeBuscaHandler(v=>veiculoBusca=v,renderVeiculos,300);_buscaHandlers.veic(this.value);this.focus()"></div>
     </div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
       <span style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Visualizar mês:</span>
@@ -9130,6 +9192,15 @@ function abrirGaleriaAtivo(ativoId,idx){
   if(!fotos.length)return;
   const a=ativosImob.find(x=>String(x.id)===String(ativoId));
   window._galAtivo={titulo:a?(a.descricao||'Fotos do ativo'):'Fotos do ativo',urls:fotos.map(f=>f.foto_url),idx:Math.min(Math.max(idx||0,0),fotos.length-1)};
+  _galMontar();
+}
+// Abre a mesma galeria para qualquer lista de fotos (ex.: movimentações de veículos)
+function abrirGaleriaUrls(titulo,urls,idx){
+  if(!urls||!urls.length)return;
+  window._galAtivo={titulo:titulo||'Fotos',urls:urls.slice(),idx:Math.min(Math.max(idx||0,0),urls.length-1)};
+  _galMontar();
+}
+function _galMontar(){
   fecharGaleriaAtivo();
   document.body.insertAdjacentHTML('beforeend',`
     <div id="galeria-ativo" style="position:fixed;inset:0;background:rgba(0,0,0,.93);z-index:10000;display:flex;flex-direction:column" onclick="if(event.target===this)fecharGaleriaAtivo()">
@@ -10733,7 +10804,7 @@ async function excluirAnexoProc(anexoId,procId){
 }
 
 function openModalVeiculo(id){
-  const v=id?veiculos.find(x=>x.id===id):null;
+  const v=id?veiculos.find(x=>String(x.id)===String(id)):null;
   const isEdit=!!v;
   const tipo=v?.tipo||'proprio';
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${v?.obra_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
@@ -10817,7 +10888,7 @@ async function saveVeiculo(id){
     if(error){showToast('Erro no upload: '+error.message,'error');return null;}
     return sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl;
   }
-  const existente=id?veiculos.find(x=>x.id===id):null;
+  const existente=id?veiculos.find(x=>String(x.id)===String(id)):null;
   const crlvUrl=await uploadPDF('veic-crlv-file','crlv')||existente?.crlv_url||null;
   const tipo=document.getElementById('veic-tipo').value;
   const isLocado=tipo==='locado';
@@ -10850,6 +10921,289 @@ async function saveVeiculo(id){
   await loadVeiculos();
   if(!id&&res.data)veiculoSelecionadoId=res.data.id;
   renderVeiculos();
+  if(!id&&res.data){showToast('Agora registre o recebimento com as fotos do veículo.');abrirFormMovimentacao(res.data.id,'recebimento');}
+}
+// ═══ Veículos — regras compartilhadas ═══
+const VEIC_STATUS_INATIVOS=['devolvido','vendido','sinistrado'];
+const VEIC_KM_DIAS=30; // a KM precisa ser atualizada pelo menos a cada 30 dias
+const VEIC_MIN_FOTOS=4;
+const VEIC_MOV_TIPOS={
+  recebimento:{label:'Recebimento',icone:'download',cor:'#166534',bg:'#DCFCE7'},
+  transferencia:{label:'Transferência',icone:'arrows-exchange',cor:'#92400E',bg:'#FFFBEB'},
+  devolucao:{label:'Devolução',icone:'upload',cor:'#991B1B',bg:'#FEE2E2'},
+};
+// Obra está no "contexto" atual? (filtro global de obra ou obras permitidas do usuário)
+function veicNoContexto(obraId){
+  if(globalObraFiltro)return String(obraId)===String(globalObraFiltro);
+  if(obrasPermitidasIds)return !!obraId&&obrasPermitidasIds.has(String(obraId));
+  return true;
+}
+function _veicData(s){
+  if(!s)return null;
+  const d=/^\d{4}-\d{2}-\d{2}$/.test(s)?new Date(s+'T12:00:00'):new Date(s);
+  if(isNaN(d))return null;
+  d.setHours(0,0,0,0);return d;
+}
+// Última vez que a KM do veículo foi informada: lançamento de KM, revisão ou movimentação.
+// Sem nenhum registro, conta a partir do cadastro (a KM inicial).
+function veicUltimaKm(v){
+  const datas=[
+    ...veiculosKm.filter(k=>String(k.veiculo_id)===String(v.id)).map(k=>k.data_registro),
+    ...veiculosRevisoes.filter(r=>String(r.veiculo_id)===String(v.id)).map(r=>r.data_revisao),
+    ...veiculosMov.filter(m=>String(m.veiculo_id)===String(v.id)).map(m=>m.data),
+  ].map(_veicData).filter(Boolean);
+  let data=datas.length?new Date(Math.max(...datas)):null;
+  const veioDoCadastro=!data;
+  if(!data)data=_veicData(v.created_at);
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  if(!data)return{data:null,dataStr:null,dias:null,vence:null,veioDoCadastro};
+  const dias=Math.round((hoje-data)/86400000);
+  const vence=new Date(data);vence.setDate(vence.getDate()+VEIC_KM_DIAS);
+  const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  return{data,dataStr:iso(data),dias,vence:iso(vence),veioDoCadastro};
+}
+function veicKmAtrasado(v){
+  if(VEIC_STATUS_INATIVOS.includes(v.status))return false;
+  const u=veicUltimaKm(v);
+  return u.dias===null||u.dias>VEIC_KM_DIAS;
+}
+function _veicAtivoNoContexto(v){
+  if(!veicNoContexto(v.obra_id)||VEIC_STATUS_INATIVOS.includes(v.status))return false;
+  if(v.tipo==='locado'){const ini=_veicData(v.contrato_inicio);const h=new Date();h.setHours(0,0,0,0);if(ini&&ini>h)return false;}
+  return true;
+}
+
+// Pop-up ao abrir o módulo: lista os veículos com KM atrasada (+30 dias) para atualizar na hora
+function verificarKmAtrasadaVeiculos(){
+  const atrasados=veiculos.filter(v=>_veicAtivoNoContexto(v)&&veicKmAtrasado(v));
+  if(!atrasados.length){if(_veicKmAvisoAtivo)showToast('Tudo em dia! Todas as KMs estão atualizadas.');_veicKmAvisoAtivo=false;closeModal('modal-km-30d');return;}
+  _veicKmAvisoAtivo=true;
+  const hoje=new Date();const m=hoje.getMonth()+1,a=hoje.getFullYear();
+  insertModal('modal-km-30d',`
+    <div class="modal" style="max-width:640px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-tool" style="color:#DC2626"></i> Atualização de KM obrigatória</span>
+        <button class="btn btn-sm" onclick="_veicKmAvisoAtivo=false;closeModal('modal-km-30d')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="background:#FEE2E2;border:1px solid #FCA5A5;border-radius:6px;padding:10px 12px;font-size:12.5px;color:#7F1D1D;margin-bottom:12px">
+          ${atrasados.length} veículo(s) estão há mais de <strong>${VEIC_KM_DIAS} dias</strong> sem atualizar a KM. Sem a KM atual, o sistema não consegue avisar a revisão na quilometragem certa.
+        </div>
+        ${atrasados.map(v=>{const u=veicUltimaKm(v);return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+          <i class="ti ti-car" style="color:#8B95A5"></i>
+          <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">${escHtml(v.placa)} <span style="font-weight:400;color:var(--text-muted)">· ${escHtml(v.modelo||'—')}</span></div>
+            <div style="font-size:11.5px;color:var(--text-muted)">${v.obra?.codigo?escHtml(v.obra.codigo+' — '+v.obra.nome)+' · ':''}${u.data?(u.veioDoCadastro?'Cadastrado em ':'Última KM em ')+formatDate(u.dataStr)+' — <strong style="color:#991B1B">há '+u.dias+' dias</strong>':'<strong style="color:#991B1B">KM nunca informada</strong>'} · ${v.km_atual?Number(v.km_atual).toLocaleString('pt-BR')+'km':'—'}</div></div>
+          <button class="btn btn-sm btn-primary" onclick="closeModal('modal-km-30d');veiculoSelecionadoId='${v.id}';renderVeiculos();abrirModalKm('${v.id}',${m},${a})"><i class="ti ti-road"></i> Atualizar KM</button>
+        </div>`;}).join('')}
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="_veicKmAvisoAtivo=false;closeModal('modal-km-30d')">Lembrar mais tarde</button></div>
+    </div>`);
+}
+
+// Reduz a foto antes de enviar (fotos de celular têm 3–8MB): máx. 1600px, JPEG 80%
+function comprimirImagem(file,maxLado=1600,qualidade=0.8){
+  return new Promise(resolve=>{
+    if(!file.type||!file.type.startsWith('image/')||file.type==='image/gif'){resolve(file);return;}
+    const url=URL.createObjectURL(file);
+    const img=new Image();
+    img.onload=()=>{
+      let w=img.naturalWidth,h=img.naturalHeight;
+      const esc=Math.min(1,maxLado/Math.max(w,h));w=Math.round(w*esc);h=Math.round(h*esc);
+      const cv=document.createElement('canvas');cv.width=w;cv.height=h;
+      cv.getContext('2d').drawImage(img,0,0,w,h);
+      URL.revokeObjectURL(url);
+      cv.toBlob(b=>resolve(b&&b.size<file.size?b:file),'image/jpeg',qualidade);
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url);resolve(file);};
+    img.src=url;
+  });
+}
+
+// ── Movimentações (recebimento / transferência / devolução) ──
+function abrirModalMovimentacoes(veiculoId,somenteLeitura){
+  const v=veiculos.find(x=>String(x.id)===String(veiculoId));
+  if(!v)return;
+  const movs=veiculosMov.filter(m=>String(m.veiculo_id)===String(veiculoId));
+  const listaObras=obrasTodas.length?obrasTodas:obras;
+  const nomeObra=id=>{const o=listaObras.find(x=>String(x.id)===String(id));return o?o.codigo+' — '+o.nome:'—';};
+  window._movGal={};
+  const inativo=VEIC_STATUS_INATIVOS.includes(v.status);
+  insertModal('modal-veic-mov',`
+    <div class="modal" style="max-width:720px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-arrows-exchange"></i> Movimentações — ${escHtml(v.placa)}</span>
+        <button class="btn btn-sm" onclick="closeModal('modal-veic-mov')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        ${somenteLeitura?'<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px"><i class="ti ti-lock"></i> Somente leitura — o veículo foi transferido para outra obra.</div>'
+        :`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+          <button class="btn btn-sm" style="background:#DCFCE7;color:#166534;border:1px solid #86EFAC" onclick="abrirFormMovimentacao('${v.id}','recebimento')"><i class="ti ti-download"></i> Registrar recebimento</button>
+          ${inativo?'':`<button class="btn btn-sm" style="background:#FFFBEB;color:#92400E;border:1px solid #FCD34D" onclick="abrirFormMovimentacao('${v.id}','transferencia')"><i class="ti ti-arrows-exchange"></i> Registrar transferência</button>
+          <button class="btn btn-sm" style="background:#FEE2E2;color:#991B1B;border:1px solid #FCA5A5" onclick="abrirFormMovimentacao('${v.id}','devolucao')"><i class="ti ti-upload"></i> Registrar devolução</button>`}
+        </div>`}
+        ${movs.length?movs.map(mv=>{
+          const t=VEIC_MOV_TIPOS[mv.tipo]||{label:mv.tipo,icone:'point',cor:'#374151',bg:'#F3F4F6'};
+          const fotos=Array.isArray(mv.fotos)?mv.fotos:[];
+          window._movGal[mv.id]=fotos;
+          return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+              <span style="font-size:11px;font-weight:700;color:${t.cor};background:${t.bg};padding:3px 10px;border-radius:3px"><i class="ti ti-${t.icone}"></i> ${t.label.toUpperCase()}</span>
+              <span style="font-size:12px;color:var(--text-muted)">${formatDate(mv.data)} · <strong style="color:var(--text)">${Number(mv.km||0).toLocaleString('pt-BR')}km</strong>${mv.registrado_por?' · por '+escHtml(mv.registrado_por):''}</span>
+            </div>
+            ${mv.tipo==='transferencia'?`<div style="font-size:12.5px;margin-top:6px">${escHtml(nomeObra(mv.obra_origem_id))} <i class="ti ti-arrow-right"></i> <strong>${escHtml(nomeObra(mv.obra_destino_id))}</strong></div>`:''}
+            ${mv.observacao?`<div style="font-size:12.5px;color:#4B5563;margin-top:6px">${escHtml(mv.observacao)}</div>`:''}
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${fotos.map((u,i)=>`<img src="${u}" loading="lazy" onclick="abrirGaleriaUrls('${escHtml(v.placa)} — ${t.label} ${formatDate(mv.data)}',window._movGal['${mv.id}'],${i})" style="width:72px;height:72px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--border)">`).join('')||'<span style="font-size:12px;color:var(--text-muted)">Sem fotos</span>'}</div>
+          </div>`;}).join('')
+        :'<div style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px"><i class="ti ti-camera-off" style="font-size:32px;display:block;margin-bottom:8px;opacity:.4"></i>Nenhuma movimentação registrada ainda.</div>'}
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeModal('modal-veic-mov')">Fechar</button></div>
+    </div>`);
+}
+
+function abrirFormMovimentacao(veiculoId,tipo){
+  const v=veiculos.find(x=>String(x.id)===String(veiculoId));
+  if(!v)return;
+  const t=VEIC_MOV_TIPOS[tipo];
+  _movFotos=[];
+  const listaObras=(obrasTodas.length?obrasTodas:obras).filter(o=>String(o.id)!==String(v.obra_id));
+  const obraAtual=(obrasTodas.length?obrasTodas:obras).find(o=>String(o.id)===String(v.obra_id));
+  insertModal('modal-veic-mov-form',`
+    <div class="modal" style="max-width:600px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-${t.icone}"></i> ${t.label} — ${escHtml(v.placa)}</span>
+        <button class="btn btn-sm" onclick="closeModal('modal-veic-mov-form')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        ${tipo==='devolucao'?'<div style="background:#FEE2E2;border:1px solid #FCA5A5;border-radius:6px;padding:8px 12px;font-size:12.5px;color:#7F1D1D;margin-bottom:12px">Ao salvar, o veículo é marcado como <strong>Devolvido</strong> e vai para o Histórico. Todo o histórico continua guardado.</div>':''}
+        <div class="form-grid">
+          <div class="form-group"><label>Data *</label><input id="mov-data" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+          <div class="form-group"><label>KM no momento *</label><input id="mov-km" type="number" value="${v.km_atual||''}" placeholder="KM do painel"></div>
+          ${tipo==='transferencia'?`
+          <div class="form-group"><label>Obra atual (origem)</label><input value="${escHtml(obraAtual?obraAtual.codigo+' — '+obraAtual.nome:'—')}" disabled></div>
+          <div class="form-group"><label>Nova obra (destino) *</label><select id="mov-obra-destino"><option value="">— Selecione —</option>${listaObras.map(o=>`<option value="${o.id}">${escHtml(o.codigo+' — '+o.nome)}</option>`).join('')}</select></div>`:''}
+          <div class="form-group full">
+            <label>Fotos do veículo * <span style="font-weight:400;color:var(--text-muted)">(mínimo ${VEIC_MIN_FOTOS})</span></label>
+            <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:6px">Frente, traseira, lateral esquerda, lateral direita e painel mostrando a KM. Avarias: fotografe de perto.</div>
+            <label class="btn btn-sm" style="cursor:pointer;width:fit-content"><i class="ti ti-camera-plus"></i> Adicionar fotos<input type="file" accept="image/*" multiple style="display:none" onchange="movAdicionarFotos(this)"></label>
+            <div id="mov-fotos-prev" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div>
+            <div id="mov-fotos-cont" style="font-size:12px;margin-top:4px;color:#991B1B">0 de ${VEIC_MIN_FOTOS} fotos</div>
+          </div>
+          <div class="form-group full"><label>Observações ${tipo==='recebimento'?'(estado do veículo, avarias, acessórios)':''}</label><textarea id="mov-obs" rows="2"></textarea></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal('modal-veic-mov-form')">Cancelar</button>
+        <button class="btn btn-primary" id="mov-btn-salvar" onclick="salvarMovimentacao('${v.id}','${tipo}')"><i class="ti ti-check"></i> Salvar ${t.label.toLowerCase()}</button>
+      </div>
+    </div>`);
+}
+function movAdicionarFotos(input){
+  for(const f of input.files)if(f.type.startsWith('image/'))_movFotos.push(f);
+  input.value='';
+  movRenderFotos();
+}
+function movRemoverFoto(i){_movFotos.splice(i,1);movRenderFotos();}
+function movRenderFotos(){
+  const prev=document.getElementById('mov-fotos-prev');
+  if(!prev)return;
+  (window._movPrevUrls||[]).forEach(u=>URL.revokeObjectURL(u));
+  window._movPrevUrls=_movFotos.map(f=>URL.createObjectURL(f));
+  prev.innerHTML=window._movPrevUrls.map((u,i)=>`<div style="position:relative"><img src="${u}" style="width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--border)"><span onclick="movRemoverFoto(${i})" title="Remover" style="position:absolute;top:-6px;right:-6px;background:#DC2626;color:#fff;border-radius:50%;width:18px;height:18px;font-size:12px;line-height:18px;text-align:center;cursor:pointer">×</span></div>`).join('');
+  const ok=_movFotos.length>=VEIC_MIN_FOTOS;
+  const c=document.getElementById('mov-fotos-cont');
+  c.textContent=_movFotos.length+' de '+VEIC_MIN_FOTOS+' fotos'+(ok?' ✓':' — faltam '+(VEIC_MIN_FOTOS-_movFotos.length));
+  c.style.color=ok?'#166534':'#991B1B';
+}
+async function salvarMovimentacao(veiculoId,tipo){
+  const btn=document.getElementById('mov-btn-salvar');
+  try{
+    const v=veiculos.find(x=>String(x.id)===String(veiculoId));
+    if(!v)return;
+    const data=document.getElementById('mov-data').value;
+    const km=parseInt(document.getElementById('mov-km').value);
+    if(!data){showToast('Informe a data','error');return;}
+    if(!km||km<=0){showToast('Informe a KM do painel','error');return;}
+    if(_movFotos.length<VEIC_MIN_FOTOS){showToast('Anexe pelo menos '+VEIC_MIN_FOTOS+' fotos do veículo','error');return;}
+    let destino=null;
+    if(tipo==='transferencia'){
+      destino=document.getElementById('mov-obra-destino').value;
+      if(!destino){showToast('Selecione a nova obra','error');return;}
+    }
+    if(v.km_atual&&km<v.km_atual&&!confirm('A KM informada ('+km.toLocaleString('pt-BR')+') é menor que a KM atual cadastrada ('+Number(v.km_atual).toLocaleString('pt-BR')+'). Confirmar mesmo assim?'))return;
+    if(btn){btn.disabled=true;btn.innerHTML='<i class="ti ti-loader"></i> Enviando fotos...';}
+    const urls=[];
+    for(let i=0;i<_movFotos.length;i++){
+      showToast('Enviando foto '+(i+1)+' de '+_movFotos.length+'...');
+      const blob=await comprimirImagem(_movFotos[i]);
+      const ext=blob.type==='image/jpeg'?'jpg':(_movFotos[i].name.split('.').pop()||'jpg');
+      const path='movimentacoes/'+v.id+'/'+tipo+'_'+Date.now()+'_'+i+'.'+sanitizeFilename(ext);
+      const{error:upErr}=await sb.storage.from('veiculos').upload(path,blob,{contentType:blob.type||'image/jpeg',upsert:true});
+      if(upErr)throw new Error('Falha ao enviar a foto '+(i+1)+': '+upErr.message);
+      urls.push(sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl);
+    }
+    const{error}=await sb.from('veiculos_movimentacoes').insert({
+      veiculo_id:v.id,tipo,data,km,
+      obra_origem_id:v.obra_id||null,
+      obra_destino_id:tipo==='transferencia'?destino:null,
+      fotos:urls,
+      observacao:document.getElementById('mov-obs').value.trim()||null,
+      registrado_por:currentUser?.nome||currentUser?.usuario||null,
+    });
+    if(error){
+      if(/veiculos_movimentacoes|schema cache|does not exist/i.test(error.message))throw new Error('A tabela de movimentações ainda não existe no Supabase. Rode o arquivo veiculos_movimentacoes.sql no SQL Editor.');
+      throw new Error(error.message);
+    }
+    // Atualiza o veículo conforme o tipo
+    const upd={};
+    if(km>(v.km_atual||0))upd.km_atual=km;
+    if(tipo==='transferencia'){upd.obra_id=destino;upd.status='ativo';}
+    if(tipo==='devolucao')upd.status='devolvido';
+    if(tipo==='recebimento'&&VEIC_STATUS_INATIVOS.includes(v.status))upd.status='ativo';
+    if(Object.keys(upd).length){
+      const{error:e2}=await sb.from('veiculos').update(upd).eq('id',v.id);
+      if(e2)showToast('Movimentação salva, mas houve erro ao atualizar o veículo: '+e2.message,'error');
+    }
+    _movFotos=[];
+    closeModal('modal-veic-mov-form');
+    closeModal('modal-veic-mov');
+    showToast(VEIC_MOV_TIPOS[tipo].label+' registrado(a) com '+urls.length+' foto(s)!');
+    await loadVeiculos();
+    if(tipo==='devolucao'){veiculoSelecionadoId=null;}
+    renderVeiculos();
+  }catch(e){
+    console.error('[Veículos] erro na movimentação:',e);
+    showToast('Erro: '+(e.message||e),'error');
+  }finally{
+    if(btn&&document.body.contains(btn)){btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Salvar';}
+  }
+}
+
+// Mostra/oculta a senha do cartão TicketLog (lida do array, sem expor no HTML)
+function mostrarSenhaTicketlog(id,el){
+  const v=veiculos.find(x=>String(x.id)===String(id));
+  const alvo=document.getElementById('ticketlog-senha-'+id);
+  if(!v||!alvo)return;
+  const visivel=el.dataset.visivel==='1';
+  alvo.textContent=visivel?'••••••':(v.ticketlog_senha||'—');
+  el.dataset.visivel=visivel?'0':'1';
+  el.textContent=visivel?'mostrar':'ocultar';
+}
+async function reativarVeiculo(id){
+  try{
+    const v=veiculos.find(x=>String(x.id)===String(id));
+    if(!v)return;
+    if(!confirm('Reativar o veículo '+v.placa+'? Ele volta para a frota ativa (status "Ativo").'+(v.tipo==='locado'?'\n\nSe for locado, confira as datas do contrato depois.':'')))return;
+    const{error}=await sb.from('veiculos').update({status:'ativo'}).eq('id',id);
+    if(error){showToast('Erro: '+error.message,'error');return;}
+    showToast('Veículo '+v.placa+' reativado!');
+    veiculoVerHistorico=false;
+    veiculoSelecionadoId=id;
+    await loadVeiculos();
+    renderVeiculos();
+  }catch(e){
+    console.error('[Veículos] erro ao reativar:',e);
+    showToast('Erro ao reativar: '+(e.message||e),'error');
+  }
 }
 // ── Renovar / encerrar contrato de locação ──
 function openModalRenovarContrato(id){
@@ -10931,7 +11285,8 @@ async function encerrarContratoVeiculo(id){
 
 async function deleteVeiculo(id,placa){
   if(!confirm('Excluir o veículo '+placa+'? Isso remove também o histórico de condutores, KM, revisões e abastecimentos. Prefira mudar o status para "Devolvido" ou "Vendido" em vez de excluir, para manter o histórico.'))return;
-  await sb.from('veiculos').delete().eq('id',id);
+  const{error}=await sb.from('veiculos').delete().eq('id',id);
+  if(error){showToast('Erro ao excluir: '+error.message,'error');return;}
   showToast('Veículo excluído.');
   veiculoSelecionadoId=null;
   await loadVeiculos();
@@ -10940,7 +11295,7 @@ async function deleteVeiculo(id,placa){
 
 // ── Condutores ──
 function abrirModalCondutores(veiculoId){
-  const v=veiculos.find(x=>x.id===veiculoId);
+  const v=veiculos.find(x=>String(x.id)===String(veiculoId));
   if(!v)return;
   const atuais=veiculosCondutores.filter(c=>String(c.veiculo_id)===String(veiculoId)&&!c.data_fim);
   const historico=veiculosCondutores.filter(c=>String(c.veiculo_id)===String(veiculoId)&&c.data_fim).sort((a,b)=>(parseDate(b.data_fim)||0)-(parseDate(a.data_fim)||0));
@@ -11002,7 +11357,8 @@ async function adicionarCondutor(veiculoId){
 }
 async function encerrarCondutor(condutorId,veiculoId){
   if(!confirm('Encerrar esse condutor para este veículo?'))return;
-  await sb.from('veiculos_condutores').update({data_fim:new Date().toISOString().slice(0,10)}).eq('id',condutorId);
+  const{error}=await sb.from('veiculos_condutores').update({data_fim:new Date().toISOString().slice(0,10)}).eq('id',condutorId);
+  if(error){showToast('Erro: '+error.message,'error');return;}
   showToast('Condutor encerrado.');
   await loadVeiculos();
   abrirModalCondutores(veiculoId);
@@ -11016,7 +11372,7 @@ async function uploadTermoCondutor(condutorId,input){
   const{error:upErr}=await sb.storage.from('veiculos').upload(path,file,{contentType:'application/pdf',upsert:true});
   if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
   const url=sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl;
-  const cond=veiculosCondutores.find(c=>c.id===condutorId);
+  const cond=veiculosCondutores.find(c=>String(c.id)===String(condutorId));
   const{error}=await sb.from('veiculos_condutores').update({termo_url:url}).eq('id',condutorId);
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast('Termo anexado!');
@@ -11027,7 +11383,7 @@ async function uploadTermoCondutor(condutorId,input){
 
 // ── Controle de KM ──
 function abrirModalKm(veiculoId,mes,ano){
-  const v=veiculos.find(x=>x.id===veiculoId);
+  const v=veiculos.find(x=>String(x.id)===String(veiculoId));
   if(!v)return;
   const registros=veiculosKm.filter(k=>String(k.veiculo_id)===String(veiculoId)).sort((a,b)=>(b.ano-a.ano)||(b.mes-a.mes)).slice(0,6);
   const mesesNomes=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
@@ -11087,20 +11443,29 @@ async function salvarKm(veiculoId,mes,ano){
     if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
     anexoUrl=sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl;
   }
-  const{error}=await sb.from('veiculos_km').insert({veiculo_id:veiculoId,mes,ano,km_registrado:kmValor,isento,anexo_url:anexoUrl,data_registro:new Date().toISOString().slice(0,10)});
+  // Um lançamento por mês: se já existe, atualiza (mantém o comprovante antigo se não veio um novo)
+  const existentes=veiculosKm.filter(k=>String(k.veiculo_id)===String(veiculoId)&&k.mes===mes&&k.ano===ano);
+  if(existentes.length&&!confirm('Já existe KM lançada para '+String(mes).padStart(2,'0')+'/'+ano+'. Substituir pelo novo lançamento?'))return;
+  const dadosKm={km_registrado:kmValor,isento,anexo_url:anexoUrl||(!isento&&existentes.find(k=>k.anexo_url)?.anexo_url)||null,data_registro:new Date().toISOString().slice(0,10)};
+  const{error}=existentes.length
+    ?await sb.from('veiculos_km').update(dadosKm).eq('id',existentes[0].id)
+    :await sb.from('veiculos_km').insert({veiculo_id:veiculoId,mes,ano,...dadosKm});
   if(error){showToast('Erro: '+error.message,'error');return;}
+  if(existentes.length>1){for(const k of existentes.slice(1))await sb.from('veiculos_km').delete().eq('id',k.id);}
+  if(existentes.length){await loadVeiculos();await recalcularKmAtual(veiculoId);}
   // Atualiza a KM atual do veículo também, se o valor lançado for maior que o atual
-  const v=veiculos.find(x=>x.id===veiculoId);
+  const v=veiculos.find(x=>String(x.id)===String(veiculoId));
   if(v&&kmValor&&kmValor>(v.km_atual||0))await sb.from('veiculos').update({km_atual:kmValor}).eq('id',veiculoId);
   showToast(isento?'Mês marcado como isento!':'KM lançada!');
   closeModal('modal-km');
   await loadVeiculos();
   renderVeiculos();
+  if(_veicKmAvisoAtivo)verificarKmAtrasadaVeiculos();
 }
 
 // ── Revisões ──
 function abrirModalRevisoes(veiculoId){
-  const v=veiculos.find(x=>x.id===veiculoId);
+  const v=veiculos.find(x=>String(x.id)===String(veiculoId));
   if(!v)return;
   const registros=veiculosRevisoes.filter(r=>String(r.veiculo_id)===String(veiculoId)).sort((a,b)=>(b.numero_revisao||b.km_revisao)-(a.numero_revisao||a.km_revisao));
   const intervalo=v.intervalo_revisao_km||10000;
@@ -11168,7 +11533,7 @@ async function salvarRevisao(veiculoId,numeroRevisao){
     anexo_url:anexoUrl,
   });
   if(error){showToast('Erro: '+error.message,'error');return;}
-  const v=veiculos.find(x=>x.id===veiculoId);
+  const v=veiculos.find(x=>String(x.id)===String(veiculoId));
   if(v&&km>(v.km_atual||0))await sb.from('veiculos').update({km_atual:km}).eq('id',veiculoId);
   showToast('Revisão registrada!');
   closeModal('modal-revisoes');
@@ -11178,7 +11543,7 @@ async function salvarRevisao(veiculoId,numeroRevisao){
 
 // ── Abastecimentos ──
 function abrirModalAbastecimento(veiculoId,mes,ano){
-  const v=veiculos.find(x=>x.id===veiculoId);
+  const v=veiculos.find(x=>String(x.id)===String(veiculoId));
   if(!v)return;
   const registros=veiculosAbastecimentos.filter(a=>String(a.veiculo_id)===String(veiculoId)).sort((a,b)=>(b.ano-a.ano)||(b.mes-a.mes)).slice(0,6);
   const mesesNomes=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
