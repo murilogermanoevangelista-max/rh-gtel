@@ -15678,8 +15678,10 @@ function cronoHtmlTabelaTarefas(ano,mes,ocs,cols){
       +'<td style="min-width:170px">'+(n?'<div style="display:flex;align-items:center;gap:8px">'+barra+'<b style="font-size:12.5px;white-space:nowrap">'+concl+'/'+n+'</b></div><div style="font-size:11px;margin-top:3px">'+(chips||(av?'<span style="color:var(--text-muted)">'+av+' a vencer</span>':'<span style="color:var(--success)">todas concluídas</span>'))+'</div>':'<span style="font-size:12px;color:var(--text-muted)">Não se aplica</span>')+'</td>'
       +'<td style="text-align:center;color:var(--text-muted)"><i class="ti ti-chevron-'+(aberto?'up':'down')+'"></i></td></tr>';
     if(aberto){
-      const lista=filtradas.slice().sort((a,b)=>(ordemProb[a.status]-ordemProb[b.status])||String(a.obra.codigo||'').localeCompare(String(b.obra.codigo||''),'pt-BR',{numeric:true}));
-      const sub=lista.map(r=>{
+      const ordenadas=filtradas.slice().sort((a,b)=>(ordemProb[a.status]-ordemProb[b.status])||String(a.obra.codigo||'').localeCompare(String(b.obra.codigo||''),'pt-BR',{numeric:true}));
+      const lista=ordenadas.filter(r=>r.status!=='na');
+      const naLista=ordenadas.filter(r=>r.status==='na');
+      let sub=lista.map(r=>{
         const st=CRONO_STATUS[r.status];
         let info;
         if(['ok','atraso','aguardando'].includes(r.status))info=(r.entrega?'Entregue '+r.entrega.toLocaleDateString('pt-BR'):'Entregue')+(r.ent&&r.ent.enviado_por?' por '+escHtml(r.ent.enviado_por):'')+(r.usouTol?' · usou tolerância':'');
@@ -15699,6 +15701,15 @@ function cronoHtmlTabelaTarefas(ano,mes,ocs,cols){
           +'<div style="font-size:16px">'+anexos+'</div>'
           +'<div style="display:flex;gap:4px;justify-content:flex-end">'+acoes+'</div></div>';
       }).join('');
+      if(naLista.length){
+        const semItem=naLista.filter(r=>!r.dispensado).map(r=>r.obra.codigo||r.obra.nome||'');
+        const disp=naLista.filter(r=>r.dispensado);
+        const itemNome=c.t.tipo==='auto'?(CRONO_VINCULOS[c.t.vinculo]?.item||'item'):'';
+        sub+='<div style="padding:8px 10px;font-size:12px;color:var(--text-muted)"><i class="ti ti-minus"></i> <b>Não se aplica ('+naLista.length+')</b>'
+          +(semItem.length?' · sem '+itemNome+' cadastrado: <span title="'+escHtml(semItem.join(', '))+'">'+escHtml(semItem.slice(0,12).join(', '))+(semItem.length>12?' e mais '+(semItem.length-12):'')+'</span>':'')
+          +(disp.length?' · dispensadas: '+disp.map(r=>'<a href="#" onclick="event.stopPropagation();cronoAbrirDetalhe(\''+r.t.id+'\',\''+r.obra.id+'\',\''+r.ymd+'\');return false">'+escHtml(r.obra.codigo||r.obra.nome||'')+'</a>').join(', '):'')
+          +'</div>';
+      }
       html+='<tr><td colspan="8" style="padding:0;background:#F3F7FC;border-left:4px solid '+bordaEsq+'"><div style="padding:4px 10px 10px 34px">'+(sub||'<div style="padding:10px;color:var(--text-muted);font-size:12.5px">Nenhuma obra.</div>')+'</div></td></tr>';
     }
     return html;
@@ -16190,7 +16201,7 @@ function openModalCronoTarefa(id){
         <div class="modal-header"><span class="modal-title">${t?'Editar tarefa':'Nova tarefa'}</span><button class="btn btn-sm" onclick="closeModal('modal-crono-tarefa')"><i class="ti ti-x"></i></button></div>
         <div class="modal-body">
           <div class="form-grid">
-            <div class="form-group full"><label>Tarefa *</label><input id="ct-titulo" value="${escHtml(v('titulo',''))}" placeholder="Envio de contas de água, energia, gás e condomínio"></div>
+            <div class="form-group full"><label>Tarefa *</label><input id="ct-titulo" oninput="cronoFormAtualizar()" value="${escHtml(v('titulo',''))}" placeholder="Envio de contas de água, energia, gás e condomínio"></div>
             <div class="form-group full"><label>Descrição / instruções</label><textarea id="ct-desc" rows="2" style="width:100%;font-family:inherit" placeholder="Com planilha contendo endereço completo, obra e responsável pelo alojamento">${escHtml(v('descricao',''))}</textarea></div>
             <div class="form-group"><label>Área</label><input id="ct-area" list="ct-areas" value="${escHtml(v('area',''))}" placeholder="DP"><datalist id="ct-areas">${areas.map(a=>'<option value="'+escHtml(a)+'">').join('')}</datalist></div>
             <div class="form-group"><label>Criticidade</label><select id="ct-crit">${opt('normal','Normal',v('criticidade','normal'))}${opt('atencao','Atenção',v('criticidade','normal'))}${opt('critico','Crítico',v('criticidade','normal'))}</select></div>
@@ -16210,7 +16221,7 @@ function openModalCronoTarefa(id){
             <div class="form-group full" id="ct-g-anexos"><label>Comprovante exigido</label>
               <label style="display:flex;align-items:center;gap:6px;font-weight:400;cursor:pointer"><input type="checkbox" id="ct-print" ${v('exige_print',false)?'checked':''}> Print do e-mail enviado</label>
               <label style="display:flex;align-items:center;gap:6px;font-weight:400;cursor:pointer"><input type="checkbox" id="ct-arq" ${v('exige_arquivo',false)?'checked':''}> Arquivo enviado</label></div>
-            <div class="form-group" id="ct-g-vinc"><label>Módulo vinculado *</label><select id="ct-vinc"><option value="">Selecione o módulo…</option>${Object.entries(CRONO_VINCULOS).map(([k,x])=>opt(k,x.label,v('vinculo',''))).join('')}</select></div>
+            <div class="form-group" id="ct-g-vinc"><label>Módulo vinculado *</label><select id="ct-vinc" onchange="cronoFormAtualizar()"><option value="">Selecione o módulo…</option>${Object.entries(CRONO_VINCULOS).map(([k,x])=>opt(k,x.label,v('vinculo',''))).join('')}</select><div id="ct-vinc-aviso" style="display:none;font-size:11.5px;color:#92400E;background:#FEF3C7;border-radius:6px;padding:6px 8px;margin-top:6px"></div></div>
             <div class="form-group" id="ct-g-comp"><label>Lançamento referente a</label><select id="ct-comp">${opt(0,'Mês do prazo',v('competencia_offset',0))}${opt(-1,'Mês anterior ao prazo',v('competencia_offset',0))}</select></div>
             <div class="form-group full"><label>Obras <span style="font-weight:400;color:var(--text-muted)">(nenhuma marcada = todas as obras do cronograma)</span></label>
               <div style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px">${todasObras.map(o=>'<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;padding:2px 0;font-weight:400"><input type="checkbox" class="ct-obra" value="'+o.id+'" '+(obrasSel.has(String(o.id))?'checked':'')+'> '+escHtml(_cronoObraLabel(o))+'</label>').join('')}</div></div>
@@ -16235,9 +16246,14 @@ function cronoFormAtualizar(){
   mostra('ct-g-anexos',tipo==='manual');
   mostra('ct-g-vinc',tipo==='auto');
   const vs=document.getElementById('ct-vinc');
-  if(tipo==='auto'&&vs&&!vs.value){
-    const tt=_semAcento(document.getElementById('ct-titulo').value);
-    vs.value=/abastec/.test(tt)?'veic_abastecimento':/\bkm\b|quilomet/.test(tt)?'veic_km':/fotogra|relatorio|adm 31/.test(tt)?'aloj_relatorio':/conta|agua|energia|condominio/.test(tt)?'aloj_contas':'';
+  const tt=_semAcento(document.getElementById('ct-titulo').value);
+  const sugerido=/abastec/.test(tt)?'veic_abastecimento':/\bkm\b|quilomet/.test(tt)?'veic_km':/fotogra|relatorio|adm 31/.test(tt)?'aloj_relatorio':/conta|agua|energia|condominio/.test(tt)?'aloj_contas':'';
+  if(tipo==='auto'&&vs&&!vs.value)vs.value=sugerido;
+  const av=document.getElementById('ct-vinc-aviso');
+  if(av){
+    const errado=tipo==='auto'&&vs&&vs.value&&sugerido&&sugerido!==vs.value;
+    av.style.display=errado?'':'none';
+    if(errado)av.innerHTML='<i class="ti ti-alert-triangle"></i> O nome da tarefa fala de <b>'+escHtml(CRONO_VINCULOS[sugerido].label)+'</b>, mas o módulo escolhido é <b>'+escHtml(CRONO_VINCULOS[vs.value].label)+'</b>. <a href="#" onclick="document.getElementById(\'ct-vinc\').value=\''+sugerido+'\';cronoFormAtualizar();return false">Trocar</a>';
   }
   mostra('ct-g-comp',tipo==='auto');
   const q=freq==='quinzenal';
