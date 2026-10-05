@@ -11590,7 +11590,7 @@ function abastEnviosDaObra(obraId){
       if(mapa[ymd])return;
       const mesNome=oc.prazo.toLocaleDateString('pt-BR',{month:'long'});
       mapa[ymd]={ymd,prazo:oc.prazo,limite:_cronoAddDias(_cronoDia(oc.prazo),parseInt(t.tolerancia_dias)||0),
-        label:'Envio de '+oc.prazo.toLocaleDateString('pt-BR')+(oc.qtd>1?' — '+oc.n+'º envio de '+mesNome:'')};
+        label:'Envio de '+oc.prazo.toLocaleDateString('pt-BR')+(oc.qtd>1?' — '+oc.n+'º envio de '+mesNome:'')+(t.frequencia==='unica'?' — '+String(t.titulo).slice(0,70):'')};
     }));
   }
   return Object.values(mapa).sort((x,y)=>x.prazo-y.prazo);
@@ -15615,12 +15615,13 @@ function cronoHtmlAcomp(ano,mes){
       +'<div style="font-size:12px;color:'+(sel?cor:'var(--text-muted)')+';font-weight:600;display:flex;align-items:center;gap:6px"><i class="ti '+CRONO_STATUS[id].icon+'" style="color:'+cor+'"></i> '+label+(sel?' <i class="ti ti-filter" style="margin-left:auto"></i>':'')+'</div>'
       +'<div style="font-size:24px;font-weight:700;color:'+cor+';margin-top:2px">'+valor+'</div></div>';
   };
-  const kpis='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px">'
+  const kpis='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px">'
     +card('ok','No prazo',(pct==null?'—':pct+'%')+' <span style="font-size:13px;font-weight:500;color:var(--text-muted)">'+cont.ok+'</span>','var(--success)')
     +card('parcial','Parcial',cont.parcial,'var(--warning)')
     +card('atraso','Com atraso',cont.atraso,'var(--warning)')
     +card('nao_entregue','Não entregue',cont.nao_entregue,'var(--danger)')
     +card('aguardando','A confirmar',cont.aguardando,'var(--info)')
+    +card('a_vencer','A vencer',cont.a_vencer,'#475569')
     +'</div>';
   const pendVencidas=ocs.filter(r=>r.status==='nao_entregue'||(r.status==='parcial'&&r.atrasado));
   window._cronoPendVencidas=pendVencidas;window._cronoOcsMes=ocs;
@@ -16199,7 +16200,7 @@ function openModalCronoTarefa(id){
     <div class="modal-overlay" id="modal-crono-tarefa" onclick="if(event.target===this)closeModal('modal-crono-tarefa')">
       <div class="modal" style="max-width:640px">
         <div class="modal-header"><span class="modal-title">${t?'Editar tarefa':'Nova tarefa'}</span><button class="btn btn-sm" onclick="closeModal('modal-crono-tarefa')"><i class="ti ti-x"></i></button></div>
-        <div class="modal-body">
+        <div class="modal-body" oninput="const e=document.getElementById('ct-erro');if(e)e.style.display='none'" onchange="const e=document.getElementById('ct-erro');if(e)e.style.display='none'">
           <div class="form-grid">
             <div class="form-group full"><label>Tarefa *</label><input id="ct-titulo" oninput="cronoFormAtualizar()" value="${escHtml(v('titulo',''))}" placeholder="Envio de contas de água, energia, gás e condomínio"></div>
             <div class="form-group full"><label>Descrição / instruções</label><textarea id="ct-desc" rows="2" style="width:100%;font-family:inherit" placeholder="Com planilha contendo endereço completo, obra e responsável pelo alojamento">${escHtml(v('descricao',''))}</textarea></div>
@@ -16224,7 +16225,7 @@ function openModalCronoTarefa(id){
             <div class="form-group" id="ct-g-vinc"><label>Módulo vinculado *</label><select id="ct-vinc" onchange="cronoFormAtualizar()"><option value="">Selecione o módulo…</option>${Object.entries(CRONO_VINCULOS).map(([k,x])=>opt(k,x.label,v('vinculo',''))).join('')}</select><div id="ct-vinc-aviso" style="display:none;font-size:11.5px;color:#92400E;background:#FEF3C7;border-radius:6px;padding:6px 8px;margin-top:6px"></div></div>
             <div class="form-group" id="ct-g-comp"><label>Lançamento referente a</label><select id="ct-comp">${opt(0,'Mês do prazo',v('competencia_offset',0))}${opt(-1,'Mês anterior ao prazo',v('competencia_offset',0))}</select></div>
             <div class="form-group full"><label>Obras <span style="font-weight:400;color:var(--text-muted)">(nenhuma marcada = todas as obras do cronograma)</span></label>
-              <div style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px">${todasObras.map(o=>'<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;padding:2px 0;font-weight:400"><input type="checkbox" class="ct-obra" value="'+o.id+'" '+(obrasSel.has(String(o.id))?'checked':'')+'> '+escHtml(_cronoObraLabel(o))+'</label>').join('')}</div></div>
+              <div style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px">${todasObras.map(o=>'<label style="display:flex;align-items:center;justify-content:flex-start;text-align:left;gap:8px;font-size:12px;cursor:pointer;padding:3px 0;font-weight:400;margin:0"><input type="checkbox" class="ct-obra" style="width:15px;height:15px;flex:none;margin:0" value="'+o.id+'" '+(obrasSel.has(String(o.id))?'checked':'')+'> '+escHtml(_cronoObraLabel(o))+'</label>').join('')}</div></div>
             <div class="form-group"><label>Cobrar a partir de</label><input type="month" id="ct-vig" value="${String(v('vigencia_inicio','')||_cronoYmd(new Date())).slice(0,7)}"></div>
             <div class="form-group" style="display:flex;align-items:flex-end"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;margin:0 0 10px"><input type="checkbox" id="ct-ativo" style="width:18px;height:18px;flex:none;margin:0" ${v('ativo',true)!==false?'checked':''}> Tarefa ativa</label></div>
           </div>
