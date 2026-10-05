@@ -11420,11 +11420,30 @@ function abrirModalKm(veiculoId,mes,ano){
         <button class="btn btn-primary" style="margin-top:8px" onclick="salvarKm('${veiculoId}',${mes},${ano})"><i class="ti ti-check"></i> Lançar KM</button>
         ${registros.length?`<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
           <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Últimos lançamentos</div>
-          ${registros.map(k=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px"><span>${mesesNomes[k.mes-1]}/${k.ano}</span><strong>${k.isento?'Isento':Number(k.km_registrado).toLocaleString('pt-BR')+'km'}</strong><span style="display:flex;gap:6px">${k.anexo_url?`<a href="${k.anexo_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-paperclip"></i></a>`:''}<button class="btn btn-sm btn-danger" onclick="excluirKm('${k.id}','${veiculoId}',${mes},${ano})" title="Excluir este lançamento"><i class="ti ti-trash"></i></button></span></div>`).join('')}
+          ${registros.map(k=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px"><span>${mesesNomes[k.mes-1]}/${k.ano}</span><strong>${k.isento?'Isento':Number(k.km_registrado).toLocaleString('pt-BR')+'km'}</strong><span style="display:flex;gap:6px">${k.anexo_url?`<a href="${k.anexo_url}" target="_blank" class="btn btn-sm btn-info" title="Ver comprovante"><i class="ti ti-paperclip"></i></a>`:(k.isento?'':`<label class="btn btn-sm" style="cursor:pointer;color:var(--danger);border-color:var(--danger)" title="Este lançamento está sem comprovante — anexe o controle de KM"><i class="ti ti-upload"></i> Anexar controle<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="anexarComprovanteKm('${k.id}',this.files[0],'${veiculoId}',${mes},${ano})"></label>`)}<button class="btn btn-sm btn-danger" onclick="excluirKm('${k.id}','${veiculoId}',${mes},${ano})" title="Excluir este lançamento"><i class="ti ti-trash"></i></button></span></div>`).join('')}
         </div>`:''}
       </div>
       <div class="modal-footer"><button class="btn" onclick="closeModal('modal-km')">Fechar</button></div>
     </div>`);
+}
+// Anexa o comprovante/controle de KM a um lançamento que já existe (ex.: KM lançada só para manutenção).
+// Atualiza a data do registro: no Cronograma ADM, a entrega conta a partir do anexo.
+async function anexarComprovanteKm(id,file,veiculoId,mes,ano){
+  if(!file)return;
+  if(file.size>10*1024*1024){showToast('Arquivo acima de 10 MB. Reduza o tamanho e tente de novo.','error');return;}
+  showToast('Enviando comprovante...');
+  let f=file;
+  if((file.type||'').startsWith('image/')&&typeof comprimirImagem==='function'){try{f=await comprimirImagem(file);}catch(e){}}
+  const path='km/'+Date.now()+'_'+sanitizeFilename(file.name);
+  const{error:upErr}=await sb.storage.from('veiculos').upload(path,f,{upsert:true,contentType:f.type||file.type||undefined});
+  if(upErr){showToast('Erro no upload: '+upErr.message,'error');return;}
+  const anexoUrl=sb.storage.from('veiculos').getPublicUrl(path).data.publicUrl;
+  const{error}=await sb.from('veiculos_km').update({anexo_url:anexoUrl,data_registro:new Date().toISOString().slice(0,10)}).eq('id',id);
+  if(error){showToast('Erro ao salvar: '+error.message,'error');return;}
+  showToast('Comprovante anexado e salvo');
+  await loadVeiculos();
+  abrirModalKm(veiculoId,mes,ano);
+  renderVeiculos();
 }
 async function excluirKm(id,veiculoId,mes,ano){
   if(!confirm('Excluir este lançamento de KM?'))return;
@@ -15210,6 +15229,7 @@ let cronoTab=null;            // 'datas' | 'acomp' | 'confirmar' | 'ranking' | '
 let cronoMes=null;            // 'YYYY-MM'
 let cronoFiltroStatus=null;   // filtro dos cards de indicadores
 let cronoFiltroArea='';
+let cronoDatasFiltro=null;  // cards da tela das obras: 'atrasadas'|'semana'|'quinzena'|'aguardando'|'concluidas'
 let _cronoIdx=null;
 let cronoVisao='tarefa';    // 'tarefa' (cronograma) | 'obra' (matriz)
 let cronoAbertos={};        // linhas expandidas na visão por tarefa
@@ -15484,7 +15504,7 @@ async function renderCronograma(){
   const{ano,mes}=_cronoMesAtual();
   const aguardando=cronoEntregas.filter(e=>e.status==='enviado'&&cronoObrasParticipantes().some(o=>String(o.id)===String(e.obra_id))).length;
   const areas=[...new Set(cronoTarefas.map(t=>t.area).filter(Boolean))].sort();
-  const tab=(id,icone,nome,badge)=>'<div class="exp-tab'+(cronoTab===id?' active':'')+'" onclick="cronoTab=\''+id+'\';cronoFiltroStatus=null;renderCronograma()"><i class="ti '+icone+'"></i> '+nome+(badge?' <span style="background:var(--info);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">'+badge+'</span>':'')+'</div>';
+  const tab=(id,icone,nome,badge)=>'<div class="exp-tab'+(cronoTab===id?' active':'')+'" onclick="cronoTab=\''+id+'\';cronoFiltroStatus=null;cronoDatasFiltro=null;renderCronograma()"><i class="ti '+icone+'"></i> '+nome+(badge?' <span style="background:var(--info);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;margin-left:4px">'+badge+'</span>':'')+'</div>';
   const tabs=[
     perm.ver?tab('acomp','ti-layout-grid','Acompanhamento'):'',
     perm.ver?tab('confirmar','ti-hourglass','Confirmar',aguardando||''):'',
@@ -15592,7 +15612,7 @@ function cronoHtmlTabelaTarefas(ano,mes,ocs,cols){
       +'<td style="white-space:nowrap;text-align:center"><div style="font-weight:700">'+c.oc.prazo.toLocaleDateString('pt-BR')+'</div><div style="font-size:11px;color:var(--text-muted)">'+c.oc.prazo.toLocaleDateString('pt-BR',{weekday:'short'})+(c.t.hora_limite?' · até '+escHtml(c.t.hora_limite):'')+'</div></td>'
       +'<td style="text-align:center;font-size:12.5px">'+(freqLbl[c.t.frequencia]||'')+'</td>'
       +'<td>'+critDot(c.t.criticidade)+'</td>'
-      +'<td style="font-size:12px;max-width:200px"><div>'+escHtml(c.t.responsavel_recebimento||'—')+'</div>'+(c.t.contato?'<div style="font-size:11px;color:var(--text-muted);word-break:break-all">'+escHtml(c.t.contato)+'</div>':'')+'</td>'
+      +'<td style="font-size:12px;white-space:nowrap">'+(c.t.tipo==='auto'?'<span style="color:#B45309"><i class="ti ti-bolt"></i> Pelo módulo '+escHtml(CRONO_VINCULOS[c.t.vinculo]?.curto||'')+'</span>':'<i class="ti ti-send" style="color:var(--primary)"></i> Enviei'+((c.t.exige_print||c.t.exige_arquivo)?' + '+[c.t.exige_print?'print':'',c.t.exige_arquivo?'arquivo':''].filter(Boolean).join(' e '):''))+'</td>'
       +'<td style="min-width:170px">'+(n?'<div style="display:flex;align-items:center;gap:8px">'+barra+'<b style="font-size:12.5px;white-space:nowrap">'+concl+'/'+n+'</b></div><div style="font-size:11px;margin-top:3px">'+(chips||(av?'<span style="color:var(--text-muted)">'+av+' a vencer</span>':'<span style="color:var(--success)">todas concluídas</span>'))+'</div>':'<span style="font-size:12px;color:var(--text-muted)">Não se aplica</span>')+'</td>'
       +'<td style="text-align:center;color:var(--text-muted)"><i class="ti ti-chevron-'+(aberto?'up':'down')+'"></i></td></tr>';
     if(aberto){
@@ -15625,7 +15645,7 @@ function cronoHtmlTabelaTarefas(ano,mes,ocs,cols){
   return '<div class="table-container" style="padding:0;overflow-x:auto">'
     +'<div style="padding:12px 14px;font-weight:700;font-size:15px;color:var(--navy);border-bottom:1px solid var(--border)">Cronograma Administrativo · '+_cronoNomeMes(ano,mes).replace(/^./,x=>x.toUpperCase())+'</div>'
     +'<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>'
-    +'<th style="'+th+';text-align:center;width:44px">Item</th><th style="'+th+'">Nome da tarefa</th><th style="'+th+';text-align:center">Data do envio</th><th style="'+th+';text-align:center">Frequência</th><th style="'+th+'">Criticidade</th><th style="'+th+'">Responsável pelo recebimento</th><th style="'+th+'">Obras que cumpriram</th><th style="'+th+';width:30px"></th>'
+    +'<th style="'+th+';text-align:center;width:44px">Item</th><th style="'+th+'">Nome da tarefa</th><th style="'+th+';text-align:center">Data do envio</th><th style="'+th+';text-align:center">Frequência</th><th style="'+th+'">Criticidade</th><th style="'+th+'">Comprovação</th><th style="'+th+'">Obras que cumpriram</th><th style="'+th+';width:30px"></th>'
     +'</tr></thead><tbody>'+(linhas||'<tr><td colspan="8" style="padding:20px;color:var(--text-muted)">Nenhuma tarefa com esse status.</td></tr>')+'</tbody></table>'
     +'<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--text-muted);padding:10px 14px;border-top:1px solid var(--border)">'
     +[['#16A34A','No prazo'],['#F59E0B','Com atraso'],['#3B82F6','A confirmar'],['#FCD34D','Parcial'],['#DC2626','Não entregue']].map(([c,l])=>'<span style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:8px;border-radius:2px;background:'+c+'"></span>'+l+'</span>').join('')
@@ -15710,7 +15730,6 @@ function cronoAbrirDetalhe(tarefaId,obraId,ymd){
     +'<div style="font-size:13px;line-height:1.8">'
     +'<div><span style="color:var(--text-muted)">Obra:</span> '+escHtml(_cronoObraLabel(r.obra))+'</div>'
     +'<div><span style="color:var(--text-muted)">Prazo:</span> '+r.prazoDia.toLocaleDateString('pt-BR')+(t.hora_limite?' até '+escHtml(t.hora_limite):'')+' <span style="color:var(--text-muted)">· tolerância até '+r.limite.toLocaleDateString('pt-BR')+'</span></div>'
-    +(t.responsavel_recebimento?'<div><span style="color:var(--text-muted)">Enviar para:</span> '+escHtml(t.responsavel_recebimento)+(t.contato?' ('+escHtml(t.contato)+')':'')+'</div>':'')
     +(vinc?'<div><span style="color:var(--text-muted)">Automático:</span> '+escHtml(vinc.label)+' · competência '+String(r.compMes).padStart(2,'0')+'/'+r.compAno+'</div>':'')
     +(t.descricao?'<div style="margin-top:6px;background:#F9FAFB;border-radius:8px;padding:8px 10px;font-size:12.5px;line-height:1.5">'+escHtml(t.descricao)+'</div>':'')
     +'</div>';
@@ -15806,7 +15825,7 @@ function cronoCobrar(chaves){
   window._cronoMsgs=Object.values(porObra).map(g=>{
     const linhas=g.itens.sort((a,b)=>a.oc.prazo-b.oc.prazo).map(r=>{
       const falta=r.itens?r.itens.filter(i=>!i.ok).map(i=>i.nome+(i.falta?' ('+i.falta+')':'')).join('; '):'';
-      return '• '+r.t.titulo+' — prazo '+r.prazoDia.toLocaleDateString('pt-BR')+(r.status==='atraso'?' (entregue com atraso)':'')+(falta?'\n   Falta: '+falta:'')+(r.t.responsavel_recebimento?'\n   Enviar para: '+r.t.responsavel_recebimento+(r.t.contato?' ('+r.t.contato+')':''):'');
+      return '• '+r.t.titulo+' — prazo '+r.prazoDia.toLocaleDateString('pt-BR')+(r.status==='atraso'?' (entregue com atraso)':'')+(falta?'\n   Falta: '+falta:'');
     }).join('\n');
     return{obra:_cronoObraLabel(g.obra),assunto:'Cronograma ADM — pendências '+(g.obra.codigo||g.obra.nome||''),texto:'Olá, equipe da obra '+_cronoObraLabel(g.obra)+'.\n\nConsta(m) pendente(s) no Cronograma Administrativo:\n'+linhas+'\n\nPor favor, regularizar o quanto antes e registrar no GTEL Obras.\n\nAtt,\n'+(currentUser?.nome||'Coordenação Administrativa')};
   });
@@ -15924,7 +15943,6 @@ function cronoHtmlDatas(ano,mes){
     else if(t.tipo==='auto')dir='<button class="btn btn-sm" onclick="showPage(\''+CRONO_VINCULOS[t.vinculo].page+'\')"><i class="ti ti-external-link"></i> Lançar em '+CRONO_VINCULOS[t.vinculo].curto+'</button>';
     let sub=[];
     if(t.hora_limite)sub.push('até '+escHtml(t.hora_limite));
-    if(t.responsavel_recebimento)sub.push('enviar para '+escHtml(t.responsavel_recebimento));
     if(r.itens&&r.total)sub.push(r.feitos+' de '+r.total+' lançado(s) em '+CRONO_VINCULOS[t.vinculo].curto);
     if(t.tipo==='manual'&&(t.exige_print||t.exige_arquivo)&&!['ok','atraso','aguardando'].includes(r.status))sub.push('exige '+[t.exige_print?'print do e-mail':'',t.exige_arquivo?'o arquivo enviado':''].filter(Boolean).join(' e '));
     const motivo=(r.recusado||r.reaberto)&&r.ent?.motivo?'<div style="font-size:12px;color:var(--danger);margin-top:2px"><i class="ti ti-alert-circle"></i> '+(r.recusado?'Recusado':'Reaberto')+': '+escHtml(r.ent.motivo)+'</div>':'';
@@ -15948,7 +15966,49 @@ function cronoHtmlDatas(ano,mes){
   const rotinas=exibir.length?'<div class="table-container" style="padding:12px 16px;margin-bottom:14px;background:#F9FAFB"><div style="font-weight:700;font-size:13px;margin-bottom:6px"><i class="ti ti-repeat" style="color:var(--primary)"></i> Rotinas contínuas</div>'
     +exibir.map(t=>'<div style="font-size:13px;padding:5px 0;border-bottom:1px solid var(--border)">'+escHtml(t.titulo)+(t.frequencia==='diaria'?' <span style="font-size:11px;color:var(--text-muted)">· diária</span>':'')+(t.descricao?'<div style="font-size:12px;color:var(--text-muted)">'+escHtml(t.descricao)+'</div>':'')+'</div>').join('')+'</div>':'';
   if(!obrasLista.length)return '<div class="empty-state" style="padding:40px"><i class="ti ti-building-off"></i><div>Nenhuma obra participando do cronograma.</div></div>';
-  return (perm.ver&&!globalObraFiltro&&obrasLista.length>1?'<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px"><i class="ti ti-info-circle"></i> Assim as obras veem as próprias datas. Use o filtro de obra no topo para ver uma obra só.</div>':'')
+  // ---- Cards de alerta (sempre a partir de hoje, independente do mês escolhido) ----
+  const hojeD=_cronoHoje();
+  const pool=[];const vistos=new Set();
+  for(let k=-2;k<=1;k++){
+    let a=hojeD.getFullYear(),m=hojeD.getMonth()+1+k;while(m<1){m+=12;a--;}while(m>12){m-=12;a++;}
+    cronoOcorrenciasMes(a,m,{area}).forEach(r=>{const key=r.t.id+'|'+r.obra.id+'|'+r.ymd;if(r.status!=='na'&&!vistos.has(key)){vistos.add(key);pool.push(r);}});
+  }
+  const diasAte=r=>Math.round((r.prazoDia-hojeD)/86400000);
+  const pendente=r=>r.status==='a_vencer'||(r.status==='parcial'&&!r.atrasado);
+  const grupos={
+    atrasadas:pool.filter(r=>r.status==='nao_entregue'||(r.status==='parcial'&&r.atrasado)),
+    semana:pool.filter(r=>pendente(r)&&diasAte(r)<=7),
+    quinzena:pool.filter(r=>pendente(r)&&diasAte(r)>7&&diasAte(r)<=15),
+    aguardando:pool.filter(r=>r.status==='aguardando'),
+    concluidas:pool.filter(r=>(r.status==='ok'||r.status==='atraso')&&r.prazoDia.getFullYear()===ano&&r.prazoDia.getMonth()+1===mes),
+  };
+  const defs=[
+    ['atrasadas','Atrasadas','ti-alert-triangle','#991B1B','#FEE2E2','#FCA5A5','Prazo já passou'],
+    ['semana','Próximos 7 dias','ti-calendar-due','#92400E','#FEF3C7','#FCD34D','Entregar esta semana'],
+    ['quinzena','De 8 a 15 dias','ti-calendar-time','#1E40AF','#DBEAFE','#93C5FD','Já pode ir preparando'],
+    ['aguardando','Aguardando confirmação','ti-hourglass','#5B21B6','#EDE9FE','#C4B5FD','Enviadas, em conferência'],
+    ['concluidas','Concluídas no mês','ti-circle-check','#166534','#DCFCE7','#86EFAC',_cronoNomeMes(ano,mes)],
+  ];
+  if(cronoDatasFiltro&&!grupos[cronoDatasFiltro])cronoDatasFiltro=null;
+  const cards='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:16px">'+defs.map(([id,label,icone,cor,bg,borda,sub])=>{
+    const n=grupos[id].length,sel=cronoDatasFiltro===id,vazio=!n;
+    return '<div onclick="cronoDatasFiltro='+(sel?'null':'\''+id+'\'')+';renderCronograma()" style="cursor:pointer;border-radius:12px;padding:12px 14px;background:'+(vazio?'#fff':bg)+';border:'+(sel?'2px solid '+cor:'1px solid '+(vazio?'var(--border)':borda))+';'+(vazio?'opacity:.75':'')+'">'
+      +'<div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:'+(vazio?'var(--text-muted)':cor)+'"><i class="ti '+icone+'" style="font-size:16px"></i>'+label+(sel?'<i class="ti ti-filter" style="margin-left:auto"></i>':'')+'</div>'
+      +'<div style="font-size:26px;font-weight:800;color:'+(vazio?'#C4CAD4':cor)+';line-height:1.2;margin-top:2px">'+n+'</div>'
+      +'<div style="font-size:11px;color:'+(vazio?'var(--text-muted)':cor)+';opacity:.85">'+sub+'</div></div>';
+  }).join('')+'</div>';
+  if(cronoDatasFiltro){
+    const def=defs.find(d=>d[0]===cronoDatasFiltro);
+    const sel=grupos[cronoDatasFiltro].slice().sort((a,b)=>a.oc.prazo-b.oc.prazo);
+    const porObra=obrasLista.map(o=>{
+      const its=sel.filter(r=>String(r.obra.id)===String(o.id));
+      if(!its.length)return '';
+      return '<div class="table-container" style="padding:12px 16px;margin-bottom:14px"><div style="font-weight:700;font-size:14px;margin-bottom:2px"><i class="ti ti-building-skyscraper" style="color:var(--accent)"></i> '+escHtml(_cronoObraLabel(o))+'</div>'+its.map(item).join('')+'</div>';
+    }).join('');
+    return cards+'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;font-weight:700;color:'+def[3]+'"><i class="ti '+def[2]+'"></i> '+def[1]+' · '+sel.length+' tarefa(s) <a href="#" onclick="cronoDatasFiltro=null;renderCronograma();return false" style="font-weight:400;font-size:12px;color:var(--text-muted);margin-left:6px">ver o mês todo</a></div>'
+      +(porObra||'<div class="empty-state" style="padding:30px"><i class="ti ti-mood-smile"></i><div>Nada aqui.</div></div>');
+  }
+  return cards+(perm.ver&&!globalObraFiltro&&obrasLista.length>1?'<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px"><i class="ti ti-info-circle"></i> Assim as obras veem as próprias datas. Use o filtro de obra no topo para ver uma obra só.</div>':'')
     +rotinas+(blocos||'<div class="empty-state" style="padding:30px"><i class="ti ti-calendar-check"></i><div>Nenhum prazo neste mês.</div></div>');
 }
 
@@ -15964,7 +16024,7 @@ function openModalCronoEnviar(chave){
         <div class="modal-header"><span class="modal-title"><i class="ti ti-send"></i> Marcar como enviado</span><button class="btn btn-sm" onclick="closeModal('modal-crono-env')"><i class="ti ti-x"></i></button></div>
         <div class="modal-body">
           <div style="font-size:14px;font-weight:600">${escHtml(t.titulo)}</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">${escHtml(_cronoObraLabel(r.obra))} · prazo ${r.prazoDia.toLocaleDateString('pt-BR')}${t.hora_limite?' até '+escHtml(t.hora_limite):''}${t.responsavel_recebimento?' · enviar para '+escHtml(t.responsavel_recebimento):''}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">${escHtml(_cronoObraLabel(r.obra))} · prazo ${r.prazoDia.toLocaleDateString('pt-BR')}${t.hora_limite?' até '+escHtml(t.hora_limite):''}</div>
           ${(r.recusado||r.reaberto)&&r.ent?.motivo?'<div style="background:var(--danger-light);color:var(--danger);border-radius:8px;padding:8px 10px;font-size:12.5px;margin-bottom:12px"><i class="ti ti-alert-circle"></i> '+escHtml(r.ent.motivo)+'</div>':''}
           <div class="form-grid">
             ${campoArq('crono-env-print','Print do e-mail enviado',!!t.exige_print,'image/*,.pdf')}
@@ -16034,7 +16094,7 @@ function cronoHtmlTarefas(){
     const crit=CRONO_CRIT[t.criticidade||'normal'];
     const obrasTxt=t.obras_ids&&t.obras_ids.length?t.obras_ids.length+' obra(s)':'Todas';
     return '<tr style="'+(t.ativo===false?'opacity:.45':'')+'">'
-      +'<td><div style="font-weight:600">'+escHtml(t.titulo)+'</div><div style="font-size:11.5px;color:var(--text-muted)">'+escHtml(t.area||'')+(t.responsavel_recebimento?' · '+escHtml(t.responsavel_recebimento):'')+(t.tipo==='auto'&&CRONO_VINCULOS[t.vinculo]?' · '+escHtml(CRONO_VINCULOS[t.vinculo].label):'')+'</div></td>'
+      +'<td><div style="font-weight:600">'+escHtml(t.titulo)+'</div><div style="font-size:11.5px;color:var(--text-muted)">'+escHtml(t.area||'')+(t.tipo==='auto'&&CRONO_VINCULOS[t.vinculo]?' · '+escHtml(CRONO_VINCULOS[t.vinculo].label):'')+'</div></td>'
       +'<td style="white-space:nowrap">'+_cronoTxtPrazo(t)+(t.hora_limite?' · '+escHtml(t.hora_limite):'')+'</td>'
       +'<td>'+tipoLbl[t.tipo]+'</td>'
       +'<td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:'+crit.bg+';color:'+crit.cor+'">'+crit.label+'</span></td>'
@@ -16073,13 +16133,17 @@ function openModalCronoTarefa(id){
             <div class="form-group"><label>Área</label><input id="ct-area" list="ct-areas" value="${escHtml(v('area',''))}" placeholder="DP"><datalist id="ct-areas">${areas.map(a=>'<option value="'+escHtml(a)+'">').join('')}</datalist></div>
             <div class="form-group"><label>Criticidade</label><select id="ct-crit">${opt('normal','Normal',v('criticidade','normal'))}${opt('atencao','Atenção',v('criticidade','normal'))}${opt('critico','Crítico',v('criticidade','normal'))}</select></div>
             <div class="form-group"><label>Frequência *</label><select id="ct-freq" onchange="cronoFormAtualizar()">${opt('mensal','Mensal',v('frequencia','mensal'))}${opt('quinzenal','Quinzenal',v('frequencia','mensal'))}${opt('unica','Data única',v('frequencia','mensal'))}${opt('diaria','Diária (só exibir)',v('frequencia','mensal'))}</select></div>
-            <div class="form-group" id="ct-g-dias"><label id="ct-l-dias">Dia do prazo *</label><input id="ct-dias" value="${escHtml((v('dias_prazo',[])||[]).join(', '))}" placeholder="16"></div>
+            <div class="form-group" id="ct-g-dias"><label id="ct-l-dias">Dia do prazo *</label>
+              <div style="display:flex;gap:8px;align-items:center">
+                <input type="number" min="1" max="31" id="ct-dia1" value="${(v('dias_prazo',[])||[])[0]||''}" placeholder="11" style="flex:1">
+                <span id="ct-dia2-sep" style="font-size:12px;color:var(--text-muted)">e</span>
+                <input type="number" min="1" max="31" id="ct-dia2" value="${(v('dias_prazo',[])||[])[1]||''}" placeholder="25" style="flex:1">
+              </div>
+              <div id="ct-dia-ajuda" style="font-size:11px;color:var(--text-muted);margin-top:3px"></div></div>
             <div class="form-group" id="ct-g-data" style="display:none"><label>Data *</label><input type="date" id="ct-data" value="${v('data_unica','')||''}"></div>
             <div class="form-group"><label>Horário limite <span style="font-weight:400;color:var(--text-muted)">(opcional)</span></label><input type="time" id="ct-hora" value="${escHtml(v('hora_limite','')||'')}"></div>
             <div class="form-group"><label>Tolerância (dias)</label><input type="number" min="0" max="10" id="ct-tol" value="${v('tolerancia_dias',1)}"></div>
             <div class="form-group"><label>Alerta para a obra (dias antes)</label><input type="number" min="0" max="30" id="ct-alerta" value="${v('alerta_dias',3)}"></div>
-            <div class="form-group"><label>Responsável pelo recebimento</label><input id="ct-resp" value="${escHtml(v('responsavel_recebimento','')||'')}" placeholder="DP / Contas a Pagar"></div>
-            <div class="form-group"><label>Contato</label><input id="ct-contato" value="${escHtml(v('contato','')||'')}" placeholder="dp.gtel@gtelsa.com.br"></div>
             <div class="form-group full" id="ct-g-tipo"><label>Como a entrega é comprovada *</label><select id="ct-tipo" onchange="cronoFormAtualizar()">${opt('manual','Obra marca "Enviei" com anexo',v('tipo','manual'))}${opt('auto','Automático pelo módulo do sistema',v('tipo','manual'))}${opt('exibir','Só exibir (não acompanha)',v('tipo','manual'))}</select></div>
             <div class="form-group full" id="ct-g-anexos"><label>Comprovante exigido</label>
               <label style="display:flex;align-items:center;gap:6px;font-weight:400;cursor:pointer"><input type="checkbox" id="ct-print" ${v('exige_print',false)?'checked':''}> Print do e-mail enviado</label>
@@ -16089,8 +16153,7 @@ function openModalCronoTarefa(id){
             <div class="form-group full"><label>Obras <span style="font-weight:400;color:var(--text-muted)">(nenhuma marcada = todas as obras do cronograma)</span></label>
               <div style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px">${todasObras.map(o=>'<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;padding:2px 0;font-weight:400"><input type="checkbox" class="ct-obra" value="'+o.id+'" '+(obrasSel.has(String(o.id))?'checked':'')+'> '+escHtml(_cronoObraLabel(o))+'</label>').join('')}</div></div>
             <div class="form-group"><label>Cobrar a partir de</label><input type="month" id="ct-vig" value="${String(v('vigencia_inicio','')||_cronoYmd(new Date())).slice(0,7)}"></div>
-            <div class="form-group"><label>Ordem</label><input type="number" id="ct-ordem" value="${v('ordem',0)}"></div>
-            <div class="form-group full"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="ct-ativo" ${v('ativo',true)!==false?'checked':''}> Tarefa ativa</label></div>
+            <div class="form-group" style="display:flex;align-items:flex-end"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;margin:0 0 10px"><input type="checkbox" id="ct-ativo" style="width:18px;height:18px;flex:none;margin:0" ${v('ativo',true)!==false?'checked':''}> Tarefa ativa</label></div>
           </div>
           <div id="ct-erro" style="display:none;font-size:12.5px;color:var(--danger);margin-top:6px"></div>
         </div>
@@ -16110,7 +16173,10 @@ function cronoFormAtualizar(){
   mostra('ct-g-anexos',tipo==='manual');
   mostra('ct-g-vinc',tipo==='auto');
   mostra('ct-g-comp',tipo==='auto');
-  document.getElementById('ct-l-dias').textContent=freq==='quinzenal'?'Dias do prazo * (ex.: 11, 25)':'Dia do prazo *';
+  const q=freq==='quinzenal';
+  document.getElementById('ct-l-dias').textContent=q?'Dias do prazo * (1ª e 2ª quinzena)':'Dia do prazo *';
+  mostra('ct-dia2',q);mostra('ct-dia2-sep',q);
+  document.getElementById('ct-dia-ajuda').textContent=q?'Ex.: 11 e 25 — a tarefa aparece duas vezes no mês. Dia 31 vira o último dia em meses menores.':'Em meses menores, dia 31 vira o último dia do mês.';
 }
 async function salvarCronoTarefa(id){
   const g=x=>document.getElementById(x);
@@ -16118,21 +16184,21 @@ async function salvarCronoTarefa(id){
   const titulo=g('ct-titulo').value.trim();
   const freq=g('ct-freq').value;
   let tipo=g('ct-tipo').value;if(freq==='diaria')tipo='exibir';
-  const dias=g('ct-dias').value.split(/[^0-9]+/).map(n=>parseInt(n)).filter(n=>n>=1&&n<=31);
+  const dias=[g('ct-dia1').value,freq==='quinzenal'?g('ct-dia2').value:''].map(n=>parseInt(n)).filter(n=>n>=1&&n<=31);
   if(!titulo)return mostrar('Informe o nome da tarefa.');
   if((freq==='mensal'||freq==='quinzenal')&&tipo!=='exibir'&&!dias.length)return mostrar('Informe o dia do prazo.');
-  if(freq==='quinzenal'&&tipo!=='exibir'&&dias.length<2)return mostrar('Na quinzenal, informe os dois dias (ex.: 11, 25).');
+  if(freq==='quinzenal'&&tipo!=='exibir'&&new Set(dias).size<2)return mostrar('Na quinzenal, informe os dois dias diferentes (ex.: 11 e 25).');
   if(freq==='unica'&&!g('ct-data').value)return mostrar('Informe a data.');
   const obrasIds=[...document.querySelectorAll('.ct-obra:checked')].map(c=>c.value);
   const dados={
     titulo,descricao:g('ct-desc').value.trim()||null,area:g('ct-area').value.trim()||null,
     tipo,frequencia:freq,dias_prazo:[...new Set(dias)].sort((a,b)=>a-b),data_unica:freq==='unica'?g('ct-data').value:null,
     hora_limite:g('ct-hora').value||null,tolerancia_dias:Math.max(0,parseInt(g('ct-tol').value)||0),alerta_dias:Math.max(0,parseInt(g('ct-alerta').value)||0),
-    criticidade:g('ct-crit').value,responsavel_recebimento:g('ct-resp').value.trim()||null,contato:g('ct-contato').value.trim()||null,
+    criticidade:g('ct-crit').value,
     exige_print:tipo==='manual'&&g('ct-print').checked,exige_arquivo:tipo==='manual'&&g('ct-arq').checked,
     vinculo:tipo==='auto'?g('ct-vinc').value:null,competencia_offset:tipo==='auto'?parseInt(g('ct-comp').value)||0:0,
     obras_ids:obrasIds.length?obrasIds:null,vigencia_inicio:(g('ct-vig').value||_cronoYmd(new Date()).slice(0,7))+'-01',
-    ordem:parseInt(g('ct-ordem').value)||0,ativo:g('ct-ativo').checked,
+    ativo:g('ct-ativo').checked,
   };
   const{error}=id?await sb.from('cronograma_tarefas').update(dados).eq('id',id):await sb.from('cronograma_tarefas').insert(dados);
   if(error)return mostrar('Erro ao salvar: '+error.message);
