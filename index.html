@@ -15211,6 +15211,8 @@ let cronoMes=null;            // 'YYYY-MM'
 let cronoFiltroStatus=null;   // filtro dos cards de indicadores
 let cronoFiltroArea='';
 let _cronoIdx=null;
+let cronoVisao='tarefa';    // 'tarefa' (cronograma) | 'obra' (matriz)
+let cronoAbertos={};        // linhas expandidas na visão por tarefa
 
 const CRONO_BUCKET='funcionarios';
 const CRONO_MAX_MB=5;
@@ -15336,22 +15338,29 @@ function cronoItensAuto(t,obraId,cAno,cMes,janelaIni){
       if(t.vinculo==='aloj_contas'){
         const req=['agua','energia','gas','condominio'].filter(x=>!a['isenta_'+x]);
         if(!req.length)return;
-        const contas=(idx.contas[a.id+'|'+cAno+'|'+cMes]||[]).filter(c=>req.includes(c.tipo));
+        const todas=(idx.contas[a.id+'|'+cAno+'|'+cMes]||[]).filter(c=>req.includes(c.tipo));
+        const contas=todas.filter(c=>c.anexo_url); // só conta com a conta anexada
         const lanc=new Set(contas.map(c=>c.tipo));
-        const faltam=req.filter(x=>!lanc.has(x));
-        itens.push({nome:a.nome||'Alojamento',ok:!faltam.length,data:faltam.length?null:_cronoMaxData(contas.map(c=>_cronoDataLanc(c.adm35_envio||c.created_at))),falta:faltam.length?'falta '+faltam.map(x=>CRONO_CONTAS_LBL[x]).join(', '):''});
+        const semAnexo=req.filter(x=>!lanc.has(x)&&todas.some(c=>c.tipo===x));
+        const naoLanc=req.filter(x=>!lanc.has(x)&&!semAnexo.includes(x));
+        const falta=[naoLanc.length?'falta '+naoLanc.map(x=>CRONO_CONTAS_LBL[x]).join(', '):'',semAnexo.length?'sem anexo: '+semAnexo.map(x=>CRONO_CONTAS_LBL[x]).join(', '):''].filter(Boolean).join(' · ');
+        itens.push({nome:a.nome||'Alojamento',ok:!falta,data:falta?null:_cronoMaxData(contas.map(c=>_cronoDataLanc(c.adm35_envio||c.created_at))),falta});
       }else{
-        const rs=idx.rels[a.id+'|'+cAno+'|'+cMes]||[];
-        itens.push({nome:a.nome||'Alojamento',ok:rs.length>0,data:rs.length?_cronoMaxData(rs.map(r=>_cronoDataLanc(r.created_at||r.data_recebimento))):null,falta:rs.length?'':'sem relatório'});
+        const todos=idx.rels[a.id+'|'+cAno+'|'+cMes]||[];
+        const rs=todos.filter(r=>r.anexo_url);
+        itens.push({nome:a.nome||'Alojamento',ok:rs.length>0,data:rs.length?_cronoMaxData(rs.map(r=>_cronoDataLanc(r.created_at||r.data_recebimento))):null,falta:rs.length?'':(todos.length?'lançado sem anexo':'sem relatório')});
       }
     });
   }else if(t.vinculo==='veic_km'||t.vinculo==='veic_abastecimento'){
     const inativos=typeof VEIC_STATUS_INATIVOS!=='undefined'?VEIC_STATUS_INATIVOS:['devolvido','vendido','sinistrado'];
     (typeof veiculos!=='undefined'?veiculos:[]).filter(v=>String(v.obra_id)===oid&&!inativos.includes(v.status)).forEach(v=>{
-      let regs=(t.vinculo==='veic_km'?idx.km:idx.abast)[v.id+'|'+cAno+'|'+cMes]||[];
-      if(janelaIni&&t.vinculo==='veic_abastecimento')regs=regs.filter(r=>{const d=_cronoDataLanc(r.created_at);return !d||d>=janelaIni;});
+      let todos=(t.vinculo==='veic_km'?idx.km:idx.abast)[v.id+'|'+cAno+'|'+cMes]||[];
+      if(janelaIni&&t.vinculo==='veic_abastecimento')todos=todos.filter(r=>{const d=_cronoDataLanc(r.created_at);return !d||d>=janelaIni;});
+      // Só vale com o controle anexado (KM digitada só para manutenção não conta); veículo isento conta.
+      const regs=todos.filter(r=>r.anexo_url||(t.vinculo==='veic_km'&&r.isento));
       const datas=regs.map(r=>_cronoDataLanc(t.vinculo==='veic_km'?(r.data_registro||r.created_at):r.created_at));
-      itens.push({nome:v.placa||v.modelo||'Veículo',ok:regs.length>0,data:regs.length?_cronoMaxData(datas):null,falta:regs.length?'':(t.vinculo==='veic_km'?'sem KM lançada':'sem abastecimento')});
+      const nomeCtrl=t.vinculo==='veic_km'?'controle de KM':'controle de abastecimento';
+      itens.push({nome:v.placa||v.modelo||'Veículo',ok:regs.length>0,data:regs.length?_cronoMaxData(datas):null,falta:regs.length?'':(todos.length?'lançado sem anexo do '+nomeCtrl:'sem '+nomeCtrl)});
     });
   }
   return itens;
@@ -15524,13 +15533,105 @@ function cronoHtmlAcomp(ano,mes){
       +'<div style="font-size:12px;color:'+(sel?cor:'var(--text-muted)')+';font-weight:600;display:flex;align-items:center;gap:6px"><i class="ti '+CRONO_STATUS[id].icon+'" style="color:'+cor+'"></i> '+label+(sel?' <i class="ti ti-filter" style="margin-left:auto"></i>':'')+'</div>'
       +'<div style="font-size:24px;font-weight:700;color:'+cor+';margin-top:2px">'+valor+'</div></div>';
   };
-  const kpis='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">'
+  const kpis='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px">'
     +card('ok','No prazo',(pct==null?'—':pct+'%')+' <span style="font-size:13px;font-weight:500;color:var(--text-muted)">'+cont.ok+'</span>','var(--success)')
     +card('parcial','Parcial',cont.parcial,'var(--warning)')
     +card('atraso','Com atraso',cont.atraso,'var(--warning)')
     +card('nao_entregue','Não entregue',cont.nao_entregue,'var(--danger)')
     +card('aguardando','A confirmar',cont.aguardando,'var(--info)')
     +'</div>';
+  const pendVencidas=ocs.filter(r=>r.status==='nao_entregue'||(r.status==='parcial'&&r.atrasado));
+  window._cronoPendVencidas=pendVencidas;window._cronoOcsMes=ocs;
+  const btnVisao=(id,icone,txt)=>'<button class="btn btn-sm'+(cronoVisao===id?' btn-primary':'')+'" onclick="cronoVisao=\''+id+'\';renderCronograma()"><i class="ti '+icone+'"></i> '+txt+'</button>';
+  const barra='<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">'
+    +'<div style="display:flex;gap:6px">'+btnVisao('tarefa','ti-list-details','Cronograma')+btnVisao('obra','ti-layout-grid','Por obra')+'</div>'
+    +'<div style="display:flex;gap:6px;align-items:center">'
+    +(cronoFiltroStatus?'<span style="font-size:12px;color:'+CRONO_STATUS[cronoFiltroStatus].cor+'"><i class="ti ti-filter"></i> '+CRONO_STATUS[cronoFiltroStatus].label+' · <a href="#" onclick="cronoFiltroStatus=null;renderCronograma();return false" style="color:inherit">limpar</a></span>':'')
+    +(cronoVisao==='tarefa'?'<button class="btn btn-sm" onclick="cronoAbertos={};_cronoColsVisiveis.forEach(k=>cronoAbertos[k]=true);renderCronograma()"><i class="ti ti-arrows-vertical"></i> Abrir todas</button><button class="btn btn-sm" onclick="cronoAbertos={};renderCronograma()"><i class="ti ti-fold"></i> Fechar todas</button>':'')
+    +(pendVencidas.length?'<button class="btn btn-sm" onclick="cronoCobrar(window._cronoPendVencidas.map(r=>r.t.id+\'|\'+r.obra.id+\'|\'+r.ymd))"><i class="ti ti-mail"></i> Cobrar atrasados ('+pendVencidas.length+')</button>':'')
+    +'<button class="btn btn-sm" onclick="window._cronoListaAtual=window._cronoOcsMes.filter(r=>!cronoFiltroStatus||cronoGrupo(r)===cronoFiltroStatus);window._cronoListaTitulo=\'Cronograma \'+_cronoNomeMes(..._cronoMesAtualArr());cronoExportarLista()"><i class="ti ti-file-spreadsheet"></i> Excel</button>'
+    +'</div></div>';
+  let corpo;
+  if(cronoVisao==='obra')corpo=cronoHtmlMatriz(ano,mes,ocs,cols,obrasLista);
+  else corpo=cronoHtmlTabelaTarefas(ano,mes,ocs,cols);
+  let lista='';
+  if(cronoFiltroStatus&&cronoVisao==='obra'){const l=ocs.filter(r=>cronoGrupo(r)===cronoFiltroStatus);window._cronoListaAtual=l;window._cronoListaTitulo=CRONO_STATUS[cronoFiltroStatus].label;lista=cronoHtmlLista(l,CRONO_STATUS[cronoFiltroStatus].label,cronoFiltroStatus);}
+  return kpis+barra+corpo+lista;
+}
+let _cronoColsVisiveis=[];
+// Visão principal — no formato da planilha do cronograma, uma linha por prazo; clique abre as obras
+function cronoHtmlTabelaTarefas(ano,mes,ocs,cols){
+  const hoje=_cronoHoje();
+  const porCol={};ocs.forEach(r=>{(porCol[r.t.id+'|'+r.ymd]=porCol[r.t.id+'|'+r.ymd]||[]).push(r);});
+  const freqLbl={mensal:'Mensal',quinzenal:'Quinzenal',unica:'Única',diaria:'Diária'};
+  const critDot=c=>{const m={critico:['#DC2626','Crítico'],atencao:['#F59E0B','Atenção'],normal:['#16A34A','Normal']}[c||'normal'];return '<span title="'+m[1]+'" style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:#374151"><span style="width:11px;height:11px;border-radius:50%;background:'+m[0]+'"></span>'+m[1]+'</span>';};
+  const ordemProb={nao_entregue:0,parcial:1,aguardando:2,atraso:3,a_vencer:4,ok:5,na:6};
+  _cronoColsVisiveis=[];
+  let item=0;
+  const linhas=cols.map(c=>{
+    const k=c.t.id+'|'+_cronoYmd(c.oc.prazo);
+    const rs=(porCol[k]||[]);
+    const filtradas=cronoFiltroStatus?rs.filter(r=>cronoGrupo(r)===cronoFiltroStatus):rs;
+    if(cronoFiltroStatus&&!filtradas.length)return '';
+    item++;_cronoColsVisiveis.push(k);
+    const validas=rs.filter(r=>r.status!=='na');
+    const n=validas.length;
+    const qt=st=>validas.filter(r=>cronoGrupo(r)===st).length;
+    const ok=qt('ok'),atr=qt('atraso'),nao=qt('nao_entregue'),par=qt('parcial'),ag=qt('aguardando'),av=qt('a_vencer');
+    const concl=ok+atr;
+    const seg=(q,cor)=>q?'<div style="width:'+(q/n*100)+'%;background:'+cor+'"></div>':'';
+    const barra=n?'<div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:#EEF2F7;min-width:110px">'+seg(ok,'#16A34A')+seg(atr,'#F59E0B')+seg(ag,'#3B82F6')+seg(par,'#FCD34D')+seg(nao,'#DC2626')+'</div>':'';
+    const venceu=hoje>_cronoAddDias(_cronoDia(c.oc.prazo),parseInt(c.t.tolerancia_dias)||0);
+    const chips=[nao?'<span style="color:var(--danger);font-weight:700">'+nao+' não entreg.</span>':'',par?'<span style="color:var(--warning);font-weight:700">'+par+' parcial</span>':'',ag?'<span style="color:var(--info);font-weight:700">'+ag+' a confirmar</span>':'',atr?'<span style="color:#B45309">'+atr+' c/ atraso</span>':''].filter(Boolean).join(' · ');
+    const aberto=!!cronoAbertos[k];
+    const bordaEsq=nao||par&&venceu?'var(--danger)':!venceu?'transparent':'var(--success)';
+    const tipoIco=c.t.tipo==='auto'?'<i class="ti ti-bolt" title="Automática: '+escHtml(CRONO_VINCULOS[c.t.vinculo]?.label||'')+'" style="color:var(--accent)"></i> ':'';
+    let html='<tr onclick="cronoAbertos[\''+k+'\']=!cronoAbertos[\''+k+'\'];renderCronograma()" style="cursor:pointer;background:'+(aberto?'#F3F7FC':'#fff')+'">'
+      +'<td style="border-left:4px solid '+bordaEsq+';text-align:center;font-weight:700;color:var(--navy)">'+item+'</td>'
+      +'<td style="min-width:260px"><div style="font-weight:600;font-size:13px;line-height:1.35">'+tipoIco+escHtml(c.t.titulo)+'</div>'+(c.t.area?'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(c.t.area)+'</div>':'')+'</td>'
+      +'<td style="white-space:nowrap;text-align:center"><div style="font-weight:700">'+c.oc.prazo.toLocaleDateString('pt-BR')+'</div><div style="font-size:11px;color:var(--text-muted)">'+c.oc.prazo.toLocaleDateString('pt-BR',{weekday:'short'})+(c.t.hora_limite?' · até '+escHtml(c.t.hora_limite):'')+'</div></td>'
+      +'<td style="text-align:center;font-size:12.5px">'+(freqLbl[c.t.frequencia]||'')+'</td>'
+      +'<td>'+critDot(c.t.criticidade)+'</td>'
+      +'<td style="font-size:12px;max-width:200px"><div>'+escHtml(c.t.responsavel_recebimento||'—')+'</div>'+(c.t.contato?'<div style="font-size:11px;color:var(--text-muted);word-break:break-all">'+escHtml(c.t.contato)+'</div>':'')+'</td>'
+      +'<td style="min-width:170px">'+(n?'<div style="display:flex;align-items:center;gap:8px">'+barra+'<b style="font-size:12.5px;white-space:nowrap">'+concl+'/'+n+'</b></div><div style="font-size:11px;margin-top:3px">'+(chips||(av?'<span style="color:var(--text-muted)">'+av+' a vencer</span>':'<span style="color:var(--success)">todas concluídas</span>'))+'</div>':'<span style="font-size:12px;color:var(--text-muted)">Não se aplica</span>')+'</td>'
+      +'<td style="text-align:center;color:var(--text-muted)"><i class="ti ti-chevron-'+(aberto?'up':'down')+'"></i></td></tr>';
+    if(aberto){
+      const lista=filtradas.slice().sort((a,b)=>(ordemProb[a.status]-ordemProb[b.status])||String(a.obra.codigo||'').localeCompare(String(b.obra.codigo||''),'pt-BR',{numeric:true}));
+      const sub=lista.map(r=>{
+        const st=CRONO_STATUS[r.status];
+        let info;
+        if(['ok','atraso','aguardando'].includes(r.status))info=(r.entrega?'Entregue '+r.entrega.toLocaleDateString('pt-BR'):'Entregue')+(r.ent&&r.ent.enviado_por?' por '+escHtml(r.ent.enviado_por):'')+(r.usouTol?' · usou tolerância':'');
+        else if(r.status==='na')info=r.dispensado?'Dispensado'+(r.ent?.motivo?': '+escHtml(r.ent.motivo):''):'Sem '+(CRONO_VINCULOS[r.t.vinculo]?.item||'item')+' na obra';
+        else info=escHtml(cronoFalta(r));
+        const chave=r.t.id+'|'+r.obra.id+'|'+r.ymd;
+        let acoes='';
+        if(r.status==='aguardando')acoes='<button class="btn btn-sm" onclick="event.stopPropagation();cronoConfirmar(\''+r.ent.id+'\')"><i class="ti ti-check"></i> Confirmar</button><button class="btn btn-sm" onclick="event.stopPropagation();cronoRecusar(\''+r.ent.id+'\')"><i class="ti ti-x"></i></button>';
+        else if(['nao_entregue','parcial','atraso'].includes(r.status))acoes='<button class="btn btn-sm" onclick="event.stopPropagation();cronoCobrar([\''+chave+'\'])"><i class="ti ti-mail"></i> Cobrar</button>';
+        const anexos=r.ent?(r.ent.print_url?'<a href="'+escHtml(r.ent.print_url)+'" target="_blank" onclick="event.stopPropagation()" title="Print do e-mail"><i class="ti ti-photo"></i></a> ':'')+(r.ent.arquivo_url?'<a href="'+escHtml(r.ent.arquivo_url)+'" target="_blank" onclick="event.stopPropagation()" title="Arquivo enviado"><i class="ti ti-file"></i></a>':''):'';
+        const atrasoTxt=r.diasAtraso&&['nao_entregue','parcial','atraso'].includes(r.status)?'<span style="color:var(--danger);font-weight:700;font-size:12px;white-space:nowrap">'+r.diasAtraso+' dia'+(r.diasAtraso>1?'s':'')+'</span>':'';
+        return '<div onclick="cronoAbrirDetalhe(\''+r.t.id+'\',\''+r.obra.id+'\',\''+r.ymd+'\')" style="display:grid;grid-template-columns:minmax(170px,1.1fr) 150px minmax(200px,2fr) 60px 30px auto;gap:10px;align-items:center;padding:7px 10px;border-bottom:1px solid #E8EDF4;cursor:pointer;font-size:12.5px" onmouseover="this.style.background=\'#fff\'" onmouseout="this.style.background=\'\'">'
+          +'<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(r.obra.codigo||'')+' <span style="font-weight:400;color:var(--text-muted)">'+escHtml(r.obra.nome||'')+'</span></div>'
+          +'<div><span style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:20px;background:'+st.bg+';color:'+st.cor+';white-space:nowrap"><i class="ti '+st.icon+'"></i>'+(r.status==='parcial'?'Parcial '+r.feitos+'/'+r.total:st.label)+'</span></div>'
+          +'<div style="color:var(--text-muted);font-size:12px">'+info+'</div>'
+          +'<div style="text-align:right">'+atrasoTxt+'</div>'
+          +'<div style="font-size:16px">'+anexos+'</div>'
+          +'<div style="display:flex;gap:4px;justify-content:flex-end">'+acoes+'</div></div>';
+      }).join('');
+      html+='<tr><td colspan="8" style="padding:0;background:#F3F7FC;border-left:4px solid '+bordaEsq+'"><div style="padding:4px 10px 10px 34px">'+(sub||'<div style="padding:10px;color:var(--text-muted);font-size:12.5px">Nenhuma obra.</div>')+'</div></td></tr>';
+    }
+    return html;
+  }).join('');
+  const th='padding:10px 8px;background:var(--navy);color:#fff;font-size:11.5px;font-weight:600;text-align:left;white-space:nowrap';
+  return '<div class="table-container" style="padding:0;overflow-x:auto">'
+    +'<div style="padding:12px 14px;font-weight:700;font-size:15px;color:var(--navy);border-bottom:1px solid var(--border)">Cronograma Administrativo · '+_cronoNomeMes(ano,mes).replace(/^./,x=>x.toUpperCase())+'</div>'
+    +'<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>'
+    +'<th style="'+th+';text-align:center;width:44px">Item</th><th style="'+th+'">Nome da tarefa</th><th style="'+th+';text-align:center">Data do envio</th><th style="'+th+';text-align:center">Frequência</th><th style="'+th+'">Criticidade</th><th style="'+th+'">Responsável pelo recebimento</th><th style="'+th+'">Obras que cumpriram</th><th style="'+th+';width:30px"></th>'
+    +'</tr></thead><tbody>'+(linhas||'<tr><td colspan="8" style="padding:20px;color:var(--text-muted)">Nenhuma tarefa com esse status.</td></tr>')+'</tbody></table>'
+    +'<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--text-muted);padding:10px 14px;border-top:1px solid var(--border)">'
+    +[['#16A34A','No prazo'],['#F59E0B','Com atraso'],['#3B82F6','A confirmar'],['#FCD34D','Parcial'],['#DC2626','Não entregue']].map(([c,l])=>'<span style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:8px;border-radius:2px;background:'+c+'"></span>'+l+'</span>').join('')
+    +'<span><i class="ti ti-bolt" style="color:var(--accent)"></i> Automática (atualiza pelo módulo)</span><span>Clique na linha para ver as obras</span></div></div>';
+}
+function cronoHtmlMatriz(ano,mes,ocs,cols,obrasLista){
   const mapa={};ocs.forEach(r=>{mapa[r.obra.id+'|'+r.t.id+'|'+r.ymd]=r;});
   const head='<tr><th style="position:sticky;left:0;background:#fff;z-index:2;min-width:150px;text-align:left">Obra</th>'+cols.map(c=>{
     const crit=c.t.criticidade==='critico'?'<span style="color:var(--danger)">●</span> ':c.t.criticidade==='atencao'?'<span style="color:var(--warning)">●</span> ':'';
@@ -15557,12 +15658,7 @@ function cronoHtmlAcomp(ano,mes){
     +(cronoFiltroStatus?'<span style="font-size:12px;color:'+CRONO_STATUS[cronoFiltroStatus].cor+'"><i class="ti ti-filter"></i> Filtro: '+CRONO_STATUS[cronoFiltroStatus].label+' · <a href="#" onclick="cronoFiltroStatus=null;renderCronograma();return false" style="color:inherit">limpar</a></span>':'<span style="font-size:11.5px;color:var(--text-muted)">Clique numa célula para ver o detalhe</span>')+'</div>'
     +(obrasLista.length?'<table style="font-size:12px"><thead>'+head+'</thead><tbody>'+linhas+'</tbody></table>':'<div style="padding:20px;color:var(--text-muted)">Nenhuma obra participando do cronograma.</div>')
     +legenda+'</div>';
-  // Lista abaixo da matriz
-  let lista,titulo;
-  if(cronoFiltroStatus){lista=ocs.filter(r=>cronoGrupo(r)===cronoFiltroStatus);titulo=CRONO_STATUS[cronoFiltroStatus].label;}
-  else{lista=ocs.filter(r=>r.status==='nao_entregue'||(r.status==='parcial'&&r.atrasado));titulo='Pendências vencidas para cobrar';}
-  window._cronoListaAtual=lista;window._cronoListaTitulo=titulo;
-  return kpis+matriz+cronoHtmlLista(lista,titulo,cronoFiltroStatus);
+  return matriz;
 }
 function cronoHtmlLista(lista,titulo,filtro){
   lista=lista.slice().sort((a,b)=>(a.oc.prazo-b.oc.prazo)||String(a.obra.codigo||'').localeCompare(String(b.obra.codigo||'')));
