@@ -1263,6 +1263,15 @@ async function showPage(page){
   }
 }
 
+// ─── Vagas de alojamento: ocupantes, livres e excedente (por alojamento) ──────────
+// Livres nunca fica negativo: um alojamento acima da capacidade NÃO tira vaga de outro.
+function alojOcupantes(a){
+  return funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length
+    +prestadores.filter(p=>String(p.alojamento_id)===String(a.id)&&p.situacao==='ativo').length;
+}
+function alojLivres(a){return a.tipo_alojamento==='hotel'?0:Math.max(0,(a.vagas_total||0)-alojOcupantes(a));}
+function alojExcesso(a){return a.tipo_alojamento==='hotel'?0:Math.max(0,alojOcupantes(a)-(a.vagas_total||0));}
+
 // ─── BACKUP (somente admin) ──────────────────────────────────────────────────
 // Gera UM arquivo .zip com tudo que é preciso para reconstruir o sistema:
 //   dados/      → todas as tabelas (.json completo para restaurar + .xlsx para consulta)
@@ -8676,7 +8685,8 @@ function renderAlojamentos(){
   const _idsAlojFiltrados=new Set(alojsFiltrados.map(a=>String(a.id)));
   const totalOcup=funcionarios.filter(f=>f.alojamento_id&&f.situacao!=='inativo'&&_idsAlojFiltrados.has(String(f.alojamento_id))).length
     +prestadores.filter(p=>p.alojamento_id&&p.situacao==='ativo'&&_idsAlojFiltrados.has(String(p.alojamento_id))).length;
-  const totalDisp=totalVagas-totalOcup;
+  const totalDisp=alojsFiltrados.reduce((s,a)=>s+alojLivres(a),0);
+  const totalExcesso=alojsFiltrados.reduce((s,a)=>s+alojExcesso(a),0);
   const totalAluguel=alojsFiltrados.reduce((s,a)=>s+Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0),0);
   const totalCaucao=alojsFiltrados.reduce((s,a)=>s+Number(a.caucao||0),0);
   const totalContas=alojamentosContas.filter(c=>c.mes===hoje.getMonth()+1&&c.ano===hoje.getFullYear()).reduce((s,c)=>s+Number(c.valor||0),0);
@@ -8743,7 +8753,7 @@ function renderAlojamentos(){
           +'</div>'
           +'<div style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:'+(alerta?'#DC2626':'#16A34A')+'"></div>'
           +'</div>'
-          +'<div style="font-size:10.5px;color:'+(isSel?'rgba(255,255,255,.85)':'#8B95A5')+';margin-top:2px;margin-left:22px">'+(a.tipo_alojamento==='hotel'?'Hotel':moradores+'/'+total+' vagas')+'</div>'
+          +'<div style="font-size:10.5px;color:'+(isSel?'rgba(255,255,255,.85)':'#8B95A5')+';margin-top:2px;margin-left:22px">'+(a.tipo_alojamento==='hotel'?'Hotel':moradores+'/'+total+' vagas · '+(moradores>total?'<b style="color:'+(isSel?'#FECACA':'#DC2626')+'">excedido +'+(moradores-total)+'</b>':(total-moradores>0?'<b style="color:'+(isSel?'#BBF7D0':'#16A34A')+'">'+(total-moradores)+' livre'+(total-moradores!==1?'s':'')+'</b>':'<b>lotado</b>')))+'</div>'
           +'</div>';
       }).join('');
       return grupo+itens;
@@ -8776,8 +8786,8 @@ function renderAlojamentos(){
     };
 
     const secoes=[
-      secao('moradores','users','Moradores',isHotel?'Hospedagem em hotel':moradores+' de '+total+' vagas ocupadas',
-        isHotel?'—':(moradores>=total&&total>0?'LOTADO':(total-moradores)+' LIVRE(S)'),
+      secao('moradores','users','Moradores',isHotel?'Hospedagem em hotel':(moradores>total&&total>0?moradores+' moradores para '+total+' vagas — '+(moradores-total)+' acima da capacidade':moradores+' de '+total+' vagas ocupadas'),
+        isHotel?'—':(moradores>total&&total>0?'EXCEDIDO (+'+(moradores-total)+')':moradores>=total&&total>0?'LOTADO':(total-moradores)+' LIVRE(S)'),
         moradores>=total&&total>0?'#991B1B':'#166534', moradores>=total&&total>0?'#FEE2E2':'#DCFCE7',
         "openModalMoradores('"+sel.id+"')"),
       secao('contrato','file-text','Vigência do Contrato',
@@ -9005,7 +9015,8 @@ function renderAlojamentos(){
       </div>
       <div class="table-container" style="padding:14px 16px;cursor:pointer" onclick="document.getElementById('aloj-tabela-secao')?.scrollIntoView({behavior:'smooth'})" title="Ver vagas disponíveis por alojamento">
         <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Disponíveis</div>
-        <div style="font-size:26px;font-weight:700;color:${totalDisp===0?'var(--danger)':totalDisp<=3?'var(--warning)':'var(--text)'}">${totalDisp}</div>
+        <div style="font-size:26px;font-weight:700;color:${totalDisp===0?'var(--danger)':totalDisp<=3?'var(--warning)':'var(--success,#166534)'}">${totalDisp}</div>
+        ${totalExcesso>0?`<div style="font-size:11px;color:var(--danger);margin-top:2px">${totalExcesso} morador(es) acima da capacidade</div>`:''}
       </div>
       <div class="table-container" style="padding:14px 16px;cursor:pointer" onclick="document.getElementById('aloj-tabela-secao')?.scrollIntoView({behavior:'smooth'})" title="Ver o custo de cada alojamento">
         <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Custo Mensal</div>
@@ -9027,16 +9038,17 @@ function renderAlojamentos(){
             const _obrasMap={};
             _todas.forEach(a=>{
               const k=a.obra?.codigo||(a.obra?.nome||'Sem obra');
-              if(!_obrasMap[k])_obrasMap[k]={vagas:0,ocup:0,custo:0,nome:a.obra?.nome||'Sem obra',id:a.obra_id};
+              if(!_obrasMap[k])_obrasMap[k]={vagas:0,ocup:0,livres:0,exc:0,custo:0,nome:a.obra?.nome||'Sem obra',id:a.obra_id};
               _obrasMap[k].vagas+=a.vagas_total||0;
-              _obrasMap[k].ocup+=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length
-                +prestadores.filter(p=>String(p.alojamento_id)===String(a.id)&&p.situacao==='ativo').length;
+              _obrasMap[k].ocup+=alojOcupantes(a);
+              _obrasMap[k].livres+=alojLivres(a);
+              _obrasMap[k].exc+=alojExcesso(a);
               _obrasMap[k].custo+=Number(a.custo_mensal||0)+Number(a.condominio||0)+Number(a.iptu||0)+Number(a.seguro||0);
             });
             return Object.entries(_obrasMap).map(([cod,o])=>{
               const pct=o.vagas?Math.round(o.ocup/o.vagas*100):0;
               const cor=pct>=100?'var(--danger)':pct>=80?'var(--warning)':'var(--primary)';
-              const disp=o.vagas-o.ocup;
+              const disp=o.livres;
               return '<div onclick="if(\''+(o.id||'')+'\'){document.getElementById(\'global-obra-select\').value=\''+(o.id||'')+'\';setGlobalObraFiltro(\''+(o.id||'')+'\')}" '
                 +'onmouseover="this.style.borderColor=\'var(--primary)\'" onmouseout="this.style.borderColor=\'var(--border)\'" '
                 +'style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;cursor:pointer;transition:border-color .15s">'
@@ -9044,10 +9056,10 @@ function renderAlojamentos(){
                 +'<div style="font-size:13px;font-weight:700;color:var(--primary-dark);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(o.nome||'')+'">'+cod+'</div>'
                 +'</div>'
                 +'<div style="display:flex;align-items:baseline;gap:6px;margin-bottom:2px">'
-                +'<span style="font-size:24px;font-weight:700;color:var(--text)">'+o.ocup+'</span>'
-                +'<span style="font-size:13px;color:var(--text-muted)">/ '+o.vagas+' vagas</span>'
+                +'<span style="font-size:30px;font-weight:800;color:'+(disp===0?'var(--danger)':disp<=2?'var(--warning)':'#166534')+'">'+disp+'</span>'
+                +'<span style="font-size:13px;font-weight:600;color:'+(disp===0?'var(--danger)':disp<=2?'var(--warning)':'#166534')+'">'+(disp===0?'sem vagas disponíveis':disp===1?'vaga disponível':'vagas disponíveis')+'</span>'
                 +'</div>'
-                +'<div style="font-size:11px;color:'+(disp===0?'var(--danger)':disp<=2?'var(--warning)':'var(--text-muted)')+';margin-bottom:10px">'+(disp===0?'Sem vagas disponíveis':disp+' disponível'+(disp!==1?'eis':''))+'</div>'
+                +'<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">'+o.ocup+' ocupadas de '+o.vagas+' vagas'+(o.exc>0?' · <b style="color:var(--danger)">'+o.exc+' acima da capacidade</b>':'')+'</div>'
                 +'<div style="height:6px;background:var(--border);border-radius:3px;margin-bottom:10px"><div style="height:6px;border-radius:3px;background:'+cor+';width:'+pct+'%;transition:width .3s"></div></div>'
                 +'<div style="display:flex;align-items:center;justify-content:space-between;padding-top:8px;border-top:1px solid var(--border)">'
                 +'<span style="font-size:11px;color:var(--text-muted)">Custo mensal</span>'
@@ -12653,7 +12665,7 @@ function exportAlojamentosExcel(){
       +prestadores.filter(p=>String(p.alojamento_id)===String(a.id)&&p.situacao==='ativo').length;
     const relMesAtual=alojamentosRelatorios.find(r=>String(r.alojamento_id)===String(a.id)&&r.mes===hoje.getMonth()+1&&r.ano===hoje.getFullYear());
     const admStatus=relMesAtual?('Recebido '+formatDate(relMesAtual.data_recebimento)):'Pendente';
-    rows.push([a.nome||'—',a.endereco||'—',a.obra?.codigo||'—',a.vagas_total||0,ocup,(a.vagas_total||0)-ocup,a.custo_mensal||0,formatDate(a.data_inicio),formatDate(a.data_termino),a.imobiliaria||'—',admStatus]);
+    rows.push([a.nome||'—',a.endereco||'—',a.obra?.codigo||'—',a.vagas_total||0,ocup,Math.max(0,(a.vagas_total||0)-ocup),a.custo_mensal||0,formatDate(a.data_inicio),formatDate(a.data_termino),a.imobiliaria||'—',admStatus]);
   });
   rows.push([]);
   rows.push(['MORADORES POR ALOJAMENTO','','','','','','','','','']);
