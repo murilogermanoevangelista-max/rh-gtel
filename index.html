@@ -5908,7 +5908,7 @@ function renderFeriasLocal(){
         <button class="btn btn-sm" onclick="exportFeriasExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
         <button class="btn btn-sm btn-success" onclick="exportFeriasPDF()"><i class="ti ti-file-type-pdf"></i> PDF</button>
         <button class="btn btn-sm" onclick="openModalFeriasManual()"><i class="ti ti-calendar-plus"></i> Lançar Período</button>
-        <button class="btn btn-primary" onclick="openImportFerias()"><i class="ti ti-upload"></i> Importar planilha DP</button>
+        ${currentUser?.perfil==='admin'?'<button class="btn btn-primary" onclick="openImportFerias()"><i class="ti ti-upload"></i> Importar planilha DP</button>':''}
       </div>
     </div>
     ${alertCardsRow(alertas)}
@@ -6369,6 +6369,7 @@ async function salvarFeriasManual(){
 }
 
 function openImportFerias(){
+  if(currentUser?.perfil!=='admin'){showToast('Acesso restrito a administradores','error');return;}
   document.body.insertAdjacentHTML('beforeend',`
     <div class="modal-overlay" id="modal-import-ferias" onclick="if(event.target===this)closeModal('modal-import-ferias')">
       <div class="modal" style="max-width:600px">
@@ -6414,6 +6415,7 @@ function handleImportFile(input){
 }
 
 function processImportFile(file){
+  if(currentUser?.perfil!=='admin'){showToast('Acesso restrito a administradores','error');return;}
   const reader=new FileReader();
   reader.onload=e=>{
     try{
@@ -6588,6 +6590,7 @@ function processImportFile(file){
 }
 
 async function confirmarImportFerias(){
+  if(currentUser?.perfil!=='admin'){showToast('Acesso restrito a administradores','error');return;}
   const dados=window._importFeriasData;
   if(!dados||!dados.length){showToast('Nenhum dado para importar','error');return;}
   const btn=document.querySelector('#import-footer .btn-primary');
