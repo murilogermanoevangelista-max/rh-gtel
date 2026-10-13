@@ -339,7 +339,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <div class="login-screen" id="login-screen">
   <div class="login-card">
     <div class="login-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 13/10/2026-g</span></div>
+    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 13/10/2026-h</span></div>
     <div class="login-error" id="login-erro"></div>
     <div class="login-field">
       <label>Usuário</label>
@@ -356,7 +356,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <aside class="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 13/10/2026-g</div>
+    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 13/10/2026-h</div>
   </div>
   <div class="sidebar-obra-filter">
     <label><i class="ti ti-building-skyscraper"></i> Filtrar por Obra</label>
@@ -17475,10 +17475,56 @@ function mobModalItem(id,novo){
       <div class="form-group"><label>Responsável</label><input id="mi-resp" value="${escHtml(it?it.responsavel||'':'')}" placeholder="Quem cuida"></div>
       <div class="form-group"><label>Prioridade</label><select id="mi-prio">${Object.keys(MOB_PRIO).map(k2=>`<option value="${k2}" ${(it?mobPrioDe(it):'media')===k2?'selected':''}>${MOB_PRIO[k2].l}</option>`).join('')}</select></div>
       ${eq?'':`<div class="form-group"><label>Nº da RM / pedido</label><input id="mi-ref" value="${escHtml(it?it.referencia||'':'')}"></div>`}
+      ${mobCampoForn(it)}
       <div class="form-group full"><label>Observação</label><textarea id="mi-obs" rows="2">${escHtml(it?it.observacao||'':'')}</textarea></div>
       ${it&&it.vinculo&&k.au&&k.au.det?`<div class="form-group full" style="font-size:12.5px;color:var(--text-muted)"><i class="ti ti-bolt"></i> Automático: ${escHtml(k.au.det)}</div>`:''}
     </div></div>
     <div class="modal-footer">${it&&!eq?`<button class="btn btn-danger" style="margin-right:auto" onclick="mobExcluirItem('${it.id}')"><i class="ti ti-trash"></i> Excluir</button>`:''}<button class="btn" onclick="closeModal('modal-mob-item')">Cancelar</button><button class="btn btn-primary" onclick="mobSalvarItem(${it?`'${it.id}'`:'null'})"><i class="ti ti-check"></i> Salvar</button></div></div></div>`);
+}
+// Lista suspensa com TODOS os fornecedores cadastrados (de qualquer obra); pode ficar em branco até achar o fornecedor
+function mobFornTxt(f){return(f.nome_fantasia||f.razao_social)+' — '+(f.tipo_fornecimento||'sem tipo')+' ('+(f.obra?(f.obra.nome||''):'geral')+')';}
+function mobCampoForn(it){
+  const sec=it?it.secao:mobSecao;
+  if(sec!==4&&sec!==5)return'';
+  const atual=it?(mobForn||[]).find(l=>String(l.item_id)===String(it.id)):null;
+  const todos=(fornecedores||[]).filter(f=>f.situacao!=='inativo'||(atual&&String(atual.fornecedor_id)===String(f.id))).sort((a,b)=>String(a.razao_social).localeCompare(String(b.razao_social),'pt-BR'));
+  window._miForn=todos;
+  return`<div class="form-group full"><label>Fornecedor <span style="font-weight:400;color:var(--text-muted)">(opcional: deixe em branco até achar)</span></label>
+    <input id="mi-fbusca" placeholder="Buscar por nome, o que fornece, CNPJ ou obra..." oninput="mobFiltrarFornItem()" style="margin-bottom:6px">
+    <select id="mi-forn" onchange="mobFornInfo()"><option value="">— Em branco (definir depois) —</option>${todos.map(f=>`<option value="${f.id}" ${atual&&String(atual.fornecedor_id)===String(f.id)?'selected':''}>${escHtml(mobFornTxt(f))}</option>`).join('')}</select>
+    <div id="mi-forn-info" style="font-size:12px;color:var(--text-muted);margin-top:6px"></div></div>`;
+}
+function mobFiltrarFornItem(){
+  const b=mobNorm(document.getElementById('mi-fbusca').value),dig=b.replace(/\D/g,'');
+  const sel=document.getElementById('mi-forn');const atual=sel.value;
+  const ok=(window._miForn||[]).filter(f=>!b||String(f.id)===String(atual)||mobNorm([f.razao_social,f.nome_fantasia,f.tipo_fornecimento,f.obra&&f.obra.nome,f.obra&&f.obra.codigo].join(' ')).includes(b)||(dig.length>=3&&String(f.cnpj||'').replace(/\D/g,'').includes(dig)));
+  sel.innerHTML='<option value="">— Em branco (definir depois) —</option>'+ok.map(f=>`<option value="${f.id}" ${String(f.id)===String(atual)?'selected':''}>${escHtml(mobFornTxt(f))}</option>`).join('');
+  if(!atual&&b&&ok.length===1){sel.value=ok[0].id;}
+  mobFornInfo();
+}
+function mobFornInfo(){
+  const el=document.getElementById('mi-forn-info');if(!el)return;
+  const f=(window._miForn||[]).find(x=>String(x.id)===String(document.getElementById('mi-forn').value));
+  el.innerHTML=f?`<i class="ti ti-truck"></i> ${escHtml(f.razao_social||'')}${f.cnpj?' · CNPJ '+escHtml(f.cnpj):''}${f.contato_nome||f.telefone?' · '+escHtml([f.contato_nome,f.telefone].filter(Boolean).join(' · ')):''}${f.email?' · '+escHtml(f.email):''}`:'';
+}
+// grava o fornecedor escolhido para o item (troca o vínculo manual anterior)
+async function mobGravarFornItem(itemId){
+  const sel=document.getElementById('mi-forn');if(!sel)return true;
+  const novo=sel.value;
+  const atual=(mobForn||[]).filter(l=>String(l.item_id)===String(itemId));
+  if(atual.length===1&&String(atual[0].fornecedor_id)===String(novo))return true;
+  if(!novo&&!atual.length)return true;
+  if(atual.length){
+    const r=await sb.from('mobilizacao_fornecedores').delete().eq('item_id',itemId);
+    if(r.error){showToast('Erro ao atualizar fornecedor: '+r.error.message,'error');return false;}
+    mobForn=mobForn.filter(l=>String(l.item_id)!==String(itemId));
+  }
+  if(novo){
+    const r=await sb.from('mobilizacao_fornecedores').insert({mobilizacao_id:mobSelId,fornecedor_id:String(novo),item_id:itemId}).select().single();
+    if(r.error){showToast(mobTabelaAusente(r.error)?'Rode o SQL atualizado (mobilizacao_obra.sql) para salvar o fornecedor':'Erro ao vincular fornecedor: '+r.error.message,'error');return false;}
+    mobForn.push(r.data);
+  }
+  return true;
 }
 function mobModalNovoItem(){mobModalItem(null,true);}
 function mobPrevChange(){const b=document.getElementById('mi-real-box');if(b)b.style.display=(parseFloat(document.getElementById('mi-prev').value)||1)>1?'':'none';}
@@ -17519,6 +17565,8 @@ async function mobSalvarItem(id){
     const{error}=await sb.from('mobilizacao_itens').update(p).eq('id',id);
     if(error){showToast('Erro: '+error.message,'error');return;}
     Object.assign(it,p);
+    await mobGravarFornItem(it.id);
+    const mob0=mobilizacoes.find(x=>x.id===mobSelId);if(mob0)await mobAutoCarregar(mob0);
   }else{
     const cat=p._cat;delete p._cat;
     const doSec=mobItens.filter(x=>x.mobilizacao_id===mobSelId&&x.secao===mobSecao);
@@ -17529,7 +17577,8 @@ async function mobSalvarItem(id){
     const{data,error}=await sb.from('mobilizacao_itens').insert(novo).select().single();
     if(error){showToast('Erro: '+error.message,'error');return;}
     mobItens.push(data);
-    if(data.vinculo){const mob=mobilizacoes.find(x=>x.id===mobSelId);if(mob)await mobAutoCarregar(mob);}
+    await mobGravarFornItem(data.id);
+    {const mob=mobilizacoes.find(x=>x.id===mobSelId);if(mob)await mobAutoCarregar(mob);}
   }
   closeModal('modal-mob-item');renderMobilizacao();showToast('Item salvo');
 }
