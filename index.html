@@ -339,7 +339,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <div class="login-screen" id="login-screen">
   <div class="login-card">
     <div class="login-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 13/10/2026-a</span></div>
+    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 13/10/2026-b</span></div>
     <div class="login-error" id="login-erro"></div>
     <div class="login-field">
       <label>Usuário</label>
@@ -356,7 +356,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <aside class="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 13/10/2026-a</div>
+    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 13/10/2026-b</div>
   </div>
   <div class="sidebar-obra-filter">
     <label><i class="ti ti-building-skyscraper"></i> Filtrar por Obra</label>
@@ -16637,7 +16637,42 @@ const MOB_STATUS_ITEM={
   na:{l:'N/A',bg:'var(--bg)',cor:'var(--text-muted)'},
   atrasado:{l:'Atrasado',bg:'var(--danger-light)',cor:'var(--danger)'},
 };
-let mobilizacoes=[],mobItens=[],mobCasas=[],mobErro=null,mobSelId=null,mobSecao=null,mobFiltro='',mobAuto={};
+let mobilizacoes=[],mobItens=[],mobCasas=[],mobModelo=[],mobErro=null,mobSelId=null,mobSecao=null,mobFiltro='',mobAuto={};
+// Itens padrão de um alojamento (lista suspensa da "Lista de compras"). d = regra/observação mostrada ao escolher o item.
+const MOB_COMPRAS=[
+  {g:'Cozinha e sala',n:'Rack'},
+  {g:'Cozinha e sala',n:'Televisão de 32" com antena digital'},
+  {g:'Cozinha e sala',n:'Jogo de sofá e cadeiras',d:'na proporção dos moradores'},
+  {g:'Cozinha e sala',n:'Geladeira',d:'de 06 a 08 funcionários'},
+  {g:'Cozinha e sala',n:'Fogão',d:'de 06 a 08 funcionários'},
+  {g:'Cozinha e sala',n:'Jogo de mesa e cadeiras para refeições',d:'na proporção dos moradores'},
+  {g:'Cozinha e sala',n:'Botijão de gás com mangueira e registro'},
+  {g:'Cozinha e sala',n:'Armário de cozinha',d:'de 06 a 08 funcionários'},
+  {g:'Cozinha e sala',n:'Jogo de panelas com panela de pressão',d:'de 06 a 08 funcionários'},
+  {g:'Cozinha e sala',n:'Conjunto de escumadeira',d:'de 06 a 08 funcionários'},
+  {g:'Cozinha e sala',n:'Faca grande'},
+  {g:'Cozinha e sala',n:'Tábua de cortar carnes'},
+  {g:'Cozinha e sala',n:'Escorredor de louças'},
+  {g:'Cozinha e sala',n:'Kit pequeno de potes plásticos (sal, açúcar etc.)'},
+  {g:'Cozinha e sala',n:'Pratos',d:'na proporção dos moradores para refeições'},
+  {g:'Cozinha e sala',n:'Talheres',d:'na proporção dos moradores para refeições'},
+  {g:'Cozinha e sala',n:'Copos',d:'na proporção dos moradores para refeições'},
+  {g:'Cozinha e sala',n:'Produtos de limpeza / sacos de lixo'},
+  {g:'Cozinha e sala',n:'Lixeiras com tampa para pia e lixeira grande para resíduos'},
+  {g:'Cozinha e sala',n:'Água potável (filtrada ou mineral)',d:'recomendável instalar torneira com filtro'},
+  {g:'Quartos',n:'Cama',d:'1 por funcionário: box com colchão, ou cama com estrado e colchão; manter área de circulação'},
+  {g:'Quartos',n:'Colchão',d:'1 por colaborador: D23 ou D28 INMETRO (operacional); D28 ou D33 INMETRO (administrativo)'},
+  {g:'Quartos',n:'Guarda-roupa de 2 portas',d:'1 para cada 2 funcionários'},
+  {g:'Quartos',n:'Ventilador',d:'coluna de 60 cm para 2 funcionários, ou 30 cm por colaborador'},
+  {g:'Quartos',n:'Kit lençol, fronha, cobertor e travesseiro',d:'1 por colaborador, limpos e higienizados; com termo de responsabilidade'},
+  {g:'Lavanderia e banheiro',n:'Tanque de lavar roupas'},
+  {g:'Lavanderia e banheiro',n:'Tanquinho ou máquina de lavar de 10 kg',d:'de 06 a 08 funcionários'},
+  {g:'Lavanderia e banheiro',n:'Varal para estender roupas'},
+  {g:'Lavanderia e banheiro',n:'Vaso sanitário com tampa',d:'sem trincas ou rachaduras'},
+  {g:'Lavanderia e banheiro',n:'Pia com torneira'},
+  {g:'Lavanderia e banheiro',n:'Chuveiro com água quente',d:'sem fiações expostas'},
+  {g:'Lavanderia e banheiro',n:'Lixeira com tampa para resíduos'},
+];
 
 // ---------- utilidades ----------
 function mobHoje(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
@@ -16679,6 +16714,8 @@ async function loadMobilizacao(){
 async function mobCarregarTudo(){
   await Promise.all([loadMobilizacao(),loadContratacoes(),loadContratacoesVagas(),loadFornecedores()]);
   if(mobErro)return;
+  const md=await sb.from('mobilizacao_modelo').select('*').eq('ativo',true).order('secao').order('ordem');
+  mobModelo=md.error?[]:(md.data||[]);
   for(const mob of mobilizacoes.filter(x=>x.status==='em_andamento'))await mobGarantirEquipe(mob);
   mobAuto={};
   await Promise.all(mobilizacoes.filter(x=>x.status==='em_andamento').map(mobAutoCarregar));
@@ -16693,7 +16730,7 @@ async function mobGarantirEquipe(mob){
     const it=mobItens.find(x=>x.mobilizacao_id===mob.id&&x.codigo===cod);
     if(!it){
       novos.push({mobilizacao_id:mob.id,secao:1,codigo:cod,nome:v.funcao?.nome||'Função',tipo:'quantidade',vinculo:'equipe',funcao_id:v.funcao_id,
-        previsto:v.quantidade_prevista,realizado:0,status:'pendente',data_prazo:mobSomaDias(mob.data_inicio_obra,-15),responsavel:'RH',ordem:idx+1});
+        previsto:v.quantidade_prevista,realizado:0,status:'pendente',data_prazo:null,responsavel:null,ordem:idx+1});
     }else if(Number(it.previsto)!==Number(v.quantidade_prevista)){
       ajustes.push({id:it.id,previsto:v.quantidade_prevista});
     }
@@ -16806,23 +16843,24 @@ function mobCalcSecao(mob,n){
   const hoje=mobHoje();
   if(n===2){
     const cs=mobCasas.filter(c=>c.mobilizacao_id===mob.id);
-    let real=0,plan=0,atras=0,venc7=0;
-    cs.forEach(c=>{const k=mobCalcCasa(c);if(k.fim)real++;if(c.data_prazo&&c.data_prazo<=hoje)plan++;if(k.atras)atras++;
+    let real=0,plan=0,atras=0,venc7=0,semPrazo=0;
+    cs.forEach(c=>{const k=mobCalcCasa(c);if(!k.fim&&!c.data_prazo)semPrazo++;if(k.fim)real++;if(c.data_prazo&&c.data_prazo<=hoje)plan++;if(k.atras)atras++;
       else if(!k.fim&&c.data_prazo){const d=mobDias(c.data_prazo);if(d>=0&&d<=7)venc7++;}});
-    return{n,tot:cs.length,real,plan,atras,venc7,pct:cs.length?real/cs.length:null,planPct:cs.length?plan/cs.length:null,
+    return{n,tot:cs.length,real,plan,atras,venc7,semPrazo,pct:cs.length?real/cs.length:null,planPct:cs.length?plan/cs.length:null,
       txt:real+' de '+cs.length+' casas prontas'};
   }
   const its=mobItens.filter(i=>i.mobilizacao_id===mob.id&&i.secao===n);
-  let tot=0,real=0,plan=0,atras=0,venc7=0,ok=0,qtd=0;
+  let tot=0,real=0,plan=0,atras=0,venc7=0,ok=0,qtd=0,semPrazo=0;
   its.forEach(it=>{
     const k=mobCalcItem(it);if(k.st==='na')return;
     tot+=k.prev;real+=Math.min(k.real,k.prev);qtd++;if(k.st==='concluido')ok++;
+    if(!it.data_prazo&&k.st!=='concluido')semPrazo++;
     if(it.data_prazo&&it.data_prazo<=hoje)plan+=k.prev;
     if(k.atras)atras++;
     else if(k.st!=='concluido'&&it.data_prazo){const d=mobDias(it.data_prazo);if(d>=0&&d<=7)venc7++;}
   });
   const txt=n===1?(real+' de '+tot+' pessoas'):(ok+' de '+qtd+' itens');
-  return{n,tot,real,plan,atras,venc7,pct:tot?real/tot:null,planPct:tot?plan/tot:null,txt};
+  return{n,tot,real,plan,atras,venc7,semPrazo,pct:tot?real/tot:null,planPct:tot?plan/tot:null,txt};
 }
 function mobCalcMob(mob){
   const secs=MOB_SECOES.map(s=>mobCalcSecao(mob,s.n));
@@ -16831,7 +16869,8 @@ function mobCalcMob(mob){
   const plan=com.length?com.reduce((a,s)=>a+(s.planPct||0),0)/com.length:0;
   const atras=secs.reduce((a,s)=>a+s.atras,0);
   const venc7=secs.reduce((a,s)=>a+s.venc7,0);
-  return{secs,geral,plan,atras,venc7,diasObra:mobDias(mob.data_inicio_obra)};
+  const semPrazo=secs.reduce((a,s)=>a+s.semPrazo,0);
+  return{secs,geral,plan,atras,venc7,semPrazo,diasObra:mobDias(mob.data_inicio_obra)};
 }
 function mobStatusMob(mob,c){
   if(mob.status==='concluida')return{l:'Concluída',bg:'var(--success-light)',cor:'var(--success)'};
@@ -16923,7 +16962,7 @@ function mobHtmlPainel(mob){
   const o=mobObra(mob);const c=mobCalcMob(mob);const s=mobStatusMob(mob,c);
   const cartoes=MOB_SECOES.map((sec,i)=>{
     const r=c.secs[i];
-    const alerta=r.atras?`<div style="font-size:12px;font-weight:600;color:var(--danger)">${r.atras} atrasado${r.atras>1?'s':''}</div>`:(r.venc7?`<div style="font-size:12px;font-weight:600;color:var(--warning)">${r.venc7} vence${r.venc7>1?'m':''} em 7 dias</div>`:`<div style="font-size:12px;color:var(--text-muted)">${r.tot?'Sem atrasos':'Sem itens'}</div>`);
+    const alerta=r.atras?`<div style="font-size:12px;font-weight:600;color:var(--danger)">${r.atras} atrasado${r.atras>1?'s':''}</div>`:(r.venc7?`<div style="font-size:12px;font-weight:600;color:var(--warning)">${r.venc7} vence${r.venc7>1?'m':''} em 7 dias</div>`:(r.semPrazo?`<div style="font-size:12px;font-weight:600;color:var(--warning)">${r.semPrazo} sem prazo</div>`:`<div style="font-size:12px;color:var(--text-muted)">${r.tot?'Sem atrasos':'Sem itens'}</div>`));
     return`<div onclick="mobAbrirSecao(${sec.n})" style="cursor:pointer;flex:1 1 240px;background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px;display:flex;flex-direction:column;gap:7px">
       <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:11.5px;font-weight:700;color:var(--text-muted)">SEÇÃO ${sec.n}</span>${mobSelo(sec.tipo)}</div>
       <div style="font-size:15px;font-weight:700">${sec.nome}</div>
@@ -16964,6 +17003,7 @@ function mobHtmlPainel(mob){
         <button class="btn" onclick="mobModalDatas('${mob.id}')"><i class="ti ti-calendar-event"></i> Editar datas</button>
         ${mob.status==='em_andamento'?`<button class="btn btn-success" onclick="mobMudarStatus('${mob.id}','concluida')"><i class="ti ti-check"></i> Marcar como concluída</button>`:`<button class="btn" onclick="mobMudarStatus('${mob.id}','em_andamento')"><i class="ti ti-player-play"></i> Reabrir</button>`}
       </div></div>
+    ${c.semPrazo?`<div style="background:var(--warning-light);border:1px solid #E5C68A;color:var(--warning);border-radius:8px;padding:9px 14px;font-size:12.5px;margin-bottom:14px"><i class="ti ti-calendar-event"></i> <b>${c.semPrazo} ite${c.semPrazo>1?'ns':'m'} sem prazo.</b> Abra a seção e clique em "definir prazo": item sem prazo não entra no Planejado × Realizado nem gera alerta de atraso.</div>`:''}
     <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:16px">${cartoes}</div>
     <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;margin-bottom:16px">
       <div style="flex:1 1 380px;min-width:0;background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px">
@@ -16988,7 +17028,7 @@ function mobHtmlSecao(mob){
   const topo=`<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px"><a onclick="mobSelId=null;mobSecao=null;renderMobilizacao()" style="cursor:pointer;color:var(--primary)">Mobilização Obra</a> › <a onclick="mobVoltar()" style="cursor:pointer;color:var(--primary)">${escHtml(o.nome||'Obra')}</a> › Seção ${sec.n}</div>
     <div class="page-header" style="margin-bottom:14px"><div><div class="page-title">${sec.nome} ${mobSelo(sec.tipo)}</div>
       <div class="page-subtitle">${r.txt} · ${r.pct===null?'—':mobPct(r.pct)}${r.atras?' · <b style="color:var(--danger)">'+r.atras+' atrasado'+(r.atras>1?'s':'')+'</b>':''}</div></div>
-      <div style="display:flex;gap:8px">${mobSecao===2?'<button class="btn btn-primary" onclick="mobModalCasa()"><i class="ti ti-plus"></i> Casa prevista</button>':(mobSecao===1?'':'<button class="btn btn-primary" onclick="mobModalNovoItem()"><i class="ti ti-plus"></i> Novo item</button>')}</div></div>`;
+      <div style="display:flex;gap:8px">${mobSecao===2?'<button class="btn btn-primary" onclick="mobModalCasa()"><i class="ti ti-plus"></i> Casa prevista</button>':(mobSecao===1?'':'<button class="btn btn-primary" onclick="mobModalNovoItem()"><i class="ti ti-plus"></i> Adicionar item</button>')}</div></div>`;
   let corpo;
   if(mobSecao===2)corpo=mobHtmlCasas(mob);
   else if(mobSecao===1)corpo=mobHtmlEquipe(mob);
@@ -16996,7 +17036,7 @@ function mobHtmlSecao(mob){
   return topo+mobAbas(mob)+corpo;
 }
 function mobCelPrazo(it){
-  if(!it.data_prazo)return'<span style="color:var(--text-muted)">sem prazo</span>';
+  if(!it.data_prazo)return`<span onclick="mobModalItem('${it.id}')" style="cursor:pointer;color:var(--warning);font-weight:600;white-space:nowrap"><i class="ti ti-calendar-plus"></i> definir prazo</span>`;
   const d=mobDias(it.data_prazo);
   return`<div style="white-space:nowrap">${formatDate(it.data_prazo)}</div><div style="font-size:11px;color:${d<0?'var(--danger)':'var(--text-muted)'}">${mobDiasTxt(it.data_prazo)}</div>`;
 }
@@ -17028,14 +17068,14 @@ function mobHtmlItens(mob){
       :(i.tipo==='check'?(k.st==='concluido'?'<i class="ti ti-circle-check" style="color:var(--success);font-size:20px"></i>':'<i class="ti ti-circle" style="color:var(--text-muted);font-size:20px"></i>'):'');
     const qtd=i.tipo==='quantidade'?`<b>${k.real}</b> / ${k.prev}`:'';
     const detalhe=[au&&au.det,i.referencia?'Ref.: '+i.referencia:'',i.observacao].filter(Boolean).map(escHtml).join(' · ');
-    return`<tr><td style="width:36px;text-align:center">${marca}</td><td style="color:var(--text-muted);font-size:12px">${escHtml(i.codigo)}</td>
+    return`<tr><td style="width:36px;text-align:center">${marca}</td><td style="color:var(--text-muted);font-size:12px">${/^M\d/.test(i.codigo)?'—':escHtml(i.codigo)}</td>
       <td style="font-weight:600">${escHtml(i.nome)}${detalhe?`<div style="font-size:11.5px;font-weight:400;color:var(--text-muted)">${detalhe}</div>`:''}</td>
       <td>${origem}</td><td style="text-align:center">${qtd}</td><td>${mobCelPrazo(i)}</td><td>${escHtml(i.responsavel||'—')}</td><td>${mobSitItem(k)}</td>
       <td><button class="btn btn-sm" onclick="mobModalItem('${i.id}')"><i class="ti ti-edit"></i></button></td></tr>`;}).join('');
   const nota=mobSecao===7?'<div style="background:var(--accent-light);border:1px solid #F2D2AE;color:#8A4A06;border-radius:8px;padding:9px 14px;font-size:12.5px;margin-bottom:12px"><i class="ti ti-bolt"></i> O "ok" aparece sozinho quando o módulo correspondente já tem dados nesta obra. Controles sem módulo no sistema (notas fiscais, RD, refeição, VA) são marcados à mão.</div>'
     :(mobSecao===5?'<div style="background:var(--accent-light);border:1px solid #F2D2AE;color:#8A4A06;border-radius:8px;padding:9px 14px;font-size:12.5px;margin-bottom:12px"><i class="ti ti-bolt"></i> O item fica "ok" quando existe um fornecedor da obra (ou geral) com o tipo de fornecimento correspondente em <b>Fornecedores</b>. O nome do fornecedor aparece sozinho.</div>':'');
   return nota+`<div class="table-container" style="overflow-x:auto"><table style="min-width:860px"><thead><tr><th></th><th>Cód.</th><th>Item</th><th>Origem</th><th style="text-align:center">Qtd</th><th>Prazo</th><th>Responsável</th><th>Situação</th><th></th></tr></thead>
-    <tbody>${linhas||'<tr><td colspan="9"><div class="empty-state"><i class="ti ti-list-check"></i><div>Nenhum item nesta seção</div></div></td></tr>'}</tbody></table></div>`;
+    <tbody>${linhas||'<tr><td colspan="9"><div class="empty-state"><i class="ti ti-list-check"></i><div>Nenhum item nesta seção ainda</div><div style="font-size:12.5px;margin-top:6px">Clique em "Adicionar item" para escolher na lista ou digitar um item novo.</div></div></td></tr>'}</tbody></table></div>`;
 }
 
 // ---------- casas (seção 2) ----------
@@ -17075,7 +17115,7 @@ function mobModalNova(){
       <div class="form-group full"><label>Obra nova *</label><select id="mn-obra"><option value="">Selecione...</option>${livres.map(o=>`<option value="${o.id}">${escHtml((o.codigo?o.codigo+' — ':'')+o.nome)}</option>`).join('')}</select></div>
       <div class="form-group"><label>Início da mobilização *</label><input type="date" id="mn-ini" value="${hoje}"></div>
       <div class="form-group"><label>Início da obra *</label><input type="date" id="mn-fim" value="${mobSomaDias(hoje,30)}"></div>
-      <div class="form-group full" style="font-size:12.5px;color:var(--text-muted)">O checklist nasce do catálogo (seções 3 a 7) e das vagas de Contratações. Cada item recebe um prazo sugerido contado a partir do início da obra; você ajusta item por item.</div>
+      <div class="form-group full" style="font-size:12.5px;color:var(--text-muted)">O checklist nasce com as vagas de Contratações (seção 1), os fornecedores (5) e os controles (7). Nas seções 3, 4 e 6 você escolhe os itens numa lista. Os prazos ficam em branco: você define item por item.</div>
     </div></div>
     <div class="modal-footer"><button class="btn" onclick="closeModal('modal-mob-nova')">Cancelar</button><button class="btn btn-primary" id="mn-salvar" onclick="mobCriar()"><i class="ti ti-check"></i> Criar checklist</button></div></div></div>`);
 }
@@ -17087,12 +17127,11 @@ async function mobCriar(){
   const btn=document.getElementById('mn-salvar');btn.disabled=true;btn.innerHTML='<i class="ti ti-loader ti-spin"></i> Criando...';
   const{data:mob,error}=await sb.from('mobilizacoes').insert({obra_id:obraId,data_inicio_mobilizacao:ini,data_inicio_obra:fim}).select().single();
   if(error){showToast('Erro: '+error.message,'error');btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Criar checklist';return;}
-  const md=await sb.from('mobilizacao_modelo').select('*').eq('ativo',true).order('secao').order('ordem');
+  const md=await sb.from('mobilizacao_modelo').select('*').eq('ativo',true).in('secao',[5,7]).order('secao').order('ordem');
   if(md.error){showToast('Mobilização criada, mas o catálogo não carregou: '+md.error.message,'error');}
   const linhas=(md.data||[]).map(m=>{
-    let prazo=mobSomaDias(fim,-(m.dias_antes||0));if(prazo<ini)prazo=ini;
     return{mobilizacao_id:mob.id,secao:m.secao,codigo:m.codigo,nome:m.nome,tipo:m.tipo,vinculo:m.vinculo,previsto:m.previsto_padrao,
-      data_prazo:prazo,responsavel:m.responsavel_padrao||null,ordem:m.ordem};
+      data_prazo:null,responsavel:m.responsavel_padrao||null,ordem:m.ordem};
   });
   for(let i=0;i<linhas.length;i+=100){
     const r=await sb.from('mobilizacao_itens').insert(linhas.slice(i,i+100));
@@ -17167,7 +17206,7 @@ function mobModalItem(id,novo){
   document.body.insertAdjacentHTML('beforeend',`<div class="modal-overlay" id="modal-mob-item" onclick="if(event.target===this)closeModal('modal-mob-item')">
     <div class="modal" style="max-width:560px"><div class="modal-header"><span class="modal-title">${novo?'Novo item':'Editar item'}${it?' · '+escHtml(it.nome):''}</span><button class="btn btn-sm" onclick="closeModal('modal-mob-item')"><i class="ti ti-x"></i></button></div>
     <div class="modal-body"><div class="form-grid">
-      ${eq?'':`<div class="form-group full"><label>Item *</label><input id="mi-nome" value="${escHtml(it?it.nome:'')}" placeholder="Nome do item"></div>`}
+      ${novo?mobCampoCatalogo():(eq?'':`<div class="form-group full"><label>Item *</label><input id="mi-nome" value="${escHtml(it?it.nome:'')}" placeholder="Nome do item"></div>`)}
       ${eq?'':`<div class="form-group"><label>Tipo</label><select id="mi-tipo"><option value="check" ${it&&it.tipo==='check'?'selected':''}>Sim / não</option><option value="quantidade" ${it&&it.tipo==='quantidade'?'selected':''}>Quantidade</option></select></div>
       <div class="form-group"><label>Previsto</label><input type="number" min="0" step="1" id="mi-prev" value="${it?it.previsto:1}"></div>`}
       ${eq||(it&&it.vinculo&&k.auto)?'':`<div class="form-group"><label>Realizado (manual)</label><input type="number" min="0" step="1" id="mi-real" value="${it?it.realizado:0}"></div>`}
@@ -17181,6 +17220,19 @@ function mobModalItem(id,novo){
     <div class="modal-footer">${it&&!eq?`<button class="btn btn-danger" style="margin-right:auto" onclick="mobExcluirItem('${it.id}')"><i class="ti ti-trash"></i> Excluir</button>`:''}<button class="btn" onclick="closeModal('modal-mob-item')">Cancelar</button><button class="btn btn-primary" onclick="mobSalvarItem(${it?`'${it.id}'`:'null'})"><i class="ti ti-check"></i> Salvar</button></div></div></div>`);
 }
 function mobModalNovoItem(){mobModalItem(null,true);}
+// Lista suspensa do catálogo (itens da seção que ainda não estão no checklist) + opção de digitar
+function mobCampoCatalogo(){
+  const usados=new Set(mobItens.filter(i=>i.mobilizacao_id===mobSelId).map(i=>i.codigo));
+  const disp=mobModelo.filter(m=>m.secao===mobSecao&&!usados.has(m.codigo));
+  return`<div class="form-group full"><label>Item *</label><select id="mi-cat" onchange="mobCatSel(this)"><option value="">Selecione na lista...</option>${disp.map(m=>`<option value="${escHtml(m.codigo)}">${escHtml(m.nome)}</option>`).join('')}<option value="__outro">Outro (digitar manualmente)…</option></select></div>
+    <div class="form-group full" id="mi-nome-box" style="display:none"><label>Nome do item *</label><input id="mi-nome" placeholder="Digite o nome do item"></div>`;
+}
+function mobCatSel(el){
+  const outro=el.value==='__outro';
+  document.getElementById('mi-nome-box').style.display=outro?'':'none';
+  const m=mobModelo.find(x=>x.codigo===el.value);
+  if(m){document.getElementById('mi-tipo').value=m.tipo;document.getElementById('mi-prev').value=m.previsto_padrao;}
+}
 async function mobSalvarItem(id){
   const g=x=>document.getElementById(x);
   const it=id?mobItens.find(x=>x.id===id):null;
@@ -17188,23 +17240,34 @@ async function mobSalvarItem(id){
   if(!prazo){showToast('Todo item precisa de prazo','error');return;}
   const p={data_prazo:prazo,responsavel:g('mi-resp').value.trim()||null,observacao:g('mi-obs').value.trim()||null};
   if(!it||it.secao!==1){
-    const nome=g('mi-nome').value.trim();if(!nome){showToast('Informe o nome do item','error');return;}
-    p.nome=nome;p.tipo=g('mi-tipo').value;p.previsto=Math.max(0,parseFloat(g('mi-prev').value)||0);
+    let cat=null,nome;
+    if(!it){
+      const sel=g('mi-cat').value;
+      if(!sel){showToast('Escolha o item na lista','error');return;}
+      if(sel==='__outro'){nome=g('mi-nome').value.trim();if(!nome){showToast('Digite o nome do item','error');return;}}
+      else{cat=mobModelo.find(x=>x.codigo===sel);nome=cat.nome;}
+    }else{nome=g('mi-nome').value.trim();if(!nome){showToast('Informe o nome do item','error');return;}}
+    p.nome=nome;p._cat=cat;p.tipo=g('mi-tipo').value;p.previsto=Math.max(0,parseFloat(g('mi-prev').value)||0);
     p.status=g('mi-status').value;p.referencia=g('mi-ref').value.trim()||null;
     if(g('mi-real'))p.realizado=Math.max(0,parseFloat(g('mi-real').value)||0);
     p.concluido_em=p.status==='concluido'?((it&&it.concluido_em)||mobHoje()):null;
   }
   if(it){
+    delete p._cat;
     const{error}=await sb.from('mobilizacao_itens').update(p).eq('id',id);
     if(error){showToast('Erro: '+error.message,'error');return;}
     Object.assign(it,p);
   }else{
+    const cat=p._cat;delete p._cat;
     const doSec=mobItens.filter(x=>x.mobilizacao_id===mobSelId&&x.secao===mobSecao);
-    const maxN=doSec.reduce((a,x)=>Math.max(a,parseInt(String(x.codigo).split('.')[1])||0),0);
-    const novo={...p,mobilizacao_id:mobSelId,secao:mobSecao,codigo:mobSecao+'.'+String(maxN+1).padStart(2,'0'),vinculo:null,realizado:p.realizado||0,ordem:maxN+1};
+    const maxO=doSec.reduce((a,x)=>Math.max(a,x.ordem||0),0);
+    const novo={...p,mobilizacao_id:mobSelId,secao:mobSecao,
+      codigo:cat?cat.codigo:('M'+mobSecao+'-'+Date.now().toString(36)),vinculo:cat?cat.vinculo:null,
+      realizado:p.realizado||0,ordem:cat?cat.ordem:maxO+1};
     const{data,error}=await sb.from('mobilizacao_itens').insert(novo).select().single();
     if(error){showToast('Erro: '+error.message,'error');return;}
     mobItens.push(data);
+    if(data.vinculo){const mob=mobilizacoes.find(x=>x.id===mobSelId);if(mob)await mobAutoCarregar(mob);}
   }
   closeModal('modal-mob-item');renderMobilizacao();showToast('Item salvo');
 }
@@ -17217,9 +17280,30 @@ async function mobExcluirItem(id){
 
 // ---------- ações: casas ----------
 function mobLinhaCompra(c){
-  return`<div class="mob-compra" style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input type="checkbox" ${c&&c.ok?'checked':''} style="width:18px;height:18px"><input class="mob-compra-txt" value="${escHtml(c?c.item:'')}" placeholder="Ex.: 06 camas" style="flex:1"><button type="button" class="btn btn-sm" onclick="this.parentNode.remove()"><i class="ti ti-x"></i></button></div>`;
+  const ach=c&&MOB_COMPRAS.find(x=>x.n===c.item);
+  const outro=!!c&&!ach;
+  const grupos=[...new Set(MOB_COMPRAS.map(x=>x.g))];
+  const sel=`<select class="mob-compra-sel" onchange="mobCompraSel(this)" style="flex:1 1 230px;min-width:0"><option value="">Selecione o item...</option>${grupos.map(g=>`<optgroup label="${g}">${MOB_COMPRAS.filter(x=>x.g===g).map(x=>`<option value="${escHtml(x.n)}" ${c&&c.item===x.n?'selected':''}>${escHtml(x.n)}</option>`).join('')}</optgroup>`).join('')}<option value="__outro" ${outro?'selected':''}>Outro (digitar)…</option></select>`;
+  return`<div class="mob-compra" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px">
+    <input type="checkbox" ${c&&c.ok?'checked':''} title="Já comprado" style="width:18px;height:18px">${sel}
+    <input type="number" class="mob-compra-qtd" min="1" step="1" value="${c&&c.qtd!=null?c.qtd:1}" title="Quantidade" style="width:76px">
+    <input class="mob-compra-txt" value="${outro?escHtml(c.item):''}" placeholder="Digite o item" style="flex:1 1 200px;${outro?'':'display:none'}">
+    <button type="button" class="btn btn-sm" onclick="this.parentNode.remove()"><i class="ti ti-x"></i></button>
+    <div class="mob-compra-dica" style="flex:0 0 100%;font-size:11px;color:var(--text-muted);margin:-4px 0 0 26px">${ach&&ach.d?escHtml(ach.d):''}</div></div>`;
+}
+function mobCompraSel(el){
+  const row=el.closest('.mob-compra');
+  row.querySelector('.mob-compra-txt').style.display=el.value==='__outro'?'':'none';
+  const it=MOB_COMPRAS.find(x=>x.n===el.value);
+  row.querySelector('.mob-compra-dica').textContent=it&&it.d?it.d:'';
 }
 function mobAddCompra(){document.getElementById('mc-compras').insertAdjacentHTML('beforeend',mobLinhaCompra(null));}
+function mobAddComprasPadrao(){
+  const box=document.getElementById('mc-compras');
+  const ja=new Set([...box.querySelectorAll('.mob-compra-sel')].map(s=>s.value));
+  MOB_COMPRAS.filter(x=>!ja.has(x.n)).forEach(x=>box.insertAdjacentHTML('beforeend',mobLinhaCompra({item:x.n,qtd:1,ok:false})));
+}
+function mobTxtCompra(c){return c.qtd!=null?String(c.qtd).padStart(2,'0')+' '+c.item:c.item;}
 function mobModalCasa(id){
   const c=id?mobCasas.find(x=>x.id===id):null;
   const dt=(c&&c.datas_etapas)||{};
@@ -17238,7 +17322,7 @@ function mobModalCasa(id){
       <div class="form-group full"><label>Data em que chegou em cada etapa</label>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">${MOB_ETAPAS.map(e=>`<div><div style="font-size:11px;color:var(--text-muted)">${e.l}</div><input type="date" class="mc-dt" data-etapa="${e.k}" value="${dt[e.k]||''}"></div>`).join('')}</div></div>
       <div class="form-group full"><label>Lista de compras</label><div id="mc-compras">${(c&&Array.isArray(c.compras)?c.compras:[]).map(mobLinhaCompra).join('')}</div>
-        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="mobAddCompra()"><i class="ti ti-plus"></i> Item de compra</button></div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px"><button type="button" class="btn btn-sm" onclick="mobAddCompra()"><i class="ti ti-plus"></i> Item de compra</button><button type="button" class="btn btn-sm" onclick="mobAddComprasPadrao()"><i class="ti ti-list-check"></i> Adicionar todos os itens padrão</button></div></div>
       <div class="form-group full"><label>Observação</label><textarea id="mc-obs" rows="2">${escHtml(c?c.observacao||'':'')}</textarea></div>
     </div></div>
     <div class="modal-footer">${c?`<button class="btn btn-danger" style="margin-right:auto" onclick="mobExcluirCasa('${c.id}')"><i class="ti ti-trash"></i> Excluir</button>`:''}<button class="btn" onclick="closeModal('modal-mob-casa')">Cancelar</button><button class="btn btn-primary" onclick="mobSalvarCasa(${c?`'${c.id}'`:'null'})"><i class="ti ti-check"></i> Salvar</button></div></div></div>`);
@@ -17251,7 +17335,11 @@ async function mobSalvarCasa(id){
   const etapa=g('mc-etapa').value;
   const antes=id?mobCasas.find(x=>x.id===id):null;
   if(!datas[etapa]&&(!antes||antes.etapa!==etapa))datas[etapa]=mobHoje();
-  const compras=[...document.querySelectorAll('#mc-compras .mob-compra')].map(r=>({item:r.querySelector('.mob-compra-txt').value.trim(),ok:r.querySelector('input[type=checkbox]').checked})).filter(x=>x.item);
+  const compras=[...document.querySelectorAll('#mc-compras .mob-compra')].map(r=>{
+    const v=r.querySelector('.mob-compra-sel').value;
+    const item=v==='__outro'?r.querySelector('.mob-compra-txt').value.trim():v;
+    return{item,qtd:Math.max(1,parseInt(r.querySelector('.mob-compra-qtd').value)||1),ok:r.querySelector('input[type=checkbox]').checked};
+  }).filter(x=>x.item);
   const p={nome,bairro:g('mc-bairro').value.trim()||null,cidade:g('mc-cidade').value.trim()||null,endereco:g('mc-end').value.trim()||null,
     vagas:parseInt(g('mc-vagas').value)||null,imobiliaria:g('mc-imob').value.trim()||null,etapa,data_prazo:g('mc-prazo').value,
     responsavel:g('mc-resp').value.trim()||null,compras,datas_etapas:datas,observacao:g('mc-obs').value.trim()||null};
@@ -17281,7 +17369,6 @@ async function mobExcluirCasa(id){
   if(error){showToast('Erro: '+error.message,'error');return;}
   mobCasas=mobCasas.filter(x=>x.id!==id);closeModal('modal-mob-casa');renderMobilizacao();showToast('Casa excluída');
 }
-
 if(checkSessao()){
   entrarNoApp();
   verificarSessao();
