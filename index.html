@@ -339,7 +339,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <div class="login-screen" id="login-screen">
   <div class="login-card">
     <div class="login-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 13/10/2026-j</span></div>
+    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 13/10/2026-k</span></div>
     <div class="login-error" id="login-erro"></div>
     <div class="login-field">
       <label>Usuário</label>
@@ -356,7 +356,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <aside class="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 13/10/2026-j</div>
+    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 13/10/2026-k</div>
   </div>
   <div class="sidebar-obra-filter">
     <label><i class="ti ti-building-skyscraper"></i> Filtrar por Obra</label>
@@ -1256,7 +1256,7 @@ async function showPage(page){
     else if(page==='fornecedores'){await loadFornecedores();renderFornecedores();}
     else if(page==='contratacoes'){await Promise.all([loadContratacoes(),loadContratacoesVagas(),loadContratacoesProspeccoes()]);renderContratacoes();}
     else if(page==='matriz'){await loadMatriz();renderMatriz();}
-    else if(page==='mobilizacao'){mobSelId=null;mobSecao=null;mobFiltro='';await mobCarregarTudo();renderMobilizacao();}
+    else if(page==='mobilizacao'){mobSelId=mobPend||null;mobPend=null;mobSecao=null;mobFiltro='';await mobCarregarTudo();renderMobilizacao();}
   }catch(e){
     console.error('showPage erro em '+page+':',e);
     document.getElementById('main-content').innerHTML='<div style="padding:40px;color:var(--danger)"><i class="ti ti-alert-circle" style="font-size:32px;display:block;margin-bottom:12px"></i><strong>Erro ao carregar página "'+page+'"</strong><br><br><code style="font-size:12px">'+e.message+'</code><br><br><button class="btn" onclick="showPage(\''+page+'\')" >Tentar novamente</button></div>';
@@ -2188,6 +2188,7 @@ async function renderDashboard(){
   await loadFolgas();
   await loadFerias();
   await loadPrestadores();
+  await mobCarregarDash();
   const hoje=new Date();hoje.setHours(0,0,0,0);
   // Aplicar filtro global de obra em todos os cálculos do dashboard
   const funcsFiltrados=globalObraFiltro?funcionarios.filter(f=>f.obra_id===globalObraFiltro):funcionarios;
@@ -2567,6 +2568,7 @@ async function renderDashboard(){
       <div class="metric-card" style="cursor:pointer;padding:12px 14px" onclick="irParaFuncionariosPorMes(${JSON.stringify(movMeses[movMeses.length-1].admIds)},'Admissões em ${movMeses[movMeses.length-1].label}','ativos')"><div class="metric-label">Adm. no mês</div><div class="metric-value" style="font-size:19px">${admMes}</div></div>
       <div class="metric-card" style="cursor:pointer;padding:12px 14px" onclick="showPage('obras')"><div class="metric-label">Obras</div><div class="metric-value" style="font-size:19px">${obras.length}</div></div>
     </div>
+    ${(()=>{try{return mobHtmlDashboard(globalObraFiltro||null);}catch(e){console.warn(e);return'';}})()}
     <!-- 3 níveis de pendências — para o administrador se antecipar antes de virar crítico.
          Cada card, ao clicar, abre um menu com as opções específicas daquele nível pra ir direto nelas. -->
     ${(()=>{
@@ -17451,6 +17453,10 @@ async function mobSalvarDatas(id){
   closeModal('modal-mob-datas');renderMobilizacao();showToast('Datas atualizadas');
 }
 async function mobMudarStatus(id,status){
+  if(status==='concluida'){
+    const mob0=mobilizacoes.find(x=>x.id===id);
+    if(mob0){const c0=mobCalcMob(mob0);if(c0.geral<0.999&&!confirm('A mobilização está em '+mobPct(c0.geral)+' e ainda tem itens pendentes'+(c0.atras?' ('+c0.atras+' atrasado'+(c0.atras>1?'s':'')+')':'')+'.\n\nConcluir mesmo assim? A obra segue normal nos outros módulos, e a mobilização sai do dashboard (dá para reabrir).'))return;}
+  }
   const{error}=await sb.from('mobilizacoes').update({status}).eq('id',id);
   if(error){showToast('Erro: '+error.message,'error');return;}
   const mob=mobilizacoes.find(x=>x.id===id);if(mob)mob.status=status;
@@ -17736,6 +17742,39 @@ async function mobExcluirCasa(id){
   const{error}=await sb.from('mobilizacao_casas').delete().eq('id',id);
   if(error){showToast('Erro: '+error.message,'error');return;}
   mobCasas=mobCasas.filter(x=>x.id!==id);closeModal('modal-mob-casa');renderMobilizacao();showToast('Casa excluída');
+}
+
+// ---------- dashboard: obras em mobilização ----------
+let mobPend=null;
+async function mobCarregarDash(){
+  try{
+    await Promise.all([loadMobilizacao(),loadContratacoes(),loadContratacoesVagas(),loadFornecedores()]);
+    if(mobErro)return;
+    mobAuto={};
+    await Promise.all(mobilizacoes.filter(x=>x.status==='em_andamento').map(mobAutoCarregar));
+  }catch(e){console.warn('[Mobilização] dashboard:',e);}
+}
+function mobIrDash(id){mobPend=id;showPage('mobilizacao');}
+function mobHtmlDashboard(obraFiltroId){
+  if(mobErro)return'';
+  const ativas=mobilizacoes.filter(x=>x.status==='em_andamento'&&(!obraFiltroId||String(x.obra_id)===String(obraFiltroId)));
+  if(!ativas.length)return'';
+  const cards=ativas.map(m=>{
+    const c=mobCalcMob(m);const s=mobStatusMob(m,c);const o=mobObra(m);
+    const falt=c.diasObra===null?'':(c.diasObra>=0?'faltam '+c.diasObra+' dias para iniciar a obra':'obra iniciada há '+(-c.diasObra)+' dias');
+    const adiant=c.geral>=c.plan?'<span style="color:var(--success);font-weight:600">no ritmo</span>':'<span style="color:var(--danger);font-weight:600">'+Math.round((c.plan-c.geral)*100)+' pts abaixo do previsto</span>';
+    const tag=(t,bg,cor)=>`<span style="border-radius:999px;padding:2px 10px;font-size:11.5px;font-weight:700;background:${bg};color:${cor}">${t}</span>`;
+    const alertas=[c.atras?tag(c.atras+' atrasado'+(c.atras>1?'s':''),'var(--danger-light)','var(--danger)'):'',c.venc7?tag(c.venc7+' vence'+(c.venc7>1?'m':'')+' em 7 dias','var(--warning-light)','var(--warning)'):'',c.urgentes?tag(c.urgentes+' urgente'+(c.urgentes>1?'s':''),'var(--danger)','#fff'):'',c.semPrazo?tag(c.semPrazo+' sem prazo','#F0F2F5','var(--text-muted)'):''].filter(Boolean).join(' ')||tag('Nada atrasado','var(--success-light)','var(--success)');
+    return`<div onclick="mobIrDash('${m.id}')" style="cursor:pointer;flex:1 1 320px;min-width:280px;background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px;display:flex;flex-direction:column;gap:9px">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start"><div><div style="font-size:15px;font-weight:700">${escHtml(o.nome||'Obra')}</div><div style="font-size:12px;color:var(--text-muted)">${falt}</div></div>${mobChip(s.l,s.bg,s.cor)}</div>
+      <div style="display:flex;align-items:baseline;gap:8px"><span style="font-family:Sora,sans-serif;font-size:28px;font-weight:800;color:var(--navy)">${mobPct(c.geral)}</span><span style="font-size:12px;color:var(--text-muted)">concluído · previsto até hoje ${mobPct(c.plan)} · ${adiant}</span></div>
+      <div style="display:flex;flex-direction:column;gap:3px">${mobBarra(c.plan||0,'#B9CCE6')}${mobBarra(c.geral||0,'var(--navy)')}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${alertas}</div>
+      <div style="font-size:12px;color:var(--text-muted);display:flex;flex-direction:column;gap:2px">${c.secs.slice(0,2).map((sc,i)=>`<div><b style="color:var(--text)">${MOB_SECOES[i].curto}:</b> ${sc.pct===null?'—':mobPct(sc.pct)} · ${sc.txt}</div>`).join('')}</div>
+      <div style="font-size:12.5px;font-weight:700;color:var(--primary)">Abrir mobilização →</div></div>`;
+  }).join('');
+  return`<div style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px"><span style="font-size:15px;font-weight:700"><i class="ti ti-truck-loading"></i> Obras em mobilização (${ativas.length})</span><a onclick="showPage('mobilizacao')" style="cursor:pointer;font-size:12.5px;color:var(--primary)">Ver todas →</a></div>
+    <div style="display:flex;flex-wrap:wrap;gap:12px">${cards}</div></div>`;
 }
 if(checkSessao()){
   entrarNoApp();
