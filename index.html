@@ -339,7 +339,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <div class="login-screen" id="login-screen">
   <div class="login-card">
     <div class="login-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 02/10/2026-d</span></div>
+    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 13/10/2026-a</span></div>
     <div class="login-error" id="login-erro"></div>
     <div class="login-field">
       <label>Usuário</label>
@@ -356,7 +356,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <aside class="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 02/10/2026-d</div>
+    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 13/10/2026-a</div>
   </div>
   <div class="sidebar-obra-filter">
     <label><i class="ti ti-building-skyscraper"></i> Filtrar por Obra</label>
@@ -1120,6 +1120,7 @@ const MODULOS=[
   {page:'folgas',grupo:'pessoas',icone:'ti-beach',nome:'Folgas de Campo',desc:'Ciclos de folga'},
   {page:'treinamentos',grupo:'pessoas',icone:'ti-school',nome:'Treinamentos',desc:'Validades e vencimentos'},
   {page:'prestadores',grupo:'pessoas',icone:'ti-id-badge',nome:'Prestadores',desc:'Terceiros e presença'},
+  {page:'mobilizacao',grupo:'obras',icone:'ti-truck-loading',nome:'Mobilização Obra',desc:'Checklist de abertura de obra nova'},
   {page:'obras',grupo:'obras',icone:'ti-building-skyscraper',nome:'Obras / Contratos',desc:'Obras e centros de custo'},
   {page:'alojamentos',grupo:'obras',icone:'ti-home-2',nome:'Alojamentos',desc:'Contas e relatórios'},
   {page:'veiculos',grupo:'obras',icone:'ti-car',nome:'Veículos',desc:'Frota, km e revisões'},
@@ -1257,6 +1258,7 @@ async function showPage(page){
     else if(page==='fornecedores'){await loadFornecedores();renderFornecedores();}
     else if(page==='contratacoes'){await Promise.all([loadContratacoes(),loadContratacoesVagas(),loadContratacoesProspeccoes()]);renderContratacoes();}
     else if(page==='matriz'){await loadMatriz();renderMatriz();}
+    else if(page==='mobilizacao'){mobSelId=null;mobSecao=null;mobFiltro='';await mobCarregarTudo();renderMobilizacao();}
   }catch(e){
     console.error('showPage erro em '+page+':',e);
     document.getElementById('main-content').innerHTML='<div style="padding:40px;color:var(--danger)"><i class="ti ti-alert-circle" style="font-size:32px;display:block;margin-bottom:12px"></i><strong>Erro ao carregar página "'+page+'"</strong><br><br><code style="font-size:12px">'+e.message+'</code><br><br><button class="btn" onclick="showPage(\''+page+'\')" >Tentar novamente</button></div>';
@@ -1283,7 +1285,7 @@ function alojExcesso(a){return a.tipo_alojamento==='hotel'?0:Math.max(0,alojOcup
 const BACKUP_TABELAS=['alojamentos','alojamentos_contas','alojamentos_relatorios','ativos_imob_fotos','ativos_imob_responsaveis','ativos_imobilizados',
   'contratacoes','contratacoes_prospeccoes','contratacoes_vagas','cronograma_entregas','cronograma_permissoes','cronograma_tarefas','efetivo_he','efetivo_horas','efetivo_presenca','empresas','ferias',
   'folgas','folgas_ciclos','folgas_translados','fornecedor_orcamentos','fornecedores','funcionarios','funcoes','grd','grd_importacoes','grd_obra_mapa',
-  'matriz_contatos','movimentacoes_historico','obras','prestadores','prestadores_presenca','procedimentos','procedimentos_anexos','procedimentos_versoes',
+  'matriz_contatos','mobilizacao_casas','mobilizacao_itens','mobilizacao_modelo','mobilizacoes','movimentacoes_historico','obras','prestadores','prestadores_presenca','procedimentos','procedimentos_anexos','procedimentos_versoes',
   'treinamentos','usuarios_acesso','veiculos','veiculos_abastecimentos','veiculos_condutores','veiculos_km','veiculos_movimentacoes','veiculos_revisoes'];
 const BACKUP_DIAS=7;
 const BACKUP_KEY='gtel_ultimo_backup';
@@ -16608,6 +16610,676 @@ async function cronoSalvarPermUsuario(login){
   if(!ver||!ed||!login)return;
   const{error}=await sb.from('cronograma_permissoes').upsert({usuario:login,ver_acompanhamento:ver.checked,editar_tarefas:ed.checked,updated_at:new Date().toISOString()},{onConflict:'usuario'});
   if(error)showToast('Usuário salvo, mas a permissão do Cronograma não: '+error.message,'error');
+}
+
+// ─── MOBILIZAÇÃO OBRA ───────────────────────────────────────────────────────────────────────────
+// Checklist de abertura de OBRA NOVA (Planejado × Realizado), vindo da planilha "Acompanhamento Mobilização
+// Administrativa". Tabelas: mobilizacoes, mobilizacao_modelo, mobilizacao_itens, mobilizacao_casas
+// (script mobilizacao_obra.sql). Itens "automáticos" olham os módulos que já existem (Contratações, Funcionários,
+// Fornecedores, Ativo GTEL, Veículos, Alojamentos, Treinamentos…); os demais são marcados à mão. Todo item tem prazo.
+const MOB_SECOES=[
+  {n:1,nome:'Equipe (histograma)',curto:'Equipe',tipo:'auto'},
+  {n:2,nome:'Alojamentos',curto:'Alojamentos',tipo:'misto'},
+  {n:3,nome:'Estrutura do canteiro',curto:'Canteiro',tipo:'misto'},
+  {n:4,nome:'Equipamentos',curto:'Equipamentos',tipo:'misto'},
+  {n:5,nome:'Cadastro de fornecedores',curto:'Fornecedores',tipo:'auto'},
+  {n:6,nome:'Diversos',curto:'Diversos',tipo:'manual'},
+  {n:7,nome:'Controles administrativos',curto:'Controles',tipo:'auto'},
+];
+const MOB_ETAPAS=[
+  {k:'prospeccao',l:'Prospecção'},{k:'em_contrato',l:'Em contrato'},{k:'contrato_assinado',l:'Contrato assinado'},
+  {k:'mobiliando',l:'Mobiliando'},{k:'pronta',l:'Pronta'},{k:'ocupada',l:'Ocupada'},
+];
+const MOB_STATUS_ITEM={
+  pendente:{l:'Pendente',bg:'var(--bg)',cor:'var(--text-muted)'},
+  andamento:{l:'Em andamento',bg:'var(--info-light)',cor:'var(--info)'},
+  concluido:{l:'Concluído',bg:'var(--success-light)',cor:'var(--success)'},
+  na:{l:'N/A',bg:'var(--bg)',cor:'var(--text-muted)'},
+  atrasado:{l:'Atrasado',bg:'var(--danger-light)',cor:'var(--danger)'},
+};
+let mobilizacoes=[],mobItens=[],mobCasas=[],mobErro=null,mobSelId=null,mobSecao=null,mobFiltro='',mobAuto={};
+
+// ---------- utilidades ----------
+function mobHoje(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function mobDias(iso){if(!iso)return null;return Math.round((new Date(iso+'T12:00:00')-new Date(mobHoje()+'T12:00:00'))/86400000);}
+function mobSomaDias(iso,d){const x=new Date(iso+'T12:00:00');x.setDate(x.getDate()+d);return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');}
+function mobNorm(t){return String(t||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();}
+function mobDiasTxt(iso){
+  const d=mobDias(iso);if(d===null)return'—';
+  return d===0?'hoje':(d>0?'em '+d+' d':'há '+(-d)+' d');
+}
+function mobChip(txt,bg,cor){return`<span class="badge" style="background:${bg};color:${cor};font-weight:600">${txt}</span>`;}
+function mobBarra(pct,cor){return`<div style="height:7px;border-radius:99px;background:#E8EEF6;overflow:hidden"><div style="height:7px;border-radius:99px;width:${Math.round(Math.max(0,Math.min(1,pct))*100)}%;background:${cor}"></div></div>`;}
+function mobCorPct(p){return p>=1?'var(--success)':(p>=0.5?'var(--primary)':(p>0?'var(--accent)':'var(--danger)'));}
+function mobPct(p){return Math.round((p||0)*100)+'%';}
+function mobTabelaAusente(err){return!!err&&(/mobilizac|schema cache|does not exist|relation/i.test(err.message||'')||err.code==='42P01'||err.code==='PGRST205');}
+function mobObra(mob){return obras.find(o=>String(o.id)===String(mob.obra_id))||obrasTodas.find(o=>String(o.id)===String(mob.obra_id))||mob.obra||{};}
+
+// ---------- carga ----------
+async function loadMobilizacao(){
+  const[m,i,c]=await Promise.all([
+    pagAll(()=>sb.from('mobilizacoes').select('*').order('created_at',{ascending:false})),
+    pagAll(()=>sb.from('mobilizacao_itens').select('*').order('secao').order('ordem')),
+    pagAll(()=>sb.from('mobilizacao_casas').select('*').order('ordem').order('created_at')),
+  ]);
+  const err=m.error||i.error||c.error;
+  if(err){
+    mobErro=mobTabelaAusente(err)?'Rode o script mobilizacao_obra.sql no SQL Editor do Supabase para ativar este módulo.':('Erro ao carregar a mobilização: '+err.message);
+    mobilizacoes=[];mobItens=[];mobCasas=[];return;
+  }
+  mobErro=null;
+  let lm=m.data||[];
+  if(obrasPermitidasIds)lm=lm.filter(x=>obrasPermitidasIds.has(String(x.obra_id)));
+  const ids=new Set(lm.map(x=>String(x.id)));
+  mobilizacoes=lm;
+  mobItens=(i.data||[]).filter(x=>ids.has(String(x.mobilizacao_id)));
+  mobCasas=(c.data||[]).filter(x=>ids.has(String(x.mobilizacao_id)));
+}
+
+async function mobCarregarTudo(){
+  await Promise.all([loadMobilizacao(),loadContratacoes(),loadContratacoesVagas(),loadFornecedores()]);
+  if(mobErro)return;
+  for(const mob of mobilizacoes.filter(x=>x.status==='em_andamento'))await mobGarantirEquipe(mob);
+  mobAuto={};
+  await Promise.all(mobilizacoes.filter(x=>x.status==='em_andamento').map(mobAutoCarregar));
+}
+
+// A seção 1 nasce das vagas da obra (Contratações > Vagas): cria o item que falta e mantém o "previsto" em dia.
+async function mobGarantirEquipe(mob){
+  const vagas=(contratacoesVagas||[]).filter(v=>String(v.obra_id)===String(mob.obra_id)&&(v.quantidade_prevista||0)>0);
+  const novos=[];const ajustes=[];
+  vagas.forEach((v,idx)=>{
+    const cod='F-'+v.funcao_id;
+    const it=mobItens.find(x=>x.mobilizacao_id===mob.id&&x.codigo===cod);
+    if(!it){
+      novos.push({mobilizacao_id:mob.id,secao:1,codigo:cod,nome:v.funcao?.nome||'Função',tipo:'quantidade',vinculo:'equipe',funcao_id:v.funcao_id,
+        previsto:v.quantidade_prevista,realizado:0,status:'pendente',data_prazo:mobSomaDias(mob.data_inicio_obra,-15),responsavel:'RH',ordem:idx+1});
+    }else if(Number(it.previsto)!==Number(v.quantidade_prevista)){
+      ajustes.push({id:it.id,previsto:v.quantidade_prevista});
+    }
+  });
+  if(novos.length){
+    const{data,error}=await sb.from('mobilizacao_itens').insert(novos).select();
+    if(!error&&data)mobItens=mobItens.concat(data);
+  }
+  for(const a of ajustes){
+    const{error}=await sb.from('mobilizacao_itens').update({previsto:a.previsto}).eq('id',a.id);
+    if(!error){const it=mobItens.find(x=>x.id===a.id);if(it)it.previsto=a.previsto;}
+  }
+}
+
+// Conta registros de uma tabela (head count). null = não foi possível consultar (tabela/coluna diferente).
+async function mobContar(tabela,col,vals,extra){
+  if(!vals||!vals.length)return 0;
+  for(let i=0;i<vals.length;i+=150){
+    let q=sb.from(tabela).select('id',{count:'exact',head:true}).in(col,vals.slice(i,i+150));
+    if(extra)q=extra(q);
+    const{count,error}=await q;
+    if(error)return null;
+    if((count||0)>0)return count;
+  }
+  return 0;
+}
+
+// Resultado dos itens automáticos de UMA mobilização: mobAuto[mob.id][item.id]={n,det,cont}
+async function mobAutoCarregar(mob){
+  const obraId=mob.obra_id;
+  const obra=mobObra(mob);
+  const itens=mobItens.filter(x=>x.mobilizacao_id===mob.id&&x.vinculo);
+  const res={};
+  const funcsObra=funcionarios.filter(f=>String(f.obra_id)===String(obraId)&&f.situacao!=='inativo'&&f.situacao!=='transferido');
+  const funcIds=funcionarios.filter(f=>String(f.obra_id)===String(obraId)).map(f=>f.id);
+  const alojObra=alojamentos.filter(a=>String(a.obra_id)===String(obraId));
+  let ativosObra=null;
+  if(itens.some(i=>String(i.vinculo).startsWith('ativo:'))){
+    const r=await sb.from('ativos_imobilizados').select('id,descricao').eq('obra_id',obraId);
+    ativosObra=r.error?null:(r.data||[]);
+  }
+  const ctrl={};
+  const chaves=[...new Set(itens.filter(i=>String(i.vinculo).startsWith('ctrl:')).map(i=>String(i.vinculo).slice(5)))];
+  await Promise.all(chaves.map(async k=>{
+    let n=null;
+    if(k==='aloj')n=alojObra.length;
+    else if(k==='contratos_aloj')n=alojObra.filter(a=>a.data_inicio||a.contrato_url).length;
+    else if(k==='aso')n=await mobContar('treinamentos','funcionario_id',funcIds,q=>q.eq('tipo','ASO'));
+    else if(k==='nr')n=await mobContar('treinamentos','funcionario_id',funcIds,q=>q.eq('tipo','NR'));
+    else if(k==='contas')n=await mobContar('alojamentos_contas','alojamento_id',alojObra.map(a=>a.id));
+    else if(k==='efetivo')n=await mobContar('efetivo_presenca','departamento',obra.nome?[obra.nome]:[]);
+    else if(k==='ferias')n=await mobContar('ferias','funcionario_id',funcIds);
+    else if(k==='folgas')n=await mobContar('folgas','funcionario_id',funcIds);
+    else if(k==='grd')n=await mobContar('grd','obra_id',[obraId]);
+    else if(k==='prestadores')n=await mobContar('prestadores','obra_id',[obraId]);
+    else if(k==='veiculos')n=await mobContar('veiculos','obra_id',[obraId]);
+    else if(k==='integracao')n=(contratacoes||[]).filter(c=>String(c.obra_id)===String(obraId)&&['aguardando_integracao','integracao_liberada','integrado'].includes(c.status)).length;
+    ctrl[k]=n;
+  }));
+  let nVeic=null;
+  if(itens.some(i=>i.vinculo==='veiculos'))nVeic=await mobContar('veiculos','obra_id',[obraId]);
+  itens.forEach(it=>{
+    const v=String(it.vinculo);
+    if(v==='equipe'){
+      const real=funcsObra.filter(f=>String(f.funcao_id)===String(it.funcao_id)).length;
+      const cont=(contratacoes||[]).filter(c=>String(c.obra_id)===String(obraId)&&String(c.funcao_id)===String(it.funcao_id)&&!c.funcionario_id&&c.status!=='desistiu'&&c.status!=='integrado').length;
+      res[it.id]={n:real,cont,det:''};
+    }else if(v.startsWith('ativo:')){
+      if(ativosObra===null){res[it.id]={n:null,det:'Não foi possível consultar o Ativo GTEL'};return;}
+      const termos=v.slice(6).split('|').map(mobNorm);
+      const ach=ativosObra.filter(a=>termos.some(t=>mobNorm(a.descricao).includes(t)));
+      res[it.id]={n:ach.length,det:ach.slice(0,2).map(a=>a.descricao).join(', ')};
+    }else if(v.startsWith('forn:')){
+      const termos=v.slice(5).split('|').map(mobNorm);
+      const ach=(fornecedores||[]).filter(f=>(String(f.obra_id)===String(obraId)||!f.obra_id)&&f.situacao!=='inativo'
+        &&termos.some(t=>mobNorm([f.tipo_fornecimento,f.razao_social,f.nome_fantasia].join(' ')).includes(t)));
+      ach.sort((a,b)=>(String(b.obra_id)===String(obraId)?1:0)-(String(a.obra_id)===String(obraId)?1:0));
+      res[it.id]={n:ach.length?1:0,det:ach.slice(0,2).map(f=>f.nome_fantasia||f.razao_social).join(', ')};
+    }else if(v==='veiculos'){
+      res[it.id]=nVeic===null?{n:null,det:''}:{n:nVeic,det:''};
+    }else if(v.startsWith('ctrl:')){
+      const n=ctrl[v.slice(5)];
+      res[it.id]=n===null||n===undefined?{n:null,det:'Não foi possível verificar'}:{n:n>0?1:0,det:n>0?'Já tem dados nesta obra':'Ainda sem dados nesta obra'};
+    }
+  });
+  mobAuto[mob.id]=res;
+}
+
+// ---------- cálculos ----------
+function mobCalcItem(it){
+  const au=(mobAuto[it.mobilizacao_id]||{})[it.id];
+  const prev=Number(it.previsto)||0;
+  const man=Number(it.realizado)||0;
+  const autoN=au&&au.n!==null&&au.n!==undefined?au.n:null;
+  let real=autoN!==null?(it.secao===1?autoN:Math.max(autoN,man)):man;
+  if(it.status==='concluido')real=Math.max(real,prev);
+  let st;
+  if(it.status==='na')st='na';
+  else if(prev>0&&real>=prev)st='concluido';
+  else if(it.status==='andamento'||real>0||(au&&au.cont>0))st='andamento';
+  else st='pendente';
+  const atras=st!=='concluido'&&st!=='na'&&!!it.data_prazo&&mobDias(it.data_prazo)<0;
+  return{prev,real,st,atras,au,auto:autoN!==null,cont:au?au.cont||0:0,falta:Math.max(0,prev-real)};
+}
+function mobCalcCasa(c){
+  const fim=c.etapa==='pronta'||c.etapa==='ocupada';
+  return{fim,atras:!fim&&!!c.data_prazo&&mobDias(c.data_prazo)<0};
+}
+function mobCalcSecao(mob,n){
+  const hoje=mobHoje();
+  if(n===2){
+    const cs=mobCasas.filter(c=>c.mobilizacao_id===mob.id);
+    let real=0,plan=0,atras=0,venc7=0;
+    cs.forEach(c=>{const k=mobCalcCasa(c);if(k.fim)real++;if(c.data_prazo&&c.data_prazo<=hoje)plan++;if(k.atras)atras++;
+      else if(!k.fim&&c.data_prazo){const d=mobDias(c.data_prazo);if(d>=0&&d<=7)venc7++;}});
+    return{n,tot:cs.length,real,plan,atras,venc7,pct:cs.length?real/cs.length:null,planPct:cs.length?plan/cs.length:null,
+      txt:real+' de '+cs.length+' casas prontas'};
+  }
+  const its=mobItens.filter(i=>i.mobilizacao_id===mob.id&&i.secao===n);
+  let tot=0,real=0,plan=0,atras=0,venc7=0,ok=0,qtd=0;
+  its.forEach(it=>{
+    const k=mobCalcItem(it);if(k.st==='na')return;
+    tot+=k.prev;real+=Math.min(k.real,k.prev);qtd++;if(k.st==='concluido')ok++;
+    if(it.data_prazo&&it.data_prazo<=hoje)plan+=k.prev;
+    if(k.atras)atras++;
+    else if(k.st!=='concluido'&&it.data_prazo){const d=mobDias(it.data_prazo);if(d>=0&&d<=7)venc7++;}
+  });
+  const txt=n===1?(real+' de '+tot+' pessoas'):(ok+' de '+qtd+' itens');
+  return{n,tot,real,plan,atras,venc7,pct:tot?real/tot:null,planPct:tot?plan/tot:null,txt};
+}
+function mobCalcMob(mob){
+  const secs=MOB_SECOES.map(s=>mobCalcSecao(mob,s.n));
+  const com=secs.filter(s=>s.pct!==null);
+  const geral=com.length?com.reduce((a,s)=>a+s.pct,0)/com.length:0;
+  const plan=com.length?com.reduce((a,s)=>a+(s.planPct||0),0)/com.length:0;
+  const atras=secs.reduce((a,s)=>a+s.atras,0);
+  const venc7=secs.reduce((a,s)=>a+s.venc7,0);
+  return{secs,geral,plan,atras,venc7,diasObra:mobDias(mob.data_inicio_obra)};
+}
+function mobStatusMob(mob,c){
+  if(mob.status==='concluida')return{l:'Concluída',bg:'var(--success-light)',cor:'var(--success)'};
+  if(mob.status==='cancelada')return{l:'Cancelada',bg:'var(--bg)',cor:'var(--text-muted)'};
+  if(c.atras===0)return{l:'No prazo',bg:'var(--success-light)',cor:'var(--success)'};
+  if(c.atras<5)return{l:'Atenção',bg:'var(--warning-light)',cor:'var(--warning)'};
+  return{l:'Atrasada',bg:'var(--danger-light)',cor:'var(--danger)'};
+}
+function mobSelo(tipo){
+  if(tipo==='auto')return'<span class="badge" style="background:var(--accent-light);color:#B45309;font-weight:700"><i class="ti ti-bolt" style="font-size:11px"></i>&nbsp;Automático</span>';
+  if(tipo==='misto')return'<span class="badge" style="background:var(--info-light);color:var(--info);font-weight:700">Misto</span>';
+  return'<span class="badge" style="background:var(--bg);color:var(--text-muted);font-weight:700;border:1px solid var(--border)">Manual</span>';
+}
+function mobSitItem(k){
+  const s=k.atras?MOB_STATUS_ITEM.atrasado:MOB_STATUS_ITEM[k.st];
+  return mobChip(s.l,s.bg,s.cor);
+}
+
+// ---------- tela principal ----------
+function renderMobilizacao(){
+  const el=document.getElementById('main-content');
+  if(mobErro){
+    el.innerHTML=`<div class="page-header"><div><div class="page-title">Mobilização Obra</div></div></div>
+      <div style="background:var(--warning-light);border:1px solid #E5C68A;border-radius:var(--radius-lg);padding:20px;color:var(--warning)"><i class="ti ti-alert-triangle" style="font-size:22px;vertical-align:middle"></i> ${escHtml(mobErro)}</div>`;
+    return;
+  }
+  const mob=mobSelId?mobilizacoes.find(x=>x.id===mobSelId):null;
+  if(!mob){mobSelId=null;mobSecao=null;el.innerHTML=mobHtmlLista();return;}
+  el.innerHTML=mobSecao?mobHtmlSecao(mob):mobHtmlPainel(mob);
+}
+function mobAbrir(id){mobSelId=id;mobSecao=null;renderMobilizacao();window.scrollTo(0,0);}
+function mobAbrirSecao(n){mobSecao=n;renderMobilizacao();window.scrollTo(0,0);}
+function mobVoltar(){if(mobSecao)mobSecao=null;else mobSelId=null;renderMobilizacao();window.scrollTo(0,0);}
+function mobSetFiltro(f){mobFiltro=f;renderMobilizacao();}
+async function mobAtualizar(){
+  const mob=mobilizacoes.find(x=>x.id===mobSelId);
+  document.getElementById('main-content').innerHTML='<div class="loading"><i class="ti ti-loader ti-spin"></i> Atualizando dados dos módulos...</div>';
+  await Promise.all([loadContratacoes(),loadContratacoesVagas(),loadFornecedores()]);
+  if(mob){await mobGarantirEquipe(mob);await mobAutoCarregar(mob);}
+  else await mobCarregarTudo();
+  renderMobilizacao();
+  showToast('Dados atualizados');
+}
+
+// ---------- lista de mobilizações ----------
+function mobHtmlLista(){
+  const calc=mobilizacoes.map(m=>({m,c:mobCalcMob(m),s:null}));
+  calc.forEach(x=>{x.s=mobStatusMob(x.m,x.c);});
+  const ativas=calc.filter(x=>x.m.status==='em_andamento');
+  const atras=ativas.reduce((a,x)=>a+x.c.atras,0);
+  const venc7=ativas.reduce((a,x)=>a+x.c.venc7,0);
+  const prox=ativas.filter(x=>x.c.diasObra!==null&&x.c.diasObra>=0).sort((a,b)=>a.c.diasObra-b.c.diasObra)[0];
+  const lista=calc.filter(x=>!mobFiltro||(mobFiltro==='concluida'?x.m.status==='concluida':(x.m.status==='em_andamento'&&x.s.l===mobFiltro)));
+  const chip=(k,t)=>`<span onclick="mobSetFiltro('${k}')" style="cursor:pointer;border-radius:999px;padding:6px 14px;font-size:12.5px;font-weight:600;border:1px solid ${mobFiltro===k?'var(--navy)':'var(--border)'};background:${mobFiltro===k?'var(--navy)':'#fff'};color:${mobFiltro===k?'#fff':'var(--text)'}">${t}</span>`;
+  const card=x=>{
+    const{m,c,s}=x;const o=mobObra(m);
+    const barras=c.secs.map((sc,i)=>`<div style="display:flex;align-items:center;gap:10px;font-size:11.5px"><span style="flex:0 0 84px;color:var(--text-muted)">${MOB_SECOES[i].curto}</span><div style="flex:1">${mobBarra(sc.pct||0,mobCorPct(sc.pct||0))}</div><span style="flex:0 0 36px;text-align:right;font-weight:600">${sc.pct===null?'—':mobPct(sc.pct)}</span></div>`).join('');
+    const falt=c.diasObra===null?'':(c.diasObra>=0?'Faltam '+c.diasObra+' dias':'Obra iniciada há '+(-c.diasObra)+' dias');
+    return`<div onclick="mobAbrir('${m.id}')" style="cursor:pointer;background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px;display:flex;flex-wrap:wrap;gap:20px;align-items:center">
+      <div style="flex:1 1 230px;min-width:0">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span style="font-size:16px;font-weight:700">${escHtml(o.nome||'Obra')}</span>${mobChip(s.l,s.bg,s.cor)}</div>
+        <div style="font-size:12.5px;color:var(--text-muted);margin-top:3px">Projeto ${escHtml(o.codigo||'—')}${o.cidade?' · '+escHtml(o.cidade)+(o.uf?'/'+escHtml(o.uf):''):''}</div>
+        <div style="font-size:12.5px;margin-top:10px">Mobilização <b>${formatDate(m.data_inicio_mobilizacao)}</b> → início da obra <b>${formatDate(m.data_inicio_obra)}</b></div>
+        <div style="font-size:12.5px;color:var(--text-muted)">${falt}</div>
+      </div>
+      <div style="flex:2 1 300px;min-width:0;display:flex;flex-direction:column;gap:5px">${barras}</div>
+      <div style="flex:0 0 130px;text-align:center">
+        <div style="font-family:Sora,sans-serif;font-size:32px;font-weight:800;color:var(--navy);line-height:1">${mobPct(c.geral)}</div>
+        <div style="font-size:11.5px;color:var(--text-muted)">concluído</div>
+        <div style="margin-top:8px;font-size:12px;font-weight:700;color:${c.atras?'var(--danger)':'var(--success)'}">${c.atras?c.atras+' iten'+(c.atras>1?'s atrasados':' atrasado'):'Nenhum atrasado'}</div>
+        <div style="margin-top:8px;font-size:12.5px;font-weight:700;color:var(--primary)">Abrir painel →</div>
+      </div></div>`;
+  };
+  const vazio=`<div class="empty-state"><i class="ti ti-truck-loading"></i><div>${mobilizacoes.length?'Nenhuma mobilização neste filtro':'Nenhuma mobilização criada ainda'}</div><div style="font-size:12.5px;margin-top:6px">Clique em "Nova mobilização" ao fechar o contrato de uma obra nova.</div></div>`;
+  return`<div class="page-header"><div><div class="page-title">Mobilização Obra</div><div class="page-subtitle">Checklist de abertura das obras novas · Planejado × Realizado</div></div>
+      <button class="btn btn-primary" onclick="mobModalNova()"><i class="ti ti-plus"></i> Nova mobilização</button></div>
+    <div class="metrics">
+      <div class="metric-card"><div class="metric-label">Em mobilização</div><div class="metric-value">${ativas.length}</div></div>
+      <div class="metric-card ${atras?'red':'green'}"><div class="metric-label">Itens atrasados</div><div class="metric-value">${atras}</div></div>
+      <div class="metric-card ${venc7?'amber':''}"><div class="metric-label">Vencem em 7 dias</div><div class="metric-value">${venc7}</div></div>
+      <div class="metric-card"><div class="metric-label">Próximo início de obra</div><div class="metric-value">${prox?formatDate(prox.m.data_inicio_obra).slice(0,5):'—'}</div><div style="font-size:12px;color:var(--text-muted)">${prox?escHtml(mobObra(prox.m).nome||'')+' · em '+prox.c.diasObra+' dias':''}</div></div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">${chip('','Todas ('+calc.length+')')}${chip('No prazo','No prazo')}${chip('Atenção','Atenção')}${chip('Atrasada','Atrasadas')}${chip('concluida','Concluídas')}</div>
+    <div style="display:flex;flex-direction:column;gap:12px">${lista.length?lista.map(card).join(''):vazio}</div>`;
+}
+
+// ---------- painel da obra ----------
+function mobHtmlPainel(mob){
+  const o=mobObra(mob);const c=mobCalcMob(mob);const s=mobStatusMob(mob,c);
+  const cartoes=MOB_SECOES.map((sec,i)=>{
+    const r=c.secs[i];
+    const alerta=r.atras?`<div style="font-size:12px;font-weight:600;color:var(--danger)">${r.atras} atrasado${r.atras>1?'s':''}</div>`:(r.venc7?`<div style="font-size:12px;font-weight:600;color:var(--warning)">${r.venc7} vence${r.venc7>1?'m':''} em 7 dias</div>`:`<div style="font-size:12px;color:var(--text-muted)">${r.tot?'Sem atrasos':'Sem itens'}</div>`);
+    return`<div onclick="mobAbrirSecao(${sec.n})" style="cursor:pointer;flex:1 1 240px;background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px;display:flex;flex-direction:column;gap:7px">
+      <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:11.5px;font-weight:700;color:var(--text-muted)">SEÇÃO ${sec.n}</span>${mobSelo(sec.tipo)}</div>
+      <div style="font-size:15px;font-weight:700">${sec.nome}</div>
+      <div style="display:flex;align-items:baseline;gap:6px"><span style="font-family:Sora,sans-serif;font-size:26px;font-weight:800;color:var(--navy)">${r.pct===null?'—':mobPct(r.pct)}</span><span style="font-size:12px;color:var(--text-muted)">${r.txt}</span></div>
+      ${mobBarra(r.pct||0,mobCorPct(r.pct||0))}${alerta}</div>`;
+  }).join('');
+  const grafico=MOB_SECOES.map((sec,i)=>{const r=c.secs[i];
+    return`<div style="display:flex;align-items:center;gap:10px"><span style="flex:0 0 96px;font-size:12px">${sec.curto}</span>
+      <div style="flex:1;display:flex;flex-direction:column;gap:3px">${mobBarra(r.planPct||0,'#B9CCE6')}${mobBarra(r.pct||0,'var(--navy)')}</div>
+      <span style="flex:0 0 84px;text-align:right;font-size:11.5px;font-weight:600">${mobPct(r.pct||0)} / ${mobPct(r.planPct||0)}</span></div>`;}).join('');
+  // lista "Atenção agora": atrasados e que vencem em até 7 dias
+  const pend=[];
+  mobItens.filter(i=>i.mobilizacao_id===mob.id&&i.data_prazo).forEach(i=>{const k=mobCalcItem(i);if(k.st==='concluido'||k.st==='na')return;const d=mobDias(i.data_prazo);if(d<=7)pend.push({d,nome:i.nome+(i.secao===1&&k.falta?': faltam '+k.falta:''),sec:i.secao,prazo:i.data_prazo,resp:i.responsavel});});
+  mobCasas.filter(x=>x.mobilizacao_id===mob.id&&x.data_prazo).forEach(x=>{const k=mobCalcCasa(x);if(k.fim)return;const d=mobDias(x.data_prazo);if(d<=7)pend.push({d,nome:x.nome+' ('+(MOB_ETAPAS.find(e=>e.k===x.etapa)||{}).l+')',sec:2,prazo:x.data_prazo,resp:x.responsavel});});
+  pend.sort((a,b)=>a.d-b.d);
+  const alertas=pend.length?pend.slice(0,10).map(p=>`<div onclick="mobAbrirSecao(${p.sec})" style="cursor:pointer;display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid #EEF2F7">
+      <span class="badge" style="flex:0 0 auto;min-width:50px;justify-content:center;background:${p.d<0?'var(--danger-light)':'var(--warning-light)'};color:${p.d<0?'var(--danger)':'var(--warning)'};font-weight:700">${p.d<0?p.d+' d':'+'+p.d+' d'}</span>
+      <div style="min-width:0"><div style="font-size:13px;font-weight:600">${escHtml(p.nome)}</div><div style="font-size:11.5px;color:var(--text-muted)">Seção ${p.sec} · prazo ${formatDate(p.prazo)}${p.resp?' · '+escHtml(p.resp):''}</div></div></div>`).join('')
+    :'<div style="color:var(--text-muted);font-size:13px;padding:10px 0">Nenhum item atrasado ou vencendo nos próximos 7 dias.</div>';
+  const ctrl=mobItens.filter(i=>i.mobilizacao_id===mob.id&&i.secao===7).sort((a,b)=>(a.ordem||0)-(b.ordem||0)).map(i=>{
+    const k=mobCalcItem(i);const ok=k.st==='concluido';
+    return`<span style="border-radius:999px;padding:6px 12px;font-size:12px;font-weight:600;background:${ok?'var(--success-light)':'#F0F2F5'};color:${ok?'var(--success)':'var(--text-muted)'}">${ok?'✓ ok':'○'} ${escHtml(i.nome.replace(/^Controle de /,''))}</span>`;}).join('');
+  const falt=c.diasObra===null?'':(c.diasObra>=0?c.diasObra+' dias':'iniciada há '+(-c.diasObra)+' dias');
+  return`<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px"><a onclick="mobVoltar()" style="cursor:pointer;color:var(--primary)">Mobilização Obra</a> › ${escHtml(o.nome||'Obra')}</div>
+    <div style="background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px 22px;display:flex;flex-wrap:wrap;gap:24px;align-items:center;margin-bottom:16px">
+      <div style="flex:1 1 280px;min-width:0">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span style="font-size:20px;font-weight:700">${escHtml(o.nome||'Obra')}</span>${mobChip(s.l,s.bg,s.cor)}</div>
+        <div style="font-size:13px;color:var(--text-muted);margin-top:2px">Projeto ${escHtml(o.codigo||'—')}${o.cidade?' · '+escHtml(o.cidade)+(o.uf?'/'+escHtml(o.uf):''):''}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:24px;margin-top:14px">
+          <div><div style="font-size:11.5px;color:var(--text-muted)">Início da mobilização</div><div style="font-weight:700">${formatDate(mob.data_inicio_mobilizacao)}</div></div>
+          <div><div style="font-size:11.5px;color:var(--text-muted)">Início da obra</div><div style="font-weight:700">${formatDate(mob.data_inicio_obra)}</div></div>
+          <div><div style="font-size:11.5px;color:var(--text-muted)">${c.diasObra!==null&&c.diasObra<0?'Obra':'Faltam'}</div><div style="font-weight:700;color:var(--accent)">${falt}</div></div>
+        </div></div>
+      <div style="text-align:center"><div style="font-family:Sora,sans-serif;font-size:44px;font-weight:800;color:var(--navy);line-height:1">${mobPct(c.geral)}</div>
+        <div style="font-size:12px;color:var(--text-muted)">mobilização concluída</div><div style="margin-top:6px;font-size:12px;color:var(--text-muted)">Previsto até hoje: <b>${mobPct(c.plan)}</b></div></div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn" onclick="mobAtualizar()"><i class="ti ti-refresh"></i> Atualizar dados dos módulos</button>
+        <button class="btn" onclick="mobModalDatas('${mob.id}')"><i class="ti ti-calendar-event"></i> Editar datas</button>
+        ${mob.status==='em_andamento'?`<button class="btn btn-success" onclick="mobMudarStatus('${mob.id}','concluida')"><i class="ti ti-check"></i> Marcar como concluída</button>`:`<button class="btn" onclick="mobMudarStatus('${mob.id}','em_andamento')"><i class="ti ti-player-play"></i> Reabrir</button>`}
+      </div></div>
+    <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:16px">${cartoes}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;margin-bottom:16px">
+      <div style="flex:1 1 380px;min-width:0;background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px">
+        <div style="font-size:15px;font-weight:700">Planejado × Realizado por seção</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Planejado = o que já deveria estar pronto hoje, pelos prazos dos itens</div>
+        <div style="display:flex;gap:16px;font-size:11.5px;margin-bottom:10px"><span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:#B9CCE6;margin-right:5px"></span>Planejado</span><span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--navy);margin-right:5px"></span>Realizado</span></div>
+        <div style="display:flex;flex-direction:column;gap:12px">${grafico}</div></div>
+      <div style="flex:1 1 380px;min-width:0;background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="font-size:15px;font-weight:700">Atenção agora</span><span style="font-size:12px;color:var(--text-muted)">por prazo</span></div>${alertas}</div></div>
+    <div style="background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px">
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:baseline"><span style="font-size:15px;font-weight:700">Seção 7 · Controles administrativos ${mobSelo('auto')}</span>
+        <span style="font-size:12px;color:var(--text-muted)">O "ok" aparece sozinho quando o módulo já tem dados nesta obra.</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">${ctrl||'<span style="color:var(--text-muted);font-size:13px">Sem itens</span>'}</div></div>`;
+}
+
+// ---------- detalhe de uma seção ----------
+function mobAbas(mob){
+  return`<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">${MOB_SECOES.map(s=>`<span onclick="mobAbrirSecao(${s.n})" style="cursor:pointer;border-radius:8px;padding:8px 12px;font-size:12.5px;font-weight:600;border:1px solid ${mobSecao===s.n?'var(--navy)':'var(--border)'};background:${mobSecao===s.n?'var(--navy)':'#fff'};color:${mobSecao===s.n?'#fff':'var(--text)'}">${s.n} ${s.curto}</span>`).join('')}</div>`;
+}
+function mobHtmlSecao(mob){
+  const o=mobObra(mob);const sec=MOB_SECOES.find(s=>s.n===mobSecao);const r=mobCalcSecao(mob,mobSecao);
+  const topo=`<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px"><a onclick="mobSelId=null;mobSecao=null;renderMobilizacao()" style="cursor:pointer;color:var(--primary)">Mobilização Obra</a> › <a onclick="mobVoltar()" style="cursor:pointer;color:var(--primary)">${escHtml(o.nome||'Obra')}</a> › Seção ${sec.n}</div>
+    <div class="page-header" style="margin-bottom:14px"><div><div class="page-title">${sec.nome} ${mobSelo(sec.tipo)}</div>
+      <div class="page-subtitle">${r.txt} · ${r.pct===null?'—':mobPct(r.pct)}${r.atras?' · <b style="color:var(--danger)">'+r.atras+' atrasado'+(r.atras>1?'s':'')+'</b>':''}</div></div>
+      <div style="display:flex;gap:8px">${mobSecao===2?'<button class="btn btn-primary" onclick="mobModalCasa()"><i class="ti ti-plus"></i> Casa prevista</button>':(mobSecao===1?'':'<button class="btn btn-primary" onclick="mobModalNovoItem()"><i class="ti ti-plus"></i> Novo item</button>')}</div></div>`;
+  let corpo;
+  if(mobSecao===2)corpo=mobHtmlCasas(mob);
+  else if(mobSecao===1)corpo=mobHtmlEquipe(mob);
+  else corpo=mobHtmlItens(mob);
+  return topo+mobAbas(mob)+corpo;
+}
+function mobCelPrazo(it){
+  if(!it.data_prazo)return'<span style="color:var(--text-muted)">sem prazo</span>';
+  const d=mobDias(it.data_prazo);
+  return`<div style="white-space:nowrap">${formatDate(it.data_prazo)}</div><div style="font-size:11px;color:${d<0?'var(--danger)':'var(--text-muted)'}">${mobDiasTxt(it.data_prazo)}</div>`;
+}
+function mobHtmlEquipe(mob){
+  const its=mobItens.filter(i=>i.mobilizacao_id===mob.id&&i.secao===1).sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR'));
+  const ks=its.map(i=>({i,k:mobCalcItem(i)}));
+  const prev=ks.reduce((a,x)=>a+x.k.prev,0),real=ks.reduce((a,x)=>a+Math.min(x.k.real,x.k.prev),0),cont=ks.reduce((a,x)=>a+Math.min(x.k.cont,x.k.falta),0);
+  const metric=(l,v,cl)=>`<div class="metric-card ${cl||''}"><div class="metric-label">${l}</div><div class="metric-value">${v}</div></div>`;
+  const linhas=ks.map(({i,k})=>`<tr>
+    <td style="font-weight:600">${escHtml(i.nome)}${i.observacao?`<div style="font-size:11.5px;font-weight:400;color:var(--text-muted)">${escHtml(i.observacao)}</div>`:''}</td>
+    <td style="text-align:center">${k.prev}</td><td style="text-align:center;font-weight:700">${k.real}</td>
+    <td style="text-align:center;color:var(--primary);font-weight:600">${k.cont||'—'}</td>
+    <td style="text-align:center;${k.falta?'color:var(--danger);font-weight:700':'color:var(--success)'}">${k.falta}</td>
+    <td style="min-width:110px">${mobBarra(k.prev?Math.min(1,k.real/k.prev):0,mobCorPct(k.prev?Math.min(1,k.real/k.prev):0))}</td>
+    <td>${mobCelPrazo(i)}</td><td>${escHtml(i.responsavel||'—')}</td><td>${mobSitItem(k)}</td>
+    <td><button class="btn btn-sm" onclick="mobModalItem('${i.id}')"><i class="ti ti-edit"></i></button></td></tr>`).join('');
+  return`<div class="metrics">${metric('Previsto',prev)}${metric('Realizado',real,'green')}${metric('Em contratação',cont)}${metric('Ainda sem candidato',Math.max(0,prev-real-cont),'red')}</div>
+    <div style="background:var(--info-light);border:1px solid #BCD6F0;color:var(--info);border-radius:8px;padding:9px 14px;font-size:12.5px;margin-bottom:12px"><i class="ti ti-bolt"></i> Previsto vem de <b>Contratações › Vagas</b> · Realizado vem de <b>Funcionários</b> da obra · Em contratação vem do pipeline de <b>Contratações</b>. Aqui você só informa prazo e responsável.</div>
+    <div class="table-container" style="overflow-x:auto"><table style="min-width:920px"><thead><tr><th>Função</th><th style="text-align:center">Previsto</th><th style="text-align:center">Realizado</th><th style="text-align:center">Em contratação</th><th style="text-align:center">Falta</th><th>Progresso</th><th>Prazo</th><th>Responsável</th><th>Situação</th><th></th></tr></thead>
+    <tbody>${linhas||'<tr><td colspan="10"><div class="empty-state"><i class="ti ti-users"></i><div>Esta obra ainda não tem vagas cadastradas em Contratações › Vagas.</div></div></td></tr>'}</tbody></table></div>`;
+}
+function mobHtmlItens(mob){
+  const its=mobItens.filter(i=>i.mobilizacao_id===mob.id&&i.secao===mobSecao).sort((a,b)=>(a.ordem||0)-(b.ordem||0)||String(a.codigo).localeCompare(String(b.codigo)));
+  const linhas=its.map(i=>{
+    const k=mobCalcItem(i);const au=k.au;
+    const origem=i.vinculo&&k.auto?`<span class="badge" style="background:var(--accent-light);color:#B45309;font-weight:700"><i class="ti ti-bolt" style="font-size:11px"></i>&nbsp;auto</span>`:(i.vinculo?'<span class="badge" style="background:var(--bg);color:var(--text-muted)" title="'+escHtml(au&&au.det||'Não foi possível verificar')+'">manual*</span>':'<span class="badge" style="background:var(--bg);color:var(--text-muted)">manual</span>');
+    const marca=i.tipo==='check'&&!(i.vinculo&&k.auto)
+      ?`<input type="checkbox" ${k.st==='concluido'?'checked':''} onchange="mobMarcar('${i.id}',this.checked)" style="width:18px;height:18px;cursor:pointer">`
+      :(i.tipo==='check'?(k.st==='concluido'?'<i class="ti ti-circle-check" style="color:var(--success);font-size:20px"></i>':'<i class="ti ti-circle" style="color:var(--text-muted);font-size:20px"></i>'):'');
+    const qtd=i.tipo==='quantidade'?`<b>${k.real}</b> / ${k.prev}`:'';
+    const detalhe=[au&&au.det,i.referencia?'Ref.: '+i.referencia:'',i.observacao].filter(Boolean).map(escHtml).join(' · ');
+    return`<tr><td style="width:36px;text-align:center">${marca}</td><td style="color:var(--text-muted);font-size:12px">${escHtml(i.codigo)}</td>
+      <td style="font-weight:600">${escHtml(i.nome)}${detalhe?`<div style="font-size:11.5px;font-weight:400;color:var(--text-muted)">${detalhe}</div>`:''}</td>
+      <td>${origem}</td><td style="text-align:center">${qtd}</td><td>${mobCelPrazo(i)}</td><td>${escHtml(i.responsavel||'—')}</td><td>${mobSitItem(k)}</td>
+      <td><button class="btn btn-sm" onclick="mobModalItem('${i.id}')"><i class="ti ti-edit"></i></button></td></tr>`;}).join('');
+  const nota=mobSecao===7?'<div style="background:var(--accent-light);border:1px solid #F2D2AE;color:#8A4A06;border-radius:8px;padding:9px 14px;font-size:12.5px;margin-bottom:12px"><i class="ti ti-bolt"></i> O "ok" aparece sozinho quando o módulo correspondente já tem dados nesta obra. Controles sem módulo no sistema (notas fiscais, RD, refeição, VA) são marcados à mão.</div>'
+    :(mobSecao===5?'<div style="background:var(--accent-light);border:1px solid #F2D2AE;color:#8A4A06;border-radius:8px;padding:9px 14px;font-size:12.5px;margin-bottom:12px"><i class="ti ti-bolt"></i> O item fica "ok" quando existe um fornecedor da obra (ou geral) com o tipo de fornecimento correspondente em <b>Fornecedores</b>. O nome do fornecedor aparece sozinho.</div>':'');
+  return nota+`<div class="table-container" style="overflow-x:auto"><table style="min-width:860px"><thead><tr><th></th><th>Cód.</th><th>Item</th><th>Origem</th><th style="text-align:center">Qtd</th><th>Prazo</th><th>Responsável</th><th>Situação</th><th></th></tr></thead>
+    <tbody>${linhas||'<tr><td colspan="9"><div class="empty-state"><i class="ti ti-list-check"></i><div>Nenhum item nesta seção</div></div></td></tr>'}</tbody></table></div>`;
+}
+
+// ---------- casas (seção 2) ----------
+function mobHtmlCasas(mob){
+  const cs=mobCasas.filter(c=>c.mobilizacao_id===mob.id);
+  const r=mobCalcSecao(mob,2);
+  const metric=(l,v,cl)=>`<div class="metric-card ${cl||''}"><div class="metric-label">${l}</div><div class="metric-value">${v}</div></div>`;
+  const emContrato=cs.filter(c=>c.etapa==='em_contrato').length;
+  const colunas=MOB_ETAPAS.map((e,ei)=>{
+    const lista=cs.filter(c=>c.etapa===e.k);
+    const cards=lista.map(c=>{
+      const k=mobCalcCasa(c);
+      const comp=Array.isArray(c.compras)?c.compras:[];const ok=comp.filter(x=>x.ok).length;
+      const prox=MOB_ETAPAS[ei+1];
+      return`<div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;justify-content:space-between;gap:6px"><span style="font-size:13.5px;font-weight:700;cursor:pointer" onclick="mobModalCasa('${c.id}')">${escHtml(c.nome)}</span><i class="ti ti-edit" style="cursor:pointer;color:var(--text-muted)" onclick="mobModalCasa('${c.id}')"></i></div>
+        <div style="font-size:12px;color:var(--text-muted)">${escHtml([c.bairro,c.cidade].filter(Boolean).join(' · ')||'sem endereço')} · ${c.vagas?c.vagas+' vagas':'vagas a definir'}</div>
+        ${comp.length?`<div style="display:flex;align-items:center;gap:8px;font-size:11.5px"><div style="flex:1">${mobBarra(ok/comp.length,'var(--primary)')}</div><span>Compras ${ok}/${comp.length}</span></div>`:'<div style="font-size:11.5px;color:var(--text-muted)">Sem lista de compras</div>'}
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:11.5px"><span style="color:var(--text-muted)">${c.data_prazo?'Pronta até '+formatDate(c.data_prazo):'sem prazo'}${c.responsavel?' · '+escHtml(c.responsavel):''}</span>
+          ${k.fim?mobChip('Concluída','var(--success-light)','var(--success)'):(k.atras?mobChip('Atrasada','var(--danger-light)','var(--danger)'):'')}</div>
+        ${prox?`<button class="btn btn-sm" style="align-self:flex-start" onclick="mobAvancarCasa('${c.id}')">Avançar para ${prox.l} →</button>`:''}</div>`;}).join('');
+    return`<div style="flex:1 1 210px;min-width:210px;background:#E9EFF7;border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:2px 4px"><span style="font-size:12.5px;font-weight:700;color:var(--navy)">${e.l}</span><span class="badge" style="background:#fff">${lista.length}</span></div>${cards}</div>`;}).join('');
+  return`<div class="metrics">${metric('Casas previstas',cs.length)}${metric('Prontas ou ocupadas',r.real,'green')}${metric('Em contrato',emContrato)}${metric('Com prazo vencido',r.atras,r.atras?'red':'')}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;overflow-x:auto">${cs.length?colunas:'<div class="empty-state" style="width:100%"><i class="ti ti-home-2"></i><div>Nenhuma casa prevista ainda. Clique em "Casa prevista" para cadastrar.</div></div>'}</div>`;
+}
+
+// ---------- ações: mobilização ----------
+function mobModalNova(){
+  const usadas=new Set(mobilizacoes.map(m=>String(m.obra_id)));
+  const livres=obras.filter(o=>!usadas.has(String(o.id)));
+  if(!livres.length){showToast('Todas as obras já têm mobilização. Cadastre a obra nova em Obras / Contratos primeiro.','error');return;}
+  const hoje=mobHoje();
+  document.body.insertAdjacentHTML('beforeend',`<div class="modal-overlay" id="modal-mob-nova" onclick="if(event.target===this)closeModal('modal-mob-nova')">
+    <div class="modal" style="max-width:520px"><div class="modal-header"><span class="modal-title">Nova mobilização</span><button class="btn btn-sm" onclick="closeModal('modal-mob-nova')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="form-group full"><label>Obra nova *</label><select id="mn-obra"><option value="">Selecione...</option>${livres.map(o=>`<option value="${o.id}">${escHtml((o.codigo?o.codigo+' — ':'')+o.nome)}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Início da mobilização *</label><input type="date" id="mn-ini" value="${hoje}"></div>
+      <div class="form-group"><label>Início da obra *</label><input type="date" id="mn-fim" value="${mobSomaDias(hoje,30)}"></div>
+      <div class="form-group full" style="font-size:12.5px;color:var(--text-muted)">O checklist nasce do catálogo (seções 3 a 7) e das vagas de Contratações. Cada item recebe um prazo sugerido contado a partir do início da obra; você ajusta item por item.</div>
+    </div></div>
+    <div class="modal-footer"><button class="btn" onclick="closeModal('modal-mob-nova')">Cancelar</button><button class="btn btn-primary" id="mn-salvar" onclick="mobCriar()"><i class="ti ti-check"></i> Criar checklist</button></div></div></div>`);
+}
+async function mobCriar(){
+  const obraId=document.getElementById('mn-obra').value;
+  const ini=document.getElementById('mn-ini').value;const fim=document.getElementById('mn-fim').value;
+  if(!obraId||!ini||!fim){showToast('Preencha obra e as duas datas','error');return;}
+  if(fim<ini){showToast('O início da obra não pode ser antes do início da mobilização','error');return;}
+  const btn=document.getElementById('mn-salvar');btn.disabled=true;btn.innerHTML='<i class="ti ti-loader ti-spin"></i> Criando...';
+  const{data:mob,error}=await sb.from('mobilizacoes').insert({obra_id:obraId,data_inicio_mobilizacao:ini,data_inicio_obra:fim}).select().single();
+  if(error){showToast('Erro: '+error.message,'error');btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Criar checklist';return;}
+  const md=await sb.from('mobilizacao_modelo').select('*').eq('ativo',true).order('secao').order('ordem');
+  if(md.error){showToast('Mobilização criada, mas o catálogo não carregou: '+md.error.message,'error');}
+  const linhas=(md.data||[]).map(m=>{
+    let prazo=mobSomaDias(fim,-(m.dias_antes||0));if(prazo<ini)prazo=ini;
+    return{mobilizacao_id:mob.id,secao:m.secao,codigo:m.codigo,nome:m.nome,tipo:m.tipo,vinculo:m.vinculo,previsto:m.previsto_padrao,
+      data_prazo:prazo,responsavel:m.responsavel_padrao||null,ordem:m.ordem};
+  });
+  for(let i=0;i<linhas.length;i+=100){
+    const r=await sb.from('mobilizacao_itens').insert(linhas.slice(i,i+100));
+    if(r.error){showToast('Erro ao criar itens: '+r.error.message,'error');break;}
+  }
+  closeModal('modal-mob-nova');
+  await mobCarregarTudo();
+  mobSelId=mob.id;mobSecao=null;renderMobilizacao();
+  showToast('Mobilização criada com '+linhas.length+' itens');
+}
+function mobModalDatas(id){
+  const mob=mobilizacoes.find(x=>x.id===id);if(!mob)return;
+  document.body.insertAdjacentHTML('beforeend',`<div class="modal-overlay" id="modal-mob-datas" onclick="if(event.target===this)closeModal('modal-mob-datas')">
+    <div class="modal" style="max-width:480px"><div class="modal-header"><span class="modal-title">Datas da mobilização</span><button class="btn btn-sm" onclick="closeModal('modal-mob-datas')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="form-group"><label>Início da mobilização</label><input type="date" id="md-ini" value="${mob.data_inicio_mobilizacao}"></div>
+      <div class="form-group"><label>Início da obra</label><input type="date" id="md-fim" value="${mob.data_inicio_obra}"></div>
+      <div class="form-group full"><label style="display:flex;gap:8px;align-items:center;font-weight:500;cursor:pointer"><input type="checkbox" id="md-mover" checked> Mover junto os prazos dos itens que ainda não foram concluídos</label></div>
+      <div class="form-group full"><label>Observação</label><textarea id="md-obs" rows="2">${escHtml(mob.observacao||'')}</textarea></div>
+    </div></div>
+    <div class="modal-footer"><button class="btn btn-danger" style="margin-right:auto" onclick="mobExcluir('${id}')"><i class="ti ti-trash"></i> Excluir mobilização</button><button class="btn" onclick="closeModal('modal-mob-datas')">Cancelar</button><button class="btn btn-primary" onclick="mobSalvarDatas('${id}')"><i class="ti ti-check"></i> Salvar</button></div></div></div>`);
+}
+async function mobSalvarDatas(id){
+  const mob=mobilizacoes.find(x=>x.id===id);if(!mob)return;
+  const ini=document.getElementById('md-ini').value,fim=document.getElementById('md-fim').value;
+  const obs=document.getElementById('md-obs').value.trim()||null;
+  if(!ini||!fim||fim<ini){showToast('Confira as datas','error');return;}
+  const delta=Math.round((new Date(fim+'T12:00:00')-new Date(mob.data_inicio_obra+'T12:00:00'))/86400000);
+  const{error}=await sb.from('mobilizacoes').update({data_inicio_mobilizacao:ini,data_inicio_obra:fim,observacao:obs}).eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  if(delta!==0&&document.getElementById('md-mover').checked){
+    for(const it of mobItens.filter(x=>x.mobilizacao_id===id&&x.data_prazo&&x.status!=='concluido'&&x.status!=='na')){
+      const nv=mobSomaDias(it.data_prazo,delta);
+      const r=await sb.from('mobilizacao_itens').update({data_prazo:nv}).eq('id',it.id);if(!r.error)it.data_prazo=nv;
+    }
+    for(const c of mobCasas.filter(x=>x.mobilizacao_id===id&&x.data_prazo&&x.etapa!=='pronta'&&x.etapa!=='ocupada')){
+      const nv=mobSomaDias(c.data_prazo,delta);
+      const r=await sb.from('mobilizacao_casas').update({data_prazo:nv}).eq('id',c.id);if(!r.error)c.data_prazo=nv;
+    }
+  }
+  Object.assign(mob,{data_inicio_mobilizacao:ini,data_inicio_obra:fim,observacao:obs});
+  closeModal('modal-mob-datas');renderMobilizacao();showToast('Datas atualizadas');
+}
+async function mobMudarStatus(id,status){
+  const{error}=await sb.from('mobilizacoes').update({status}).eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  const mob=mobilizacoes.find(x=>x.id===id);if(mob)mob.status=status;
+  if(status==='em_andamento'&&mob){await mobGarantirEquipe(mob);await mobAutoCarregar(mob);}
+  renderMobilizacao();showToast(status==='concluida'?'Mobilização concluída':'Mobilização reaberta');
+}
+async function mobExcluir(id){
+  if(!confirm('Excluir esta mobilização, com todos os itens e casas? Isso não pode ser desfeito.'))return;
+  const{error}=await sb.from('mobilizacoes').delete().eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  mobilizacoes=mobilizacoes.filter(x=>x.id!==id);mobItens=mobItens.filter(x=>x.mobilizacao_id!==id);mobCasas=mobCasas.filter(x=>x.mobilizacao_id!==id);
+  closeModal('modal-mob-datas');mobSelId=null;mobSecao=null;renderMobilizacao();showToast('Mobilização excluída');
+}
+
+// ---------- ações: itens ----------
+async function mobMarcar(id,marcado){
+  const it=mobItens.find(x=>x.id===id);if(!it)return;
+  const p=marcado?{status:'concluido',realizado:it.previsto,concluido_em:mobHoje()}:{status:'pendente',realizado:0,concluido_em:null};
+  const{error}=await sb.from('mobilizacao_itens').update(p).eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');renderMobilizacao();return;}
+  Object.assign(it,p);renderMobilizacao();
+}
+function mobModalItem(id,novo){
+  const it=novo?null:mobItens.find(x=>x.id===id);
+  if(!novo&&!it)return;
+  const eq=it&&it.secao===1;
+  const k=it?mobCalcItem(it):null;
+  document.body.insertAdjacentHTML('beforeend',`<div class="modal-overlay" id="modal-mob-item" onclick="if(event.target===this)closeModal('modal-mob-item')">
+    <div class="modal" style="max-width:560px"><div class="modal-header"><span class="modal-title">${novo?'Novo item':'Editar item'}${it?' · '+escHtml(it.nome):''}</span><button class="btn btn-sm" onclick="closeModal('modal-mob-item')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body"><div class="form-grid">
+      ${eq?'':`<div class="form-group full"><label>Item *</label><input id="mi-nome" value="${escHtml(it?it.nome:'')}" placeholder="Nome do item"></div>`}
+      ${eq?'':`<div class="form-group"><label>Tipo</label><select id="mi-tipo"><option value="check" ${it&&it.tipo==='check'?'selected':''}>Sim / não</option><option value="quantidade" ${it&&it.tipo==='quantidade'?'selected':''}>Quantidade</option></select></div>
+      <div class="form-group"><label>Previsto</label><input type="number" min="0" step="1" id="mi-prev" value="${it?it.previsto:1}"></div>`}
+      ${eq||(it&&it.vinculo&&k.auto)?'':`<div class="form-group"><label>Realizado (manual)</label><input type="number" min="0" step="1" id="mi-real" value="${it?it.realizado:0}"></div>`}
+      ${eq?'':`<div class="form-group"><label>Situação</label><select id="mi-status">${['pendente','andamento','concluido','na'].map(s=>`<option value="${s}" ${(it?it.status:'pendente')===s?'selected':''}>${MOB_STATUS_ITEM[s].l}</option>`).join('')}</select></div>`}
+      <div class="form-group"><label>Prazo *</label><input type="date" id="mi-prazo" value="${it&&it.data_prazo?it.data_prazo:''}"></div>
+      <div class="form-group"><label>Responsável</label><input id="mi-resp" value="${escHtml(it?it.responsavel||'':'')}" placeholder="Quem cuida"></div>
+      ${eq?'':`<div class="form-group"><label>Nº da RM / pedido</label><input id="mi-ref" value="${escHtml(it?it.referencia||'':'')}"></div>`}
+      <div class="form-group full"><label>Observação</label><textarea id="mi-obs" rows="2">${escHtml(it?it.observacao||'':'')}</textarea></div>
+      ${it&&it.vinculo&&k.au&&k.au.det?`<div class="form-group full" style="font-size:12.5px;color:var(--text-muted)"><i class="ti ti-bolt"></i> Automático: ${escHtml(k.au.det)}</div>`:''}
+    </div></div>
+    <div class="modal-footer">${it&&!eq?`<button class="btn btn-danger" style="margin-right:auto" onclick="mobExcluirItem('${it.id}')"><i class="ti ti-trash"></i> Excluir</button>`:''}<button class="btn" onclick="closeModal('modal-mob-item')">Cancelar</button><button class="btn btn-primary" onclick="mobSalvarItem(${it?`'${it.id}'`:'null'})"><i class="ti ti-check"></i> Salvar</button></div></div></div>`);
+}
+function mobModalNovoItem(){mobModalItem(null,true);}
+async function mobSalvarItem(id){
+  const g=x=>document.getElementById(x);
+  const it=id?mobItens.find(x=>x.id===id):null;
+  const prazo=g('mi-prazo').value;
+  if(!prazo){showToast('Todo item precisa de prazo','error');return;}
+  const p={data_prazo:prazo,responsavel:g('mi-resp').value.trim()||null,observacao:g('mi-obs').value.trim()||null};
+  if(!it||it.secao!==1){
+    const nome=g('mi-nome').value.trim();if(!nome){showToast('Informe o nome do item','error');return;}
+    p.nome=nome;p.tipo=g('mi-tipo').value;p.previsto=Math.max(0,parseFloat(g('mi-prev').value)||0);
+    p.status=g('mi-status').value;p.referencia=g('mi-ref').value.trim()||null;
+    if(g('mi-real'))p.realizado=Math.max(0,parseFloat(g('mi-real').value)||0);
+    p.concluido_em=p.status==='concluido'?((it&&it.concluido_em)||mobHoje()):null;
+  }
+  if(it){
+    const{error}=await sb.from('mobilizacao_itens').update(p).eq('id',id);
+    if(error){showToast('Erro: '+error.message,'error');return;}
+    Object.assign(it,p);
+  }else{
+    const doSec=mobItens.filter(x=>x.mobilizacao_id===mobSelId&&x.secao===mobSecao);
+    const maxN=doSec.reduce((a,x)=>Math.max(a,parseInt(String(x.codigo).split('.')[1])||0),0);
+    const novo={...p,mobilizacao_id:mobSelId,secao:mobSecao,codigo:mobSecao+'.'+String(maxN+1).padStart(2,'0'),vinculo:null,realizado:p.realizado||0,ordem:maxN+1};
+    const{data,error}=await sb.from('mobilizacao_itens').insert(novo).select().single();
+    if(error){showToast('Erro: '+error.message,'error');return;}
+    mobItens.push(data);
+  }
+  closeModal('modal-mob-item');renderMobilizacao();showToast('Item salvo');
+}
+async function mobExcluirItem(id){
+  if(!confirm('Excluir este item do checklist?'))return;
+  const{error}=await sb.from('mobilizacao_itens').delete().eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  mobItens=mobItens.filter(x=>x.id!==id);closeModal('modal-mob-item');renderMobilizacao();showToast('Item excluído');
+}
+
+// ---------- ações: casas ----------
+function mobLinhaCompra(c){
+  return`<div class="mob-compra" style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input type="checkbox" ${c&&c.ok?'checked':''} style="width:18px;height:18px"><input class="mob-compra-txt" value="${escHtml(c?c.item:'')}" placeholder="Ex.: 06 camas" style="flex:1"><button type="button" class="btn btn-sm" onclick="this.parentNode.remove()"><i class="ti ti-x"></i></button></div>`;
+}
+function mobAddCompra(){document.getElementById('mc-compras').insertAdjacentHTML('beforeend',mobLinhaCompra(null));}
+function mobModalCasa(id){
+  const c=id?mobCasas.find(x=>x.id===id):null;
+  const dt=(c&&c.datas_etapas)||{};
+  document.body.insertAdjacentHTML('beforeend',`<div class="modal-overlay" id="modal-mob-casa" onclick="if(event.target===this)closeModal('modal-mob-casa')">
+    <div class="modal" style="max-width:640px"><div class="modal-header"><span class="modal-title">${c?'Editar casa':'Casa prevista'}</span><button class="btn btn-sm" onclick="closeModal('modal-mob-casa')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="form-group full"><label>Nome *</label><input id="mc-nome" value="${escHtml(c?c.nome:'')}" placeholder="Ex.: Casa Operacional 1"></div>
+      <div class="form-group"><label>Bairro</label><input id="mc-bairro" value="${escHtml(c?c.bairro||'':'')}"></div>
+      <div class="form-group"><label>Cidade</label><input id="mc-cidade" value="${escHtml(c?c.cidade||'':'')}"></div>
+      <div class="form-group full"><label>Endereço</label><input id="mc-end" value="${escHtml(c?c.endereco||'':'')}"></div>
+      <div class="form-group"><label>Vagas</label><input type="number" min="0" id="mc-vagas" value="${c&&c.vagas?c.vagas:''}"></div>
+      <div class="form-group"><label>Imobiliária</label><input id="mc-imob" value="${escHtml(c?c.imobiliaria||'':'')}"></div>
+      <div class="form-group"><label>Etapa atual</label><select id="mc-etapa">${MOB_ETAPAS.map(e=>`<option value="${e.k}" ${(c?c.etapa:'prospeccao')===e.k?'selected':''}>${e.l}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Pronta até (prazo) *</label><input type="date" id="mc-prazo" value="${c&&c.data_prazo?c.data_prazo:''}"></div>
+      <div class="form-group"><label>Responsável</label><input id="mc-resp" value="${escHtml(c?c.responsavel||'':'')}"></div>
+      <div class="form-group full"><label>Data em que chegou em cada etapa</label>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">${MOB_ETAPAS.map(e=>`<div><div style="font-size:11px;color:var(--text-muted)">${e.l}</div><input type="date" class="mc-dt" data-etapa="${e.k}" value="${dt[e.k]||''}"></div>`).join('')}</div></div>
+      <div class="form-group full"><label>Lista de compras</label><div id="mc-compras">${(c&&Array.isArray(c.compras)?c.compras:[]).map(mobLinhaCompra).join('')}</div>
+        <button type="button" class="btn btn-sm" style="margin-top:4px" onclick="mobAddCompra()"><i class="ti ti-plus"></i> Item de compra</button></div>
+      <div class="form-group full"><label>Observação</label><textarea id="mc-obs" rows="2">${escHtml(c?c.observacao||'':'')}</textarea></div>
+    </div></div>
+    <div class="modal-footer">${c?`<button class="btn btn-danger" style="margin-right:auto" onclick="mobExcluirCasa('${c.id}')"><i class="ti ti-trash"></i> Excluir</button>`:''}<button class="btn" onclick="closeModal('modal-mob-casa')">Cancelar</button><button class="btn btn-primary" onclick="mobSalvarCasa(${c?`'${c.id}'`:'null'})"><i class="ti ti-check"></i> Salvar</button></div></div></div>`);
+}
+async function mobSalvarCasa(id){
+  const g=x=>document.getElementById(x);
+  const nome=g('mc-nome').value.trim();if(!nome){showToast('Informe o nome da casa','error');return;}
+  if(!g('mc-prazo').value){showToast('Toda casa precisa de prazo','error');return;}
+  const datas={};document.querySelectorAll('.mc-dt').forEach(i=>{if(i.value)datas[i.dataset.etapa]=i.value;});
+  const etapa=g('mc-etapa').value;
+  const antes=id?mobCasas.find(x=>x.id===id):null;
+  if(!datas[etapa]&&(!antes||antes.etapa!==etapa))datas[etapa]=mobHoje();
+  const compras=[...document.querySelectorAll('#mc-compras .mob-compra')].map(r=>({item:r.querySelector('.mob-compra-txt').value.trim(),ok:r.querySelector('input[type=checkbox]').checked})).filter(x=>x.item);
+  const p={nome,bairro:g('mc-bairro').value.trim()||null,cidade:g('mc-cidade').value.trim()||null,endereco:g('mc-end').value.trim()||null,
+    vagas:parseInt(g('mc-vagas').value)||null,imobiliaria:g('mc-imob').value.trim()||null,etapa,data_prazo:g('mc-prazo').value,
+    responsavel:g('mc-resp').value.trim()||null,compras,datas_etapas:datas,observacao:g('mc-obs').value.trim()||null};
+  if(id){
+    const{error}=await sb.from('mobilizacao_casas').update(p).eq('id',id);
+    if(error){showToast('Erro: '+error.message,'error');return;}
+    Object.assign(antes,p);
+  }else{
+    const ordem=mobCasas.filter(x=>x.mobilizacao_id===mobSelId).length+1;
+    const{data,error}=await sb.from('mobilizacao_casas').insert({...p,mobilizacao_id:mobSelId,ordem}).select().single();
+    if(error){showToast('Erro: '+error.message,'error');return;}
+    mobCasas.push(data);
+  }
+  closeModal('modal-mob-casa');renderMobilizacao();showToast('Casa salva');
+}
+async function mobAvancarCasa(id){
+  const c=mobCasas.find(x=>x.id===id);if(!c)return;
+  const i=MOB_ETAPAS.findIndex(e=>e.k===c.etapa);const prox=MOB_ETAPAS[i+1];if(!prox)return;
+  const datas={...(c.datas_etapas||{}),[prox.k]:mobHoje()};
+  const{error}=await sb.from('mobilizacao_casas').update({etapa:prox.k,datas_etapas:datas}).eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  c.etapa=prox.k;c.datas_etapas=datas;renderMobilizacao();showToast(c.nome+' → '+prox.l);
+}
+async function mobExcluirCasa(id){
+  if(!confirm('Excluir esta casa da mobilização?'))return;
+  const{error}=await sb.from('mobilizacao_casas').delete().eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  mobCasas=mobCasas.filter(x=>x.id!==id);closeModal('modal-mob-casa');renderMobilizacao();showToast('Casa excluída');
 }
 
 if(checkSessao()){
