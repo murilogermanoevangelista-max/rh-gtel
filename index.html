@@ -339,7 +339,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <div class="login-screen" id="login-screen">
   <div class="login-card">
     <div class="login-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 13/10/2026-h</span></div>
+    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 13/10/2026-j</span></div>
     <div class="login-error" id="login-erro"></div>
     <div class="login-field">
       <label>Usuário</label>
@@ -356,7 +356,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <aside class="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 13/10/2026-h</div>
+    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 13/10/2026-j</div>
   </div>
   <div class="sidebar-obra-filter">
     <label><i class="ti ti-building-skyscraper"></i> Filtrar por Obra</label>
@@ -16957,6 +16957,19 @@ async function mobAutoCarregar(mob){
   });
   mobAuto[mob.id]=res;
 }
+// Fornecedores de um item: os vinculados à mão + os que casam pelo nome/tipo (automático). Pode haver vários.
+function mobFornsItem(it){
+  const out=[];const vistos=new Set();
+  mobLinksItem(it.id).forEach(l=>{const f=(fornecedores||[]).find(x=>String(x.id)===String(l.fornecedor_id));if(f&&!vistos.has(String(f.id))){vistos.add(String(f.id));out.push({f,man:true,lid:l.id});}});
+  const v=String(it.vinculo||'');
+  if(v.startsWith('forn:')||v.startsWith('ativo:')){
+    const mob=mobilizacoes.find(x=>x.id===it.mobilizacao_id);
+    const termos=v.replace(/^[a-z]+:/,'').split('|').map(mobNorm);
+    (fornecedores||[]).filter(f=>mob&&(String(f.obra_id)===String(mob.obra_id)||!f.obra_id)&&f.situacao!=='inativo'&&!vistos.has(String(f.id))
+      &&termos.some(t=>mobNorm([f.tipo_fornecimento,f.razao_social,f.nome_fantasia].join(' ')).includes(t))).forEach(f=>{vistos.add(String(f.id));out.push({f,man:false});});
+  }
+  return out;
+}
 function mobLinksItem(itemId){return(mobForn||[]).filter(l=>String(l.item_id)===String(itemId));}
 
 // ---------- cálculos ----------
@@ -17192,6 +17205,12 @@ function mobHtmlEquipe(mob){
     <div class="table-container" style="overflow-x:auto"><table style="min-width:980px"><thead><tr><th>Função</th><th style="text-align:center">Previsto</th><th style="text-align:center">Realizado</th><th style="text-align:center">Em contratação</th><th style="text-align:center">Falta</th><th>Progresso</th><th>Prazo</th><th>Prioridade</th><th>Responsável</th><th>Situação</th><th></th></tr></thead>
     <tbody>${linhas||`<tr><td colspan="11"><div class="empty-state"><i class="ti ti-users"></i><div>${vazio}</div></div></td></tr>`}</tbody></table></div>`;
 }
+function mobCelForns(i){
+  const fs=mobFornsItem(i);
+  const chips=fs.map(({f,man,lid})=>`<span class="badge" style="background:${man?'var(--info-light)':'var(--accent-light)'};color:${man?'var(--info)':'#8A4A06'};display:inline-flex;gap:4px;align-items:center;margin:0 4px 4px 0;white-space:normal">
+    <span onclick="mobVerForn('${f.id}')" style="cursor:pointer" title="Ver dados do fornecedor">${man?'':'<i class="ti ti-bolt"></i> '}${escHtml(f.nome_fantasia||f.razao_social)}</span>${man?`<i class="ti ti-x" style="cursor:pointer" title="Remover este fornecedor do item" onclick="mobRemoverVinc('${lid}')"></i>`:''}</span>`).join('');
+  return`<div style="display:flex;flex-wrap:wrap;align-items:center">${chips||'<span style="color:var(--text-muted);font-size:12px;margin-right:6px">sem fornecedor</span>'}<button class="btn btn-sm" style="margin-bottom:4px" onclick="mobModalVincForn(null,'${i.id}')" title="Adicionar fornecedor a este item"><i class="ti ti-plus"></i> Fornecedor</button></div>`;
+}
 function mobHtmlItens(mob){
   const its=mobItens.filter(i=>i.mobilizacao_id===mob.id&&i.secao===mobSecao).sort((a,b)=>(a.ordem||0)-(b.ordem||0)||String(a.codigo).localeCompare(String(b.codigo)));
   const ks=its.map(i=>({i,k:mobCalcItem(i)}));
@@ -17203,16 +17222,17 @@ function mobHtmlItens(mob){
       ?`<input type="checkbox" ${k.st==='concluido'?'checked':''} onchange="mobMarcar('${i.id}',this.checked)" style="width:18px;height:18px;cursor:pointer">`
       :(i.tipo==='check'?(k.st==='concluido'?'<i class="ti ti-circle-check" style="color:var(--success);font-size:20px"></i>':'<i class="ti ti-circle" style="color:var(--text-muted);font-size:20px"></i>'):'');
     const qtd=i.tipo==='quantidade'?`<b>${k.real}</b> / ${k.prev}`:'';
-    const detalhe=[au&&au.det,i.referencia?'Ref.: '+i.referencia:'',i.observacao].filter(Boolean).map(escHtml).join(' · ');
+    const comForn=mobSecao===4||mobSecao===5;
+    const detalhe=[comForn?'':(au&&au.det),i.referencia?'Ref.: '+i.referencia:'',i.observacao].filter(Boolean).map(escHtml).join(' · ');
     return`<tr><td style="width:36px;text-align:center">${marca}</td><td style="color:var(--text-muted);font-size:12px">${/^M\d/.test(i.codigo)?'—':escHtml(i.codigo)}</td>
       <td style="font-weight:600">${bolt}${escHtml(i.nome)}${detalhe?`<div style="font-size:11.5px;font-weight:400;color:var(--text-muted)">${detalhe}</div>`:''}</td>
-      <td style="text-align:center">${qtd}</td><td>${mobCelPrazo(i)}</td><td>${mobSelPrio('item',i.id,mobPrioDe(i))}</td><td>${escHtml(i.responsavel||'—')}</td><td>${mobSitItem(k)}</td>
+      ${comForn?`<td>${mobCelForns(i)}</td>`:''}<td style="text-align:center">${qtd}</td><td>${mobCelPrazo(i)}</td><td>${mobSelPrio('item',i.id,mobPrioDe(i))}</td><td>${escHtml(i.responsavel||'—')}</td><td>${mobSitItem(k)}</td>
       <td><button class="btn btn-sm" onclick="mobModalItem('${i.id}')"><i class="ti ti-edit"></i></button></td></tr>`;}).join('');
   const nota=mobSecao===7?'<div style="background:var(--accent-light);border:1px solid #F2D2AE;color:#8A4A06;border-radius:8px;padding:9px 14px;font-size:12.5px;margin-bottom:12px"><i class="ti ti-bolt"></i> O raio indica item automático: o "ok" aparece sozinho quando o módulo correspondente já tem dados nesta obra. Controles sem módulo no sistema (notas fiscais, RD, refeição, VA) são marcados à mão.</div>'
     :(mobSecao===5?'<div style="background:var(--accent-light);border:1px solid #F2D2AE;color:#8A4A06;border-radius:8px;padding:9px 14px;font-size:12.5px;margin-bottom:12px"><i class="ti ti-bolt"></i> O item fica "ok" quando existe um fornecedor da obra (ou geral) com o tipo de fornecimento correspondente em <b>Fornecedores</b>. O nome do fornecedor aparece sozinho.</div>':'');
   const vazio=ks.length?`<div class="empty-state"><i class="ti ti-filter-off"></i><div>Nenhum item com esses filtros</div></div>`:`<div class="empty-state"><i class="ti ti-list-check"></i><div>Nenhum item nesta seção ainda</div><div style="font-size:12.5px;margin-top:6px">Clique em "Adicionar item" para escolher na lista ou digitar um item novo.</div></div>`;
-  return nota+mobHtmlFornObra(mob)+`<div class="table-container" style="overflow-x:auto"><table style="min-width:900px"><thead><tr><th></th><th>Cód.</th><th>Item</th><th style="text-align:center">Qtd</th><th>Prazo</th><th>Prioridade</th><th>Responsável</th><th>Situação</th><th></th></tr></thead>
-    <tbody>${linhas||`<tr><td colspan="9">${vazio}</td></tr>`}</tbody></table></div>`;
+  return nota+mobHtmlFornObra(mob)+`<div class="table-container" style="overflow-x:auto"><table style="min-width:900px"><thead><tr><th></th><th>Cód.</th><th>Item</th>${mobSecao===4||mobSecao===5?'<th>Fornecedor(es)</th>':''}<th style="text-align:center">Qtd</th><th>Prazo</th><th>Prioridade</th><th>Responsável</th><th>Situação</th><th></th></tr></thead>
+    <tbody>${linhas||`<tr><td colspan="10">${vazio}</td></tr>`}</tbody></table></div>`;
 }
 
 // Fornecedores cadastrados para a obra (e gerais), independente de casarem com algum item
@@ -17223,23 +17243,17 @@ function mobFornDaObra(mob){
 }
 function mobHtmlFornObra(mob){
   if(mobSecao!==5&&mobSecao!==4)return'';
+  const itens=mobItens.filter(i=>i.mobilizacao_id===mob.id);
+  const usados=new Set();
+  itens.forEach(i=>mobFornsItem(i).forEach(x=>usados.add(String(x.f.id))));
   const fs=mobFornDaObra(mob);
-  const doObra=fs.filter(f=>String(f.obra_id)===String(mob.obra_id));
+  const sem=fs.filter(f=>!usados.has(String(f.id)));
   if(!fs.length)return`<div style="background:#fff;border:1px dashed var(--border);border-radius:8px;padding:10px 14px;font-size:12.5px;color:var(--text-muted);margin-bottom:12px">Nenhum fornecedor cadastrado para esta obra em <b>Fornecedores</b>. Use <b>Vincular fornecedor</b> para trazer um de outra obra.</div>`;
-  const lin=fs.slice(0,40).map(f=>{
-    const nome=f.nome_fantasia||f.razao_social;
-    const proprio=String(f.obra_id)===String(mob.obra_id);
-    const links=(mobForn||[]).filter(l=>l.mobilizacao_id===mob.id&&String(l.fornecedor_id)===String(f.id));
-    const manuais=links.map(l=>{const it=mobItens.find(x=>x.id===l.item_id);return it?`<span class="badge" style="background:var(--info-light);color:var(--info)">${escHtml(it.nome)} <i class="ti ti-x" style="cursor:pointer" title="Remover vínculo" onclick="mobRemoverVinc('${l.id}')"></i></span>`:`<span class="badge" style="background:#eee">sem item <i class="ti ti-x" style="cursor:pointer" title="Remover vínculo" onclick="mobRemoverVinc('${l.id}')"></i></span>`;}).join(' ');
-    const autos=mobItens.filter(i=>i.mobilizacao_id===mob.id&&i.vinculo&&(String(i.vinculo).startsWith('forn:')||String(i.vinculo).startsWith('ativo:')))
-      .filter(i=>String(i.vinculo).replace(/^[a-z]+:/,'').split('|').some(t=>mobNorm([f.tipo_fornecimento,f.razao_social,f.nome_fantasia].join(' ')).includes(mobNorm(t))))
-      .filter(i=>!links.some(l=>l.item_id===i.id));
-    const aut=autos.slice(0,2).map(i=>`<span class="badge" style="background:var(--accent-light);color:#8A4A06"><i class="ti ti-bolt"></i> ${escHtml(i.nome)}</span>`).join(' ');
-    const sem=!manuais&&!aut?'<span style="color:var(--warning)">sem item</span>':'';
-    return`<tr><td style="font-weight:600">${escHtml(nome)}${proprio?'':` <span class="badge" style="background:#eee">${f.obra_id?'de outra obra':'geral'}</span>`}</td><td>${escHtml(f.tipo_fornecimento||'—')}</td><td>${escHtml([f.contato_nome,f.telefone].filter(Boolean).join(' · ')||'—')}</td><td style="font-size:12px;display:flex;flex-wrap:wrap;gap:4px">${manuais} ${aut} ${sem}</td>
-      <td style="white-space:nowrap"><button class="btn btn-sm" title="Ver dados do fornecedor" onclick="mobVerForn('${f.id}')"><i class="ti ti-search"></i></button> <button class="btn btn-sm" onclick="mobModalVincForn('${f.id}')"><i class="ti ti-link"></i> Vincular a item</button></td></tr>`;}).join('');
-  return`<div class="table-container" style="margin-bottom:12px;overflow-x:auto"><div style="padding:10px 14px;font-size:12.5px;color:var(--text-muted);border-bottom:1px solid var(--border)"><i class="ti ti-truck"></i> <b>Fornecedores desta obra</b> (${doObra.length}), gerais e vinculados · vêm de Fornecedores. O nome não precisa ser igual: use <b>Vincular a item</b> para ligar o fornecedor ao item certo.</div>
-    <table style="min-width:700px"><thead><tr><th>Fornecedor</th><th>Fornece</th><th>Contato</th><th>Item da mobilização</th><th></th></tr></thead><tbody>${lin}</tbody></table></div>`;
+  if(!sem.length)return'';
+  const lin=sem.slice(0,40).map(f=>`<tr><td style="font-weight:600">${escHtml(f.nome_fantasia||f.razao_social)}${String(f.obra_id)===String(mob.obra_id)?'':` <span class="badge" style="background:#eee">${f.obra_id?'de outra obra':'geral'}</span>`}</td><td>${escHtml(f.tipo_fornecimento||'—')}</td><td>${escHtml([f.contato_nome,f.telefone].filter(Boolean).join(' · ')||'—')}</td>
+      <td style="white-space:nowrap;text-align:right"><button class="btn btn-sm" title="Ver dados do fornecedor" onclick="mobVerForn('${f.id}')"><i class="ti ti-search"></i></button> <button class="btn btn-sm btn-primary" onclick="mobModalVincForn('${f.id}')"><i class="ti ti-link"></i> Vincular a item</button></td></tr>`).join('');
+  return`<div class="table-container" style="margin-bottom:12px;overflow-x:auto"><div style="padding:10px 14px;font-size:12.5px;color:var(--warning);border-bottom:1px solid var(--border)"><i class="ti ti-alert-triangle"></i> <b>${sem.length} fornecedor${sem.length>1?'es':''} desta obra ainda sem item.</b> Vincule ao item certo (um item pode ter vários fornecedores).</div>
+    <table style="min-width:640px"><thead><tr><th>Fornecedor</th><th>Fornece</th><th>Contato</th><th></th></tr></thead><tbody>${lin}</tbody></table></div>`;
 }
 // Lupa: dados completos do fornecedor, sem sair da mobilização
 function mobVerForn(fid){
@@ -17262,7 +17276,7 @@ function mobVerForn(fid){
     <div class="modal-footer"><button class="btn" onclick="closeModal('modal-mob-forn')">Fechar</button><button class="btn btn-primary" onclick="closeModal('modal-mob-forn');mobModalVincForn('${f.id}')"><i class="ti ti-link"></i> Vincular a item</button></div></div></div>`);
 }
 // Modal: vincula QUALQUER fornecedor do sistema (de qualquer obra) a um item desta mobilização
-function mobModalVincForn(fid){
+function mobModalVincForn(fid,itemId){
   const mob=mobilizacoes.find(x=>x.id===mobSelId);if(!mob)return;
   const todos=(fornecedores||[]).filter(f=>f.situacao!=='inativo').sort((a,b)=>String(a.razao_social).localeCompare(String(b.razao_social),'pt-BR'));
   const itens=mobItens.filter(i=>i.mobilizacao_id===mob.id&&(i.secao===4||i.secao===5)).sort((a,b)=>a.secao-b.secao||(a.ordem||0)-(b.ordem||0));
@@ -17273,7 +17287,7 @@ function mobModalVincForn(fid){
       <div class="form-group full" style="font-size:12.5px;color:var(--text-muted)">Serve para quando o nome do fornecedor é diferente do item, ou quando o fornecedor já está cadastrado em outra obra (ex.: locação de rádios).</div>
       <div class="form-group full"><label>Buscar fornecedor (nome, o que fornece, CNPJ ou obra)</label><input id="mv-busca" placeholder="Digite para filtrar a lista" oninput="mobFiltrarVinc()"></div>
       <div class="form-group full"><label>Fornecedor *</label><select id="mv-forn" size="6" style="height:auto">${todos.map(optF).join('')}</select></div>
-      <div class="form-group full"><label>Item da mobilização *</label><select id="mv-item" onchange="document.getElementById('mv-novo-box').style.display=this.value==='__novo'?'':'none'"><option value="">Selecione...</option>${itens.map(i=>`<option value="${i.id}">${i.secao===4?'Equip.':'Forn.'} · ${escHtml(i.nome)}</option>`).join('')}<option value="__novo">+ Criar um item novo para este fornecedor</option></select></div>
+      <div class="form-group full"><label>Item da mobilização *</label><select id="mv-item" onchange="document.getElementById('mv-novo-box').style.display=this.value==='__novo'?'':'none'"><option value="">Selecione...</option>${itens.map(i=>`<option value="${i.id}" ${String(i.id)===String(itemId)?'selected':''}>${i.secao===4?'Equip.':'Forn.'} · ${escHtml(i.nome)}</option>`).join('')}<option value="__novo">+ Criar um item novo para este fornecedor</option></select></div>
       <div class="form-group full" id="mv-novo-box" style="display:none"><label>Nome do novo item *</label><input id="mv-novo" placeholder="Ex.: Locação de rádios"></div>
       <div class="form-group full" id="mv-novo-sec" ><label>Se criar item novo, em qual seção?</label><select id="mv-sec"><option value="5" ${mobSecao!==4?'selected':''}>5 · Fornecedores</option><option value="4" ${mobSecao===4?'selected':''}>4 · Equipamentos</option></select></div>
       <div class="form-group full" id="mv-prazo-box"><label>Prazo do novo item</label><input type="date" id="mv-prazo"></div>
@@ -17480,26 +17494,36 @@ function mobModalItem(id,novo){
       ${it&&it.vinculo&&k.au&&k.au.det?`<div class="form-group full" style="font-size:12.5px;color:var(--text-muted)"><i class="ti ti-bolt"></i> Automático: ${escHtml(k.au.det)}</div>`:''}
     </div></div>
     <div class="modal-footer">${it&&!eq?`<button class="btn btn-danger" style="margin-right:auto" onclick="mobExcluirItem('${it.id}')"><i class="ti ti-trash"></i> Excluir</button>`:''}<button class="btn" onclick="closeModal('modal-mob-item')">Cancelar</button><button class="btn btn-primary" onclick="mobSalvarItem(${it?`'${it.id}'`:'null'})"><i class="ti ti-check"></i> Salvar</button></div></div></div>`);
+  mobRenderFornItem();
 }
 // Lista suspensa com TODOS os fornecedores cadastrados (de qualquer obra); pode ficar em branco até achar o fornecedor
-function mobFornTxt(f){return(f.nome_fantasia||f.razao_social)+' — '+(f.tipo_fornecimento||'sem tipo')+' ('+(f.obra?(f.obra.nome||''):'geral')+')';}
 function mobCampoForn(it){
   const sec=it?it.secao:mobSecao;
   if(sec!==4&&sec!==5)return'';
-  const atual=it?(mobForn||[]).find(l=>String(l.item_id)===String(it.id)):null;
-  const todos=(fornecedores||[]).filter(f=>f.situacao!=='inativo'||(atual&&String(atual.fornecedor_id)===String(f.id))).sort((a,b)=>String(a.razao_social).localeCompare(String(b.razao_social),'pt-BR'));
-  window._miForn=todos;
-  return`<div class="form-group full"><label>Fornecedor <span style="font-weight:400;color:var(--text-muted)">(opcional: deixe em branco até achar)</span></label>
+  const sel=it?mobLinksItem(it.id).map(l=>String(l.fornecedor_id)):[];
+  window._miSel=sel;
+  window._miForn=(fornecedores||[]).filter(f=>f.situacao!=='inativo'||sel.includes(String(f.id))).sort((a,b)=>String(a.razao_social).localeCompare(String(b.razao_social),'pt-BR'));
+  const auto=it?mobFornsItem(it).filter(x=>!x.man):[];
+  return`<div class="form-group full"><label>Fornecedores <span style="font-weight:400;color:var(--text-muted)">(opcional; pode ter mais de um)</span></label>
+    <div id="mi-forn-chips" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px"></div>
+    ${auto.length?`<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:6px"><i class="ti ti-bolt"></i> Já ligados automaticamente pelo nome: ${auto.map(x=>escHtml(x.f.nome_fantasia||x.f.razao_social)).join(', ')}</div>`:''}
     <input id="mi-fbusca" placeholder="Buscar por nome, o que fornece, CNPJ ou obra..." oninput="mobFiltrarFornItem()" style="margin-bottom:6px">
-    <select id="mi-forn" onchange="mobFornInfo()"><option value="">— Em branco (definir depois) —</option>${todos.map(f=>`<option value="${f.id}" ${atual&&String(atual.fornecedor_id)===String(f.id)?'selected':''}>${escHtml(mobFornTxt(f))}</option>`).join('')}</select>
+    <div style="display:flex;gap:6px"><select id="mi-forn" onchange="mobFornInfo()" style="flex:1;min-width:0"></select><button type="button" class="btn" onclick="mobAddFornItem()"><i class="ti ti-plus"></i> Adicionar</button></div>
     <div id="mi-forn-info" style="font-size:12px;color:var(--text-muted);margin-top:6px"></div></div>`;
 }
+function mobFornTxt(f){return(f.nome_fantasia||f.razao_social)+' — '+(f.tipo_fornecimento||'sem tipo')+' ('+(f.obra?(f.obra.nome||''):'geral')+')';}
+function mobRenderFornItem(){
+  const ch=document.getElementById('mi-forn-chips');if(!ch)return;
+  ch.innerHTML=(window._miSel||[]).map(id=>{const f=(window._miForn||[]).find(x=>String(x.id)===String(id));
+    return f?`<span class="badge" style="background:var(--info-light);color:var(--info);display:inline-flex;gap:6px;align-items:center">${escHtml(f.nome_fantasia||f.razao_social)} <i class="ti ti-x" style="cursor:pointer" onclick="mobTirarFornItem('${f.id}')"></i></span>`:'';}).join('')||'<span style="font-size:12px;color:var(--text-muted)">Nenhum escolhido (em branco até achar o fornecedor)</span>';
+  mobFiltrarFornItem();
+}
 function mobFiltrarFornItem(){
-  const b=mobNorm(document.getElementById('mi-fbusca').value),dig=b.replace(/\D/g,'');
-  const sel=document.getElementById('mi-forn');const atual=sel.value;
-  const ok=(window._miForn||[]).filter(f=>!b||String(f.id)===String(atual)||mobNorm([f.razao_social,f.nome_fantasia,f.tipo_fornecimento,f.obra&&f.obra.nome,f.obra&&f.obra.codigo].join(' ')).includes(b)||(dig.length>=3&&String(f.cnpj||'').replace(/\D/g,'').includes(dig)));
-  sel.innerHTML='<option value="">— Em branco (definir depois) —</option>'+ok.map(f=>`<option value="${f.id}" ${String(f.id)===String(atual)?'selected':''}>${escHtml(mobFornTxt(f))}</option>`).join('');
-  if(!atual&&b&&ok.length===1){sel.value=ok[0].id;}
+  const bEl=document.getElementById('mi-fbusca'),sel=document.getElementById('mi-forn');if(!sel)return;
+  const b=mobNorm(bEl.value),dig=b.replace(/\D/g,'');const ja=window._miSel||[];
+  const ok=(window._miForn||[]).filter(f=>!ja.includes(String(f.id))&&(!b||mobNorm([f.razao_social,f.nome_fantasia,f.tipo_fornecimento,f.obra&&f.obra.nome,f.obra&&f.obra.codigo].join(' ')).includes(b)||(dig.length>=3&&String(f.cnpj||'').replace(/\D/g,'').includes(dig))));
+  sel.innerHTML='<option value="">— Escolha na lista —</option>'+ok.map(f=>`<option value="${f.id}">${escHtml(mobFornTxt(f))}</option>`).join('');
+  if(b&&ok.length===1)sel.value=ok[0].id;
   mobFornInfo();
 }
 function mobFornInfo(){
@@ -17507,20 +17531,28 @@ function mobFornInfo(){
   const f=(window._miForn||[]).find(x=>String(x.id)===String(document.getElementById('mi-forn').value));
   el.innerHTML=f?`<i class="ti ti-truck"></i> ${escHtml(f.razao_social||'')}${f.cnpj?' · CNPJ '+escHtml(f.cnpj):''}${f.contato_nome||f.telefone?' · '+escHtml([f.contato_nome,f.telefone].filter(Boolean).join(' · ')):''}${f.email?' · '+escHtml(f.email):''}`:'';
 }
-// grava o fornecedor escolhido para o item (troca o vínculo manual anterior)
+function mobAddFornItem(){
+  const v=document.getElementById('mi-forn').value;if(!v)return;
+  if(!window._miSel.includes(String(v)))window._miSel.push(String(v));
+  document.getElementById('mi-fbusca').value='';mobRenderFornItem();
+}
+function mobTirarFornItem(id){window._miSel=(window._miSel||[]).filter(x=>String(x)!==String(id));mobRenderFornItem();}
+// grava os fornecedores escolhidos para o item (acrescenta os novos, remove os retirados)
 async function mobGravarFornItem(itemId){
-  const sel=document.getElementById('mi-forn');if(!sel)return true;
-  const novo=sel.value;
-  const atual=(mobForn||[]).filter(l=>String(l.item_id)===String(itemId));
-  if(atual.length===1&&String(atual[0].fornecedor_id)===String(novo))return true;
-  if(!novo&&!atual.length)return true;
-  if(atual.length){
-    const r=await sb.from('mobilizacao_fornecedores').delete().eq('item_id',itemId);
-    if(r.error){showToast('Erro ao atualizar fornecedor: '+r.error.message,'error');return false;}
-    mobForn=mobForn.filter(l=>String(l.item_id)!==String(itemId));
+  if(!document.getElementById('mi-forn-chips'))return true;
+  const querem=new Set((window._miSel||[]).map(String));
+  const atuais=mobLinksItem(itemId);
+  for(const l of atuais){
+    if(!querem.has(String(l.fornecedor_id))){
+      const r=await sb.from('mobilizacao_fornecedores').delete().eq('id',l.id);
+      if(r.error){showToast('Erro ao atualizar fornecedor: '+r.error.message,'error');return false;}
+      mobForn=mobForn.filter(x=>x.id!==l.id);
+    }
   }
-  if(novo){
-    const r=await sb.from('mobilizacao_fornecedores').insert({mobilizacao_id:mobSelId,fornecedor_id:String(novo),item_id:itemId}).select().single();
+  const jaTem=new Set(atuais.map(l=>String(l.fornecedor_id)));
+  for(const fid of querem){
+    if(jaTem.has(fid))continue;
+    const r=await sb.from('mobilizacao_fornecedores').insert({mobilizacao_id:mobSelId,fornecedor_id:fid,item_id:itemId}).select().single();
     if(r.error){showToast(mobTabelaAusente(r.error)?'Rode o SQL atualizado (mobilizacao_obra.sql) para salvar o fornecedor':'Erro ao vincular fornecedor: '+r.error.message,'error');return false;}
     mobForn.push(r.data);
   }
@@ -17531,11 +17563,14 @@ function mobPrevChange(){const b=document.getElementById('mi-real-box');if(b)b.s
 // Lista suspensa do catálogo (itens da seção que ainda não estão no checklist) + opção de digitar
 function mobCampoCatalogo(){
   const usados=new Set(mobItens.filter(i=>i.mobilizacao_id===mobSelId).map(i=>i.codigo));
-  const disp=mobModelo.filter(m=>m.secao===mobSecao&&!usados.has(m.codigo));
-  return`<div class="form-group full"><label>Item *</label><select id="mi-cat" onchange="mobCatSel(this)"><option value="">Selecione na lista...</option>${disp.map(m=>`<option value="${escHtml(m.codigo)}">${escHtml(m.nome)}</option>`).join('')}<option value="__outro">Outro (digitar manualmente)…</option></select></div>
+  const disp=mobModelo.filter(m=>m.secao===mobSecao);
+  return`<div class="form-group full"><label>Item *</label><select id="mi-cat" onchange="mobCatSel(this)"><option value="">Selecione na lista...</option>${disp.map(m=>`<option value="${escHtml(m.codigo)}">${escHtml(m.nome)}${usados.has(m.codigo)?'  ✓ já na lista':''}</option>`).join('')}<option value="__outro">Outro (digitar manualmente)…</option></select></div>
     <div class="form-group full" id="mi-nome-box" style="display:none"><label>Nome do item *</label><input id="mi-nome" placeholder="Digite o nome do item"></div>`;
 }
 function mobCatSel(el){
+  // item do catálogo que já está no checklist: abre o item existente para acrescentar outro fornecedor, sem duplicar
+  const ex=mobItens.find(i=>i.mobilizacao_id===mobSelId&&i.codigo===el.value);
+  if(ex){closeModal('modal-mob-item');mobModalItem(ex.id);showToast('Este item já está na lista. Adicione aqui outro fornecedor.');return;}
   const outro=el.value==='__outro';
   document.getElementById('mi-nome-box').style.display=outro?'':'none';
   const m=mobModelo.find(x=>x.codigo===el.value);
