@@ -339,7 +339,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <div class="login-screen" id="login-screen">
   <div class="login-card">
     <div class="login-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 13/10/2026-d</span></div>
+    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 13/10/2026-f</span></div>
     <div class="login-error" id="login-erro"></div>
     <div class="login-field">
       <label>Usuário</label>
@@ -356,7 +356,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <aside class="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 13/10/2026-d</div>
+    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 13/10/2026-f</div>
   </div>
   <div class="sidebar-obra-filter">
     <label><i class="ti ti-building-skyscraper"></i> Filtrar por Obra</label>
@@ -1065,6 +1065,7 @@ async function loadFornecedores(){
   // Todos os usuários veem TODOS os fornecedores (de qualquer obra): serve para saber onde o fornecedor atua e pegar o contato.
   // Editar/excluir continua restrito às obras do usuário (ver fornecedorEditavel).
   fornecedores=f.data||[];
+  try{const mf=await pagAll(()=>sb.from('mobilizacao_fornecedores').select('*'));mobForn=mf.error?[]:(mf.data||[]);const mm=await pagAll(()=>sb.from('mobilizacoes').select('id,obra_id'));if(!mm.error&&!(mobilizacoes&&mobilizacoes.length))mobilizacoes=mm.data||[];}catch(e){}
   fornecedorOrcamentos=o.data||[];
 }
 
@@ -1279,7 +1280,7 @@ function alojExcesso(a){return a.tipo_alojamento==='hotel'?0:Math.max(0,alojOcup
 //   sistema/    → index.html: o código do próprio sistema, como está publicado agora
 // A data do último backup fica salva neste navegador; passando de 7 dias, o Menu principal mostra um aviso para o admin.
 // Arquivos enviados (fotos, PDFs) NÃO entram — no backup ficam só os links deles.
-const BACKUP_TABELAS=['alojamentos','alojamentos_contas','alojamentos_relatorios','ativos_imob_fotos','ativos_imob_responsaveis','ativos_imobilizados',
+const BACKUP_TABELAS=['mobilizacao_fornecedores','alojamentos','alojamentos_contas','alojamentos_relatorios','ativos_imob_fotos','ativos_imob_responsaveis','ativos_imobilizados',
   'contratacoes','contratacoes_prospeccoes','contratacoes_vagas','cronograma_entregas','cronograma_permissoes','cronograma_tarefas','efetivo_he','efetivo_horas','efetivo_presenca','empresas','ferias',
   'folgas','folgas_ciclos','folgas_translados','fornecedor_orcamentos','fornecedores','funcionarios','funcoes','grd','grd_importacoes','grd_obra_mapa',
   'matriz_contatos','mobilizacao_casas','mobilizacao_itens','mobilizacao_modelo','mobilizacoes','movimentacoes_historico','obras','prestadores','prestadores_presenca','procedimentos','procedimentos_anexos','procedimentos_versoes',
@@ -8081,15 +8082,24 @@ async function deleteEmpresa(id,nome){
 let fornecedoresBusca='',fornecedoresFiltroSit='ativo',fornecedoresFiltroTipo='',fornecedoresFiltroObra='';
 
 // Qualquer usuário VÊ todos os fornecedores; só edita/exclui os das suas obras (ou os gerais, sem obra)
+// obras onde o fornecedor também foi vinculado pela Mobilização Obra (além da obra do cadastro)
+function fornecedorObrasExtra(f){
+  if(typeof mobForn==='undefined'||!mobForn.length)return[];
+  const ids=new Set();
+  mobForn.filter(l=>String(l.fornecedor_id)===String(f.id)).forEach(l=>{const m=(mobilizacoes||[]).find(x=>x.id===l.mobilizacao_id);if(m&&String(m.obra_id)!==String(f.obra_id))ids.add(String(m.obra_id));});
+  return[...ids].map(id=>(obrasTodas&&obrasTodas.length?obrasTodas:obras).find(o=>String(o.id)===id)).filter(Boolean);
+}
 function fornecedorEditavel(f){return !obrasPermitidasIds||!f.obra_id||obrasPermitidasIds.has(String(f.obra_id));}
 function renderFornecedores(){
   const lista=fornecedores.filter(f=>{
     if(fornecedoresFiltroSit&&f.situacao!==fornecedoresFiltroSit)return false;
     if(fornecedoresFiltroTipo&&!(f.tipo_fornecimento||'').toLowerCase().includes(fornecedoresFiltroTipo.toLowerCase()))return false;
-    if(fornecedoresFiltroObra&&String(f.obra_id)!==String(fornecedoresFiltroObra))return false;
+    if(fornecedoresFiltroObra&&String(f.obra_id)!==String(fornecedoresFiltroObra)&&!fornecedorObrasExtra(f).some(o=>String(o.id)===String(fornecedoresFiltroObra)))return false;
     if(fornecedoresBusca){
-      const b=fornecedoresBusca.toLowerCase();
-      return(f.razao_social||'').toLowerCase().includes(b)||(f.nome_fantasia||'').toLowerCase().includes(b)||(f.cnpj||'').includes(b)||(f.tipo_fornecimento||'').toLowerCase().includes(b);
+      const nz=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+      const b=nz(fornecedoresBusca.trim()),dig=b.replace(/\D/g,'');
+      const obraTxt=[f.obra&&f.obra.nome,f.obra&&f.obra.codigo,...fornecedorObrasExtra(f).map(o=>o.nome+' '+(o.codigo||''))].join(' ');
+      return nz([f.razao_social,f.nome_fantasia,f.tipo_fornecimento,f.contato_nome,obraTxt].join(' ')).includes(b)||(dig.length>=3&&String(f.cnpj||'').replace(/\D/g,'').includes(dig));
     }
     return true;
   });
@@ -8109,7 +8119,7 @@ function renderFornecedores(){
         ${f.nome_fantasia?`<div style="font-size:11px;color:var(--text-muted)">${f.nome_fantasia}</div>`:''}
         ${f.cnpj?`<div style="font-size:11px;color:var(--text-muted);font-family:monospace">${f.cnpj}</div>`:''}
       </td>
-      <td style="font-size:12px">${f.obra?`${f.obra.codigo?f.obra.codigo+' — ':''}${f.obra.nome||''}`:'<span style="color:var(--text-muted)">—</span>'}</td>
+      <td style="font-size:12px">${f.obra?`${f.obra.codigo?f.obra.codigo+' — ':''}${f.obra.nome||''}`:'<span style="color:var(--text-muted)">—</span>'}${fornecedorObrasExtra(f).map(o=>`<div style="font-size:11px;color:var(--info)"><i class="ti ti-link"></i> também: ${o.nome}</div>`).join('')}</td>
       <td style="font-size:12px">${f.tipo_fornecimento||'—'}</td>
       <td style="font-size:12px">
         ${f.contato_nome?`<div>${f.contato_nome}</div>`:''}
@@ -8150,7 +8160,7 @@ function renderFornecedores(){
     </div>
     <div class="filters">
       <div class="search-box"><i class="ti ti-search"></i>
-        <input placeholder="Buscar por nome, CNPJ, tipo de fornecimento..." value="${fornecedoresBusca}"
+        <input placeholder="Buscar por fornecedor, obra, o que fornece, CNPJ..." value="${fornecedoresBusca}"
           oninput="fornecedoresBusca=this.value;if(!_buscaHandlers.forn)_buscaHandlers.forn=makeBuscaHandler(v=>fornecedoresBusca=v,renderFornecedores,300);_buscaHandlers.forn(this.value);this.focus()">
       </div>
       <select class="filter-select" onchange="fornecedoresFiltroObra=this.value;renderFornecedores()">
@@ -16636,7 +16646,7 @@ const MOB_STATUS_ITEM={
   na:{l:'N/A',bg:'var(--bg)',cor:'var(--text-muted)'},
   atrasado:{l:'Atrasado',bg:'var(--danger-light)',cor:'var(--danger)'},
 };
-let mobilizacoes=[],mobItens=[],mobCasas=[],mobModelo=[],mobErro=null,mobSelId=null,mobSecao=null,mobFiltro='',mobAuto={};
+let mobilizacoes=[],mobItens=[],mobCasas=[],mobModelo=[],mobErro=null,mobSelId=null,mobSecao=null,mobFiltro='',mobAuto={},mobForn=[];
 let mobBusca='',mobFPrazo='',mobFPrio='',mobFSit='',mobOrdem='';
 const MOB_PRIO={
   urgente:{l:'Urgente',bg:'var(--danger)',cor:'#fff',ord:0},
@@ -16756,6 +16766,7 @@ async function loadMobilizacao(){
     pagAll(()=>sb.from('mobilizacao_itens').select('*').order('secao').order('ordem')),
     pagAll(()=>sb.from('mobilizacao_casas').select('*').order('ordem').order('created_at')),
   ]);
+  try{const f=await pagAll(()=>sb.from('mobilizacao_fornecedores').select('*').order('created_at'));mobForn=f.error?[]:(f.data||[]);}catch(e){mobForn=[];}
   const err=m.error||i.error||c.error;
   if(err){
     mobErro=mobTabelaAusente(err)?'Rode o script mobilizacao_obra.sql no SQL Editor do Supabase para ativar este módulo.':('Erro ao carregar a mobilização: '+err.message);
@@ -16776,6 +16787,13 @@ async function mobCarregarTudo(){
   const md=await sb.from('mobilizacao_modelo').select('*').eq('ativo',true).order('secao').order('ordem');
   mobModelo=md.error?[]:(md.data||[]);
   for(const mob of mobilizacoes.filter(x=>x.status==='em_andamento'))await mobGarantirEquipe(mob);
+  // itens criados antes de o catálogo ganhar o vínculo automático: atualiza o vínculo pelo código
+  const sync=[];
+  mobItens.forEach(it=>{
+    const m=mobModelo.find(x=>x.codigo===it.codigo&&x.secao===it.secao);
+    if(m&&m.vinculo&&m.vinculo!==it.vinculo){it.vinculo=m.vinculo;sync.push(it.id+'|'+m.vinculo);}
+  });
+  await Promise.all(sync.map(x=>{const[id,v]=x.split('|');return sb.from('mobilizacao_itens').update({vinculo:v}).eq('id',id);}));
   mobAuto={};
   await Promise.all(mobilizacoes.filter(x=>x.status==='em_andamento').map(mobAutoCarregar));
 }
@@ -16821,7 +16839,7 @@ async function mobContar(tabela,col,vals,extra){
 async function mobAutoCarregar(mob){
   const obraId=mob.obra_id;
   const obra=mobObra(mob);
-  const itens=mobItens.filter(x=>x.mobilizacao_id===mob.id&&x.vinculo);
+  const itens=mobItens.filter(x=>x.mobilizacao_id===mob.id&&(x.vinculo||mobLinksItem(x.id).length));
   const res={};
   const funcsObra=funcionarios.filter(f=>String(f.obra_id)===String(obraId)&&f.situacao!=='inativo'&&f.situacao!=='transferido');
   const funcIds=funcionarios.filter(f=>String(f.obra_id)===String(obraId)).map(f=>f.id);
@@ -16852,7 +16870,7 @@ async function mobAutoCarregar(mob){
   let nVeic=null;
   if(itens.some(i=>i.vinculo==='veiculos'))nVeic=await mobContar('veiculos','obra_id',[obraId]);
   itens.forEach(it=>{
-    const v=String(it.vinculo);
+    const v=String(it.vinculo||'');
     if(v==='equipe'){
       const real=funcsObra.filter(f=>String(f.funcao_id)===String(it.funcao_id)).length;
       const cont=(contratacoes||[]).filter(c=>String(c.obra_id)===String(obraId)&&String(c.funcao_id)===String(it.funcao_id)&&!c.funcionario_id&&c.status!=='desistiu'&&c.status!=='integrado').length;
@@ -16878,9 +16896,17 @@ async function mobAutoCarregar(mob){
       const n=ctrl[v.slice(5)];
       res[it.id]=n===null||n===undefined?{n:null,det:'Não foi possível verificar'}:{n:n>0?1:0,det:n>0?'Já tem dados nesta obra':'Ainda sem dados nesta obra'};
     }
+    // fornecedores vinculados à mão (valem mesmo com nome diferente ou vindos de outra obra)
+    const man=mobLinksItem(it.id).map(l=>(fornecedores||[]).find(f=>String(f.id)===String(l.fornecedor_id))).filter(Boolean);
+    if(man.length){
+      const nomes=man.slice(0,2).map(f=>f.nome_fantasia||f.razao_social).join(', ');
+      const ant=res[it.id];
+      res[it.id]={n:Math.max(1,(ant&&ant.n)||0),det:[ant&&ant.det,'Vinculado: '+nomes].filter(Boolean).join(' · '),cont:ant&&ant.cont};
+    }
   });
   mobAuto[mob.id]=res;
 }
+function mobLinksItem(itemId){return(mobForn||[]).filter(l=>String(l.item_id)===String(itemId));}
 
 // ---------- cálculos ----------
 function mobCalcItem(it){
@@ -17094,7 +17120,7 @@ function mobHtmlSecao(mob){
   const topo=`<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px"><a onclick="mobSelId=null;mobSecao=null;renderMobilizacao()" style="cursor:pointer;color:var(--primary)">Mobilização Obra</a> › <a onclick="mobVoltar()" style="cursor:pointer;color:var(--primary)">${escHtml(o.nome||'Obra')}</a> › Seção ${sec.n}</div>
     <div class="page-header" style="margin-bottom:14px"><div><div class="page-title">${sec.nome} ${mobSelo(sec.tipo)}</div>
       <div class="page-subtitle">${r.txt} · ${r.pct===null?'—':mobPct(r.pct)}${r.atras?' · <b style="color:var(--danger)">'+r.atras+' atrasado'+(r.atras>1?'s':'')+'</b>':''}</div></div>
-      <div style="display:flex;gap:8px">${mobSecao===2?'<button class="btn btn-primary" onclick="mobModalCasa()"><i class="ti ti-plus"></i> Casa prevista</button>':(mobSecao===1?'':'<button class="btn btn-primary" onclick="mobModalNovoItem()"><i class="ti ti-plus"></i> Adicionar item</button>')}</div></div>`;
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="mobVoltar()"><i class="ti ti-arrow-left"></i> Painel da obra</button><button class="btn" onclick="mobSelId=null;mobSecao=null;renderMobilizacao();window.scrollTo(0,0)"><i class="ti ti-home"></i> Início da Mobilização</button>${mobSecao===4||mobSecao===5?'<button class="btn" onclick="mobModalVincForn()"><i class="ti ti-link"></i> Vincular fornecedor</button>':''}${(mobSecao===5||mobSecao===7)?'<button class="btn" onclick="mobCarregarPadrao()" title="Inclui os itens do catálogo que ainda não estão na lista"><i class="ti ti-list-details"></i> Itens padrão</button>':''}${mobSecao===2?'<button class="btn btn-primary" onclick="mobModalCasa()"><i class="ti ti-plus"></i> Casa prevista</button>':(mobSecao===1?'':'<button class="btn btn-primary" onclick="mobModalNovoItem()"><i class="ti ti-plus"></i> Adicionar item</button>')}</div></div>`;
   return topo+mobAbas(mob)+mobHtmlFiltros()+'<div id="mob-lista">'+mobCorpo(mob)+'</div>';
 }
 function mobCelPrazo(it){
@@ -17141,10 +17167,103 @@ function mobHtmlItens(mob){
   const nota=mobSecao===7?'<div style="background:var(--accent-light);border:1px solid #F2D2AE;color:#8A4A06;border-radius:8px;padding:9px 14px;font-size:12.5px;margin-bottom:12px"><i class="ti ti-bolt"></i> O raio indica item automático: o "ok" aparece sozinho quando o módulo correspondente já tem dados nesta obra. Controles sem módulo no sistema (notas fiscais, RD, refeição, VA) são marcados à mão.</div>'
     :(mobSecao===5?'<div style="background:var(--accent-light);border:1px solid #F2D2AE;color:#8A4A06;border-radius:8px;padding:9px 14px;font-size:12.5px;margin-bottom:12px"><i class="ti ti-bolt"></i> O item fica "ok" quando existe um fornecedor da obra (ou geral) com o tipo de fornecimento correspondente em <b>Fornecedores</b>. O nome do fornecedor aparece sozinho.</div>':'');
   const vazio=ks.length?`<div class="empty-state"><i class="ti ti-filter-off"></i><div>Nenhum item com esses filtros</div></div>`:`<div class="empty-state"><i class="ti ti-list-check"></i><div>Nenhum item nesta seção ainda</div><div style="font-size:12.5px;margin-top:6px">Clique em "Adicionar item" para escolher na lista ou digitar um item novo.</div></div>`;
-  return nota+`<div class="table-container" style="overflow-x:auto"><table style="min-width:900px"><thead><tr><th></th><th>Cód.</th><th>Item</th><th style="text-align:center">Qtd</th><th>Prazo</th><th>Prioridade</th><th>Responsável</th><th>Situação</th><th></th></tr></thead>
+  return nota+mobHtmlFornObra(mob)+`<div class="table-container" style="overflow-x:auto"><table style="min-width:900px"><thead><tr><th></th><th>Cód.</th><th>Item</th><th style="text-align:center">Qtd</th><th>Prazo</th><th>Prioridade</th><th>Responsável</th><th>Situação</th><th></th></tr></thead>
     <tbody>${linhas||`<tr><td colspan="9">${vazio}</td></tr>`}</tbody></table></div>`;
 }
 
+// Fornecedores cadastrados para a obra (e gerais), independente de casarem com algum item
+function mobFornDaObra(mob){
+  const ids=new Set((mobForn||[]).filter(l=>l.mobilizacao_id===mob.id).map(l=>String(l.fornecedor_id)));
+  return(fornecedores||[]).filter(f=>f.situacao!=='inativo'&&(String(f.obra_id)===String(mob.obra_id)||!f.obra_id||ids.has(String(f.id))))
+    .sort((a,b)=>(String(b.obra_id)===String(mob.obra_id)?1:0)-(String(a.obra_id)===String(mob.obra_id)?1:0));
+}
+function mobHtmlFornObra(mob){
+  if(mobSecao!==5&&mobSecao!==4)return'';
+  const fs=mobFornDaObra(mob);
+  const doObra=fs.filter(f=>String(f.obra_id)===String(mob.obra_id));
+  if(!fs.length)return`<div style="background:#fff;border:1px dashed var(--border);border-radius:8px;padding:10px 14px;font-size:12.5px;color:var(--text-muted);margin-bottom:12px">Nenhum fornecedor cadastrado para esta obra em <b>Fornecedores</b>. Use <b>Vincular fornecedor</b> para trazer um de outra obra.</div>`;
+  const lin=fs.slice(0,40).map(f=>{
+    const nome=f.nome_fantasia||f.razao_social;
+    const proprio=String(f.obra_id)===String(mob.obra_id);
+    const links=(mobForn||[]).filter(l=>l.mobilizacao_id===mob.id&&String(l.fornecedor_id)===String(f.id));
+    const manuais=links.map(l=>{const it=mobItens.find(x=>x.id===l.item_id);return it?`<span class="badge" style="background:var(--info-light);color:var(--info)">${escHtml(it.nome)} <i class="ti ti-x" style="cursor:pointer" title="Remover vínculo" onclick="mobRemoverVinc('${l.id}')"></i></span>`:`<span class="badge" style="background:#eee">sem item <i class="ti ti-x" style="cursor:pointer" title="Remover vínculo" onclick="mobRemoverVinc('${l.id}')"></i></span>`;}).join(' ');
+    const autos=mobItens.filter(i=>i.mobilizacao_id===mob.id&&i.vinculo&&(String(i.vinculo).startsWith('forn:')||String(i.vinculo).startsWith('ativo:')))
+      .filter(i=>String(i.vinculo).replace(/^[a-z]+:/,'').split('|').some(t=>mobNorm([f.tipo_fornecimento,f.razao_social,f.nome_fantasia].join(' ')).includes(mobNorm(t))))
+      .filter(i=>!links.some(l=>l.item_id===i.id));
+    const aut=autos.slice(0,2).map(i=>`<span class="badge" style="background:var(--accent-light);color:#8A4A06"><i class="ti ti-bolt"></i> ${escHtml(i.nome)}</span>`).join(' ');
+    const sem=!manuais&&!aut?'<span style="color:var(--warning)">sem item</span>':'';
+    return`<tr><td style="font-weight:600">${escHtml(nome)}${proprio?'':` <span class="badge" style="background:#eee">${f.obra_id?'de outra obra':'geral'}</span>`}</td><td>${escHtml(f.tipo_fornecimento||'—')}</td><td>${escHtml([f.contato_nome,f.telefone].filter(Boolean).join(' · ')||'—')}</td><td style="font-size:12px;display:flex;flex-wrap:wrap;gap:4px">${manuais} ${aut} ${sem}</td>
+      <td><button class="btn btn-sm" onclick="mobModalVincForn('${f.id}')"><i class="ti ti-link"></i> Vincular a item</button></td></tr>`;}).join('');
+  return`<div class="table-container" style="margin-bottom:12px;overflow-x:auto"><div style="padding:10px 14px;font-size:12.5px;color:var(--text-muted);border-bottom:1px solid var(--border)"><i class="ti ti-truck"></i> <b>Fornecedores desta obra</b> (${doObra.length}), gerais e vinculados · vêm de Fornecedores. O nome não precisa ser igual: use <b>Vincular a item</b> para ligar o fornecedor ao item certo.</div>
+    <table style="min-width:700px"><thead><tr><th>Fornecedor</th><th>Fornece</th><th>Contato</th><th>Item da mobilização</th><th></th></tr></thead><tbody>${lin}</tbody></table></div>`;
+}
+// Modal: vincula QUALQUER fornecedor do sistema (de qualquer obra) a um item desta mobilização
+function mobModalVincForn(fid){
+  const mob=mobilizacoes.find(x=>x.id===mobSelId);if(!mob)return;
+  const todos=(fornecedores||[]).filter(f=>f.situacao!=='inativo').sort((a,b)=>String(a.razao_social).localeCompare(String(b.razao_social),'pt-BR'));
+  const itens=mobItens.filter(i=>i.mobilizacao_id===mob.id&&(i.secao===4||i.secao===5)).sort((a,b)=>a.secao-b.secao||(a.ordem||0)-(b.ordem||0));
+  const optF=f=>`<option value="${f.id}" ${String(f.id)===String(fid)?'selected':''}>${escHtml((f.nome_fantasia||f.razao_social)+' — '+(f.tipo_fornecimento||'sem tipo')+' ('+(f.obra?(f.obra.nome||''):'geral')+')')}</option>`;
+  document.body.insertAdjacentHTML('beforeend',`<div class="modal-overlay" id="modal-mob-vinc" onclick="if(event.target===this)closeModal('modal-mob-vinc')"><div class="modal" style="max-width:560px">
+    <div class="modal-header"><span class="modal-title">Vincular fornecedor à mobilização</span><button class="btn btn-sm" onclick="closeModal('modal-mob-vinc')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="form-group full" style="font-size:12.5px;color:var(--text-muted)">Serve para quando o nome do fornecedor é diferente do item, ou quando o fornecedor já está cadastrado em outra obra (ex.: locação de rádios).</div>
+      <div class="form-group full"><label>Buscar fornecedor (nome, o que fornece, CNPJ ou obra)</label><input id="mv-busca" placeholder="Digite para filtrar a lista" oninput="mobFiltrarVinc()"></div>
+      <div class="form-group full"><label>Fornecedor *</label><select id="mv-forn" size="6" style="height:auto">${todos.map(optF).join('')}</select></div>
+      <div class="form-group full"><label>Item da mobilização *</label><select id="mv-item" onchange="document.getElementById('mv-novo-box').style.display=this.value==='__novo'?'':'none'"><option value="">Selecione...</option>${itens.map(i=>`<option value="${i.id}">${i.secao===4?'Equip.':'Forn.'} · ${escHtml(i.nome)}</option>`).join('')}<option value="__novo">+ Criar um item novo para este fornecedor</option></select></div>
+      <div class="form-group full" id="mv-novo-box" style="display:none"><label>Nome do novo item *</label><input id="mv-novo" placeholder="Ex.: Locação de rádios"></div>
+      <div class="form-group full" id="mv-novo-sec" ><label>Se criar item novo, em qual seção?</label><select id="mv-sec"><option value="5" ${mobSecao!==4?'selected':''}>5 · Fornecedores</option><option value="4" ${mobSecao===4?'selected':''}>4 · Equipamentos</option></select></div>
+      <div class="form-group full" id="mv-prazo-box"><label>Prazo do novo item</label><input type="date" id="mv-prazo"></div>
+    </div></div>
+    <div class="modal-footer"><button class="btn" onclick="closeModal('modal-mob-vinc')">Cancelar</button><button class="btn btn-primary" onclick="mobSalvarVinc()"><i class="ti ti-link"></i> Vincular</button></div></div></div>`);
+  window._mvTodos=todos;
+}
+function mobFiltrarVinc(){
+  const b=mobNorm(document.getElementById('mv-busca').value),dig=b.replace(/\D/g,'');
+  const sel=document.getElementById('mv-forn');
+  const ok=(window._mvTodos||[]).filter(f=>!b||mobNorm([f.razao_social,f.nome_fantasia,f.tipo_fornecimento,f.obra&&f.obra.nome,f.obra&&f.obra.codigo].join(' ')).includes(b)||(dig&&String(f.cnpj||'').replace(/\D/g,'').includes(dig)));
+  sel.innerHTML=ok.map(f=>`<option value="${f.id}">${escHtml((f.nome_fantasia||f.razao_social)+' — '+(f.tipo_fornecimento||'sem tipo')+' ('+(f.obra?(f.obra.nome||''):'geral')+')')}</option>`).join('');
+  if(ok.length===1)sel.value=ok[0].id;
+}
+async function mobSalvarVinc(){
+  const mob=mobilizacoes.find(x=>x.id===mobSelId);if(!mob)return;
+  const fid=document.getElementById('mv-forn').value;let item=document.getElementById('mv-item').value;
+  if(!fid){showToast('Escolha o fornecedor','error');return;}
+  if(!item){showToast('Escolha o item','error');return;}
+  if(item==='__novo'){
+    const nome=document.getElementById('mv-novo').value.trim();const prazo=document.getElementById('mv-prazo').value;
+    if(!nome){showToast('Digite o nome do novo item','error');return;}
+    if(!prazo){showToast('Todo item precisa de prazo','error');return;}
+    const sec=parseInt(document.getElementById('mv-sec').value)||5;
+    const ord=mobItens.filter(i=>i.mobilizacao_id===mob.id&&i.secao===sec).reduce((a,x)=>Math.max(a,x.ordem||0),0)+1;
+    const r=await sb.from('mobilizacao_itens').insert({mobilizacao_id:mob.id,secao:sec,codigo:'M'+sec+'-'+Date.now().toString(36),nome,tipo:'check',vinculo:null,previsto:1,realizado:0,status:'pendente',data_prazo:prazo,prioridade:'media',ordem:ord}).select().single();
+    if(r.error){showToast('Erro: '+r.error.message,'error');return;}
+    mobItens.push(r.data);item=r.data.id;
+  }
+  const{data,error}=await sb.from('mobilizacao_fornecedores').insert({mobilizacao_id:mob.id,fornecedor_id:String(fid),item_id:item}).select().single();
+  if(error){showToast(/duplicate|unique/i.test(error.message)?'Esse fornecedor já está vinculado a este item':(mobTabelaAusente(error)?'Rode o SQL atualizado (mobilizacao_obra.sql) para ativar os vínculos':'Erro: '+error.message),'error');return;}
+  mobForn.push(data);
+  closeModal('modal-mob-vinc');await mobAutoCarregar(mob);renderMobilizacao();showToast('Fornecedor vinculado');
+}
+async function mobRemoverVinc(id){
+  const{error}=await sb.from('mobilizacao_fornecedores').delete().eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  mobForn=mobForn.filter(x=>x.id!==id);
+  const mob=mobilizacoes.find(x=>x.id===mobSelId);if(mob)await mobAutoCarregar(mob);
+  renderMobilizacao();showToast('Vínculo removido');
+}
+// Inclui os itens do catálogo que ainda não estão na lista desta seção
+async function mobCarregarPadrao(){
+  const mob=mobilizacoes.find(x=>x.id===mobSelId);if(!mob)return;
+  if(!mobModelo.length){showToast('O catálogo está vazio: rode de novo o mobilizacao_obra.sql no Supabase','error');return;}
+  const tem=new Set(mobItens.filter(i=>i.mobilizacao_id===mob.id).map(i=>i.codigo));
+  const novos=mobModelo.filter(m=>m.secao===mobSecao&&!tem.has(m.codigo)).map(m=>({mobilizacao_id:mob.id,secao:m.secao,codigo:m.codigo,nome:m.nome,tipo:m.tipo,vinculo:m.vinculo,
+    previsto:m.previsto_padrao,realizado:0,status:'pendente',data_prazo:null,prioridade:'media',ordem:m.ordem}));
+  if(!novos.length){showToast('Todos os itens padrão desta seção já estão na lista');return;}
+  const r=await sb.from('mobilizacao_itens').insert(novos).select();
+  if(r.error){showToast('Erro: '+r.error.message,'error');return;}
+  mobItens.push(...r.data);await mobAutoCarregar(mob);renderMobilizacao();
+  showToast(novos.length+' itens incluídos. Defina o prazo de cada um.');
+}
 // ---------- casas (seção 2) ----------
 function mobEtapaL(k){return(MOB_ETAPAS.find(e=>e.k===k)||{}).l||k||'';}
 function mobHtmlCasas(mob){
