@@ -339,7 +339,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <div class="login-screen" id="login-screen">
   <div class="login-card">
     <div class="login-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 13/10/2026-l</span></div>
+    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 13/10/2026-m</span></div>
     <div class="login-error" id="login-erro"></div>
     <div class="login-field">
       <label>Usuário</label>
@@ -356,7 +356,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <aside class="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 13/10/2026-l</div>
+    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 13/10/2026-m</div>
   </div>
   <div class="sidebar-obra-filter">
     <label><i class="ti ti-building-skyscraper"></i> Filtrar por Obra</label>
@@ -12073,6 +12073,14 @@ function openModalAlojamento(id){
           <div class="form-group"><label>Índice de reajuste</label><input id="aloj-indice" value="${a?.indice_reajuste||'IVAR'}"></div>
           </div>
           <div class="form-group full"><label>Observações</label><textarea id="aloj-obs" rows="2">${a?.observacoes||''}</textarea></div>
+          <div class="form-group full" id="aloj-wrap-servico" style="${tipo==='hotel'?'':'display:none;'}background:var(--bg);border-radius:var(--radius);padding:12px;border:1px solid var(--border)">
+            <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">Prestação de serviços do hotel</div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:400;color:var(--text)"><input type="checkbox" id="aloj-serv-enc" ${a?.servico_encerrado?'checked':''} style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer"> Prestação de serviços encerrada</label>
+              <input type="date" id="aloj-serv-data" value="${a?.servico_encerrado_em||''}" style="width:160px">
+            </div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Marque ao encerrar o contrato com o hotel (a Desmobilização da obra deixa de ficar pendente). Para reabrir, desmarque.</div>
+          </div>
           <div class="form-group full" id="aloj-wrap-contas" style="${tipo==='hotel'?'display:none':''}background:var(--bg);border-radius:var(--radius);padding:12px;border:1px solid var(--border)">
             <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">⚙️ Contas Isentas / Incluídas no Aluguel</div>
             <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Marque as contas que NÃO precisam ser lançadas todo mês (ex: água inclusa, sem gás)</div>
@@ -12128,6 +12136,7 @@ function atualizarCamposAlojamento(){
   document.getElementById('aloj-wrap-diaria').style.display=isHotel?'':'none';
   document.getElementById('aloj-bloco-residencia').style.display=isHotel?'none':'contents';
   document.getElementById('aloj-wrap-contas').style.display=isHotel?'none':'';
+  const wrapServ=document.getElementById('aloj-wrap-servico');if(wrapServ)wrapServ.style.display=isHotel?'':'none';
   const anexos=document.getElementById('aloj-wrap-anexos-contrato');
   if(anexos)anexos.style.display=isHotel?'none':'';
 }
@@ -12186,6 +12195,7 @@ async function saveAlojamento(id){
     laudo_url:laudoUrl,
     fotos_url:fotosUrl,
   };
+  if(isHotel){const enc=document.getElementById('aloj-serv-enc')?.checked||false;payload.servico_encerrado=enc;payload.servico_encerrado_em=enc?(document.getElementById('aloj-serv-data')?.value||new Date().toISOString().slice(0,10)):null;}
   const{error}=id?await sb.from('alojamentos').update(payload).eq('id',id):await sb.from('alojamentos').insert(payload);
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast(id?'Alojamento atualizado!':'Alojamento cadastrado!');
@@ -17795,30 +17805,45 @@ function obraEncerrada(id){return !!id&&_obrasEncSet.has(String(id));}
 // Quem pode encerrar: todo usuário com acesso à obra (ADM, Gestor ou Administrador). Para restringir, troque por ex.: ['admin','gerente'].includes(currentUser?.perfil)
 function desmobPodeEncerrar(){return true;}
 
-const DESMOB_Q={
-  '1.1':'PORTAL RH / KAIRÓS – todos os funcionários foram transferidos?',
-  '1.2':'DEMITIDOS – todos os funcionários assinaram os documentos rescisórios?',
-  '1.3':'SOC – os funcionários foram transferidos para a nova obra?',
-  '1.4':'SOC – os funcionários demitidos foram inativados?',
-  '1.5':'Todos os documentos originais de funcionários foram enviados e formalizados por e-mail para a sede?',
-  '2.1':'Ferramentas e materiais devolvidos ou transferidos no sistema Gtel via nota fiscal?',
-  '2.2':'Locações: equipamentos devolvidos ou transferidos, débitos quitados e resíduos de pedidos de compra eliminados?',
+const DESMOB_DEST={sede:'Devolvido à sede',forn:'Devolvido ao fornecedor',mob:'Devolvida (não transferida)',obra:''};
+const DESMOB_TI=['Impressora','Relógio de ponto','Internet','Notebook Administração','Notebook Segurança do Trabalho','Notebook Planejamento','Notebook Gerência','Celular Administração','Celular Gerência'];
+const DESMOB_LOC=['Retroescavadeira','Gerador','Compactador de Solo','Betoneira','Banheiro Químico','Tenda','Plataforma Elevatória'];
+const DESMOB_FORN_CAT=['Papelaria','Materiais de elétrica','Materiais hidráulicos','Materiais de construção','EPI','Materiais de limpeza','Água mineral e gás','Locação de equipamentos','Posto de gasolina','Refeição','Transporte'];
+// Itens do formulário ADM 039 (numeração igual à do papel). dest = pede o destino quando a resposta é "Sim".
+const DESMOB_FORM=[
+  {n:1,t:'Funcionários lotados na obra',extra:true,rows:[
+    {c:'1.1',q:'PORTAL RH – todos os funcionários foram transferidos?'},
+    {c:'1.2',q:'KAIRÓS – todos os funcionários foram transferidos?'},
+    {c:'1.3',q:'DEMITIDOS – todos os funcionários assinaram os documentos rescisórios?'},
+    {c:'1.4',q:'SOC – os funcionários foram transferidos para a nova obra?'},
+    {c:'1.5',q:'SOC – os funcionários demitidos foram inativados?'},
+    {c:'1.6',q:'Todos os documentos originais de funcionários foram enviados e formalizados por e-mail para a sede?'}]},
+  {n:2,t:'T.I. – Tecnologia da Informação',extra:true,rows:DESMOB_TI.map((x,i)=>({c:'2.'+(i+1),l:x,q:'transferido de obra ou devolvido para a sede? (se transferido, informar a obra de destino)',dest:'sede'}))},
+  {n:3,t:'Caixa de obra',extra:true,rows:[
+    {c:'3.1',q:'Houve encerramento das despesas da obra atual?'},
+    {c:'3.2',q:'Houve transferência para outra obra? (informar a obra de destino)',dest:'obra'},
+    {c:'3.3',q:'Houve devolução do cartão físico para o departamento financeiro?'}]},
+  {n:4,t:'Veículos',rows:[]},
+  {n:5,t:'Ferramental de obra',extra:true,rows:[
+    {c:'5.1',q:'A devolução ou transferência das “Ferramentas” foi devidamente realizada?'},
+    {c:'5.2',q:'Todas as ferramentas foram devidamente transferidas no sistema Gtel via nota fiscal?'}]},
+  {n:6,t:'Material de obra',extra:true,rows:[
+    {c:'6.1',q:'Todo material foi devidamente devolvido para a sede ou transferido para outra obra?'},
+    {c:'6.2',q:'Todos os materiais foram devidamente transferidos no sistema Gtel via nota fiscal?'}]},
+  {n:7,t:'Locações',extra:true,rows:DESMOB_LOC.map((x,i)=>({c:'7.'+(i+1),l:x,q:'a devolução ou transferência do equipamento foi realizada? Débitos pendentes quitados? Resíduos de pedidos de compra eliminados? (se transferido, informar a obra de destino)',dest:'forn'}))},
+  {n:8,t:'Fornecedores',extra:true,rows:DESMOB_FORN_CAT.map((x,i)=>({c:'8.'+(i+1),l:x,q:'débitos pendentes quitados? Declaração de Quitação de Débitos assinada? Resíduos de pedidos de compra eliminados?'}))},
+  {n:9,t:'Alojamentos',rows:[]}
+];
+const DESMOB_Q={};
+DESMOB_FORM.forEach(s=>s.rows.forEach(r=>{DESMOB_Q[r.c]=r.l?(r.l+' – '+r.q):r.q;}));
+Object.assign(DESMOB_Q,{
   'VEIC_TICKET':'Cartão Ticket-Log devolvido ou transferido?',
   'ALOJ_DISTRATO':'E-mail do distrato enviado à sede/proprietário? Vistoria de saída realizada? Chaves entregues?',
   'ALOJ_CONTAS':'Contas de água/energia quitadas e retiradas do nome da Gtel? (nº da instalação em observações)',
   'ALOJ_REPAROS':'Reparos formalizados? Caução devolvida? (contato do proprietário/imobiliária em observações)',
-  'ALOJ_MOBILIA':'Mobília devolvida ou transferida no sistema Gtel? (obra de destino em observações)',
-  'FORN_DEBITOS':'Todos os débitos pendentes foram quitados?',
-  'FORN_PEDIDOS':'Resíduos de pedidos de compra integralmente eliminados?',
-  'FORN_DECL':'Declaração de Quitação de Débitos (ADM 037) assinada?',
-  '6.1':'Houve encerramento das despesas da obra atual?',
-  '6.2':'Houve transferência para outra obra? (informar a obra de destino em observações)',
-  '6.3':'Houve devolução do cartão físico ao departamento financeiro?'
-};
-const DESMOB_SEC=[
-  {n:1,t:'Funcionários lotados na obra'},{n:2,t:'T.I., ferramental e locações'},{n:3,t:'Veículos'},
-  {n:4,t:'Alojamentos'},{n:5,t:'Fornecedores'},{n:6,t:'Caixa de obra'}
-];
+  'ALOJ_MOBILIA':'Mobília devolvida ou transferida no sistema Gtel? (se transferida, informar a obra de destino)',
+  'FORN_DECL':'Declaração de Quitação de Débitos (ADM 037) assinada?'
+});
 function desmobNorm(t){return String(t||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\s+/g,' ').trim();}
 function desmobKey(cod,tt,rid){return[cod,tt||'',rid||''].map(encodeURIComponent).join('|');}
 function desmobObraDe(d){return obrasTodas.find(o=>String(o.id)===String(d.obra_id))||{};}
@@ -17839,6 +17864,8 @@ function desmobCss(){
   .dm-seg b:last-child{border-right:0}
   .dm-seg b.y{background:#EAF3DE;color:#2f5a0d}.dm-seg b.x{background:#FCEBEB;color:#a02524}.dm-seg b.na{background:#eef0f3;color:#374151}
   .dm-obs{width:200px;flex:none;border:1px solid var(--border);border-radius:6px;padding:5px 8px;font:12px inherit}
+  .dm-sel{max-width:210px;flex:none;border:1px solid var(--border);border-radius:6px;padding:5px 8px;font:12px inherit;background:#fff}
+  .dm-req{border-color:var(--danger);background:var(--danger-light)}
   .dm-note{padding:9px 20px;font-size:12px;color:#6B7280;background:#FFFBF3;border-top:1px solid #EEF2F8}
   .dm-tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);padding:0 16px;flex-wrap:wrap}
   .dm-tab{padding:11px 14px;font-size:13px;font-weight:600;color:#6B7280;cursor:pointer}
@@ -17875,52 +17902,56 @@ function desmobCalc(d){
   const oid=String(d.obra_id);
   const its=desmobItens.filter(i=>i.desmobilizacao_id===d.id);
   const get=(cod,tt,rid)=>its.find(i=>i.codigo===cod&&(i.ref_tipo||'')===(tt||'')&&String(i.ref_id||'')===String(rid||''));
-  const ok=it=>!!it&&(it.resposta==='sim'||it.resposta==='na');
+  const ok=(it,dest)=>!!it&&(it.resposta==='na'||(it.resposta==='sim'&&(!dest||!!it.destino)));
   const hoje=mobHoje();
-  const secs=DESMOB_SEC.map(s=>({n:s.n,t:s.t,total:0,feitos:0,pend:0}));
+  const secs=DESMOB_FORM.map(s=>({n:s.n,t:s.t,total:0,feitos:0,pend:0}));
   const S=n=>secs[n-1];
   let manPend=0;
-  const manual=(n,cod,tt,rid)=>{const it=get(cod,tt,rid);S(n).total++;if(ok(it))S(n).feitos++;else{S(n).pend++;if(!/^ALOJ_/.test(cod))manPend++;}return it;};
-  // 1 funcionários
+  const manual=(n,cod,tt,rid,dest)=>{const it=get(cod,tt,rid);S(n).total++;if(ok(it,dest))S(n).feitos++;else{S(n).pend++;manPend++;}return it;};
+  const flag=(n,pendente)=>{S(n).total++;if(pendente)S(n).pend++;else S(n).feitos++;};
+  // itens extras (adicionados pelo usuário)
+  const extras={};
+  [1,2,3,5,6,7,8].forEach(n=>{
+    extras[n]=its.filter(i=>i.codigo==='EXTRA_'+n).sort((a,b)=>String(a.ref_id).localeCompare(String(b.ref_id)));
+    extras[n].forEach(i=>{S(n).total++;if(ok(i))S(n).feitos++;else{S(n).pend++;manPend++;}});
+  });
+  // automáticos (vêm dos módulos)
   const funcAtivos=funcionarios.filter(f=>String(f.obra_id)===oid&&f.situacao==='ativo');
-  S(1).total++;if(!funcAtivos.length)S(1).feitos++;else S(1).pend++;
-  ['1.1','1.2','1.3','1.4','1.5'].forEach(c=>manual(1,c));
-  // 2 ativos GTEL
   const respAt=id=>ativosImobResponsaveis.find(r=>String(r.ativo_id)===String(id)&&!r.data_fim);
   const ativosNaObra=(ativosImob||[]).filter(a=>a.status!=='baixado'&&String((respAt(a.id)&&respAt(a.id).obra_id)||a.obra_id)===oid);
-  S(2).total++;if(!ativosNaObra.length)S(2).feitos++;else S(2).pend++;
-  ['2.1','2.2'].forEach(c=>manual(2,c));
-  // 3 veículos
+  const ativosTI=ativosNaObra.filter(a=>a.categoria==='Equipamentos de TI');
+  const ativosOutros=ativosNaObra.filter(a=>a.categoria!=='Equipamentos de TI');
   const inat=VEIC_STATUS_INATIVOS;
   const veicsObra=(veiculos||[]).filter(v=>String(v.obra_id)===oid);
   const veicsFora=(veiculos||[]).filter(v=>String(v.obra_id)!==oid&&(veiculosMov||[]).some(m=>String(m.veiculo_id)===String(v.id)&&m.tipo==='transferencia'&&String(m.obra_origem_id)===oid));
   const veicsPend=veicsObra.filter(v=>!inat.includes(v.status));
-  S(3).total++;if(!veicsPend.length)S(3).feitos++;else S(3).pend++;
-  veicsObra.concat(veicsFora).forEach(v=>manual(3,'VEIC_TICKET','veiculo',String(v.id)));
-  // 4 alojamentos
+  flag(1,funcAtivos.length>0);flag(2,ativosTI.length>0);flag(4,veicsPend.length>0);flag(5,ativosOutros.length>0);
+  // perguntas fixas do formulário
+  DESMOB_FORM.forEach(s=>s.rows.forEach(r=>manual(s.n,r.c,'','',r.dest)));
+  veicsObra.concat(veicsFora).forEach(v=>manual(4,'VEIC_TICKET','veiculo',String(v.id)));
+  // 9 alojamentos (hotel: encerrar prestação de serviços; demais: 4 perguntas)
   const alojs=(alojamentos||[]).filter(a=>String(a.obra_id)===oid);
   const alojInfo=alojs.map(a=>{
-    const qs=['ALOJ_DISTRATO','ALOJ_CONTAS','ALOJ_REPAROS','ALOJ_MOBILIA'];
-    qs.forEach(c=>manual(4,c,'alojamento',String(a.id)));
-    const feitos=qs.filter(c=>ok(get(c,'alojamento',String(a.id)))).length;
-    const venc=a.data_termino&&a.data_termino<hoje;
-    return{a,feitos,total:qs.length,completo:feitos===qs.length,custoCorre:feitos<qs.length&&!venc};
+    const hotel=a.tipo_alojamento==='hotel';
+    let feitos=0,total=0;
+    if(hotel){total=1;feitos=a.servico_encerrado?1:0;}
+    else[['ALOJ_DISTRATO'],['ALOJ_CONTAS'],['ALOJ_REPAROS'],['ALOJ_MOBILIA','mob']].forEach(q=>{total++;if(ok(get(q[0],'alojamento',String(a.id)),q[1]))feitos++;});
+    S(9).total+=total;S(9).feitos+=feitos;S(9).pend+=total-feitos;
+    const completo=feitos===total;
+    const venc=!hotel&&a.data_termino&&a.data_termino<hoje;
+    return{a,hotel,feitos,total,completo,custoCorre:!completo&&!venc};
   });
-  // 5 fornecedores
   const forns=desmobFornecedores(oid);
-  forns.forEach(f=>['FORN_DEBITOS','FORN_PEDIDOS','FORN_DECL'].forEach(c=>manual(5,c,'fornecedor',f.key)));
-  // 6 caixa
-  ['6.1','6.2','6.3'].forEach(c=>manual(6,c));
   const total=secs.reduce((a,s)=>a+s.total,0),feitos=secs.reduce((a,s)=>a+s.feitos,0);
   const bloq=[];
   if(funcAtivos.length)bloq.push(funcAtivos.length+' funcionário'+(funcAtivos.length>1?'s ativos':' ativo'));
-  if(veicsPend.length)bloq.push(veicsPend.length+' veículo'+(veicsPend.length>1?'s não devolvidos/transferidos':' não devolvido/transferido'));
   if(ativosNaObra.length)bloq.push(ativosNaObra.length+' ativo'+(ativosNaObra.length>1?'s':'')+' GTEL na obra');
+  if(veicsPend.length)bloq.push(veicsPend.length+' veículo'+(veicsPend.length>1?'s não devolvidos/transferidos':' não devolvido/transferido'));
   const alojPend=alojInfo.filter(x=>!x.completo).length;
-  if(alojPend)bloq.push(alojPend+' alojamento'+(alojPend>1?'s':'')+' com baixa incompleta');
-  if(manPend>0)bloq.push(manPend+' pergunta'+(manPend>1?'s':'')+' do checklist sem “Sim/N.A.”');
+  if(alojPend)bloq.push(alojPend+' alojamento'+(alojPend>1?'s':'')+' sem baixa completa');
+  if(manPend>0)bloq.push(manPend+' pergunta'+(manPend>1?'s':'')+' do checklist sem “Sim/N.A.” (ou sem destino informado)');
   if(!(d.avaliador_nome&&d.avaliador_data&&d.gestor_nome&&d.gestor_data))bloq.push('assinaturas (avaliador e gestor) não registradas');
-  return{its,get,ok,secs,total,feitos,pct:total?feitos/total:0,funcAtivos,ativosNaObra,veicsObra,veicsFora,veicsPend,alojInfo,forns,bloq,custos:alojInfo.filter(x=>x.custoCorre).length+veicsPend.filter(v=>v.tipo==='locado').length};
+  return{oid,its,get,ok,secs,total,feitos,pct:total?feitos/total:0,extras,funcAtivos,ativosNaObra,ativosTI,ativosOutros,veicsObra,veicsFora,veicsPend,alojInfo,forns,bloq,custos:alojInfo.filter(x=>x.custoCorre).length+veicsPend.filter(v=>v.tipo==='locado').length};
 }
 
 // ── telas ──
@@ -17942,7 +17973,7 @@ function desmobHtmlLista(){
     return`<div onclick="desmobAbrir('${d.id}')" style="cursor:pointer;background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px">
       <div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap">
         <div><div style="font-size:16px;font-weight:700">${escHtml(o.nome||'Obra')} <span class="badge" style="background:var(--warning-light);color:var(--warning);font-weight:700;margin-left:6px">Em desmobilização</span></div>
-        <div style="font-size:12.5px;color:var(--text-muted);margin-top:2px">CC ${escHtml(o.centro_custo||o.codigo||'—')} · Iniciada em ${formatDate(d.data_inicio)}${c.custos?' · '+c.custos+' custo'+(c.custos>1?'s':'')+' ainda correndo':''}</div></div>
+        <div style="font-size:12.5px;color:var(--text-muted);margin-top:2px">CC ${escHtml(o.centro_custo||o.codigo||'—')} · Iniciada em ${formatDate(d.data_inicio)}${d.data_fim?' · Término previsto '+formatDate(d.data_fim):''}${c.custos?' · '+c.custos+' custo'+(c.custos>1?'s':'')+' ainda correndo':''}</div></div>
         <div style="font-size:12.5px;font-weight:700;color:var(--primary)">Abrir checklist →</div></div>
       <div style="display:flex;align-items:center;gap:12px;margin-top:12px"><div style="flex:1">${mobBarra(c.pct,mobCorPct(c.pct))}</div><b style="color:var(--navy)">${mobPct(c.pct)}</b><span style="font-size:12px;color:var(--text-muted);white-space:nowrap">${c.feitos} de ${c.total} itens</span></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${chips||'<span class="badge" style="background:var(--success-light);color:var(--success);font-weight:600">Sem pendências: pronta para encerrar</span>'}</div></div>`;
@@ -17965,74 +17996,83 @@ function desmobSeg(did,cod,tt,rid,it){
 function desmobObsInput(did,cod,tt,rid,it){
   return`<input class="dm-obs" placeholder="Observação" value="${escHtml((it&&it.observacao)||'')}" onchange="desmobObs('${did}','${desmobKey(cod,tt,rid)}',this.value)">`;
 }
-function desmobRowManual(did,c,cod,tt,rid,texto,num){
-  const it=c.get(cod,tt,rid);
-  return`<div class="dm-row"><div class="d">${num?`<span style="color:var(--text-muted);font-weight:600;font-size:12px;margin-right:8px">${num}</span>`:''}${texto}</div>${desmobSeg(did,cod,tt,rid,it)}${desmobObsInput(did,cod,tt,rid,it)}</div>`;
+function desmobDestSelect(did,k,it,dest,oid){
+  const lab=DESMOB_DEST[dest];
+  const ops=obrasTodas.filter(o=>String(o.id)!==String(oid)&&o.status_obra!=='encerrada').sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR'))
+    .map(o=>`<option value="${o.id}" ${String(it.destino)===String(o.id)?'selected':''}>${escHtml((o.codigo?o.codigo+' · ':'')+o.nome)}</option>`).join('');
+  return`<select class="dm-sel ${it.destino?'':'dm-req'}" onchange="desmobDestino('${did}','${k}',this.value)"><option value="">${dest==='obra'?'Obra de destino (obrigatório)…':'Destino (obrigatório)…'}</option>${lab?`<option value="devolvido" ${it.destino==='devolvido'?'selected':''}>${lab}</option>`:''}${ops}</select>`;
+}
+function desmobRowManual(did,c,cod,tt,rid,label,num,dest,extra){
+  const it=c.get(cod,tt,rid),k=desmobKey(cod,tt,rid);
+  const showDest=dest&&it&&it.resposta==='sim';
+  return`<div class="dm-row"><div class="d">${num?`<span style="color:var(--text-muted);font-weight:600;font-size:12px;margin-right:8px">${num}</span>`:''}${label}</div>${desmobSeg(did,cod,tt,rid,it)}${showDest?desmobDestSelect(did,k,it,dest,c.oid):''}${desmobObsInput(did,cod,tt,rid,it)}${extra?`<button class="btn btn-sm" title="Remover item" onclick="desmobDelExtra('${did}','${k}')"><i class="ti ti-trash"></i></button>`:''}</div>`;
 }
 function desmobChipSit(okk,txt){return`<span class="badge" style="background:${okk?'var(--success-light)':'var(--danger-light)'};color:${okk?'var(--success)':'var(--danger)'};font-weight:700">${txt}</span>`;}
 function desmobSecHead(n,t,s){
   const chip=s.pend?`<span class="badge" style="background:var(--danger-light);color:var(--danger);font-weight:700">${s.pend} pendente${s.pend>1?'s':''}</span>`:`<span class="badge" style="background:var(--success-light);color:var(--success);font-weight:700">Completo</span>`;
   return`<div class="dm-sh"><div class="dm-sn">${n}</div><h3>${t}</h3>${chip}</div>`;
 }
+const DM_TAG_AUTO='<span class="dm-tag" style="background:#E3EEFB;color:#123F73">AUTOMÁTICO</span>',DM_TAG_MAN='<span class="dm-tag" style="background:#eef0f3;color:#4b5563">MANUAL</span>';
+function desmobManualHtml(did,c,n){
+  const s=DESMOB_FORM[n-1];
+  let h=s.rows.map(r=>desmobRowManual(did,c,r.c,'','',r.l?`<b>${escHtml(r.l)}</b> – ${escHtml(r.q)}`:escHtml(r.q),r.c,r.dest)).join('');
+  h+=(c.extras[n]||[]).map(it=>desmobRowManual(did,c,it.codigo,'extra',it.ref_id,escHtml(it.texto||'Item extra'),'extra',null,true)).join('');
+  if(s.extra)h+=`<div class="dm-row"><button class="btn btn-sm" onclick="desmobAddExtra('${did}',${n})"><i class="ti ti-plus"></i> Adicionar item</button><span style="font-size:12px;color:var(--text-muted)">o formulário é um modelo: inclua aqui qualquer outro item que precise conferir</span></div>`;
+  return h;
+}
+function desmobAtivosHtml(lista,vazio){
+  return lista.length?lista.map(a=>`<div class="dm-row"><div class="d"><b>${escHtml(a.descricao||'Ativo')}</b> <span style="color:var(--text-muted)">${a.categoria?'· '+escHtml(a.categoria):''}${a.patrimonio_numero?' · patr. '+escHtml(a.patrimonio_numero):''}</span></div>${desmobChipSit(false,'Ainda na obra')}</div>`).join(''):`<div class="dm-row"><div class="d" style="color:var(--success)">${vazio}</div></div>`;
+}
 function desmobHtmlChecklist(d){
   const c=desmobCalc(d),o=desmobObraDe(d),did=d.id,aberta=d.status==='em_andamento';
   const nomeObra=id=>{const x=obrasTodas.find(y=>String(y.id)===String(id));return x?x.nome:'—';};
   const ir=(pg)=>`<button class="btn btn-sm" onclick="desmobIr('${pg}','${d.obra_id}')">Abrir módulo</button>`;
-  // 1
+  const sec=(n,inner)=>`<section class="dm-sec">${desmobSecHead(n,DESMOB_FORM[n-1].t,c.secs[n-1])}${inner}</section>`;
   const f1=c.funcAtivos.map(f=>`<div class="dm-row"><div class="d"><b>${escHtml(f.nome_completo)}</b> <span style="color:var(--text-muted)">· ${escHtml((f.funcao&&f.funcao.nome)||'—')}${f.matricula?' · mat. '+escHtml(f.matricula):''}</span></div>${f.transf_pendente?desmobChipSit(false,'Transferência aguardando aceite → '+escHtml(nomeObra(f.transf_pendente_obra_id))):desmobChipSit(false,'Ainda ativo na obra')}</div>`).join('');
-  const s1=`<section class="dm-sec">${desmobSecHead(1,DESMOB_SEC[0].t,c.secs[0])}
-    <div class="dm-sub"><span class="dm-tag" style="background:#E3EEFB;color:#123F73">AUTOMÁTICO</span>Funcionários ainda ativos nesta obra (transfira ou demita no módulo Funcionários) ${c.funcAtivos.length?ir('funcionarios'):''}</div>
+  const s1=sec(1,`<div class="dm-sub">${DM_TAG_AUTO}Funcionários ainda ativos nesta obra (transfira ou demita no módulo Funcionários) ${c.funcAtivos.length?ir('funcionarios'):''}</div>
     ${f1||'<div class="dm-row"><div class="d" style="color:var(--success)">Nenhum funcionário ativo na obra.</div></div>'}
-    <div class="dm-sub" style="padding-top:14px"><span class="dm-tag" style="background:#eef0f3;color:#4b5563">MANUAL</span>Conferências em sistemas externos</div>
-    ${['1.1','1.2','1.3','1.4','1.5'].map(k=>desmobRowManual(did,c,k,'','',escHtml(DESMOB_Q[k]),k)).join('')}</section>`;
-  // 2
-  const a2=c.ativosNaObra.map(a=>`<div class="dm-row"><div class="d"><b>${escHtml(a.descricao||'Ativo')}</b> <span style="color:var(--text-muted)">${a.patrimonio_numero?'· patr. '+escHtml(a.patrimonio_numero):''}</span></div>${desmobChipSit(false,'Ainda na obra')}</div>`).join('');
-  const s2=`<section class="dm-sec">${desmobSecHead(2,DESMOB_SEC[1].t+' <span style="font-weight:500;color:var(--text-muted);font-size:12px">(itens 2, 5, 6 e 7 do ADM 039)</span>',c.secs[1])}
-    <div class="dm-sub"><span class="dm-tag" style="background:#E3EEFB;color:#123F73">AUTOMÁTICO</span>Ativos GTEL (T.I., ferramentas, locações) ainda na obra: transfira, devolva ou dê baixa no módulo Ativo GTEL ${c.ativosNaObra.length?ir('ativos-imobilizados'):''}</div>
-    ${a2||'<div class="dm-row"><div class="d" style="color:var(--success)">Nenhum ativo GTEL na obra.</div></div>'}
-    <div class="dm-sub" style="padding-top:14px"><span class="dm-tag" style="background:#eef0f3;color:#4b5563">MANUAL</span>Conferências</div>
-    ${['2.1','2.2'].map(k=>desmobRowManual(did,c,k,'','',escHtml(DESMOB_Q[k]),k)).join('')}</section>`;
-  // 3
-  const v3=c.veicsObra.concat(c.veicsFora).map(v=>{
+    <div class="dm-sub" style="padding-top:14px">${DM_TAG_MAN}Conferências</div>${desmobManualHtml(did,c,1)}`);
+  const s2=sec(2,`<div class="dm-sub">${DM_TAG_AUTO}Equipamentos de TI cadastrados em Ativo GTEL ainda na obra ${c.ativosTI.length?ir('ativos-imobilizados'):''}</div>
+    ${desmobAtivosHtml(c.ativosTI,'Nenhum equipamento de TI cadastrado na obra.')}
+    <div class="dm-sub" style="padding-top:14px">${DM_TAG_MAN}Cada item: transferido de obra ou devolvido para a sede? Se transferido, informe a obra de destino.</div>${desmobManualHtml(did,c,2)}`);
+  const s3=sec(3,`<div class="dm-sub">${DM_TAG_MAN}</div>${desmobManualHtml(did,c,3)}`);
+  const v4=c.veicsObra.concat(c.veicsFora).map(v=>{
     const fora=String(v.obra_id)!==String(d.obra_id),dev=!fora&&VEIC_STATUS_INATIVOS.includes(v.status);
     const sit=fora?desmobChipSit(true,'Transferido → '+escHtml(nomeObra(v.obra_id))):(dev?desmobChipSit(true,escHtml(String(v.status).charAt(0).toUpperCase()+String(v.status).slice(1))):desmobChipSit(false,'Ainda na obra'));
     const it=c.get('VEIC_TICKET','veiculo',String(v.id));
-    return`<div class="dm-row"><div class="d"><b>${escHtml(v.placa||'—')}</b> <span style="color:var(--text-muted)">· ${escHtml([v.modelo,v.tipo].filter(Boolean).join(' · '))}</span></div>${sit}<span style="font-size:12px;color:var(--text-muted)">Ticket-Log:</span>${desmobSeg(did,'VEIC_TICKET','veiculo',String(v.id),it)}${desmobObsInput(did,'VEIC_TICKET','veiculo',String(v.id),it)}</div>`;
+    return`<div class="dm-row"><div class="d"><b>${escHtml(v.placa||'—')}</b> <span style="color:var(--text-muted)">· ${escHtml([v.modelo,v.tipo].filter(Boolean).join(' · '))}</span></div>${sit}<span style="font-size:12px;color:var(--text-muted)">Ticket-Log devolvido/transferido?</span>${desmobSeg(did,'VEIC_TICKET','veiculo',String(v.id),it)}${desmobObsInput(did,'VEIC_TICKET','veiculo',String(v.id),it)}</div>`;
   }).join('');
-  const s3=`<section class="dm-sec">${desmobSecHead(3,DESMOB_SEC[2].t,c.secs[2])}
-    <div class="dm-sub"><span class="dm-tag" style="background:#E3EEFB;color:#123F73">AUTOMÁTICO</span>Veículos da obra: devolva ou transfira no módulo Veículos ${c.veicsPend.length?ir('veiculos'):''}</div>
-    ${v3||'<div class="dm-row"><div class="d" style="color:var(--text-muted)">Nenhum veículo vinculado a esta obra.</div></div>'}
-    ${c.veicsPend.some(v=>v.tipo==='locado')?'<div class="dm-note">Veículo locado continua gerando custo nesta obra até a devolução efetiva.</div>':''}</section>`;
-  // 4
-  const a4=c.alojInfo.map(x=>{
-    const a=x.a;
-    return`<div style="padding:12px 20px 4px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-top:1px solid var(--border)"><b>${escHtml(a.nome||'Alojamento')}</b><span style="color:var(--text-muted);font-size:13px">${escHtml(a.endereco||'')}${a.data_termino?' · contrato até '+formatDate(a.data_termino):''}</span>${x.custoCorre?'<span class="badge" style="background:var(--warning-light);color:var(--warning);font-weight:700">Custo corre nesta obra</span>':''}${x.completo?desmobChipSit(true,'Baixa completa'):''}</div>`
-      +['ALOJ_DISTRATO','ALOJ_CONTAS','ALOJ_REPAROS','ALOJ_MOBILIA'].map(k=>desmobRowManual(did,c,k,'alojamento',String(a.id),escHtml(DESMOB_Q[k]))).join('');
-  }).join('');
-  const s4=`<section class="dm-sec">${desmobSecHead(4,DESMOB_SEC[3].t,c.secs[3])}
-    <div class="dm-sub"><span class="dm-tag" style="background:#E3EEFB;color:#123F73">AUTOMÁTICO</span>Um bloco por alojamento cadastrado na obra ${c.alojInfo.length?ir('alojamentos'):''}</div>
-    ${a4||'<div class="dm-row"><div class="d" style="color:var(--text-muted)">Nenhum alojamento cadastrado nesta obra.</div></div>'}
-    ${c.alojInfo.some(x=>x.custoCorre)?'<div class="dm-note">Enquanto o alojamento não tiver a baixa completa, as contas dele continuam sendo lançadas nesta obra, e a obra não encerra.</div>':''}</section>`;
-  // 5
-  const f5=c.forns.map(f=>{
-    const decl=c.get('FORN_DECL','fornecedor',f.key),k=desmobKey('FORN_DECL','fornecedor',f.key);
-    const deb=c.get('FORN_DEBITOS','fornecedor',f.key),ped=c.get('FORN_PEDIDOS','fornecedor',f.key);
+  const s4=sec(4,`<div class="dm-sub">${DM_TAG_AUTO}Veículos da obra: devolva ou transfira no módulo Veículos ${c.veicsPend.length?ir('veiculos'):''}</div>
+    ${v4||'<div class="dm-row"><div class="d" style="color:var(--text-muted)">Nenhum veículo vinculado a esta obra.</div></div>'}
+    ${c.veicsPend.some(v=>v.tipo==='locado')?'<div class="dm-note">Veículo locado continua gerando custo nesta obra até a devolução efetiva.</div>':''}`);
+  const s5=sec(5,`<div class="dm-sub">${DM_TAG_AUTO}Ferramentas e demais ativos GTEL ainda na obra: transfira, devolva ou dê baixa no módulo Ativo GTEL ${c.ativosOutros.length?ir('ativos-imobilizados'):''}</div>
+    ${desmobAtivosHtml(c.ativosOutros,'Nenhum ativo (ferramenta, máquina, mobiliário etc.) na obra.')}
+    <div class="dm-sub" style="padding-top:14px">${DM_TAG_MAN}Conferências</div>${desmobManualHtml(did,c,5)}`);
+  const s6=sec(6,`<div class="dm-sub">${DM_TAG_MAN}</div>${desmobManualHtml(did,c,6)}`);
+  const s7=sec(7,`<div class="dm-sub">${DM_TAG_MAN}Para cada locação: se transferida, informe a obra de destino.</div>${desmobManualHtml(did,c,7)}`);
+  const f8=c.forns.map(f=>{
+    const decl=c.get('FORN_DECL','fornecedor',f.key),k=desmobKey('FORN_DECL','fornecedor',f.key),assin=!!decl&&decl.resposta==='sim';
     return`<div class="dm-row"><div class="d"><b>${escHtml(f.nome)}</b>${f.cnpj?` <span style="color:var(--text-muted);font-size:12px">· ${escHtml(f.cnpj)}</span>`:''}</div>
-      <span style="font-size:11px;color:var(--text-muted)">Débitos quitados?</span>${desmobSeg(did,'FORN_DEBITOS','fornecedor',f.key,deb)}
-      <span style="font-size:11px;color:var(--text-muted)">Pedidos eliminados?</span>${desmobSeg(did,'FORN_PEDIDOS','fornecedor',f.key,ped)}
-      <span style="font-size:11px;color:var(--text-muted)">Declaração assinada?</span>${desmobSeg(did,'FORN_DECL','fornecedor',f.key,decl)}
-      <button class="btn btn-sm" onclick="desmobDeclaracao('${did}','${k}')"><i class="ti ti-file-text"></i> Gerar ADM 037</button>${decl&&decl.situacao==='gerada'&&!c.ok(decl)?'<span class="badge" style="background:var(--warning-light);color:var(--warning);font-weight:700">Gerada · falta assinar</span>':''}</div>`;
+      ${assin?desmobChipSit(true,'Declaração assinada'):(decl&&decl.situacao==='gerada'?'<span class="badge" style="background:var(--warning-light);color:var(--warning);font-weight:700">Gerada · falta assinar</span>':'')}
+      <button class="btn btn-sm" onclick="desmobDeclaracao('${did}','${k}')"><i class="ti ti-file-text"></i> Gerar ADM 037</button>
+      <button class="btn btn-sm" onclick="desmobDeclAssinada('${did}','${k}')">${assin?'Desmarcar assinada':'Marcar como assinada'}</button></div>`;
   }).join('');
-  const s5=`<section class="dm-sec">${desmobSecHead(5,DESMOB_SEC[4].t,c.secs[4])}
-    <div class="dm-sub"><span class="dm-tag" style="background:#E3EEFB;color:#123F73">AUTOMÁTICO</span>Fornecedores cadastrados na obra e fornecedores das GRDs da obra. A declaração sai com nome e CNPJ já preenchidos.</div>
-    ${f5||'<div class="dm-row"><div class="d" style="color:var(--text-muted)">Nenhum fornecedor ligado a esta obra.</div></div>'}</section>`;
-  // 6
-  const s6=`<section class="dm-sec">${desmobSecHead(6,DESMOB_SEC[5].t,c.secs[5])}
-    <div class="dm-sub"><span class="dm-tag" style="background:#eef0f3;color:#4b5563">MANUAL</span></div>
-    ${['6.1','6.2','6.3'].map(k=>desmobRowManual(did,c,k,'','',escHtml(DESMOB_Q[k]),k)).join('')}</section>`;
-  // 7 obs + assinaturas
+  const s8=sec(8,`<div class="dm-sub">${DM_TAG_MAN}Por categoria de fornecedor</div>${desmobManualHtml(did,c,8)}
+    <div class="dm-sub" style="padding-top:14px">${DM_TAG_AUTO}Fornecedores cadastrados na obra e fornecedores das GRDs da obra: gere a Declaração de Quitação (ADM 037) já com nome e CNPJ ${c.forns.length?ir('fornecedores'):''}</div>
+    ${f8||'<div class="dm-row"><div class="d" style="color:var(--text-muted)">Nenhum fornecedor cadastrado ou com GRD nesta obra.</div></div>'}`);
+  // 9 alojamentos
+  const a9=c.alojInfo.map(x=>{
+    const a=x.a;
+    const cab=`<div style="padding:12px 20px 4px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-top:1px solid var(--border)"><b>${escHtml(a.nome||'Alojamento')}</b><span style="color:var(--text-muted);font-size:13px">${x.hotel?'Hotel · ':''}${escHtml(a.endereco||'')}${!x.hotel&&a.data_termino?' · contrato até '+formatDate(a.data_termino):''}</span>${x.custoCorre?'<span class="badge" style="background:var(--warning-light);color:var(--warning);font-weight:700">Custo corre nesta obra</span>':''}${x.completo?desmobChipSit(true,x.hotel?'Prestação encerrada':'Baixa completa'):''}</div>`;
+    if(x.hotel)return cab+`<div class="dm-row"><div class="d">Prestação de serviços do hotel encerrada?${a.servico_encerrado&&a.servico_encerrado_em?` <span style="color:var(--text-muted);font-size:12px">· encerrada em ${formatDate(a.servico_encerrado_em)}</span>`:''}</div>${x.completo?`<button class="btn btn-sm" onclick="desmobHotelReabrir('${a.id}')">Reabrir prestação de serviços</button>`:`<button class="btn btn-primary btn-sm" onclick="desmobHotelModal('${a.id}')">Encerrar prestação de serviços</button>`}</div>`;
+    return cab+[['ALOJ_DISTRATO'],['ALOJ_CONTAS'],['ALOJ_REPAROS'],['ALOJ_MOBILIA','mob']].map(q=>desmobRowManual(did,c,q[0],'alojamento',String(a.id),escHtml(DESMOB_Q[q[0]]),'',q[1])).join('');
+  }).join('');
+  const s9=sec(9,`<div class="dm-sub">${DM_TAG_AUTO}Um bloco por alojamento cadastrado na obra ${c.alojInfo.length?ir('alojamentos'):''}</div>
+    ${a9||'<div class="dm-row"><div class="d" style="color:var(--text-muted)">Nenhum alojamento cadastrado nesta obra.</div></div>'}
+    ${c.alojInfo.some(x=>x.custoCorre)?'<div class="dm-note">Enquanto o alojamento não tiver a baixa completa, as contas dele continuam sendo lançadas nesta obra, e a obra não encerra.</div>':''}`);
+  // 10 obs + assinaturas
   const inp=(campo,tipo,ph)=>`<input type="${tipo}" ${aberta?'':'disabled'} value="${escHtml(d[campo]||'')}" placeholder="${ph}" onchange="desmobCampo('${did}','${campo}',this.value)" style="border:1px solid var(--border);border-radius:6px;padding:6px 9px;font:13px inherit;${tipo==='date'?'width:150px':'flex:1;min-width:180px'}">`;
-  const s7=`<section class="dm-sec"><div class="dm-sh"><div class="dm-sn">7</div><h3>Observações adicionais e assinaturas</h3></div>
+  const s10=`<section class="dm-sec"><div class="dm-sh"><div class="dm-sn">10</div><h3>Observações adicionais e assinaturas</h3></div>
     <div style="padding:16px 20px"><textarea ${aberta?'':'disabled'} rows="3" placeholder="Descreva qualquer informação relevante aos itens anteriores…" onchange="desmobCampo('${did}','observacoes',this.value)" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:10px;font:13px inherit;box-sizing:border-box">${escHtml(d.observacoes||'')}</textarea>
     <div style="display:flex;gap:20px;margin-top:14px;flex-wrap:wrap">
       <div style="flex:1;min-width:300px"><div style="font-size:11px;color:var(--text-muted);font-weight:700;margin-bottom:6px">AVALIADOR · ENC. ADM</div><div style="display:flex;gap:8px;flex-wrap:wrap">${inp('avaliador_nome','text','Nome')}${inp('avaliador_data','date','')}</div></div>
@@ -18041,11 +18081,12 @@ function desmobHtmlChecklist(d){
   const podeEnc=desmobPodeEncerrar()&&!c.bloq.length&&aberta;
   return`<div style="font-size:13px;color:var(--text-muted)"><a style="cursor:pointer;color:var(--primary)" onclick="desmobVoltar()">← Desmobilização</a> › ${escHtml(o.nome||'')}</div>
     <div class="page-header" style="margin-top:6px"><div><div class="page-title">${escHtml(o.nome||'Obra')} <span class="badge" style="background:var(--warning-light);color:var(--warning);font-weight:700;vertical-align:3px;margin-left:6px">${aberta?'Em desmobilização':escHtml(d.status)}</span></div>
-      <div class="page-subtitle">CC ${escHtml(o.centro_custo||'—')} · Código ${escHtml(o.codigo||'—')} · Iniciada em ${formatDate(d.data_inicio)}</div></div>
+      <div class="page-subtitle" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">CC ${escHtml(o.centro_custo||'—')} · Código ${escHtml(o.codigo||'—')} · Iniciada em ${formatDate(d.data_inicio)} · Data final da desmobilização:
+        <input type="date" ${aberta?'':'disabled'} value="${escHtml(d.data_fim||'')}" onchange="desmobCampo('${did}','data_fim',this.value)" title="Pode ser alterada quando a previsão mudar" style="border:1px solid var(--border);border-radius:6px;padding:3px 8px;font:13px inherit"></div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="desmobImprimir('${did}')"><i class="ti ti-printer"></i> Imprimir ADM 039</button>${aberta?`<button class="btn" onclick="desmobCancelar('${did}')">Cancelar desmobilização</button>`:''}</div></div>
     <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 20px;display:flex;align-items:center;gap:12px"><div style="flex:1">${mobBarra(c.pct,mobCorPct(c.pct))}</div><b style="color:var(--navy)">${mobPct(c.pct)}</b><span style="font-size:12px;color:var(--text-muted);white-space:nowrap">${c.feitos} de ${c.total} itens</span></div>
     ${c.bloq.length?`<div style="margin-top:12px;background:var(--danger-light);border:1px solid #f3c5c4;border-radius:12px;padding:12px 20px;font-size:13px;color:#7f1d1d"><b style="color:var(--danger)">Pendências que impedem o encerramento:</b> ${c.bloq.map(escHtml).join(' · ')}</div>`:''}
-    ${s1}${s2}${s3}${s4}${s5}${s6}${s7}
+    ${s1}${s2}${s3}${s4}${s5}${s6}${s7}${s8}${s9}${s10}
     <div style="margin-top:16px;background:#fff;border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;justify-content:space-between">
       <div style="max-width:700px"><b style="color:var(--navy)">Encerrar obra</b><div style="color:var(--text-muted);font-size:13px">Libera quando todas as pendências forem resolvidas e as duas assinaturas estiverem registradas. Ao encerrar, a obra vai para “Obras Encerradas” e sai dos demais módulos; os dados ficam guardados para consulta.</div></div>
       <button class="btn btn-primary" ${podeEnc?'':'disabled style="opacity:.5;cursor:not-allowed"'} onclick="desmobEncerrar('${did}')"><i class="ti ti-lock"></i> Encerrar obra${c.bloq.length?' ('+c.bloq.length+' pendência'+(c.bloq.length>1?'s':'')+')':''}</button></div>`;
@@ -18056,7 +18097,7 @@ function desmobIr(page,obraId){setGlobalObraFiltro(obraId);showPage(page);}
 async function desmobSalvarItem(did,k,patch){
   const[cod,tt,rid]=k.split('|').map(decodeURIComponent);
   const ant=desmobItens.find(i=>i.desmobilizacao_id===did&&i.codigo===cod&&(i.ref_tipo||'')===tt&&String(i.ref_id||'')===rid);
-  const row={desmobilizacao_id:did,codigo:cod,ref_tipo:tt,ref_id:rid,resposta:ant?ant.resposta:null,situacao:ant?ant.situacao:null,observacao:ant?ant.observacao:null,...patch,atualizado_por:(currentUser&&(currentUser.nome||currentUser.usuario))||null,atualizado_em:new Date().toISOString()};
+  const row={desmobilizacao_id:did,codigo:cod,ref_tipo:tt,ref_id:rid,resposta:ant?ant.resposta:null,situacao:ant?ant.situacao:null,observacao:ant?ant.observacao:null,texto:ant?ant.texto:null,destino:ant?ant.destino:null,...patch,atualizado_por:(currentUser&&(currentUser.nome||currentUser.usuario))||null,atualizado_em:new Date().toISOString()};
   const r=await sb.from('desmobilizacao_itens').upsert(row,{onConflict:'desmobilizacao_id,codigo,ref_tipo,ref_id'}).select().single();
   if(r.error){showToast('Erro ao salvar: '+r.error.message,'error');return false;}
   const idx=desmobItens.findIndex(i=>i.id===r.data.id);
@@ -18069,11 +18110,52 @@ async function desmobResp(did,k,val){
   const ant=desmobItens.find(i=>i.desmobilizacao_id===did&&i.codigo===cod&&(i.ref_tipo||'')===tt&&String(i.ref_id||'')===rid);
   const novo=(ant&&ant.resposta===val)?null:val;
   const patch={resposta:novo};
-  if(cod==='FORN_DECL'&&novo==='sim')patch.situacao='assinada';
+  if(novo!=='sim')patch.destino=null;
   const y=window.scrollY;
   if(await desmobSalvarItem(did,k,patch)){renderDesmobilizacao();window.scrollTo(0,y);}
 }
 async function desmobObs(did,k,v){await desmobSalvarItem(did,k,{observacao:v.trim()||null});}
+async function desmobDestino(did,k,v){const y=window.scrollY;if(await desmobSalvarItem(did,k,{destino:v||null})){renderDesmobilizacao();window.scrollTo(0,y);}}
+async function desmobAddExtra(did,n){
+  const d=desmobs.find(x=>x.id===did);if(!d||d.status!=='em_andamento')return;
+  const t=prompt('Descreva o item a conferir (ex.: Gerador de energia – devolvido?):');
+  if(!t||!t.trim())return;
+  const k=desmobKey('EXTRA_'+n,'extra','x'+Date.now().toString(36));
+  const y=window.scrollY;
+  if(await desmobSalvarItem(did,k,{texto:t.trim()})){renderDesmobilizacao();window.scrollTo(0,y);}
+}
+async function desmobDelExtra(did,k){
+  if(!confirm('Remover este item do checklist?'))return;
+  const[cod,tt,rid]=k.split('|').map(decodeURIComponent);
+  const r=await sb.from('desmobilizacao_itens').delete().eq('desmobilizacao_id',did).eq('codigo',cod).eq('ref_tipo',tt).eq('ref_id',rid);
+  if(r.error){showToast('Erro ao remover: '+r.error.message,'error');return;}
+  desmobItens=desmobItens.filter(i=>!(i.desmobilizacao_id===did&&i.codigo===cod&&(i.ref_tipo||'')===tt&&String(i.ref_id||'')===rid));
+  const y=window.scrollY;renderDesmobilizacao();window.scrollTo(0,y);
+}
+async function desmobDeclAssinada(did,k){
+  const[cod,tt,rid]=k.split('|').map(decodeURIComponent);
+  const ant=desmobItens.find(i=>i.desmobilizacao_id===did&&i.codigo===cod&&(i.ref_tipo||'')===tt&&String(i.ref_id||'')===rid);
+  const assin=ant&&ant.resposta==='sim';
+  const y=window.scrollY;
+  if(await desmobSalvarItem(did,k,assin?{resposta:null,situacao:'gerada'}:{resposta:'sim',situacao:'assinada'})){renderDesmobilizacao();window.scrollTo(0,y);}
+}
+// hotel: encerrar / reabrir a prestação de serviços (também editável em Alojamentos > Editar)
+function desmobHotelModal(alojId){
+  const a=(alojamentos||[]).find(x=>String(x.id)===String(alojId));
+  document.body.insertAdjacentHTML('beforeend',`<div class="modal-overlay" id="modal-hotel" onclick="if(event.target===this)closeModal('modal-hotel')"><div class="modal" style="max-width:440px">
+    <div class="modal-header"><span class="modal-title">Encerrar prestação de serviços</span><button class="btn btn-sm" onclick="closeModal('modal-hotel')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body"><div style="font-size:13px;margin-bottom:10px"><b>${escHtml((a&&a.nome)||'Hotel')}</b></div>
+      <div class="form-group"><label>Data de encerramento</label><input type="date" id="dm-hotel-data" value="${mobHoje()}"></div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:10px">Você pode reabrir depois, se o hotel voltar a ser usado.</div></div>
+    <div class="modal-footer"><button class="btn" onclick="closeModal('modal-hotel')">Cancelar</button><button class="btn btn-primary" onclick="desmobHotelEncerrar('${alojId}')"><i class="ti ti-check"></i> Encerrar</button></div></div></div>`);
+}
+async function desmobHotelAtualizar(alojId,patch,msg){
+  const r=await sb.from('alojamentos').update(patch).eq('id',alojId);
+  if(r.error){showToast('Erro: '+r.error.message+' (rode o arquivo sql_desmobilizacao_2.sql no Supabase)','error');return;}
+  closeModal('modal-hotel');await loadAlojamentos();showToast(msg);const y=window.scrollY;renderDesmobilizacao();window.scrollTo(0,y);
+}
+async function desmobHotelEncerrar(alojId){const dt=document.getElementById('dm-hotel-data').value||mobHoje();await desmobHotelAtualizar(alojId,{servico_encerrado:true,servico_encerrado_em:dt},'Prestação de serviços encerrada.');}
+async function desmobHotelReabrir(alojId){if(!confirm('Reabrir a prestação de serviços deste hotel?'))return;await desmobHotelAtualizar(alojId,{servico_encerrado:false,servico_encerrado_em:null},'Prestação de serviços reaberta.');}
 async function desmobCampo(did,campo,v){
   const d=desmobs.find(x=>x.id===did);if(!d)return;
   const val=v===''?null:v;
@@ -18116,7 +18198,7 @@ async function desmobEncerrar(did){
   if(c.bloq.length){showToast('Ainda há pendências: '+c.bloq.join(' · '),'error');return;}
   const o=desmobObraDe(d);
   if(!confirm(`Encerrar a obra "${o.nome}"?\n\nEla vai sair dos módulos do dia a dia e ficará em "Obras Encerradas" (somente consulta).`))return;
-  const oid=String(d.obra_id),hoje=mobHoje();
+  const oid=String(d.obra_id),hoje=d.data_fim||mobHoje();
   const todosF=funcionarios.filter(f=>String(f.obra_id)===oid);
   const passou=new Set(todosF.map(f=>String(f.id)));
   (movimentacoesHistorico||[]).forEach(m=>{if(String(m.obra_origem_id)===oid||String(m.obra_destino_id)===oid)passou.add(String(m.funcionario_id));});
@@ -18143,19 +18225,34 @@ function desmobAbrirJanela(titulo,corpo){
 function desmobImprimir(did,cOver){
   const d=desmobs.find(x=>x.id===did);if(!d)return;
   const c=cOver||desmobCalc(d),o=desmobObraDe(d);
-  const mk=(sim)=>sim==='sim'?'X':'';
-  const linha=(txt,it)=>`<tr><td>${escHtml(txt)}</td><td class="c">${it&&it.resposta==='sim'?'X':''}</td><td class="c">${it&&it.resposta==='nao'?'X':''}</td><td class="c">${it&&it.resposta==='na'?'X':''}</td><td>${escHtml((it&&it.observacao)||'')}</td></tr>`;
-  const tab=(rows)=>`<table><tr><th>Descrição</th><th class="c">Sim</th><th class="c">Não</th><th class="c">N.A.</th><th>Observação</th></tr>${rows}</table>`;
+  const nomeObra=id=>{const x=obrasTodas.find(y=>String(y.id)===String(id));return x?x.nome:'';};
+  const dtxt=it=>!it||!it.destino?'':(it.destino==='devolvido'?'Devolvido':'Destino: '+nomeObra(it.destino));
+  const linha=(txt,it,extra)=>`<tr><td>${txt}</td><td class="c">${it&&it.resposta==='sim'?'X':''}</td><td class="c">${it&&it.resposta==='nao'?'X':''}</td><td class="c">${it&&it.resposta==='na'?'X':''}</td><td>${escHtml([extra,dtxt(it),it&&it.observacao].filter(Boolean).join(' · '))}</td></tr>`;
+  const tab=rows=>`<table><tr><th>Descrição</th><th class="c">Sim</th><th class="c">Não</th><th class="c">N.A.</th><th>Observação</th></tr>${rows||linha('—',null)}</table>`;
   let h=`<h1>FORMULÁRIO ADM 039 – CHECKLIST PARA DESMOBILIZAÇÃO DE OBRAS</h1>
   <table><tr><th>Nome da obra</th><td>${escHtml(o.nome||'')}</td><th>Centro de custo</th><td>${escHtml(o.centro_custo||'')}</td></tr>
-  <tr><th>Data do checklist</th><td>${formatDate(d.avaliador_data||d.data_inicio)}</td><th>Início da desmobilização</th><td>${formatDate(d.data_inicio)}</td></tr></table>`;
-  h+=`<h2>ITEM 1 – FUNCIONÁRIOS LOTADOS NA OBRA</h2>`+tab(['1.1','1.2','1.3','1.4','1.5'].map(k=>linha(k+' '+DESMOB_Q[k],c.get(k,'',''))).join('')+linha('Funcionários ainda ativos na obra: '+c.funcAtivos.length,null));
-  h+=`<h2>ITEM 2 – T.I., FERRAMENTAL E LOCAÇÕES</h2>`+tab(['2.1','2.2'].map(k=>linha(k+' '+DESMOB_Q[k],c.get(k,'',''))).join('')+linha('Ativos GTEL ainda na obra: '+c.ativosNaObra.length,null));
-  h+=`<h2>ITEM 3 – VEÍCULOS</h2>`+tab(c.veicsObra.concat(c.veicsFora).map(v=>linha((v.placa||'')+' – '+DESMOB_Q.VEIC_TICKET,c.get('VEIC_TICKET','veiculo',String(v.id)))).join('')||linha('Sem veículos',null));
-  h+=`<h2>ITEM 4 – ALOJAMENTOS</h2>`+(c.alojInfo.map(x=>`<p><b>${escHtml(x.a.nome||'')}</b> ${escHtml(x.a.endereco||'')}</p>`+tab(['ALOJ_DISTRATO','ALOJ_CONTAS','ALOJ_REPAROS','ALOJ_MOBILIA'].map(k=>linha(DESMOB_Q[k],c.get(k,'alojamento',String(x.a.id)))).join(''))).join('')||'<p>Sem alojamentos.</p>');
-  h+=`<h2>ITEM 5 – FORNECEDORES</h2>`+tab(c.forns.map(f=>['FORN_DEBITOS','FORN_PEDIDOS','FORN_DECL'].map(k=>linha(f.nome+' – '+DESMOB_Q[k],c.get(k,'fornecedor',f.key))).join('')).join('')||linha('Sem fornecedores',null));
-  h+=`<h2>ITEM 6 – CAIXA DE OBRA</h2>`+tab(['6.1','6.2','6.3'].map(k=>linha(k+' '+DESMOB_Q[k],c.get(k,'',''))).join(''));
-  h+=`<h2>OBSERVAÇÕES ADICIONAIS</h2><p>${escHtml(d.observacoes||'—')}</p>
+  <tr><th>Início da desmobilização</th><td>${formatDate(d.data_inicio)}</td><th>Data final da desmobilização</th><td>${formatDate(d.data_fim)}</td></tr></table>`;
+  DESMOB_FORM.forEach(s=>{
+    h+=`<h2>ITEM ${s.n} – ${escHtml(s.t.toUpperCase())}</h2>`;
+    let rows='';
+    if(s.n===4){
+      rows=c.veicsObra.concat(c.veicsFora).map(v=>linha(escHtml((v.placa||'')+' – '+DESMOB_Q.VEIC_TICKET),c.get('VEIC_TICKET','veiculo',String(v.id)))).join('');
+      h+=tab(rows);return;
+    }
+    if(s.n===9){
+      h+=c.alojInfo.map(x=>{
+        const a=x.a,hotel=x.hotel!==undefined?x.hotel:a.tipo_alojamento==='hotel';
+        const r=hotel?linha('Prestação de serviços do hotel encerrada?',{resposta:a.servico_encerrado?'sim':'nao'},a.servico_encerrado_em?'em '+formatDate(a.servico_encerrado_em):''):['ALOJ_DISTRATO','ALOJ_CONTAS','ALOJ_REPAROS','ALOJ_MOBILIA'].map(k=>linha(escHtml(DESMOB_Q[k]),c.get(k,'alojamento',String(a.id)))).join('');
+        return`<p><b>${escHtml(a.nome||'')}</b> ${escHtml(a.endereco||'')}</p>`+tab(r);
+      }).join('')||'<p>Sem alojamentos.</p>';
+      return;
+    }
+    rows=s.rows.map(r=>linha(r.l?`<b>${escHtml(r.l)}</b> – ${escHtml(r.q)}`:escHtml(r.q),c.get(r.c,'',''))).join('');
+    rows+=(c.its||[]).filter(i=>i.codigo==='EXTRA_'+s.n).map(i=>linha(escHtml(i.texto||'Item extra'),i)).join('');
+    if(s.n===1&&c.funcAtivos)rows+=linha('Funcionários ainda ativos na obra: '+c.funcAtivos.length,null);
+    h+=tab(rows);
+  });
+  h+=`<h2>ITEM 10 – OBSERVAÇÕES ADICIONAIS</h2><p>${escHtml(d.observacoes||'—')}</p>
   <div class="ass"><div>${escHtml(d.avaliador_nome||'')}<br>Avaliador – Enc. ADM<br>${formatDate(d.avaliador_data)}</div><div>${escHtml(d.gestor_nome||'')}<br>Gestor do Contrato<br>${formatDate(d.gestor_data)}</div></div>`;
   desmobAbrirJanela('ADM 039 – '+(o.nome||''),h);
 }
@@ -18173,7 +18270,7 @@ async function desmobDeclaracao(did,k){
   <div class="ass" style="margin-top:80px"><div>Nome e cargo do responsável pela Gtel<br>Telefone / E-mail</div><div>${escHtml(f.nome)}<br>Nome e cargo do responsável pela empresa<br>Telefone / E-mail</div></div>`;
   desmobAbrirJanela('ADM 037 – '+f.nome,corpo);
   const it=c.get('FORN_DECL','fornecedor',rid);
-  if(!it||it.situacao!=='gerada'&&!c.ok(it)){if(await desmobSalvarItem(did,k,{situacao:'gerada'}))renderDesmobilizacao();}
+  if(!it||(it.resposta!=='sim'&&it.situacao!=='gerada')){if(await desmobSalvarItem(did,k,{situacao:'gerada'}))renderDesmobilizacao();}
 }
 
 // ── OBRAS ENCERRADAS (consulta) ──
@@ -18227,8 +18324,8 @@ function desmobImprimirEnc(did){
   const d=desmobs.find(x=>x.id===did);if(!d||!oeDados)return;
   const its=desmobItens.filter(i=>i.desmobilizacao_id===did);
   const forns=[...new Set(its.filter(i=>i.ref_tipo==='fornecedor').map(i=>i.ref_id))].map(k=>{const f=oeDados.forn.find(x=>String(x.id)===k);return{key:k,nome:f?f.razao_social:k.replace(/^grd:/,''),cnpj:f?(f.cnpj||''):''};});
-  const c={get:(cod,tt,rid)=>its.find(i=>i.codigo===cod&&(i.ref_tipo||'')===(tt||'')&&String(i.ref_id||'')===String(rid||'')),
-    funcAtivos:[],ativosNaObra:[],veicsObra:oeDados.veic,veicsFora:[],alojInfo:oeDados.aloj.map(a=>({a})),forns};
+  const c={its,get:(cod,tt,rid)=>its.find(i=>i.codigo===cod&&(i.ref_tipo||'')===(tt||'')&&String(i.ref_id||'')===String(rid||'')),
+    funcAtivos:[],ativosNaObra:[],veicsObra:oeDados.veic,veicsFora:[],alojInfo:oeDados.aloj.map(a=>({a,hotel:a.tipo_alojamento==='hotel'})),forns};
   desmobImprimir(did,c);
 }
 function oeCorpo(o,d){
@@ -18248,7 +18345,7 @@ function oeCorpo(o,d){
     const rot={sim:'Sim',nao:'Não',na:'N.A.'};
     const nomeRef=i=>{if(i.ref_tipo==='veiculo'){const v=dd.veic.find(x=>String(x.id)===i.ref_id);return v?v.placa:'';}if(i.ref_tipo==='alojamento'){const a=dd.aloj.find(x=>String(x.id)===i.ref_id);return a?a.nome:'';}if(i.ref_tipo==='fornecedor'){const f=dd.forn.find(x=>String(x.id)===i.ref_id);return f?f.razao_social:i.ref_id.replace(/^grd:/,'');}return'';};
     return`<div style="margin-bottom:10px;font-size:13px">Avaliador: <b>${escHtml(d.avaliador_nome||'—')}</b> (${formatDate(d.avaliador_data)}) · Gestor: <b>${escHtml(d.gestor_nome||'—')}</b> (${formatDate(d.gestor_data)})</div>`
-      +tbl(['Item','Referência','Resposta','Observação'],its.sort((a,b)=>String(a.codigo).localeCompare(String(b.codigo))).map(i=>[escHtml(DESMOB_Q[i.codigo]||i.codigo),escHtml(nomeRef(i)),escHtml(rot[i.resposta]||'—')+(i.situacao?' · '+escHtml(i.situacao):''),escHtml(i.observacao||'')]))
+      +tbl(['Item','Referência','Resposta','Observação'],its.filter(i=>i.resposta||i.texto).sort((a,b)=>String(a.codigo).localeCompare(String(b.codigo),'pt-BR',{numeric:true})).map(i=>[escHtml(i.texto||DESMOB_Q[i.codigo]||i.codigo),escHtml(nomeRef(i)),escHtml(rot[i.resposta]||'—')+(i.destino?' · '+escHtml(i.destino==='devolvido'?'devolvido':((obrasTodas.find(x=>String(x.id)===String(i.destino))||{}).nome||'')):''),escHtml(i.observacao||'')]))
       +(d.observacoes?`<div style="margin-top:12px;font-size:13px"><b>Observações:</b> ${escHtml(d.observacoes)}</div>`:'');
   }
   // resumo
