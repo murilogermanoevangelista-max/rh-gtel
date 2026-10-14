@@ -339,7 +339,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <div class="login-screen" id="login-screen">
   <div class="login-card">
     <div class="login-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 14/10/2026-a</span></div>
+    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 14/10/2026-b</span></div>
     <div class="login-error" id="login-erro"></div>
     <div class="login-field">
       <label>Usuário</label>
@@ -356,7 +356,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <aside class="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 14/10/2026-a</div>
+    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 14/10/2026-b</div>
   </div>
   <div class="sidebar-obra-filter">
     <label><i class="ti ti-building-skyscraper"></i> Filtrar por Obra</label>
@@ -2198,6 +2198,7 @@ async function renderDashboard(){
   await loadFerias();
   await loadPrestadores();
   await mobCarregarDash();
+  try{await loadConvencoes();}catch(e){console.warn('[Convenções] dashboard:',e);}
   const hoje=new Date();hoje.setHours(0,0,0,0);
   // Aplicar filtro global de obra em todos os cálculos do dashboard
   const funcsFiltrados=globalObraFiltro?funcionarios.filter(f=>f.obra_id===globalObraFiltro):funcionarios;
@@ -2307,6 +2308,7 @@ async function renderDashboard(){
   if(expVencidas>0)alertas.push({tipo:'danger',icon:'ti-certificate',modulo:'Experiência',destino:'Ver funcionários',msg:`Experiência(s) vencida(s)`,qtd:expVencidas,link:'experiencia',filtroVar:'expFiltro',filtroVal:'vencida'});
   if(folgasVencidas>0)alertas.push({tipo:'danger',icon:'ti-beach',modulo:'Folgas de campo',destino:'Ver funcionários',msg:`Folga(s) vencida(s)`,qtd:folgasVencidas,link:'folgas',filtroVar:'folgasFiltro',filtroVal:'danger'});
   if(feriasVencidas>0)alertas.push({tipo:'danger',icon:'ti-palm-tree',modulo:'Férias',destino:'Ver funcionários',msg:`Período(s) de férias vencido(s) — ação legal necessária`,qtd:feriasVencidas,link:'ferias',filtroVar:'feriasFiltro',filtroVal:'vencidas'});
+  {const cj=convErro?0:convVisiveis().filter(c=>['alerta','venc'].includes(convSituacao(c).k)).length;if(cj>0)alertas.push({tipo:'warning',icon:'ti-gavel',modulo:'Convenção Coletiva',destino:'Ver convenções',msg:`Convenção na janela de atenção do vencimento`,qtd:cj,link:'convencoes'});}
   if(expVencendo>0)alertas.push({tipo:'warning',icon:'ti-certificate',modulo:'Experiência',destino:'Ver funcionários',msg:`Vencendo em 15 dias`,qtd:expVencendo,link:'experiencia',filtroVar:'expFiltro',filtroVal:'vencendo'});
   if(folgasVencendo>0)alertas.push({tipo:'warning',icon:'ti-beach',modulo:'Folgas de campo',destino:'Ver funcionários',msg:`Vencimento próximo`,qtd:folgasVencendo,link:'folgas',filtroVar:'folgasFiltro',filtroVal:'warn'});
   if(feriasVencendo60>0)alertas.push({tipo:'warning',icon:'ti-palm-tree',modulo:'Férias',destino:'Ver funcionários',msg:`Vencendo em 60 dias`,qtd:feriasVencendo60,link:'ferias',filtroVar:'feriasFiltro',filtroVal:'vencendo60'});
@@ -18378,13 +18380,18 @@ function convVisiveis(){
   return l;
 }
 function convDias(d){if(!d)return null;const h=new Date();h.setHours(0,0,0,0);return Math.round((new Date(d+'T12:00:00')-h)/86400000);}
+// Data de referência do alerta: a mais próxima ainda não vencida entre a vigência parcial e a final (se tudo já passou, a última).
+function convDataRef(c){
+  const ds=[c.vigencia_parcial_fim,c.vigencia_fim].filter(Boolean).sort();
+  return ds.find(d=>convDias(d)>=0)||ds[ds.length-1]||null;
+}
 function convSituacao(c){
   if(c.status==='substituida')return{k:'sub',txt:'Substituída',cor:'#6B7A90',bg:'#EEF2F8'};
-  const d=convDias(c.vigencia_fim);
+  const ref=convDataRef(c),d=convDias(ref),lim=c.dias_alerta!=null?Number(c.dias_alerta):60;
   if(d===null)return{k:'ok',txt:'Vigente',cor:'#1B7F4B',bg:'#E4F5EC'};
-  if(d<0)return{k:'venc',txt:'Vencida há '+(-d)+' dia(s)',cor:'#B3261E',bg:'#FDECEA'};
-  if(d<=90)return{k:'alerta',txt:'Vence em '+d+' dia(s)',cor:'#9A5B00',bg:'#FFF4DE'};
-  return{k:'ok',txt:'Vigente',cor:'#1B7F4B',bg:'#E4F5EC'};
+  if(d<0)return{k:'venc',txt:'Vencida há '+(-d)+' dia(s)',cor:'#B3261E',bg:'#FDECEA',d};
+  if(d<=lim)return{k:'alerta',txt:'Janela de atenção: faltam '+d+' dia(s)',cor:'#9A5B00',bg:'#FFF4DE',d,ref};
+  return{k:'ok',txt:'Vigente',cor:'#1B7F4B',bg:'#E4F5EC',d};
 }
 function convBadge(c){const s=convSituacao(c);return`<span class="badge" style="background:${s.bg};color:${s.cor};font-weight:700">${s.txt}</span>`;}
 function convSel(id){convSelId=String(id);renderConvencoes();}
@@ -18398,7 +18405,7 @@ function renderConvencoes(){
   const lista=convMostrarAnt?todas:ativas;
   if(!todas.length){el.innerHTML=head+`<div class="empty-state"><i class="ti ti-gavel"></i><div>${convAdmin()?'Nenhuma convenção cadastrada ainda':'Nenhuma convenção vinculada à sua obra ainda'}</div></div>`;return;}
   const venc=ativas.filter(c=>convSituacao(c).k==='venc').length,alr=ativas.filter(c=>convSituacao(c).k==='alerta').length;
-  const cards=(venc||alr)?`<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">${venc?`<div style="background:#FDECEA;color:#B3261E;border-radius:10px;padding:10px 16px;font-weight:600"><i class="ti ti-alert-circle"></i> ${venc} convenção(ões) vencida(s)</div>`:''}${alr?`<div style="background:#FFF4DE;color:#9A5B00;border-radius:10px;padding:10px 16px;font-weight:600"><i class="ti ti-clock"></i> ${alr} vencendo em até 90 dias</div>`:''}</div>`:'';
+  const cards=(venc||alr)?`<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">${venc?`<div style="background:#FDECEA;color:#B3261E;border-radius:10px;padding:10px 16px;font-weight:600"><i class="ti ti-alert-circle"></i> ${venc} convenção(ões) vencida(s)</div>`:''}${alr?`<div style="background:#FFF4DE;color:#9A5B00;border-radius:10px;padding:10px 16px;font-weight:600"><i class="ti ti-clock"></i> ${alr} na janela de atenção do vencimento</div>`:''}</div>`:'';
   if(!lista.some(c=>String(c.id)===convSelId))convSelId=lista[0]?String(lista[0].id):null;
   const itens=lista.map(c=>{const ob=convObrasDe(c.id).map(convNomeObra);return`<div onclick="convSel('${c.id}')" style="cursor:pointer;padding:12px 16px;border-bottom:1px solid #EEF2F8;${String(c.id)===convSelId?'background:var(--primary-light);border-left:3px solid var(--primary)':''}"><b>${escHtml(c.titulo)}</b><div style="margin:4px 0">${convBadge(c)}</div><div style="font-size:12px;color:var(--text-muted)">${ob.length?escHtml(ob.join(', ')):'Sem obra vinculada'}</div></div>`;}).join('')
     +(ants.length?`<div onclick="convToggleAnt()" style="cursor:pointer;padding:10px 16px;font-size:12px;color:var(--primary);font-weight:600">${convMostrarAnt?'Ocultar':'Mostrar'} anteriores (${ants.length})</div>`:'');
@@ -18410,6 +18417,7 @@ function renderConvencoes(){
     ${f('Obras',escHtml(convObrasDe(c.id).map(convNomeObra).join(', ')))}
     ${f('Sindicato patronal',escHtml(c.sindicato_patronal||'')+(c.sindicato_patronal_cnpj?' — CNPJ '+escHtml(c.sindicato_patronal_cnpj):''))}
     ${f('Sindicatos de trabalhadores',escHtml(c.sindicatos_trabalhadores||''))}
+    ${(()=>{const sj=convSituacao(c);return sj.k==='alerta'?`<div style="background:#FFF4DE;border:1px solid #E5C68A;color:#7a4a0c;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px"><b><i class="ti ti-alert-triangle"></i> Janela de atenção até ${formatDate(sj.ref)} (faltam ${sj.d} dia(s)).</b> Período sensível para desligamentos: confirme com o jurídico/DP antes de desligar qualquer funcionário desta obra.</div>`:'';})()}
     ${f('Vigência',(c.vigencia_inicio?formatDate(c.vigencia_inicio):'—')+' a '+(c.vigencia_fim?formatDate(c.vigencia_fim):'—'))}
     ${f('Vigência parcial',c.vigencia_parcial_fim?('Até '+formatDate(c.vigencia_parcial_fim)+(c.vigencia_parcial_obs?' — '+escHtml(c.vigencia_parcial_obs):'')):'')}
     ${f('Assinatura',c.data_assinatura?formatDate(c.data_assinatura):'')}
@@ -18434,6 +18442,7 @@ function openModalConvencao(id=null){
    <div class="form-group"><label>Vigência fim</label><input type="date" id="cv-fim" value="${v('vigencia_fim')}"></div>
    <div class="form-group"><label>Vigência parcial até</label><input type="date" id="cv-pfim" value="${v('vigencia_parcial_fim')}"></div>
    <div class="form-group"><label>Situação</label><select id="cv-status"><option value="vigente" ${c?.status!=='substituida'?'selected':''}>Vigente</option><option value="substituida" ${c?.status==='substituida'?'selected':''}>Substituída</option></select></div>
+   <div class="form-group"><label>Alertar com quantos dias de antecedência</label><input type="number" min="1" id="cv-alerta" value="${c?.dias_alerta??60}"></div>
    <div class="form-group full"><label>Quais cláusulas têm vigência parcial</label><input id="cv-pobs" value="${v('vigencia_parcial_obs')}"></div>
    <div class="form-group full"><label>Pontos de atenção</label><textarea id="cv-resumo" rows="5">${v('resumo')}</textarea></div>
    <div class="form-group full"><label>Obras que seguem esta convenção</label><div style="max-height:150px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px">${obrasOpc}</div></div>
@@ -18444,7 +18453,7 @@ function openModalConvencao(id=null){
 async function salvarConvencao(id){
   const g=k=>document.getElementById(k).value.trim()||null;
   const titulo=g('cv-titulo');if(!titulo){showToast('Informe o título','error');return;}
-  const p={titulo,sindicato_patronal:g('cv-pat'),sindicato_patronal_cnpj:g('cv-patcnpj'),sindicatos_trabalhadores:g('cv-trab'),data_assinatura:g('cv-ass'),vigencia_inicio:g('cv-ini'),vigencia_fim:g('cv-fim'),vigencia_parcial_fim:g('cv-pfim'),vigencia_parcial_obs:g('cv-pobs'),status:document.getElementById('cv-status').value,resumo:g('cv-resumo')};
+  const p={titulo,sindicato_patronal:g('cv-pat'),sindicato_patronal_cnpj:g('cv-patcnpj'),sindicatos_trabalhadores:g('cv-trab'),data_assinatura:g('cv-ass'),vigencia_inicio:g('cv-ini'),vigencia_fim:g('cv-fim'),vigencia_parcial_fim:g('cv-pfim'),vigencia_parcial_obs:g('cv-pobs'),status:document.getElementById('cv-status').value,dias_alerta:parseInt(document.getElementById('cv-alerta').value)||60,resumo:g('cv-resumo')};
   const file=document.getElementById('cv-pdf').files[0];
   if(file){showToast('Enviando PDF...');const path='convencoes/'+Date.now()+'_'+sanitizeFilename(file.name);const{error:ue}=await sb.storage.from('funcionarios').upload(path,file,{contentType:file.type});if(ue){showToast('Erro no upload: '+ue.message,'error');return;}p.arquivo_url=sb.storage.from('funcionarios').getPublicUrl(path).data.publicUrl;}
   let cid=id;
