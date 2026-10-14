@@ -339,7 +339,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <div class="login-screen" id="login-screen">
   <div class="login-card">
     <div class="login-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 14/10/2026-d</span></div>
+    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 14/10/2026-e</span></div>
     <div class="login-error" id="login-erro"></div>
     <div class="login-field">
       <label>Usuário</label>
@@ -356,7 +356,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <aside class="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 14/10/2026-d</div>
+    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 14/10/2026-e</div>
   </div>
   <div class="sidebar-obra-filter">
     <label><i class="ti ti-building-skyscraper"></i> Filtrar por Obra</label>
@@ -18477,7 +18477,7 @@ async function convExcluir(id){
 
 // ─── PCMSO / PGR ────────────────────────────────────────────────────────────────
 // Um registro por atualização (histórico preservado); o "atual" de cada obra/tipo é o mais recente. SQL: sql_pcmso_pgr.sql
-// data_atualizacao guarda a "Data da última revisão" (mês/ano → dia 1). O status usa o fim da vigência.
+// data_atualizacao guarda a "Data da última revisão" (dd/mm/aaaa). O status usa o fim da vigência.
 let pgrDocs=[],pgrErro=null,pgrObraSel=null,pgrBusca='',pgrFiltro=null;
 const PGR_TIPOS=['PCMSO','PGR'];
 const PGR_ALERTA_DIAS=60;
@@ -18537,19 +18537,20 @@ function renderPgr(){
   const o=base.find(x=>String(x.id)===pgrObraSel);
   const bloco=t=>{
     const h=pgrHist(o.id,t),a=h[0],s=pgrSt(a);
-    const linha=(d,i)=>`<tr${i===0?' style="background:#F4FAF6"':''}><td>${pgrMes(d.data_atualizacao)}${i===0?' <span class="badge" style="background:#E4F5EC;color:#1B7F4B;font-size:10px">Atual</span>':''}</td><td>${d.vigencia_inicio?formatDate(d.vigencia_inicio):'—'} a ${d.vigencia_fim?formatDate(d.vigencia_fim):'—'}</td><td>${escHtml(d.responsavel||'—')}</td><td>${escHtml(d.observacoes||'')}</td><td style="white-space:nowrap">${d.arquivo_url?`<a href="${escHtml(d.arquivo_url)}" target="_blank" rel="noopener" title="Abrir PDF"><i class="ti ti-file-type-pdf"></i></a>`:''}${currentUser?.perfil==='admin'?` <a href="#" onclick="pgrExcluir('${d.id}');return false" title="Excluir"><i class="ti ti-trash"></i></a>`:''}</td></tr>`;
+    const linha=(d,i)=>`<tr${i===0?' style="background:#F4FAF6"':''}><td>${d.numero_revisao?escHtml(d.numero_revisao):'—'}</td><td>${formatDate(d.data_atualizacao)}${i===0?' <span class="badge" style="background:#E4F5EC;color:#1B7F4B;font-size:10px">Atual</span>':''}</td><td>${d.vigencia_inicio?formatDate(d.vigencia_inicio):'—'} a ${d.vigencia_fim?formatDate(d.vigencia_fim):'—'}</td><td>${escHtml(d.responsavel||'—')}</td><td>${escHtml(d.observacoes||'')}</td><td style="white-space:nowrap">${d.arquivo_url?`<a href="${escHtml(d.arquivo_url)}" target="_blank" rel="noopener" title="Abrir PDF"><i class="ti ti-file-type-pdf"></i></a>`:''}${currentUser?.perfil==='admin'?` <a href="#" onclick="pgrExcluir('${d.id}');return false" title="Excluir"><i class="ti ti-trash"></i></a>`:''}</td></tr>`;
     return`<div style="padding:18px 20px;border-top:1px solid #EEF2F8"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div style="font-size:16px;font-weight:700;color:var(--navy)">${t} ${pgrBadge(s)}</div><button class="btn btn-primary" onclick="openModalPgr('${o.id}','${t}')"><i class="ti ti-plus"></i> Registrar nova versão</button></div>
-      ${a?`<div style="margin:10px 0;font-size:13px">Última revisão: <b>${pgrMes(a.data_atualizacao)}</b> · Vigência: <b>${a.vigencia_inicio?formatDate(a.vigencia_inicio):'—'} a ${a.vigencia_fim?formatDate(a.vigencia_fim):'—'}</b>${a.responsavel?' · Responsável: <b>'+escHtml(a.responsavel)+'</b>':''}${a.arquivo_url?` · <a href="${escHtml(a.arquivo_url)}" target="_blank" rel="noopener"><i class="ti ti-file-type-pdf"></i> Abrir PDF atual</a>`:''}</div>
+      ${a?`<div style="margin:10px 0;font-size:13px">${a.numero_revisao?'Revisão nº <b>'+escHtml(a.numero_revisao)+'</b> · ':''}Última revisão: <b>${formatDate(a.data_atualizacao)}</b> · Vigência: <b>${a.vigencia_inicio?formatDate(a.vigencia_inicio):'—'} a ${a.vigencia_fim?formatDate(a.vigencia_fim):'—'}</b>${a.responsavel?' · Responsável: <b>'+escHtml(a.responsavel)+'</b>':''}${a.arquivo_url?` · <a href="${escHtml(a.arquivo_url)}" target="_blank" rel="noopener"><i class="ti ti-file-type-pdf"></i> Abrir PDF atual</a>`:''}</div>
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Histórico (a versão mais recente é a atual; as anteriores ficam guardadas):</div>
-      <table class="dm-tbl"><tr><th>Última revisão</th><th>Vigência</th><th>Responsável</th><th>Observações</th><th></th></tr>${h.map(linha).join('')}</table>`:'<div style="margin-top:10px;color:var(--text-muted)">Nenhum documento registrado para esta obra.</div>'}</div>`;
+      <table class="dm-tbl"><tr><th>Nº revisão</th><th>Data da última revisão</th><th>Vigência</th><th>Responsável</th><th>Observações</th><th></th></tr>${h.map(linha).join('')}</table>`:'<div style="margin-top:10px;color:var(--text-muted)">Nenhum documento registrado para esta obra.</div>'}</div>`;
   };
   el.innerHTML=head+cards+`<div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap"><div style="width:320px;flex:none;background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden"><div style="padding:10px 12px;border-bottom:1px solid #EEF2F8"><div class="search-box" style="width:100%"><i class="ti ti-search"></i><input placeholder="Buscar obra ou centro de custo..." value="${escHtml(pgrBusca)}" oninput="pgrBuscar(this.value)"></div>${pgrFiltro?`<div style="margin-top:8px;font-size:12px">Filtro: <b>${pgrFiltro.t}</b> · <a href="#" onclick="pgrFiltro=null;renderPgr();return false">limpar</a></div>`:''}</div><div id="pgr-lista">${pgrListaHtml()}</div></div><div style="flex:1;min-width:480px;background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden"><div style="padding:16px 20px"><div style="font-size:18px;font-weight:700;color:var(--navy)">${escHtml(o.nome)}</div>${o.centro_custo?`<div style="font-size:13px;color:var(--text-muted)">CC ${escHtml(o.centro_custo)}</div>`:''}</div>${PGR_TIPOS.map(bloco).join('')}</div></div>`;
 }
 function openModalPgr(oid,tipo){
-  const hoje=new Date().toISOString().slice(0,7);
+  const hoje=new Date().toISOString().slice(0,10);
   insertModal('modal-pgr',`<div class="modal" style="max-width:520px"><div class="modal-header"><span class="modal-title">${tipo} — ${escHtml(convNomeObra(oid))}</span><button class="btn btn-sm" onclick="closeModal('modal-pgr')"><i class="ti ti-x"></i></button></div>
   <div class="modal-body"><div class="form-grid">
-   <div class="form-group full"><label>Data da última revisão (mês/ano) *</label><input type="month" id="pg-data" value="${hoje}"></div>
+   <div class="form-group"><label>Nº da revisão</label><input id="pg-nrev" placeholder="Ex: 03"></div>
+   <div class="form-group"><label>Data da última revisão *</label><input type="date" id="pg-data" value="${hoje}"></div>
    <div class="form-group"><label>Vigência — início</label><input type="date" id="pg-vini" onchange="pgrSugerir()"></div>
    <div class="form-group"><label>Vigência — fim</label><input type="date" id="pg-vfim"></div>
    <div class="form-group full"><label>Responsável</label><input id="pg-resp"></div>
@@ -18561,10 +18562,10 @@ function openModalPgr(oid,tipo){
 // Sugere o fim da vigência = 1 ano depois do início, menos 1 dia (ex.: 30/03/2026 → 29/03/2027). Pode ser ajustado.
 function pgrSugerir(){const d=document.getElementById('pg-vini').value;if(!d)return;const x=new Date(d+'T12:00:00');x.setFullYear(x.getFullYear()+1);x.setDate(x.getDate()-1);document.getElementById('pg-vfim').value=x.toISOString().slice(0,10);}
 async function salvarPgr(oid,tipo){
-  const mes=document.getElementById('pg-data').value;if(!mes){showToast('Informe o mês/ano da última revisão','error');return;}
+  const dia=document.getElementById('pg-data').value;if(!dia){showToast('Informe a data da última revisão','error');return;}
   const vi=document.getElementById('pg-vini').value||null,vf=document.getElementById('pg-vfim').value||null;
   if(vi&&vf&&vf<vi){showToast('O fim da vigência é anterior ao início','error');return;}
-  const p={obra_id:oid,tipo,data_atualizacao:mes+'-01',vigencia_inicio:vi,vigencia_fim:vf,responsavel:document.getElementById('pg-resp').value.trim()||null,observacoes:document.getElementById('pg-obs').value.trim()||null};
+  const p={obra_id:oid,tipo,data_atualizacao:dia,numero_revisao:document.getElementById('pg-nrev').value.trim()||null,vigencia_inicio:vi,vigencia_fim:vf,responsavel:document.getElementById('pg-resp').value.trim()||null,observacoes:document.getElementById('pg-obs').value.trim()||null};
   const file=document.getElementById('pg-pdf').files[0];
   if(file){showToast('Enviando PDF...');const path='pcmso_pgr/'+Date.now()+'_'+sanitizeFilename(file.name);const{error:ue}=await sb.storage.from('funcionarios').upload(path,file,{contentType:file.type});if(ue){showToast('Erro no upload: '+ue.message,'error');return;}p.arquivo_url=sb.storage.from('funcionarios').getPublicUrl(path).data.publicUrl;}
   const r=await sb.from('pcmso_pgr_docs').insert(p);
