@@ -339,7 +339,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <div class="login-screen" id="login-screen">
   <div class="login-card">
     <div class="login-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 14/10/2026-b</span></div>
+    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 14/10/2026-c</span></div>
     <div class="login-error" id="login-erro"></div>
     <div class="login-field">
       <label>Usuário</label>
@@ -356,7 +356,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <aside class="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 14/10/2026-b</div>
+    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 14/10/2026-c</div>
   </div>
   <div class="sidebar-obra-filter">
     <label><i class="ti ti-building-skyscraper"></i> Filtrar por Obra</label>
@@ -1132,6 +1132,7 @@ const MODULOS=[
   {page:'matriz',grupo:'obras',icone:'ti-map-2',nome:'Matriz de Comunicação',desc:'Mapa de contatos'},
   {page:'fornecedores',grupo:'obras',icone:'ti-truck-delivery',nome:'Fornecedores',desc:'Cadastro e orçamentos'},
   {page:'grd',grupo:'obras',icone:'ti-file-invoice',nome:'G.R.D.',desc:'Guias, fornecedores e valores'},
+  {page:'pcmso-pgr',grupo:'patrimonio',icone:'ti-stethoscope',nome:'PCMSO / PGR',desc:'Documentos por obra e datas de atualização'},
   {page:'ativos-imobilizados',grupo:'patrimonio',icone:'ti-package',nome:'Ativo GTEL',desc:'Ferramentas e equipamentos'},
   {page:'procedimentos',grupo:'patrimonio',icone:'ti-file-text',nome:'Procedimentos',desc:'Procedimentos e formulários'},
   {page:'cronograma',grupo:'admin',icone:'ti-calendar-check',nome:'Cronograma ADM',desc:'Prazos e cobranças das obras'},
@@ -1266,6 +1267,7 @@ async function showPage(page){
     else if(page==='desmobilizacao'){desmobSelId=desmobPend||null;desmobPend=null;await desmobCarregar();renderDesmobilizacao();}
     else if(page==='obras-encerradas'){await oeCarregar();renderObrasEncerradas();}
     else if(page==='convencoes'){await loadConvencoes();renderConvencoes();}
+    else if(page==='pcmso-pgr'){await loadPgr();renderPgr();}
   }catch(e){
     console.error('showPage erro em '+page+':',e);
     document.getElementById('main-content').innerHTML='<div style="padding:40px;color:var(--danger)"><i class="ti ti-alert-circle" style="font-size:32px;display:block;margin-bottom:12px"></i><strong>Erro ao carregar página "'+page+'"</strong><br><br><code style="font-size:12px">'+e.message+'</code><br><br><button class="btn" onclick="showPage(\''+page+'\')" >Tentar novamente</button></div>';
@@ -2199,6 +2201,7 @@ async function renderDashboard(){
   await loadPrestadores();
   await mobCarregarDash();
   try{await loadConvencoes();}catch(e){console.warn('[Convenções] dashboard:',e);}
+  try{await loadPgr();}catch(e){console.warn('[PCMSO/PGR] dashboard:',e);}
   const hoje=new Date();hoje.setHours(0,0,0,0);
   // Aplicar filtro global de obra em todos os cálculos do dashboard
   const funcsFiltrados=globalObraFiltro?funcionarios.filter(f=>f.obra_id===globalObraFiltro):funcionarios;
@@ -2309,6 +2312,7 @@ async function renderDashboard(){
   if(folgasVencidas>0)alertas.push({tipo:'danger',icon:'ti-beach',modulo:'Folgas de campo',destino:'Ver funcionários',msg:`Folga(s) vencida(s)`,qtd:folgasVencidas,link:'folgas',filtroVar:'folgasFiltro',filtroVal:'danger'});
   if(feriasVencidas>0)alertas.push({tipo:'danger',icon:'ti-palm-tree',modulo:'Férias',destino:'Ver funcionários',msg:`Período(s) de férias vencido(s) — ação legal necessária`,qtd:feriasVencidas,link:'ferias',filtroVar:'feriasFiltro',filtroVal:'vencidas'});
   {const cj=convErro?0:convVisiveis().filter(c=>['alerta','venc'].includes(convSituacao(c).k)).length;if(cj>0)alertas.push({tipo:'warning',icon:'ti-gavel',modulo:'Convenção Coletiva',destino:'Ver convenções',msg:`Convenção na janela de atenção do vencimento`,qtd:cj,link:'convencoes'});}
+  {const pj=pgrErro?0:pgrStatusLista().filter(x=>x.st.k==='venc'||x.st.k==='alerta').length;if(pj>0)alertas.push({tipo:'warning',icon:'ti-stethoscope',modulo:'PCMSO / PGR',destino:'Ver documentos',msg:`PCMSO/PGR vencido(s) ou a vencer`,qtd:pj,link:'pcmso-pgr'});}
   if(expVencendo>0)alertas.push({tipo:'warning',icon:'ti-certificate',modulo:'Experiência',destino:'Ver funcionários',msg:`Vencendo em 15 dias`,qtd:expVencendo,link:'experiencia',filtroVar:'expFiltro',filtroVal:'vencendo'});
   if(folgasVencendo>0)alertas.push({tipo:'warning',icon:'ti-beach',modulo:'Folgas de campo',destino:'Ver funcionários',msg:`Vencimento próximo`,qtd:folgasVencendo,link:'folgas',filtroVar:'folgasFiltro',filtroVal:'warn'});
   if(feriasVencendo60>0)alertas.push({tipo:'warning',icon:'ti-palm-tree',modulo:'Férias',destino:'Ver funcionários',msg:`Vencendo em 60 dias`,qtd:feriasVencendo60,link:'ferias',filtroVar:'feriasFiltro',filtroVal:'vencendo60'});
@@ -18469,6 +18473,88 @@ async function convExcluir(id){
   const r=await sb.from('convencoes_coletivas').delete().eq('id',id);
   if(r.error){showToast('Erro: '+r.error.message,'error');return;}
   showToast('Convenção excluída');await loadConvencoes();renderConvencoes();
+}
+
+// ─── PCMSO / PGR ────────────────────────────────────────────────────────────────
+// Um registro por atualização (histórico); o "atual" de cada obra/tipo é o de data mais recente. SQL: sql_pcmso_pgr.sql
+let pgrDocs=[],pgrErro=null,pgrObraSel=null;
+const PGR_TIPOS=['PCMSO','PGR'];
+const PGR_ALERTA_DIAS=60;
+async function loadPgr(){
+  pgrErro=null;
+  const a=await pagAll(()=>sb.from('pcmso_pgr_docs').select('*').order('data_atualizacao',{ascending:false}));
+  if(a.error){pgrErro=/pcmso_pgr|schema cache|does not exist|relation/i.test(a.error.message||'')?'A tabela de PCMSO/PGR ainda não existe. Rode o arquivo sql_pcmso_pgr.sql no Supabase (SQL Editor) e recarregue.':('Erro ao carregar: '+a.error.message);pgrDocs=[];return;}
+  pgrDocs=a.data||[];
+}
+function pgrObras(){
+  let l=obras.filter(o=>o.status_obra!=='encerrada');
+  if(obrasPermitidasIds)l=l.filter(o=>obrasPermitidasIds.has(String(o.id)));
+  if(globalObraFiltro)l=l.filter(o=>String(o.id)===String(globalObraFiltro));
+  return l;
+}
+function pgrHist(oid,tipo){return pgrDocs.filter(d=>String(d.obra_id)===String(oid)&&d.tipo===tipo).sort((a,b)=>String(b.data_atualizacao).localeCompare(String(a.data_atualizacao)));}
+function pgrAtual(oid,tipo){return pgrHist(oid,tipo)[0]||null;}
+function pgrSt(d){
+  if(!d)return{k:'sem',txt:'Sem registro',cor:'#6B7A90',bg:'#EEF2F8'};
+  if(!d.proxima_revisao)return{k:'ok',txt:'Atualizado',cor:'#1B7F4B',bg:'#E4F5EC'};
+  const n=convDias(d.proxima_revisao);
+  if(n<0)return{k:'venc',txt:'Vencido há '+(-n)+' dia(s)',cor:'#B3261E',bg:'#FDECEA'};
+  if(n<=PGR_ALERTA_DIAS)return{k:'alerta',txt:'Revisar em '+n+' dia(s)',cor:'#9A5B00',bg:'#FFF4DE'};
+  return{k:'ok',txt:'Em dia',cor:'#1B7F4B',bg:'#E4F5EC'};
+}
+function pgrStatusLista(){const r=[];pgrObras().forEach(o=>PGR_TIPOS.forEach(t=>{const d=pgrAtual(o.id,t);if(d)r.push({o,t,d,st:pgrSt(d)});}));return r;}
+function pgrBadge(st,pre){return`<span class="badge" style="background:${st.bg};color:${st.cor};font-weight:600;font-size:11px">${pre?pre+': ':''}${st.txt}</span>`;}
+function pgrSel(id){pgrObraSel=String(id);renderPgr();}
+function renderPgr(){
+  const el=document.getElementById('main-content');
+  const head=`<div class="page-header"><div><div class="page-title">PCMSO / PGR</div><div class="page-subtitle">Documento atual de cada obra, data da última atualização e histórico.</div></div></div>`;
+  if(pgrErro){el.innerHTML=head+`<div style="background:var(--warning-light);border:1px solid #E5C68A;border-radius:var(--radius-lg);padding:20px;color:var(--warning)">${escHtml(pgrErro)}</div>`;return;}
+  const lista=pgrObras();
+  if(!lista.length){el.innerHTML=head+'<div class="empty-state"><i class="ti ti-stethoscope"></i><div>Nenhuma obra disponível</div></div>';return;}
+  if(!lista.some(o=>String(o.id)===pgrObraSel))pgrObraSel=String(lista[0].id);
+  const st=pgrStatusLista();
+  const nv=st.filter(x=>x.st.k==='venc').length,na=st.filter(x=>x.st.k==='alerta').length;
+  const cards=(nv||na)?`<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">${nv?`<div style="background:#FDECEA;color:#B3261E;border-radius:10px;padding:10px 16px;font-weight:600"><i class="ti ti-alert-circle"></i> ${nv} documento(s) vencido(s)</div>`:''}${na?`<div style="background:#FFF4DE;color:#9A5B00;border-radius:10px;padding:10px 16px;font-weight:600"><i class="ti ti-clock"></i> ${na} para revisar em até ${PGR_ALERTA_DIAS} dias</div>`:''}</div>`:'';
+  const itens=lista.map(o=>`<div onclick="pgrSel('${o.id}')" style="cursor:pointer;padding:12px 16px;border-bottom:1px solid #EEF2F8;${String(o.id)===pgrObraSel?'background:var(--primary-light);border-left:3px solid var(--primary)':''}"><b>${escHtml(o.nome)}</b><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${PGR_TIPOS.map(t=>pgrBadge(pgrSt(pgrAtual(o.id,t)),t)).join('')}</div></div>`).join('');
+  const o=lista.find(x=>String(x.id)===pgrObraSel);
+  const bloco=t=>{
+    const h=pgrHist(o.id,t),a=h[0],s=pgrSt(a);
+    const linha=d=>`<tr><td>${formatDate(d.data_atualizacao)}</td><td>${d.proxima_revisao?formatDate(d.proxima_revisao):'—'}</td><td>${escHtml(d.responsavel||'—')}</td><td>${escHtml(d.observacoes||'')}</td><td style="white-space:nowrap">${d.arquivo_url?`<a href="${escHtml(d.arquivo_url)}" target="_blank" rel="noopener" title="Abrir PDF"><i class="ti ti-file-type-pdf"></i></a>`:''}${currentUser?.perfil==='admin'?` <a href="#" onclick="pgrExcluir('${d.id}');return false" title="Excluir"><i class="ti ti-trash"></i></a>`:''}</td></tr>`;
+    return`<div style="padding:18px 20px;border-top:1px solid #EEF2F8"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div style="font-size:16px;font-weight:700;color:var(--navy)">${t} ${pgrBadge(s)}</div><button class="btn btn-primary" onclick="openModalPgr('${o.id}','${t}')"><i class="ti ti-plus"></i> Registrar atualização</button></div>
+      ${a?`<div style="margin:10px 0;font-size:13px">Última atualização: <b>${formatDate(a.data_atualizacao)}</b>${a.proxima_revisao?' · Próxima revisão: <b>'+formatDate(a.proxima_revisao)+'</b>':''}${a.arquivo_url?` · <a href="${escHtml(a.arquivo_url)}" target="_blank" rel="noopener"><i class="ti ti-file-type-pdf"></i> Abrir PDF atual</a>`:''}</div>
+      <table class="dm-tbl"><tr><th>Atualização</th><th>Próx. revisão</th><th>Responsável</th><th>Observações</th><th></th></tr>${h.map(linha).join('')}</table>`:'<div style="margin-top:10px;color:var(--text-muted)">Nenhum documento registrado para esta obra.</div>'}</div>`;
+  };
+  el.innerHTML=head+cards+`<div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap"><div style="width:320px;flex:none;background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden">${itens}</div><div style="flex:1;min-width:480px;background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden"><div style="padding:16px 20px;font-size:18px;font-weight:700;color:var(--navy)">${escHtml(o.nome)}</div>${PGR_TIPOS.map(bloco).join('')}</div></div>`;
+}
+function openModalPgr(oid,tipo){
+  const hoje=new Date().toISOString().slice(0,10);
+  insertModal('modal-pgr',`<div class="modal" style="max-width:520px"><div class="modal-header"><span class="modal-title">${tipo} — ${escHtml(convNomeObra(oid))}</span><button class="btn btn-sm" onclick="closeModal('modal-pgr')"><i class="ti ti-x"></i></button></div>
+  <div class="modal-body"><div class="form-grid">
+   <div class="form-group"><label>Data da atualização *</label><input type="date" id="pg-data" value="${hoje}" onchange="pgrSugerir()"></div>
+   <div class="form-group"><label>Próxima revisão</label><input type="date" id="pg-prox"></div>
+   <div class="form-group full"><label>Responsável (médico/engenheiro)</label><input id="pg-resp"></div>
+   <div class="form-group full"><label>Observações</label><textarea id="pg-obs" rows="3"></textarea></div>
+   <div class="form-group full"><label>PDF do documento</label><input type="file" id="pg-pdf" accept="application/pdf"></div>
+  </div></div>
+  <div class="modal-footer"><button class="btn" onclick="closeModal('modal-pgr')">Cancelar</button><button class="btn btn-primary" onclick="salvarPgr('${oid}','${tipo}')"><i class="ti ti-check"></i> Salvar</button></div></div>`);
+  pgrSugerir();
+}
+// Sugere próxima revisão = 1 ano depois; ajuste conforme o prazo do seu documento.
+function pgrSugerir(){const d=document.getElementById('pg-data').value;if(!d)return;const x=new Date(d+'T12:00:00');x.setFullYear(x.getFullYear()+1);document.getElementById('pg-prox').value=x.toISOString().slice(0,10);}
+async function salvarPgr(oid,tipo){
+  const data=document.getElementById('pg-data').value;if(!data){showToast('Informe a data da atualização','error');return;}
+  const p={obra_id:oid,tipo,data_atualizacao:data,proxima_revisao:document.getElementById('pg-prox').value||null,responsavel:document.getElementById('pg-resp').value.trim()||null,observacoes:document.getElementById('pg-obs').value.trim()||null};
+  const file=document.getElementById('pg-pdf').files[0];
+  if(file){showToast('Enviando PDF...');const path='pcmso_pgr/'+Date.now()+'_'+sanitizeFilename(file.name);const{error:ue}=await sb.storage.from('funcionarios').upload(path,file,{contentType:file.type});if(ue){showToast('Erro no upload: '+ue.message,'error');return;}p.arquivo_url=sb.storage.from('funcionarios').getPublicUrl(path).data.publicUrl;}
+  const r=await sb.from('pcmso_pgr_docs').insert(p);
+  if(r.error){showToast('Erro: '+r.error.message,'error');return;}
+  closeModal('modal-pgr');showToast('Atualização registrada');await loadPgr();renderPgr();
+}
+async function pgrExcluir(id){
+  if(currentUser?.perfil!=='admin'||!confirm('Excluir este registro?'))return;
+  const r=await sb.from('pcmso_pgr_docs').delete().eq('id',id);
+  if(r.error){showToast('Erro: '+r.error.message,'error');return;}
+  showToast('Registro excluído');await loadPgr();renderPgr();
 }
 
 if(checkSessao()){
