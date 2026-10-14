@@ -339,7 +339,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <div class="login-screen" id="login-screen">
   <div class="login-card">
     <div class="login-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 13/10/2026-m</span></div>
+    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 14/10/2026-a</span></div>
     <div class="login-error" id="login-erro"></div>
     <div class="login-field">
       <label>Usuário</label>
@@ -356,7 +356,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <aside class="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 13/10/2026-m</div>
+    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 14/10/2026-a</div>
   </div>
   <div class="sidebar-obra-filter">
     <label><i class="ti ti-building-skyscraper"></i> Filtrar por Obra</label>
@@ -1124,6 +1124,7 @@ const MODULOS=[
   {page:'mobilizacao',grupo:'obras',icone:'ti-truck-loading',nome:'Mobilização Obra',desc:'Checklist de abertura de obra nova'},
   {page:'desmobilizacao',grupo:'obras',icone:'ti-truck-return',nome:'Desmobilização Obra',desc:'Checklist de encerramento de obra'},
   {page:'obras-encerradas',grupo:'obras',icone:'ti-archive',nome:'Obras Encerradas',desc:'Consulta do histórico de obras encerradas'},
+  {page:'convencoes',grupo:'obras',icone:'ti-gavel',nome:'Convenção Coletiva',desc:'Sindicatos, vigência e PDFs'},
   {page:'obras',grupo:'obras',icone:'ti-building-skyscraper',nome:'Obras / Contratos',desc:'Obras e centros de custo'},
   {page:'alojamentos',grupo:'obras',icone:'ti-home-2',nome:'Alojamentos',desc:'Contas e relatórios'},
   {page:'veiculos',grupo:'obras',icone:'ti-car',nome:'Veículos',desc:'Frota, km e revisões'},
@@ -1264,6 +1265,7 @@ async function showPage(page){
     else if(page==='mobilizacao'){mobSelId=mobPend||null;mobPend=null;mobSecao=null;mobFiltro='';await mobCarregarTudo();renderMobilizacao();}
     else if(page==='desmobilizacao'){desmobSelId=desmobPend||null;desmobPend=null;await desmobCarregar();renderDesmobilizacao();}
     else if(page==='obras-encerradas'){await oeCarregar();renderObrasEncerradas();}
+    else if(page==='convencoes'){await loadConvencoes();renderConvencoes();}
   }catch(e){
     console.error('showPage erro em '+page+':',e);
     document.getElementById('main-content').innerHTML='<div style="padding:40px;color:var(--danger)"><i class="ti ti-alert-circle" style="font-size:32px;display:block;margin-bottom:12px"></i><strong>Erro ao carregar página "'+page+'"</strong><br><br><code style="font-size:12px">'+e.message+'</code><br><br><button class="btn" onclick="showPage(\''+page+'\')" >Tentar novamente</button></div>';
@@ -18354,6 +18356,110 @@ function oeCorpo(o,d){
   const dur=d&&d.data_inicio&&o.data_encerramento?Math.max(0,Math.round((new Date(o.data_encerramento+'T12:00:00')-new Date(d.data_inicio+'T12:00:00'))/86400000)):null;
   return`<div style="display:flex;gap:12px;flex-wrap:wrap">${kpi('Funcionários que passaram',s.funcionarios_que_passaram!=null?s.funcionarios_que_passaram:dd.func.length)}${kpi('Alojamentos',s.alojamentos?s.alojamentos.length:dd.aloj.length)}${kpi('Veículos',s.veiculos?s.veiculos.length:dd.veic.length)}${kpi('GRDs',s.grd_qtd!=null?s.grd_qtd:dd.grd.length)}${kpi('Fornecedores',s.fornecedores!=null?s.fornecedores:dd.forn.length)}</div>
    <div style="margin-top:14px;font-size:13px;color:var(--text-muted)">${dur!=null?'Desmobilização durou '+dur+' dia'+(dur===1?'':'s')+'. ':''}Use as abas acima para consultar funcionários, alojamentos, veículos, GRDs e o checklist assinado desta obra.</div>`;
+}
+
+// ─── CONVENÇÃO COLETIVA ─────────────────────────────────────────────────────────
+// Admin vê todas e cadastra; demais usuários veem só as convenções ligadas às suas obras. SQL: sql_convencoes.sql
+let convencoes=[],convObras=[],convErro=null,convSelId=null,convMostrarAnt=false;
+async function loadConvencoes(){
+  convErro=null;
+  const[a,b]=await Promise.all([pagAll(()=>sb.from('convencoes_coletivas').select('*').order('vigencia_inicio',{ascending:false})),pagAll(()=>sb.from('convencoes_obras').select('*'))]);
+  if(a.error||b.error){const m=(a.error||b.error).message||'';convErro=/convencoes|schema cache|does not exist|relation/i.test(m)?'As tabelas da Convenção Coletiva ainda não existem. Rode o arquivo sql_convencoes.sql no Supabase (SQL Editor) e recarregue.':('Erro ao carregar: '+m);convencoes=[];convObras=[];return;}
+  convencoes=a.data||[];convObras=b.data||[];
+}
+function convAdmin(){return currentUser?.perfil==='admin';}
+function convObrasDe(id){return convObras.filter(x=>String(x.convencao_id)===String(id)).map(x=>String(x.obra_id));}
+function convNomeObra(oid){const o=obrasTodas.find(x=>String(x.id)===String(oid));return o?o.nome:'—';}
+function convVisiveis(){
+  let l=convencoes;
+  if(!convAdmin()&&obrasPermitidasIds)l=l.filter(c=>convObrasDe(c.id).some(o=>obrasPermitidasIds.has(o)));
+  else if(!convAdmin())l=l.filter(c=>convObrasDe(c.id).length);
+  if(globalObraFiltro)l=l.filter(c=>convObrasDe(c.id).includes(String(globalObraFiltro)));
+  return l;
+}
+function convDias(d){if(!d)return null;const h=new Date();h.setHours(0,0,0,0);return Math.round((new Date(d+'T12:00:00')-h)/86400000);}
+function convSituacao(c){
+  if(c.status==='substituida')return{k:'sub',txt:'Substituída',cor:'#6B7A90',bg:'#EEF2F8'};
+  const d=convDias(c.vigencia_fim);
+  if(d===null)return{k:'ok',txt:'Vigente',cor:'#1B7F4B',bg:'#E4F5EC'};
+  if(d<0)return{k:'venc',txt:'Vencida há '+(-d)+' dia(s)',cor:'#B3261E',bg:'#FDECEA'};
+  if(d<=90)return{k:'alerta',txt:'Vence em '+d+' dia(s)',cor:'#9A5B00',bg:'#FFF4DE'};
+  return{k:'ok',txt:'Vigente',cor:'#1B7F4B',bg:'#E4F5EC'};
+}
+function convBadge(c){const s=convSituacao(c);return`<span class="badge" style="background:${s.bg};color:${s.cor};font-weight:700">${s.txt}</span>`;}
+function convSel(id){convSelId=String(id);renderConvencoes();}
+function convToggleAnt(){convMostrarAnt=!convMostrarAnt;renderConvencoes();}
+function renderConvencoes(){
+  const el=document.getElementById('main-content');
+  const head=`<div class="page-header"><div><div class="page-title">Convenção Coletiva</div><div class="page-subtitle">${convAdmin()?'Todas as convenções, por obra.':'Convenção coletiva da sua obra.'}</div></div>${convAdmin()?'<button class="btn btn-primary" onclick="openModalConvencao()"><i class="ti ti-plus"></i> Nova convenção</button>':''}</div>`;
+  if(convErro){el.innerHTML=head+`<div style="background:var(--warning-light);border:1px solid #E5C68A;border-radius:var(--radius-lg);padding:20px;color:var(--warning)">${escHtml(convErro)}</div>`;return;}
+  const todas=convVisiveis();
+  const ativas=todas.filter(c=>c.status!=='substituida'),ants=todas.filter(c=>c.status==='substituida');
+  const lista=convMostrarAnt?todas:ativas;
+  if(!todas.length){el.innerHTML=head+`<div class="empty-state"><i class="ti ti-gavel"></i><div>${convAdmin()?'Nenhuma convenção cadastrada ainda':'Nenhuma convenção vinculada à sua obra ainda'}</div></div>`;return;}
+  const venc=ativas.filter(c=>convSituacao(c).k==='venc').length,alr=ativas.filter(c=>convSituacao(c).k==='alerta').length;
+  const cards=(venc||alr)?`<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">${venc?`<div style="background:#FDECEA;color:#B3261E;border-radius:10px;padding:10px 16px;font-weight:600"><i class="ti ti-alert-circle"></i> ${venc} convenção(ões) vencida(s)</div>`:''}${alr?`<div style="background:#FFF4DE;color:#9A5B00;border-radius:10px;padding:10px 16px;font-weight:600"><i class="ti ti-clock"></i> ${alr} vencendo em até 90 dias</div>`:''}</div>`:'';
+  if(!lista.some(c=>String(c.id)===convSelId))convSelId=lista[0]?String(lista[0].id):null;
+  const itens=lista.map(c=>{const ob=convObrasDe(c.id).map(convNomeObra);return`<div onclick="convSel('${c.id}')" style="cursor:pointer;padding:12px 16px;border-bottom:1px solid #EEF2F8;${String(c.id)===convSelId?'background:var(--primary-light);border-left:3px solid var(--primary)':''}"><b>${escHtml(c.titulo)}</b><div style="margin:4px 0">${convBadge(c)}</div><div style="font-size:12px;color:var(--text-muted)">${ob.length?escHtml(ob.join(', ')):'Sem obra vinculada'}</div></div>`;}).join('')
+    +(ants.length?`<div onclick="convToggleAnt()" style="cursor:pointer;padding:10px 16px;font-size:12px;color:var(--primary);font-weight:600">${convMostrarAnt?'Ocultar':'Mostrar'} anteriores (${ants.length})</div>`:'');
+  const c=lista.find(x=>String(x.id)===convSelId);
+  const f=(l,v)=>v?`<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase">${l}</div><div style="font-size:14px;white-space:pre-line">${v}</div></div>`:'';
+  const det=c?`<div style="padding:16px 20px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;border-bottom:1px solid #EEF2F8"><div><div style="font-size:18px;font-weight:700;color:var(--navy)">${escHtml(c.titulo)}</div><div style="margin-top:6px">${convBadge(c)}</div></div>
+    <div style="display:flex;gap:8px;align-items:flex-start">${c.arquivo_url?`<a class="btn" href="${escHtml(c.arquivo_url)}" target="_blank" rel="noopener"><i class="ti ti-file-type-pdf"></i> Abrir PDF</a>`:''}${convAdmin()?`<button class="btn" onclick="openModalConvencao('${c.id}')"><i class="ti ti-edit"></i> Editar</button><button class="btn" onclick="convExcluir('${c.id}')"><i class="ti ti-trash"></i></button>`:''}</div></div>
+    <div style="padding:18px 20px">
+    ${f('Obras',escHtml(convObrasDe(c.id).map(convNomeObra).join(', ')))}
+    ${f('Sindicato patronal',escHtml(c.sindicato_patronal||'')+(c.sindicato_patronal_cnpj?' — CNPJ '+escHtml(c.sindicato_patronal_cnpj):''))}
+    ${f('Sindicatos de trabalhadores',escHtml(c.sindicatos_trabalhadores||''))}
+    ${f('Vigência',(c.vigencia_inicio?formatDate(c.vigencia_inicio):'—')+' a '+(c.vigencia_fim?formatDate(c.vigencia_fim):'—'))}
+    ${f('Vigência parcial',c.vigencia_parcial_fim?('Até '+formatDate(c.vigencia_parcial_fim)+(c.vigencia_parcial_obs?' — '+escHtml(c.vigencia_parcial_obs):'')):'')}
+    ${f('Assinatura',c.data_assinatura?formatDate(c.data_assinatura):'')}
+    ${f('Pontos de atenção',escHtml(c.resumo||''))}
+    </div>`:'<div style="padding:30px;color:var(--text-muted)">Selecione uma convenção.</div>';
+  el.innerHTML=head+cards+`<div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap"><div style="width:320px;flex:none;background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden">${itens||'<div style="padding:16px;color:var(--text-muted)">Nenhuma convenção vigente.</div>'}</div><div style="flex:1;min-width:480px;background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden">${det}</div></div>`;
+}
+function openModalConvencao(id=null){
+  if(!convAdmin())return;
+  const c=id?convencoes.find(x=>String(x.id)===String(id)):null;
+  const vinc=c?convObrasDe(c.id):[];
+  const obrasOpc=obrasTodas.filter(o=>o.status_obra!=='encerrada').map(o=>`<label style="display:flex;align-items:center;gap:6px;font-weight:400;padding:2px 0"><input type="checkbox" class="cv-obra" value="${o.id}" ${vinc.includes(String(o.id))?'checked':''}> ${escHtml(o.nome)}</label>`).join('');
+  const v=k=>escHtml(c?.[k]||'');
+  insertModal('modal-conv',`<div class="modal" style="max-width:680px"><div class="modal-header"><span class="modal-title">${c?'Editar':'Nova'} convenção</span><button class="btn btn-sm" onclick="closeModal('modal-conv')"><i class="ti ti-x"></i></button></div>
+  <div class="modal-body" style="max-height:70vh;overflow:auto"><div class="form-grid">
+   <div class="form-group full"><label>Título *</label><input id="cv-titulo" value="${v('titulo')}" placeholder="CCT 2026/2028 – ..."></div>
+   <div class="form-group full"><label>Sindicato patronal</label><input id="cv-pat" value="${v('sindicato_patronal')}"></div>
+   <div class="form-group"><label>CNPJ patronal</label><input id="cv-patcnpj" value="${v('sindicato_patronal_cnpj')}"></div>
+   <div class="form-group"><label>Assinatura</label><input type="date" id="cv-ass" value="${v('data_assinatura')}"></div>
+   <div class="form-group full"><label>Sindicato(s) de trabalhadores (um por linha)</label><textarea id="cv-trab" rows="4">${v('sindicatos_trabalhadores')}</textarea></div>
+   <div class="form-group"><label>Vigência início</label><input type="date" id="cv-ini" value="${v('vigencia_inicio')}"></div>
+   <div class="form-group"><label>Vigência fim</label><input type="date" id="cv-fim" value="${v('vigencia_fim')}"></div>
+   <div class="form-group"><label>Vigência parcial até</label><input type="date" id="cv-pfim" value="${v('vigencia_parcial_fim')}"></div>
+   <div class="form-group"><label>Situação</label><select id="cv-status"><option value="vigente" ${c?.status!=='substituida'?'selected':''}>Vigente</option><option value="substituida" ${c?.status==='substituida'?'selected':''}>Substituída</option></select></div>
+   <div class="form-group full"><label>Quais cláusulas têm vigência parcial</label><input id="cv-pobs" value="${v('vigencia_parcial_obs')}"></div>
+   <div class="form-group full"><label>Pontos de atenção</label><textarea id="cv-resumo" rows="5">${v('resumo')}</textarea></div>
+   <div class="form-group full"><label>Obras que seguem esta convenção</label><div style="max-height:150px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px">${obrasOpc}</div></div>
+   <div class="form-group full"><label>PDF da convenção ${c?.arquivo_url?'(já anexado — escolha outro para substituir)':''}</label><input type="file" id="cv-pdf" accept="application/pdf"></div>
+  </div></div>
+  <div class="modal-footer"><button class="btn" onclick="closeModal('modal-conv')">Cancelar</button><button class="btn btn-primary" onclick="salvarConvencao(${c?`'${c.id}'`:'null'})"><i class="ti ti-check"></i> Salvar</button></div></div>`);
+}
+async function salvarConvencao(id){
+  const g=k=>document.getElementById(k).value.trim()||null;
+  const titulo=g('cv-titulo');if(!titulo){showToast('Informe o título','error');return;}
+  const p={titulo,sindicato_patronal:g('cv-pat'),sindicato_patronal_cnpj:g('cv-patcnpj'),sindicatos_trabalhadores:g('cv-trab'),data_assinatura:g('cv-ass'),vigencia_inicio:g('cv-ini'),vigencia_fim:g('cv-fim'),vigencia_parcial_fim:g('cv-pfim'),vigencia_parcial_obs:g('cv-pobs'),status:document.getElementById('cv-status').value,resumo:g('cv-resumo')};
+  const file=document.getElementById('cv-pdf').files[0];
+  if(file){showToast('Enviando PDF...');const path='convencoes/'+Date.now()+'_'+sanitizeFilename(file.name);const{error:ue}=await sb.storage.from('funcionarios').upload(path,file,{contentType:file.type});if(ue){showToast('Erro no upload: '+ue.message,'error');return;}p.arquivo_url=sb.storage.from('funcionarios').getPublicUrl(path).data.publicUrl;}
+  let cid=id;
+  if(id){const r=await sb.from('convencoes_coletivas').update(p).eq('id',id);if(r.error){showToast('Erro: '+r.error.message,'error');return;}}
+  else{const r=await sb.from('convencoes_coletivas').insert(p).select().single();if(r.error){showToast('Erro: '+r.error.message,'error');return;}cid=r.data.id;}
+  const sel=[...document.querySelectorAll('.cv-obra:checked')].map(x=>x.value);
+  const d=await sb.from('convencoes_obras').delete().eq('convencao_id',cid);if(d.error){showToast('Erro: '+d.error.message,'error');return;}
+  if(sel.length){const r=await sb.from('convencoes_obras').insert(sel.map(o=>({convencao_id:cid,obra_id:o})));if(r.error){showToast('Erro: '+r.error.message,'error');return;}}
+  closeModal('modal-conv');convSelId=String(cid);showToast('Convenção salva');await loadConvencoes();renderConvencoes();
+}
+async function convExcluir(id){
+  if(!convAdmin()||!confirm('Excluir esta convenção?'))return;
+  const r=await sb.from('convencoes_coletivas').delete().eq('id',id);
+  if(r.error){showToast('Erro: '+r.error.message,'error');return;}
+  showToast('Convenção excluída');await loadConvencoes();renderConvencoes();
 }
 
 if(checkSessao()){
