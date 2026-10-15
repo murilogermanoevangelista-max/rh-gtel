@@ -18851,7 +18851,7 @@ function _ahCentrosCustoAntigo(){
 function ahOpcoesCC(){
   const m=new Map();
   const add=(v,l)=>{v=String(v||'').trim();if(!v)return;const o=m.get(v)||{v,l:[]};if(l&&!o.l.includes(l))o.l.push(l);m.set(v,o);};
-  ahObrasVisiveis().forEach(o=>{String(o.centro_custo||'').split(/[\s·,;|/]+/).forEach(t=>{if(t.length>=3&&/\d/.test(t))add(t,o.nome);});});
+  ahObrasVisiveis().forEach(o=>{ahCCVariantes(o).forEach(txt=>add(txt,o.nome));});
   ahSols.forEach(x=>{if(x.centro_custo)add(x.centro_custo,x.obra?.nome);});
   return[...m.values()].map(o=>({v:o.v,l:o.l.join(' / ')})).sort((a,b)=>a.v.localeCompare(b.v,'pt-BR',{numeric:true}));
 }
@@ -18896,15 +18896,34 @@ function ahComboEscolhe(id,i){
   const inp=document.getElementById(id);inp.value=o.v;ahComboFecha(id);ahComboUltimo={id,o};inp.dispatchEvent(new Event('change'));
 }
 function ahNoop(){}
+const ahCcNorm=v=>String(v==null?'':v).toUpperCase().replace(/[^A-Z0-9]/g,'');
+// Todas as formas pelas quais o centro de custo de uma obra pode ser digitado: cada "palavra" do campo,
+// junções do tipo "24104 I" → "24104I" / "24104-I", o campo inteiro e o código da obra.
+function ahCCVariantes(o,semCodigo){
+  const raw=String(o?.centro_custo||''),out=new Map();
+  const add=t=>{const k=ahCcNorm(t);if(k.length>=3&&/\d/.test(k)&&!out.has(k))out.set(k,String(t).trim());};
+  raw.split(/[·,;|/]+/).forEach(seg=>{
+    const w=seg.trim().split(/\s+/).filter(Boolean);
+    for(let i=0;i<w.length;i++){
+      if(/\d/.test(w[i])&&i+1<w.length&&w[i+1].length<=2&&!/\d/.test(w[i+1])){add(w[i]+w[i+1]);i++;}   // "24104 I" → só "24104I"
+      else add(w[i]);
+    }
+    if(w.length>1&&w.length<=3)add(w.join(''));
+  });
+  if(!semCodigo)add(o?.codigo);
+  return out;   // chave normalizada → texto de exibição
+}
 function ahObrasPorCC(cc){
-  const c=String(cc||'').trim().toLowerCase();if(!c)return[];
-  return ahObrasVisiveis().filter(o=>String(o.centro_custo||'').split(/[\s·,;|/]+/).some(t=>t.toLowerCase()===c));
+  const c=ahCcNorm(cc);if(!c)return[];
+  return ahObrasVisiveis().filter(o=>ahCCVariantes(o).has(c));
 }
 function ahUnicoCCDaObra(o){
-  const t=String(o?.centro_custo||'').split(/[\s·,;|/]+/).filter(x=>x.length>=3&&/\d/.test(x));
-  return t.length===1?t[0]:null;
+  const v=[...ahCCVariantes(o,true).values()].filter(x=>!/\s/.test(x));
+  if(v.length===1)return v[0];
+  if(!v.length&&o?.codigo&&/\d/.test(o.codigo)&&String(o.codigo).length>=4)return String(o.codigo).trim();
+  return null;
 }
-function ahOpcoesObras(){return ahObrasVisiveis().map(o=>({v:o.nome,l:o.codigo||'',id:o.id})).sort((a,b)=>a.v.localeCompare(b.v,'pt-BR'));}
+function ahOpcoesObras(){return ahObrasVisiveis().map(o=>({v:o.nome,l:[o.codigo,String(o.centro_custo||'').trim()].filter((x,i,a)=>x&&a.indexOf(x)===i).join(' · '),id:o.id})).sort((a,b)=>a.v.localeCompare(b.v,'pt-BR'));}
 function ahOpcoesFuncoes(){return funcoes.map(f=>({v:f.nome,l:''}));}
 // troca a obra da solicitação aberta (sem duplicar obra+mês)
 function ahTrocarObra(o){
@@ -18917,7 +18936,8 @@ function ahHdrObra(v){
   const t=_semAcento(v).trim(),o=ahObrasVisiveis().find(x=>_semAcento(x.nome)===t||_semAcento(x.codigo||'')===t);
   if(!o){showToast('Escolha uma obra da lista','error');renderAhEditor();return;}
   if(!ahTrocarObra(o)){renderAhEditor();return;}
-  if(!ahSel.sol.centro_custo){const u=ahUnicoCCDaObra(o);if(u)ahSel.sol.centro_custo=u;}
+  const cc=ahSel.sol.centro_custo;
+  if(!cc||!ahCCVariantes(o).has(ahCcNorm(cc))){const u=ahUnicoCCDaObra(o);if(u)ahSel.sol.centro_custo=u;else if(cc&&ahCCVariantes(o).size)showToast('Confira o centro de custo: '+[...ahCCVariantes(o).values()].join(' / '));}
   ahSujo();renderAhEditor();
 }
 function ahMudarMes(v){
@@ -19069,7 +19089,35 @@ function ahHdrCC(v){
   const os=ahObrasPorCC(v);
   if(os.length===1&&String(os[0].id)!==String(ahSel.sol.obra_id)){
     if(ahTrocarObra(os[0])){showToast('Obra ajustada para '+os[0].nome+' (centro de custo '+v+')');renderAhEditor();}
-  }else if(os.length>1&&!os.some(o=>String(o.id)===String(ahSel.sol.obra_id)))showToast('Mais de uma obra usa este centro de custo — escolha a obra na lista','error');
+  }else if(os.length>1&&!os.some(o=>String(o.id)===String(ahSel.sol.obra_id)))ahModalEscolheObra(v,os);
+  else if(!os.length&&v&&ahCcNorm(v).length>=3){
+    const par=ahObrasVisiveis().filter(o=>[...ahCCVariantes(o).keys()].some(k=>k.startsWith(ahCcNorm(v))||ahCcNorm(v).startsWith(k)));
+    if(par.length)ahModalEscolheObra(v,par,true);
+  }
+}
+function ahModalEscolheObra(cc,lista,aprox){
+  insertModal('modal-ah-esc',`<div class="modal" style="max-width:520px"><div class="modal-header"><span class="modal-title">Qual é a obra do centro de custo “${escHtml(cc)}”?</span><button class="btn btn-sm" onclick="closeModal('modal-ah-esc')"><i class="ti ti-x"></i></button></div>
+  <div class="modal-body"><div style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px">${aprox?'Nenhuma obra tem exatamente este centro de custo. Estas têm algo parecido:':'Mais de uma obra usa este centro de custo. Escolha a correta:'}</div>
+  ${lista.map(o=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px"><div style="flex:1;min-width:0"><b>${escHtml(o.nome)}</b><div style="font-size:12px;color:var(--text-muted)">Código ${escHtml(o.codigo||'—')} · CC ${escHtml(String(o.centro_custo||'—'))} · ${funcionarios.filter(f=>String(f.obra_id)===String(o.id)&&f.situacao!=='inativo').length} funcionário(s) ativo(s)</div></div>
+   <button class="btn btn-sm btn-primary" onclick="ahEscolheObra('${o.id}','${escHtml(cc).replace(/'/g,'')}')">Usar esta</button></div>`).join('')}</div>
+  <div class="modal-footer"><button class="btn" onclick="closeModal('modal-ah-esc')">Manter como está</button></div></div>`);
+}
+function ahEscolheObra(id,cc){
+  const o=obras.find(x=>String(x.id)===String(id));closeModal('modal-ah-esc');if(!o)return;
+  if(ahTrocarObra(o)){ahSel.sol.centro_custo=ahCCVariantes(o).get(ahCcNorm(cc))||cc;ahSujo();renderAhEditor();showToast('Obra ajustada para '+o.nome);}
+}
+// Diagnóstico: obras × centros de custo × funcionários ativos (ajuda a achar CC repetido ou obra sem funcionário)
+function ahModalDiagCC(){
+  const cnt={};funcionarios.forEach(f=>{if(f.situacao!=='inativo')cnt[String(f.obra_id)]=(cnt[String(f.obra_id)]||0)+1;});
+  const uso=new Map();ahObrasVisiveis().forEach(o=>ahCCVariantes(o).forEach((_,k)=>{(uso.get(k)||uso.set(k,[]).get(k)).push(o);}));
+  const lin=ahObrasVisiveis().slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR')).map(o=>{
+    const dup=[...ahCCVariantes(o).keys()].filter(k=>uso.get(k).length>1).map(k=>k+' também em: '+uso.get(k).filter(x=>x.id!==o.id).map(x=>x.nome).join(', '));
+    const n=cnt[String(o.id)]||0,atual=String(o.id)===String(ahSel.sol.obra_id);
+    return`<tr style="${atual?'background:var(--accent-light)':''}"><td><b>${escHtml(o.nome)}</b>${atual?' <span style="font-size:11px;color:var(--accent)">(desta solicitação)</span>':''}</td><td>${escHtml(o.codigo||'—')}</td><td>${escHtml(String(o.centro_custo||'—'))}</td><td style="text-align:center;${n?'':'color:var(--danger);font-weight:700'}">${n}</td><td style="font-size:11.5px;color:var(--warning)">${escHtml(dup.join(' · '))}</td></tr>`;}).join('');
+  insertModal('modal-ah-diag',`<div class="modal" style="max-width:960px"><div class="modal-header"><span class="modal-title">Obras × centros de custo × funcionários</span><button class="btn btn-sm" onclick="closeModal('modal-ah-diag')"><i class="ti ti-x"></i></button></div>
+  <div class="modal-body" style="max-height:66vh;overflow:auto"><div style="font-size:12.5px;color:var(--text-muted);margin-bottom:8px">Funcionários = ativos com esta obra no cadastro. Zero em vermelho: a obra não tem ninguém vinculado (a lista de funcionários da solicitação ficará vazia). Aviso em laranja: o mesmo centro de custo aparece em mais de uma obra.</div>
+  <table style="width:100%;font-size:12.5px"><thead><tr><th>Obra</th><th>Código</th><th>Centro de custo (cadastro)</th><th>Func. ativos</th><th>Atenção</th></tr></thead><tbody>${lin}</tbody></table></div>
+  <div class="modal-footer"><button class="btn" onclick="closeModal('modal-ah-diag')">Fechar</button></div></div>`);
 }
 function ahHdrElab(v){ahHdr('elaborado_por',v);}
 function ahEdit(i,campo,val){ahSel.itens[i][campo]=val;ahSujo();}
@@ -19244,7 +19292,8 @@ function renderAhEditor(){
     <button class="btn" onclick="ahModalLancarPend()"><i class="ti ti-flag"></i> Pendências retroativas${nPendObra?` <span class="badge" style="background:var(--accent);color:#fff;margin-left:4px">${nPendObra}</span>`:''}</button>
     <button class="btn" onclick="ahConferirAgora()" title="Compara a planilha com o cadastro de funcionários da obra"><i class="ti ti-checklist"></i> Conferir com o cadastro</button>
     <button class="btn" onclick="ahModalExc()" title="Funcionários da obra marcados como não recebem o auxílio"><i class="ti ti-user-off"></i> Não recebem (${ahExc.filter(e=>String(e.obra_id)===String(s.obra_id)).length})</button>
-    <button class="btn" onclick="ahVerValores()"><i class="ti ti-${ahVerVal?'eye-off':'eye'}"></i> ${ahVerVal?'Ocultar':'Ver'} valores por refeição</button></div>
+    <button class="btn" onclick="ahVerValores()"><i class="ti ti-${ahVerVal?'eye-off':'eye'}"></i> ${ahVerVal?'Ocultar':'Ver'} valores por refeição</button>
+    <button class="btn" onclick="ahModalDiagCC()" title="Confere obras, centros de custo e quantos funcionários cada obra tem"><i class="ti ti-stethoscope"></i> Verificar obras / CC</button></div>
   <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
     <div class="ah-busca"><i class="ti ti-search"></i><input data-ahf placeholder="Pesquisar por nome ou RE…" value="${escHtml(ahFil.q)}" oninput="ahFiltrar('q',this.value)"></div>
     <span id="ah-fcount" style="font-size:12px;color:var(--text-muted)"></span></div>
@@ -19331,7 +19380,7 @@ function ahMultiRender(){
      <input type="checkbox" class="ahm-ck" ${ja?'disabled':''} ${ahMulti.sel.has(String(f.id))&&!ja?'checked':''} onchange="ahMultiTog('${f.id}',this.checked)">
      <span style="flex:1;min-width:0"><b style="font-weight:600">${escHtml(f.nome_completo)}</b> <span style="font-size:12px;color:var(--text-muted)">RE ${escHtml(f.matricula||'—')} · ${escHtml(f.funcao?.nome||'—')}${outra?' · '+escHtml(f.obra?.nome||'outra obra')+' (emprestado)':''}</span></span>
      ${ja?'<span style="font-size:11px;color:var(--text-muted)">já na planilha</span>':''}</label>`).join('')
-   :`<div style="padding:22px;text-align:center;color:var(--text-muted)">Nenhum funcionário ${ahMulti.q?'encontrado':'ativo cadastrado em '+escHtml(obraNome)}.</div>`;
+   :`<div style="padding:22px;text-align:center;color:var(--text-muted)">Nenhum funcionário ${ahMulti.q?'encontrado':'ativo cadastrado em '+escHtml(obraNome)}.${ahMulti.outras?'':' Marque “Incluir funcionários de outras obras” ou confira a obra/centro de custo da solicitação (botão “Verificar obras / CC”).'}</div>`;
   ahMultiConta(l);
 }
 function ahMultiConta(l){
