@@ -403,6 +403,8 @@ function rpcAusente(error){return !!error&&(error.code==='PGRST202'||/could not 
 let funcionarios=[],obras=[],obrasTodas=[],empresas=[],funcoes=[],folgas=[],feriasData=[],alojamentos=[],alojamentosTodos=[],alojamentosContas=[],alojamentosRelatorios=[],efetivoData=[],prestadores=[],prestadoresPresenca=[],treinamentos=[],fornecedores=[],fornecedorOrcamentos=[],contratacoes=[],contratacoesVagas=[],contratacoesProspeccoes=[],folgasTranslados=[],movimentacoesHistorico=[],folgasCiclos=[],veiculos=[],veiculosCondutores=[],veiculosKm=[],veiculosRevisoes=[],veiculosAbastecimentos=[],ativosImob=[],ativosImobResponsaveis=[],procedimentos=[],procedimentosVersoes=[];
 let alojFiltroAtivo=null; // 'contratos_vencidos' | 'contratos_vencendo' | 'nao_lancadas' | null
 let alojBusca='';
+let alojAba='lista'; // 'lista' | 'pendencias'
+let alojPendMesIdx=4,alojPendObra='',alojPendBusca='',_alojPendFoco=false; // aba Pendências (idx 5 = mês atual, 4 = mês anterior)
 let alojSelecionadoId=null; // alojamento selecionado no painel mestre-detalhe
 let alojSecoesAbertas={}; // {contrato:true, documentos:true} — quais seções estão expandidas no painel direito
 let veiculoSelecionadoId=null;
@@ -1248,7 +1250,7 @@ async function showPage(page){
     else if(page==='treinamentos'){await loadTreinamentos();renderTreinamentos();}
     else if(page==='folgas')renderFolgas();
     else if(page==='ferias')renderFerias();
-    else if(page==='alojamentos'){if(!_vindoDeAlerta)alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';bannerRelatoriosAberto=false;bannerRelatoriosFiltroObra='';await loadAlojamentos();await loadPrestadores();renderAlojamentos();}
+    else if(page==='alojamentos'){alojAba='lista';if(!_vindoDeAlerta)alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';bannerRelatoriosAberto=false;bannerRelatoriosFiltroObra='';await loadAlojamentos();await loadPrestadores();renderAlojamentos();}
     else if(page==='veiculos'){await loadVeiculos();renderVeiculos();verificarKmAtrasadaVeiculos();}
     else if(page==='ativos-imobilizados'){await loadAtivosImobilizados();await loadFornecedores();renderAtivosImobilizados();}
     else if(page==='procedimentos'){procTipoAberto='';procBusca='';procFiltroSemArquivo=false;await loadProcedimentos();renderProcedimentos();}
@@ -3074,7 +3076,10 @@ function exportFuncionariosExcel(){
 async function verFicha(id,historico=false){
   const f=funcionarios.find(x=>x.id===id);
   if(!f)return;
-  await loadTreinamentos();
+  // Folgas, férias e translados só eram carregados ao visitar o Dashboard/telas próprias — se a pessoa
+  // abrisse a ficha antes (ou o dado fosse novo), essas seções sumiam. Agora a ficha sempre carrega.
+  try{await Promise.all([loadTreinamentos(),loadFolgas(),loadFolgasTranslados(),loadFolgasCiclos(),loadFerias()]);}
+  catch(e){console.warn('Ficha: falha ao carregar folgas/férias/treinamentos:',e);}
   const funcaoNome=f.funcao?.nome||f.funcao_manual||'—';
 
   // ── Ativos GTEL e Veículos no nome do funcionário (consulta direta — não depende de já ter
@@ -3248,6 +3253,8 @@ async function verFicha(id,historico=false){
       +'<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px">'+vencsHtml+'</div>'
       +'<div style="margin-top:8px;text-align:right"><span style="cursor:pointer;color:var(--info);font-weight:600;font-size:12px" onclick="abrirHistoricoCompletoFolga(\''+fl.id+'\')">🕘 Ver histórico completo (desde o início na GTEL)</span></div>'
       +'</div>';
+  }else if(f.situacao!=='inativo'){
+    folgasSection='<div class="ficha-section"><div class="ficha-section-title"><i class="ti ti-tree" style="margin-right:6px"></i>Folgas de Campo</div><div style="font-size:12px;color:var(--text-muted);padding:4px 0">Sem folga de campo cadastrada para este funcionário (cadastre na tela Folgas de Campo).</div></div>';
   }
 
   // ── Férias ──
@@ -8780,7 +8787,105 @@ function alojBuscaPessoasHtml(){
     <table style="width:100%;border-collapse:collapse"><tbody>${linhas}</tbody></table></div>`;
 }
 
+
+// ═══════════ ALOJAMENTOS · ABA PENDÊNCIAS (contas e Relatório ADM 31 por mês) ═══════════
+const _ALOJ_CONTAS_LABEL={agua:'Água',energia:'Energia',gas:'Gás',condominio:'Condomínio'};
+const _ALOJ_MESES_ABREV=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+function alojPendMeses(){
+  const h=new Date(),out=[];
+  for(let k=5;k>=0;k--){const d=new Date(h.getFullYear(),h.getMonth()-k,1);out.push({mes:d.getMonth()+1,ano:d.getFullYear(),atual:k===0,label:_ALOJ_MESES_ABREV[d.getMonth()]+'/'+d.getFullYear()});}
+  return out;
+}
+// Calcula, para cada alojamento (não hotel) e cada um dos 6 meses, o que está faltando.
+function alojPendCalcular(){
+  const meses=alojPendMeses();
+  const lista=(globalObraFiltro?alojamentos.filter(a=>a.obra_id===globalObraFiltro):alojamentos).filter(a=>a.tipo_alojamento!=='hotel');
+  const contasPorChave={};
+  alojamentosContas.forEach(c=>{const k=c.alojamento_id+'|'+c.ano+'|'+c.mes;(contasPorChave[k]=contasPorChave[k]||new Set()).add(c.tipo);});
+  const relPorChave=new Set(alojamentosRelatorios.map(r=>r.alojamento_id+'|'+r.ano+'|'+r.mes));
+  return lista.map(a=>{
+    const ini=parseDate(a.data_inicio);
+    const iniYM=ini?ini.getFullYear()*12+ini.getMonth()+1:0;
+    const falt=meses.map(m=>{
+      if(m.ano*12+m.mes<iniYM)return{contas:[],rel:false}; // contrato ainda não tinha começado
+      const lanc=contasPorChave[a.id+'|'+m.ano+'|'+m.mes]||new Set();
+      const contas=['agua','energia','gas','condominio'].filter(t=>!lanc.has(t)&&!a['isenta_'+t]);
+      return{contas,rel:!relPorChave.has(a.id+'|'+m.ano+'|'+m.mes)};
+    });
+    const obraNome=a.obra?.nome||a.obra?.codigo||'Sem obra';
+    return{a,obraNome,falt};
+  });
+}
+function alojPendTotalAtraso(){
+  try{return alojPendCalcular().reduce((s,d)=>s+d.falt.slice(0,5).reduce((x,f)=>x+f.contas.length+(f.rel?1:0),0),0);}catch(e){return 0;}
+}
+function alojAbasHtml(){
+  const tot=alojPendTotalAtraso();
+  const aba=(id,label,badge)=>'<div onclick="alojAba=\''+id+'\';renderAlojamentos()" style="padding:10px 18px;font-size:14px;cursor:pointer;display:flex;gap:8px;align-items:center;font-weight:'+(alojAba===id?'700':'600')+';color:'+(alojAba===id?'var(--primary)':'var(--text-muted)')+';border-bottom:3px solid '+(alojAba===id?'var(--primary)':'transparent')+';margin-bottom:-2px">'+label+(badge?'<span style="background:var(--danger);color:#fff;border-radius:20px;font-size:11.5px;padding:1px 8px">'+badge+'</span>':'')+'</div>';
+  return '<div style="display:flex;gap:4px;border-bottom:2px solid var(--border);margin-bottom:14px">'+aba('lista','Alojamentos','')+aba('pendencias','Pendências',tot||'')+'</div>';
+}
+function renderAlojPendencias(){
+  const meses=alojPendMeses();
+  const dados=alojPendCalcular();
+  const idx=Math.min(Math.max(alojPendMesIdx,0),5);
+  const m=meses[idx];
+  const corBg=m.atual?'#FFF1CC':'var(--danger-light)',corFg=m.atual?'#8A5A00':'var(--danger)';
+  const qBusca=_semAcento(alojPendBusca).trim();
+  const idsPessoa=qBusca.length>=2?new Set(alojBuscaPessoas(alojPendBusca,true).filter(p=>p.alojId).map(p=>String(p.alojId))):new Set();
+  const casaBusca=d=>!qBusca||_semAcento((d.a.nome||'')+' '+(d.a.endereco||'')+' '+d.obraNome+' '+(d.a.obra?.codigo||'')).includes(qBusca)||idsPessoa.has(String(d.a.id));
+  // contagem por mês (abas) — considera a busca e a obra
+  const doObra=d=>!alojPendObra||String(d.a.obra_id)===String(alojPendObra);
+  const contaMes=i=>dados.filter(d=>doObra(d)&&casaBusca(d)).reduce((s,d)=>s+d.falt[i].contas.length+(d.falt[i].rel?1:0),0);
+  const abasMes=meses.map((mm,i)=>{
+    const n=contaMes(i),ativo=i===idx;
+    const sub=mm.atual?n+' a lançar (em andamento)':n+' pendência(s)';
+    const subCor=ativo?'#DCE9FA':(mm.atual?'#8A5A00':(n?'var(--danger)':'var(--success)'));
+    return '<button onclick="alojPendMesIdx='+i+';renderAlojamentos()" style="flex:1 1 140px;text-align:left;padding:10px 14px;border-radius:10px;border:2px solid '+(ativo?'var(--primary)':'var(--border)')+';background:'+(ativo?'var(--primary)':'var(--surface)')+';color:'+(ativo?'#fff':'var(--text)')+';cursor:pointer;font-family:inherit"><div style="font-size:13.5px;font-weight:700">'+mm.label+'</div><div style="font-size:11.5px;font-weight:600;color:'+subCor+'">'+sub+'</div></button>';
+  }).join('');
+  // chips de obra (com contagem de alojamentos com pendência no mês selecionado)
+  const obrasMap={};
+  dados.forEach(d=>{if(!casaBusca(d))return;const k=String(d.a.obra_id||'');const o=obrasMap[k]=obrasMap[k]||{nome:d.obraNome,n:0};const f=d.falt[idx];if(f.contas.length||f.rel)o.n++;});
+  const totalObras=Object.values(obrasMap).reduce((s,o)=>s+o.n,0);
+  const chip=(id,label,n)=>{const at=String(alojPendObra)===String(id);return '<button onclick="alojPendObra=\''+id+'\';renderAlojamentos()" style="height:32px;padding:0 14px;border-radius:20px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;border:1px solid '+(at?'var(--primary)':'var(--border)')+';background:'+(at?'var(--primary)':'var(--surface)')+';color:'+(at?'#fff':'var(--primary)')+'">'+escHtml(label)+' <span style="opacity:.8;font-weight:500">('+n+')</span></button>';};
+  const chipsObra=chip('','Todas',totalObras)+Object.entries(obrasMap).sort((a,b)=>a[1].nome.localeCompare(b[1].nome,'pt-BR')).map(([id,o])=>chip(id,o.nome,o.n)).join('');
+  // listas do mês selecionado
+  const sel=dados.filter(d=>doObra(d)&&casaBusca(d)).sort((a,b)=>a.obraNome.localeCompare(b.obraNome,'pt-BR')||(a.a.nome||'').localeCompare(b.a.nome||'','pt-BR'));
+  const contasRows=sel.filter(d=>d.falt[idx].contas.length);
+  const relRows=sel.filter(d=>d.falt[idx].rel);
+  const linhaConta=d=>'<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">'
+    +'<div style="min-width:0"><div style="font-size:13px;font-weight:600;cursor:pointer;color:var(--text)" onclick="openModalContas(\''+d.a.id+'\','+m.mes+','+m.ano+')">'+escHtml(d.a.nome||d.a.endereco||'—')+'</div><div style="font-size:11.5px;color:var(--text-muted)">'+escHtml(d.obraNome)+'</div></div>'
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap">'+d.falt[idx].contas.map(t=>'<span onclick="openModalContas(\''+d.a.id+'\','+m.mes+','+m.ano+',\''+t+'\')" style="font-size:12px;font-weight:600;padding:3px 10px;border-radius:6px;cursor:pointer;background:'+corBg+';color:'+corFg+'">'+_ALOJ_CONTAS_LABEL[t]+'</span>').join('')+'</div></div>';
+  const linhaRel=d=>'<div style="padding:10px 0;border-bottom:1px solid var(--border)"><div style="font-size:13px;font-weight:600;cursor:pointer" onclick="openModalRelatorios(\''+d.a.id+'\','+m.mes+','+m.ano+')">'+escHtml(d.a.nome||d.a.endereco||'—')+'</div><div style="font-size:11.5px;color:var(--text-muted)">'+escHtml(d.obraNome)+'</div></div>';
+  const vazio=txt=>'<div style="padding:24px;text-align:center;color:var(--success);font-weight:600;font-size:13px">'+txt+'</div>';
+  const painel=(titulo,rows,html,msgVazio,flex)=>'<div style="flex:'+flex+';min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden"><div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px"><div style="font-size:15px;font-weight:700">'+titulo+' · '+m.label+'</div><span style="font-size:13px;font-weight:700;padding:2px 12px;border-radius:20px;background:'+corBg+';color:'+corFg+'">'+rows.length+'</span></div><div style="padding:0 18px;max-height:560px;overflow-y:auto">'+(rows.length?html:vazio(msgVazio))+'</div></div>';
+
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title"><i class="ti ti-home-2"></i> Alojamentos</div>
+        <div class="page-subtitle">${alojamentos.length} alojamento(s)</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="exportAlojamentosExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
+        <button class="btn btn-primary" onclick="openModalAlojamento()"><i class="ti ti-plus"></i> Novo alojamento</button>
+      </div>
+    </div>
+    ${alojAbasHtml()}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">${abasMes}</div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+      <div class="search-box" style="max-width:380px;width:100%"><i class="ti ti-search"></i><input id="aloj-pend-busca" placeholder="Buscar alojamento, endereço, obra ou funcionário..." value="${escHtml(alojPendBusca)}" oninput="_alojPendFoco=true;if(!_buscaHandlers.alojPend)_buscaHandlers.alojPend=makeBuscaHandler(v=>alojPendBusca=v,renderAlojamentos,300);_buscaHandlers.alojPend(this.value)"></div>
+      ${alojPendBusca?`<button class="btn btn-sm" onclick="alojPendBusca='';renderAlojamentos()"><i class="ti ti-x"></i> Limpar</button>`:''}
+      <span style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-left:6px">Obra</span>
+      ${chipsObra}
+    </div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px"><strong style="color:var(--danger)">Vermelho</strong> = mês já fechado sem lançamento (atraso). <strong style="color:#8A5A00">Amarelo</strong> = mês atual, ainda no prazo. Clique no alojamento ou na conta para lançar. Contas isentas não aparecem.</div>
+    <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
+      ${painel('Contas não lançadas',contasRows,contasRows.map(linhaConta).join(''),'Tudo lançado neste mês.','1.4 1 520px')}
+      ${painel('Relatório ADM 31 pendente',relRows,relRows.map(linhaRel).join(''),'Todos os relatórios enviados.','1 1 340px')}
+    </div>`;
+  if(_alojPendFoco){_alojPendFoco=false;const i=document.getElementById('aloj-pend-busca');if(i){i.focus();const l=i.value.length;try{i.setSelectionRange(l,l);}catch(e){}}}
+}
+
 function renderAlojamentos(){
+  if(alojAba==='pendencias'){renderAlojPendencias();return;}
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const alojsFiltrados=(()=>{
     let lista=globalObraFiltro?alojamentos.filter(a=>a.obra_id===globalObraFiltro):alojamentos;
@@ -9118,6 +9223,7 @@ function renderAlojamentos(){
       </div>
     </div>
 
+    ${alojAbasHtml()}
     ${alertCardsHtml}
     ${vencidos>0&&alojFiltroAtivo==='contratos_vencidos'?`<div style="padding:8px 14px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:var(--radius);margin-bottom:8px;font-size:12px;color:#991B1B">Filtrando a lista abaixo pelos contratos vencidos.</div>`:''}
     ${vencProx>0&&alojFiltroAtivo==='contratos_vencendo'?`<div style="padding:8px 14px;background:#FFFBEB;border:1px solid #FCD34D;border-radius:var(--radius);margin-bottom:8px;font-size:12px;color:#92400E">Filtrando a lista abaixo pelos contratos vencendo em 60 dias.</div>`:''}
