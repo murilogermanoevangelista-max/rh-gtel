@@ -18766,6 +18766,10 @@ function ahCss(){
   .ah-grid th,.ah-grid td{border:1px solid var(--border);padding:3px 4px;white-space:nowrap}
   .ah-grid thead th{background:var(--navy);color:#fff;font-weight:600;text-align:center;font-size:11px;position:sticky;top:0;z-index:4;box-sizing:border-box;line-height:18px}
   .ah-grid thead tr:nth-child(1) th{top:0;height:27px}.ah-grid thead tr:nth-child(2) th{top:27px;height:26px}.ah-grid thead tr:nth-child(3) th{top:53px;height:24px}
+  .ah-grid thead tr.fil th{top:77px;height:30px;background:#e8eef7;color:var(--text);padding:2px 3px;font-weight:500}
+  .ah-grid thead tr.fil th.fz{background:#e8eef7}
+  .ah-fi{width:100%;box-sizing:border-box;font:inherit;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;background:#fff;color:var(--text);height:24px}
+  .ah-busca{position:relative;flex:1;min-width:220px;max-width:340px}.ah-busca input{padding-left:30px}.ah-busca i{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--text-muted);pointer-events:none}
   .ah-grid thead th.ord{cursor:pointer;user-select:none}.ah-grid thead th.ord:hover{background:#1c5594}
   .ah-grid thead th.sub{background:#2d5a8e;font-weight:500}
   .ah-grid td.n{text-align:center;color:var(--text-muted)}
@@ -19033,7 +19037,7 @@ async function ahAbrir(id){
   const a=await sb.from('auxilio_hosp_itens').select('*').eq('solicitacao_id',id).order('ordem');
   if(a.error){showToast('Erro: '+a.error.message,'error');return;}
   ahSel={sol:{...sol},itens:(a.data||[]).map(it=>ahNovoItem(it)),removidos:[],lancadas:[]};
-  ahDirty=false;ahRetDif=false;ahOrdNome=null;ahConfIgnorado=null;ahTela='editor';renderAuxHosp();
+  ahDirty=false;ahRetDif=false;ahOrdNome=null;ahFil={q:'',re:'',nome:'',funcao:'',dias:'',obs:'',emp:''};ahConfIgnorado=null;ahTela='editor';renderAuxHosp();
 }
 async function ahExcluir(id){
   const s=ahSols.find(x=>x.id===id);if(!s)return;
@@ -19105,14 +19109,41 @@ function ahComboLinha(i){
    <div id="${id}-p" class="ah-cp" style="display:none"></div></div>`;
 }
 let ahFuncoesCache=null;
-function ahToggleEmp(i){const it=ahSel.itens[i];it.emprestado=!it.emprestado;const tr=document.getElementById('ah-r-'+i);if(tr)tr.outerHTML=ahLinhaHtml(i);ahSujo();}
+function ahToggleEmp(i){const it=ahSel.itens[i];it.emprestado=!it.emprestado;const tr=document.getElementById('ah-r-'+i);if(tr)tr.outerHTML=ahLinhaHtml(i);ahSujo();ahAplicarFiltro();}
 function ahRemover(i){
   const it=ahSel.itens[i];
   if((it.nome||it.re)&&!confirm('Remover '+(it.nome||it.re)+' desta solicitação?'))return;
   ahSel.removidos.push(it.id);ahSel.itens.splice(i,1);ahSujo();renderAhEditor();
 }
-function ahAddManual(){ahSel.itens.push(ahNovoItem({}));ahSujo();renderAhEditor();setTimeout(()=>{const l=document.querySelector(`#ah-r-${ahSel.itens.length-1} input`);if(l){l.scrollIntoView({block:'center'});l.focus();}},50);}
+function ahAddManual(){ahFil={q:'',re:'',nome:'',funcao:'',dias:'',obs:'',emp:''};ahSel.itens.push(ahNovoItem({}));ahSujo();renderAhEditor();setTimeout(()=>{const l=document.querySelector(`#ah-r-${ahSel.itens.length-1} input`);if(l){l.scrollIntoView({block:'center'});l.focus();}},50);}
 let ahOrdNome=null;
+let ahFil={q:'',re:'',nome:'',funcao:'',dias:'',obs:'',emp:''};
+function ahFilAtivo(){return Object.values(ahFil).some(v=>v!=='');}
+function ahFiltrar(campo,val){ahFil[campo]=val;ahAplicarFiltro();}
+function ahLimparFiltro(){
+  ahFil={q:'',re:'',nome:'',funcao:'',dias:'',obs:'',emp:''};
+  document.querySelectorAll('[data-ahf]').forEach(e=>{e.value='';});ahAplicarFiltro();
+}
+function ahAplicarFiltro(){
+  const S=ahSel;if(!S)return;
+  const n=v=>_semAcento(String(v||'')).toLowerCase().trim(),rn=v=>String(v||'').toLowerCase().replace(/[^a-z0-9]/g,'').replace(/^0+/,'');
+  const q=n(ahFil.q),qr=rn(ahFil.q),fre=rn(ahFil.re),fre0=n(ahFil.re),fn=n(ahFil.nome),ff=n(ahFil.funcao);
+  let vis=0;
+  S.itens.forEach((it,i)=>{
+    let ok=true;
+    if(q&&!(n(it.nome).includes(q)||n(it.re).includes(q)||(qr&&rn(it.re).includes(qr))))ok=false;
+    if(ok&&ahFil.re&&!(n(it.re).includes(fre0)||(fre&&rn(it.re).includes(fre))))ok=false;
+    if(ok&&fn&&!n(it.nome).includes(fn))ok=false;
+    if(ok&&ff&&n(it.funcao)!==ff)ok=false;
+    if(ok&&ahFil.dias){const tem=AH_Q.some(k=>it[k]!=null&&it[k]!=='');if(ahFil.dias==='com'&&!tem)ok=false;if(ahFil.dias==='sem'&&tem)ok=false;}
+    if(ok&&ahFil.obs){const tem=!!String(it.observacao||'').trim();if(ahFil.obs==='com'&&!tem)ok=false;if(ahFil.obs==='sem'&&tem)ok=false;}
+    if(ok&&ahFil.emp==='sim'&&!it.emprestado)ok=false;
+    const tr=document.getElementById('ah-r-'+i);if(tr)tr.style.display=ok?'':'none';
+    if(ok)vis++;
+  });
+  const c=document.getElementById('ah-fcount');
+  if(c)c.innerHTML=ahFilAtivo()?`Mostrando <b>${vis}</b> de ${S.itens.length} <a href="#" onclick="ahLimparFiltro();return false" style="margin-left:6px">limpar filtros</a>`:'';
+}
 function ahOrdenarNome(){
   ahOrdNome=ahOrdNome==='asc'?'desc':'asc';
   const k=it=>_semAcento(it.nome||'').trim(),dir=ahOrdNome==='asc'?1:-1;
@@ -19207,15 +19238,26 @@ function renderAhEditor(){
     <button class="btn" onclick="ahConferirAgora()" title="Compara a planilha com o cadastro de funcionários da obra"><i class="ti ti-checklist"></i> Conferir com o cadastro</button>
     <button class="btn" onclick="ahModalExc()" title="Funcionários da obra marcados como não recebem o auxílio"><i class="ti ti-user-off"></i> Não recebem (${ahExc.filter(e=>String(e.obra_id)===String(s.obra_id)).length})</button>
     <button class="btn" onclick="ahVerValores()"><i class="ti ti-${ahVerVal?'eye-off':'eye'}"></i> ${ahVerVal?'Ocultar':'Ver'} valores por refeição</button></div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
+    <div class="ah-busca"><i class="ti ti-search"></i><input data-ahf placeholder="Pesquisar por nome ou RE…" value="${escHtml(ahFil.q)}" oninput="ahFiltrar('q',this.value)"></div>
+    <span id="ah-fcount" style="font-size:12px;color:var(--text-muted)"></span></div>
   <div class="table-container" style="overflow:auto;max-height:68vh"><table class="ah-grid">
     <thead><tr><th rowspan="3" class="fz fz1">#</th><th rowspan="3" class="fz fz2" style="width:84px;min-width:84px;max-width:84px">RE</th><th rowspan="3" class="fz fz3 ord" style="width:290px;min-width:290px;max-width:290px" onclick="ahOrdenarNome()" title="Clique para ordenar por nome (A→Z / Z→A)">Nome completo <i class="ti ti-${ahOrdNome==='asc'?'sort-ascending-letters':ahOrdNome==='desc'?'sort-descending-letters':'arrows-sort'}"></i></th><th rowspan="3">Função</th>
       ${colsQ.map(c=>`<th colspan="2">${c[0]}</th>`).join('')}${thVal}<th rowspan="3">Total (R$)</th><th rowspan="3">Observação</th><th rowspan="3"></th></tr>
     <tr>${colsQ.map(()=>'<th class="sub">Retro</th><th class="sub">Vigente</th>').join('')}${ahVerVal?AH_Q.map((q,j)=>`<th class="sub">${j%2?'Vig.':'Retro'}</th>`).join(''):''}</tr>
-    <tr><th class="sub" colspan="8">Qtd dias</th>${ahVerVal?`<th class="sub" colspan="8">${['Café Manhã','Café Tarde','Almoço FDS','Jantar'].join(' · ')}</th>`:''}</tr></thead>
+    <tr><th class="sub" colspan="8">Qtd dias</th>${ahVerVal?`<th class="sub" colspan="8">${['Café Manhã','Café Tarde','Almoço FDS','Jantar'].join(' · ')}</th>`:''}</tr>
+    <tr class="fil"><th class="fz fz1" style="padding:0"><button type="button" class="btn btn-sm" style="padding:2px 5px" title="Limpar filtros" onclick="ahLimparFiltro()"><i class="ti ti-filter-off"></i></button></th>
+      <th class="fz fz2"><input class="ah-fi" data-ahf placeholder="RE" value="${escHtml(ahFil.re)}" oninput="ahFiltrar('re',this.value)"></th>
+      <th class="fz fz3"><input class="ah-fi" data-ahf placeholder="Filtrar nome" value="${escHtml(ahFil.nome)}" oninput="ahFiltrar('nome',this.value)"></th>
+      <th><select class="ah-fi" data-ahf onchange="ahFiltrar('funcao',this.value)"><option value="">Todas as funções</option>${[...new Set(S.itens.map(it=>(it.funcao||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR')).map(f=>`<option value="${escHtml(f)}" ${_semAcento(f).toLowerCase()===_semAcento(ahFil.funcao).toLowerCase()&&ahFil.funcao?'selected':''}>${escHtml(f)}</option>`).join('')}</select></th>
+      <th colspan="8"><select class="ah-fi" data-ahf style="max-width:230px" onchange="ahFiltrar('dias',this.value)"><option value="">Dias: todos</option><option value="com" ${ahFil.dias==='com'?'selected':''}>Com dias lançados</option><option value="sem" ${ahFil.dias==='sem'?'selected':''}>Sem dias lançados</option></select></th>
+      ${ahVerVal?'<th colspan="8"></th>':''}<th></th>
+      <th><select class="ah-fi" data-ahf onchange="ahFiltrar('obs',this.value)"><option value="">Observação: todas</option><option value="com" ${ahFil.obs==='com'?'selected':''}>Com observação</option><option value="sem" ${ahFil.obs==='sem'?'selected':''}>Sem observação</option></select></th>
+      <th><select class="ah-fi" data-ahf title="Emprestados" onchange="ahFiltrar('emp',this.value)"><option value="">Todos</option><option value="sim" ${ahFil.emp==='sim'?'selected':''}>Empr.</option></select></th></tr></thead>
     <tbody id="ah-tbody">${S.itens.length?S.itens.map((_,i)=>ahLinhaHtml(i)).join(''):`<tr><td colspan="${14+(ahVerVal?8:0)}" style="text-align:center;padding:26px;color:var(--text-muted)">Nenhum funcionário ainda. Use “Adicionar do cadastro” ou “Linha manual”.</td></tr>`}</tbody>
     <tfoot><tr><td colspan="4" style="text-align:right">TOTAL (só no sistema — não vai para o Excel)</td>${AH_Q.map(q=>`<td id="ah-ft-${q}">0</td>`).join('')}${ahVerVal?'<td colspan="8"></td>':''}<td id="ah-ft-tot">—</td><td colspan="2"></td></tr></tfoot>
   </table></div>`;
-  ahRecalcTotais();
+  ahRecalcTotais();ahAplicarFiltro();
 }
 
 // ── Adicionar funcionário: busca em lista suspensa (cadastro) OU digitação manual de RE + nome + função ──
