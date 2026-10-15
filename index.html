@@ -18790,7 +18790,7 @@ function ahCss(){
   .ah-dirty{color:var(--warning);font-size:12px;font-weight:600}
   .ah-cp{position:fixed;z-index:5000;background:#fff;border:1px solid var(--border);border-radius:8px;max-height:260px;overflow:auto;box-shadow:0 6px 18px rgba(18,63,115,.15)}
   .ah-co{padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #EEF2F8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ah-co:hover{background:var(--primary-light)}.ah-co small{color:var(--text-muted);margin-left:6px}
-  input.ahf-ck,input.ahn-ck,#ahc-emp,.ah-rates input[type=checkbox]{width:16px!important;height:16px;flex:none;margin:0;padding:0}
+  input.ahf-ck,input.ahm-ck,input.ahn-ck,#ahc-emp,.ah-rates input[type=checkbox]{width:16px!important;height:16px;flex:none;margin:0;padding:0}
   .ah-chip{display:inline-flex;align-items:center;gap:4px;border-radius:20px;padding:1px 8px;font-size:11px;font-weight:600}`;
   document.head.appendChild(s);
 }
@@ -19277,9 +19277,12 @@ function ahOpcoesFunc(){
   return[...ativos.filter(f=>String(f.obra_id)===obraId).sort(ord),...ativos.filter(f=>String(f.obra_id)!==obraId).sort(ord)].map(op);
 }
 function ahModalAddFunc(){
-  ahAddQtd=0;
+  ahAddQtd=0;ahMulti={sel:new Set(),outras:false,q:''};
   insertModal('modal-ah-func',`<div class="modal" style="max-width:600px"><div class="modal-header"><span class="modal-title">Adicionar funcionário</span><button class="btn btn-sm" onclick="closeModal('modal-ah-func')"><i class="ti ti-x"></i></button></div>
-  <div class="modal-body"><div class="form-grid">
+  <div class="modal-body">
+  <div style="display:flex;gap:6px;margin-bottom:12px"><button type="button" id="ahm-t-um" class="btn btn-sm btn-primary" onclick="ahModalAba('um')"><i class="ti ti-user"></i> Um por vez</button><button type="button" id="ahm-t-varios" class="btn btn-sm" onclick="ahModalAba('varios')"><i class="ti ti-users"></i> Vários / toda a obra</button></div>
+  <div id="ahm-varios" style="display:none"></div>
+  <div class="form-grid" id="ahm-um">
    <div class="form-group full"><label>Buscar no cadastro (nome, RE ou função) ▾</label>${ahCombo('ahc-busca','',ahOpcoesFunc(),'ahCadEscolhido','Digite para buscar ou abra a lista…')}
      <div style="font-size:12px;color:var(--text-muted);margin-top:4px">Os da obra aparecem primeiro. De outra obra entram como “emprestado”. Escolher preenche os campos abaixo; você pode corrigir qualquer um.</div></div>
    <div class="form-group"><label>RE</label><input id="ahc-re" placeholder="Matrícula"></div>
@@ -19289,8 +19292,68 @@ function ahModalAddFunc(){
      <input id="ahc-orig" placeholder="Obra de origem" style="display:none;flex:1;min-width:180px"></div>
   </div></div>
   <div class="modal-footer"><span id="ahc-qtd" style="margin-right:auto;font-size:12px;color:var(--text-muted)"></span><button class="btn" onclick="closeModal('modal-ah-func')">Fechar</button>
-   <button class="btn" onclick="ahCadAdicionar(false)"><i class="ti ti-plus"></i> Adicionar e continuar</button><button class="btn btn-primary" onclick="ahCadAdicionar(true)"><i class="ti ti-check"></i> Adicionar</button></div></div>`);
+   <span id="ahm-f-um" style="display:contents"><button class="btn" onclick="ahCadAdicionar(false)"><i class="ti ti-plus"></i> Adicionar e continuar</button><button class="btn btn-primary" onclick="ahCadAdicionar(true)"><i class="ti ti-check"></i> Adicionar</button></span>
+   <button id="ahm-f-varios" class="btn btn-primary" style="display:none" onclick="ahMultiAdicionar()"><i class="ti ti-users-plus"></i> Adicionar selecionados</button></div></div>`);
   setTimeout(()=>{const e=document.getElementById('ahc-busca');if(e)e.focus();},50);
+}
+// ── Aba "Vários / toda a obra" ──
+let ahMulti={sel:new Set(),outras:false,q:''};
+function ahModalAba(a){
+  const v=a==='varios';
+  document.getElementById('ahm-um').style.display=v?'none':'';document.getElementById('ahm-varios').style.display=v?'':'none';
+  document.getElementById('ahm-f-um').style.display=v?'none':'contents';document.getElementById('ahm-f-varios').style.display=v?'':'none';
+  document.getElementById('ahm-t-um').className='btn btn-sm'+(v?'':' btn-primary');document.getElementById('ahm-t-varios').className='btn btn-sm'+(v?' btn-primary':'');
+  document.getElementById('ahc-qtd').textContent='';
+  if(v){ahMultiMonta();}
+}
+function ahMultiLista(){
+  const S=ahSel,obraId=String(S.sol.obra_id),n=x=>_semAcento(String(x||'')).toLowerCase(),q=n(ahMulti.q),qr=ahReNorm(ahMulti.q);
+  const ord=(a,b)=>String(a.nome_completo).localeCompare(String(b.nome_completo),'pt-BR');
+  const ativos=funcionarios.filter(f=>f.situacao!=='inativo'&&(ahMulti.outras||String(f.obra_id)===obraId)).sort((a,b)=>{const x=String(a.obra_id)===obraId?0:1,y=String(b.obra_id)===obraId?0:1;return x-y||ord(a,b);});
+  const jaId=new Set(S.itens.map(it=>String(it.funcionario_id||''))),jaRe=new Set(S.itens.map(it=>ahReNorm(it.re)).filter(Boolean));
+  return ativos.filter(f=>!q||n(f.nome_completo).includes(q)||n(f.funcao?.nome).includes(q)||n(f.matricula).includes(q)||(qr&&ahReNorm(f.matricula).includes(qr)))
+    .map(f=>({f,ja:jaId.has(String(f.id))||(ahReNorm(f.matricula)&&jaRe.has(ahReNorm(f.matricula))),outra:String(f.obra_id)!==obraId}));
+}
+function ahMultiMonta(){
+  const box=document.getElementById('ahm-varios');
+  box.innerHTML=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+    <div class="ah-busca" style="max-width:none"><i class="ti ti-search"></i><input id="ahm-q" placeholder="Filtrar por nome, RE ou função…" value="${escHtml(ahMulti.q)}" oninput="ahMulti.q=this.value;ahMultiRender()"></div></div>
+   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;font-size:12px">
+    <button type="button" class="btn btn-sm" onclick="ahMultiMarcar(true)"><i class="ti ti-checks"></i> Marcar todos da lista</button>
+    <button type="button" class="btn btn-sm" onclick="ahMultiMarcar(false)">Limpar seleção</button>
+    <label style="display:flex;gap:6px;align-items:center;font-weight:500;margin:0;text-transform:none;font-size:12px"><input type="checkbox" class="ahm-ck" ${ahMulti.outras?'checked':''} onchange="ahMulti.outras=this.checked;ahMultiRender()"> Incluir funcionários de outras obras (emprestados)</label></div>
+   <div id="ahm-lista" style="max-height:44vh;overflow:auto;border:1px solid var(--border);border-radius:8px"></div>`;
+  ahMultiRender();
+}
+function ahMultiRender(){
+  const l=ahMultiLista(),obraNome=ahSel.sol.obra?.nome||'';
+  document.getElementById('ahm-lista').innerHTML=l.length?l.map(({f,ja,outra})=>`<label style="display:flex;gap:10px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--border);margin:0;text-transform:none;font-weight:400;cursor:${ja?'default':'pointer'};${ja?'opacity:.5':''}">
+     <input type="checkbox" class="ahm-ck" ${ja?'disabled':''} ${ahMulti.sel.has(String(f.id))&&!ja?'checked':''} onchange="ahMultiTog('${f.id}',this.checked)">
+     <span style="flex:1;min-width:0"><b style="font-weight:600">${escHtml(f.nome_completo)}</b> <span style="font-size:12px;color:var(--text-muted)">RE ${escHtml(f.matricula||'—')} · ${escHtml(f.funcao?.nome||'—')}${outra?' · '+escHtml(f.obra?.nome||'outra obra')+' (emprestado)':''}</span></span>
+     ${ja?'<span style="font-size:11px;color:var(--text-muted)">já na planilha</span>':''}</label>`).join('')
+   :`<div style="padding:22px;text-align:center;color:var(--text-muted)">Nenhum funcionário ${ahMulti.q?'encontrado':'ativo cadastrado em '+escHtml(obraNome)}.</div>`;
+  ahMultiConta(l);
+}
+function ahMultiConta(l){
+  l=l||ahMultiLista();
+  const n=ahMulti.sel.size;
+  const b=document.getElementById('ahm-f-varios');if(b)b.innerHTML=`<i class="ti ti-users-plus"></i> Adicionar selecionados (${n})`;
+  const c=document.getElementById('ahc-qtd');if(c)c.textContent=l.length+' na lista · '+l.filter(x=>x.ja).length+' já na planilha';
+}
+function ahMultiTog(id,on){if(on)ahMulti.sel.add(String(id));else ahMulti.sel.delete(String(id));ahMultiConta();}
+function ahMultiMarcar(on){
+  if(!on){ahMulti.sel.clear();}else ahMultiLista().filter(x=>!x.ja).forEach(x=>ahMulti.sel.add(String(x.f.id)));
+  ahMultiRender();
+}
+function ahMultiAdicionar(){
+  const S=ahSel,obraId=String(S.sol.obra_id);
+  const jaId=new Set(S.itens.map(it=>String(it.funcionario_id||''))),jaRe=new Set(S.itens.map(it=>ahReNorm(it.re)).filter(Boolean));
+  const fs=funcionarios.filter(f=>ahMulti.sel.has(String(f.id))&&!jaId.has(String(f.id))&&!(ahReNorm(f.matricula)&&jaRe.has(ahReNorm(f.matricula))))
+    .sort((a,b)=>String(a.nome_completo).localeCompare(String(b.nome_completo),'pt-BR'));
+  if(!fs.length){showToast('Marque ao menos um funcionário','error');return;}
+  fs.forEach(f=>{const outra=String(f.obra_id)!==obraId;S.itens.push(ahNovoItem({funcionario_id:f.id,re:f.matricula||'',nome:f.nome_completo||'',funcao:f.funcao?.nome||'',emprestado:outra,obra_origem:outra?(f.obra?.nome||''):''}));});
+  ahMulti.sel.clear();ahFil=ahFilVazio();ahSujo();renderAhEditor();closeModal('modal-ah-func');
+  showToast(fs.length+' funcionário(s) adicionado(s) — use “Preencher dias do mês” para lançar os dias');
 }
 function ahCadEscolhido(v){
   const u=ahComboUltimo;if(!u||u.id!=='ahc-busca'||u.o.v!==v)return;
