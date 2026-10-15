@@ -18745,6 +18745,8 @@ function ahCss(){
   .ah-hdr input,.ah-hdr select,.ah-rates input{width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:8px;font:inherit;font-size:13px;background:#fff}
   .ah-rates{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:flex-end}.ah-rates>div{width:132px}
   .ah-dirty{color:var(--warning);font-size:12px;font-weight:600}
+  .ah-cp{position:absolute;z-index:40;left:0;right:0;top:100%;margin-top:2px;background:#fff;border:1px solid var(--border);border-radius:8px;max-height:260px;overflow:auto;box-shadow:0 6px 18px rgba(18,63,115,.15)}
+  .ah-co{padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #EEF2F8}.ah-co:hover{background:var(--primary-light)}.ah-co small{color:var(--text-muted);margin-left:6px}
   .ah-chip{display:inline-flex;align-items:center;gap:4px;border-radius:20px;padding:1px 8px;font-size:11px;font-weight:600}`;
   document.head.appendChild(s);
 }
@@ -18792,12 +18794,57 @@ function ahConvencaoDaObra(obraId){
   ids.sort((a,b)=>String(b.vigencia_inicio||'').localeCompare(String(a.vigencia_inicio||'')));
   return ids[0]||null;
 }
-function ahCentrosCusto(){
+function ahCentrosCusto(){return ahOpcoesCC().map(o=>o.v);}
+function _ahCentrosCustoAntigo(){
   const set=new Set();
   obras.forEach(o=>{const raw=String(o.centro_custo||'').trim();if(!raw)return;
     raw.split(/[\s·,;]+/).forEach(t=>{if(t.length>=4&&/\d/.test(t))set.add(t);});});
   ahSols.forEach(s=>{if(s.centro_custo)set.add(s.centro_custo);});
   return[...set].sort();
+}
+function ahOpcoesCC(){
+  const m=new Map();
+  const add=(v,l)=>{v=String(v||'').trim();if(!v)return;const o=m.get(v)||{v,l:[]};if(l&&!o.l.includes(l))o.l.push(l);m.set(v,o);};
+  ahObrasVisiveis().forEach(o=>{String(o.centro_custo||'').split(/[\s·,;|/]+/).forEach(t=>{if(t.length>=3&&/\d/.test(t))add(t,o.nome);});});
+  ahSols.forEach(x=>{if(x.centro_custo)add(x.centro_custo,x.obra?.nome);});
+  return[...m.values()].map(o=>({v:o.v,l:o.l.join(' / ')})).sort((a,b)=>a.v.localeCompare(b.v,'pt-BR',{numeric:true}));
+}
+const AH_ELABORADORES=['Auxiliar Administrativo','Assistente Administrativo','Encarregado Administrativo','Coordenador Administrativo'];
+function ahOpcoesElab(){
+  const m=new Map();AH_ELABORADORES.forEach(v=>m.set(v,''));
+  ahSols.forEach(x=>{if(x.elaborado_por&&!m.has(x.elaborado_por))m.set(x.elaborado_por,'já usado');});
+  const u=currentUser&&(currentUser.nome||currentUser.usuario);if(u&&!m.has(u))m.set(u,'usuário logado');
+  return[...m.entries()].map(([v,l])=>({v,l}));
+}
+// Campo com lista suspensa + digitação livre. A seta mostra TODAS as opções (mesmo com valor já preenchido).
+let ahComboOpc={},ahComboFil={};
+function ahCombo(id,valor,opcoes,handler,ph){
+  ahComboOpc[id]=opcoes;
+  return`<div style="position:relative"><input id="${id}" value="${escHtml(valor)}" placeholder="${escHtml(ph||'')}" autocomplete="off" style="padding-right:30px" oninput="ahComboAbre('${id}',true)" onfocus="ahComboAbre('${id}',false)" onblur="setTimeout(()=>ahComboFecha('${id}'),160)" onchange="${handler}(this.value.trim())">
+   <button type="button" tabindex="-1" onmousedown="event.preventDefault();ahComboAbre('${id}',false,true)" style="position:absolute;right:3px;top:3px;bottom:3px;width:24px;border:0;background:transparent;cursor:pointer;color:var(--text-muted)"><i class="ti ti-chevron-down"></i></button>
+   <div id="${id}-p" class="ah-cp" style="display:none"></div></div>`;
+}
+function ahComboFecha(id){const p=document.getElementById(id+'-p');if(p)p.style.display='none';}
+function ahComboAbre(id,filtrar,alternar){
+  const p=document.getElementById(id+'-p'),inp=document.getElementById(id);if(!p||!inp)return;
+  if(alternar&&p.style.display==='block'){p.style.display='none';return;}
+  const t=filtrar?_semAcento(inp.value).trim():'';
+  const l=(ahComboOpc[id]||[]).filter(o=>!t||_semAcento(o.v+' '+(o.l||'')).includes(t));
+  ahComboFil[id]=l;
+  p.innerHTML=l.length?l.map((o,i)=>`<div class="ah-co" onmousedown="event.preventDefault();ahComboEscolhe('${id}',${i})"><b>${escHtml(o.v)}</b>${o.l?`<small>${escHtml(o.l)}</small>`:''}</div>`).join('')
+    :'<div class="ah-co" style="color:var(--text-muted);cursor:default">Nada na lista — pode digitar o valor manualmente</div>';
+  p.style.display='block';
+}
+function ahComboEscolhe(id,i){
+  const o=(ahComboFil[id]||[])[i];if(!o)return;
+  const inp=document.getElementById(id);inp.value=o.v;ahComboFecha(id);inp.dispatchEvent(new Event('change'));
+}
+function ahMudarMes(v){
+  const s=ahSel.sol;
+  if(!/^\d{4}-\d{2}$/.test(v)){renderAhEditor();return;}
+  const comp=v+'-01';if(comp===String(s.competencia).slice(0,10))return;
+  if(ahSols.some(x=>x.id!==s.id&&String(x.obra_id)===String(s.obra_id)&&String(x.competencia).slice(0,10)===comp)){showToast('Já existe solicitação desta obra nesse mês','error');renderAhEditor();return;}
+  s.competencia=comp;ahSujo();renderAhEditor();
 }
 function ahObrasVisiveis(){return obras.filter(o=>o.status_obra!=='encerrada');}
 
@@ -18852,7 +18899,7 @@ async function ahCriar(){
   const ant=anteriores[0]||null,conv=ahConvencaoDaObra(obraId);
   const v=(k,ck)=>conv&&conv[ck]!=null?conv[ck]:(ant?ant[k]:0)||0;
   const obra=obras.find(o=>String(o.id)===String(obraId));
-  const novo={obra_id:obraId,competencia:comp,centro_custo:ant?.centro_custo||(ahCentrosCusto().find(t=>String(obra?.centro_custo||'').includes(t))||null),
+  const novo={obra_id:obraId,competencia:comp,centro_custo:ant?.centro_custo||((t=>t.length===1?t[0]:null)(String(obra?.centro_custo||'').split(/[\s·,;|/]+/).filter(t=>t.length>=3&&/\d/.test(t)))),
     data_emissao:null,elaborado_por:(currentUser&&(currentUser.nome||currentUser.usuario))||null,status:'rascunho',criado_por:(currentUser&&(currentUser.nome||currentUser.usuario))||null,
     vr_cafe_manha:v('vr_cafe_manha','vr_cafe_manha'),vr_cafe_tarde:v('vr_cafe_tarde','vr_cafe_tarde'),vr_almoco_fds:v('vr_almoco_fds','vr_almoco_fds'),vr_jantar:v('vr_jantar','vr_jantar')};
   const r=await sb.from('auxilio_hosp_solicitacoes').insert(novo).select('*,obra:obras(nome,codigo)').single();
@@ -18896,6 +18943,8 @@ function ahHdr(campo,val){
   else s[campo]=val===''?null:val;
   ahSujo();
 }
+function ahHdrCC(v){ahHdr('centro_custo',v);}
+function ahHdrElab(v){ahHdr('elaborado_por',v);}
 function ahEdit(i,campo,val){ahSel.itens[i][campo]=val;ahSujo();}
 function ahEditQ(i,campo,val){ahSel.itens[i][campo]=val===''?null:ahNum(val);ahRecalcLinha(i);ahRecalcTotais();ahSujo();}
 function ahRecalcLinha(i){
@@ -18953,7 +19002,7 @@ async function ahSalvar(silencioso){
   ahSalvando=true;
   try{
     const s=S.sol,num=v=>v==null||v===''?null:ahNum(v);
-    const ps={centro_custo:s.centro_custo||null,data_emissao:s.data_emissao||null,elaborado_por:s.elaborado_por||null,status:s.status,observacao:s.observacao||null,updated_at:new Date().toISOString(),
+    const ps={competencia:String(s.competencia).slice(0,10),centro_custo:s.centro_custo||null,data_emissao:s.data_emissao||null,elaborado_por:s.elaborado_por||null,status:s.status,observacao:s.observacao||null,updated_at:new Date().toISOString(),
       vr_cafe_manha:ahNum(s.vr_cafe_manha),vr_cafe_tarde:ahNum(s.vr_cafe_tarde),vr_almoco_fds:ahNum(s.vr_almoco_fds),vr_jantar:ahNum(s.vr_jantar),
       vr_ret_cafe_manha:num(s.vr_ret_cafe_manha),vr_ret_cafe_tarde:num(s.vr_ret_cafe_tarde),vr_ret_almoco_fds:num(s.vr_ret_almoco_fds),vr_ret_jantar:num(s.vr_ret_jantar)};
     const r=await sb.from('auxilio_hosp_solicitacoes').update(ps).eq('id',s.id);
@@ -18989,7 +19038,6 @@ function renderAhEditor(){
   const colsQ=[['Café da Manhã',0],['Café da Tarde',2],['Almoço Fim de Sem.',4],['Jantar',6]];
   const thVal=ahVerVal?`<th colspan="8">Valores (R$)</th>`:'';
   el.innerHTML=`
-  <datalist id="ah-dl-cc">${ahCentrosCusto().map(c=>`<option value="${escHtml(c)}">`).join('')}</datalist>
   <datalist id="ah-dl-funcoes">${funcoes.map(f=>`<option value="${escHtml(f.nome)}">`).join('')}</datalist>
   <div class="page-header"><div><div class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><button class="btn btn-sm" onclick="ahVoltar()" title="Voltar à lista"><i class="ti ti-arrow-left"></i></button>
       Auxílio Hospedagem · ${escHtml(s.obra?.nome||'')} · ${ahMesTxt(s.competencia)} <span class="badge" style="background:${st.bg};color:${st.c};font-weight:600">${st.t}</span></div>
@@ -18997,11 +19045,11 @@ function renderAhEditor(){
     <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="ahSalvar(false)"><i class="ti ti-device-floppy"></i> Salvar</button>
     <button class="btn btn-primary" onclick="ahBaixar('${s.id}')"><i class="ti ti-download"></i> Baixar Excel (modelo ADM 33)</button></div></div>
   <div class="ah-hdr">
-    <div><label>Centro de custo (lista ou digitar)</label><input list="ah-dl-cc" value="${escHtml(s.centro_custo||'')}" placeholder="Ex.: 23787" onchange="ahHdr('centro_custo',this.value.trim())"></div>
+    <div><label>Centro de custo (lista ▾ ou digitar)</label>${ahCombo('ah-cc',s.centro_custo||'',ahOpcoesCC(),"ahHdrCC",'Ex.: 23787')}</div>
     <div><label>Obra</label><input value="${escHtml(s.obra?.nome||'')}" disabled></div>
-    <div><label>Mês</label><input value="${ahMesTxt(s.competencia)}" disabled></div>
+    <div><label>Mês</label><input type="month" value="${String(s.competencia).slice(0,7)}" onchange="ahMudarMes(this.value)"></div>
     <div><label>Data da emissão</label><input type="date" id="ah-emissao" value="${s.data_emissao||''}" onchange="ahHdr('data_emissao',this.value)"></div>
-    <div><label>Elaborado por</label><input value="${escHtml(s.elaborado_por||'')}" onchange="ahHdr('elaborado_por',this.value.trim())"></div>
+    <div><label>Elaborado por (lista ▾ ou digitar)</label>${ahCombo('ah-elab',s.elaborado_por||'',ahOpcoesElab(),"ahHdrElab",'Nome ou cargo')}</div>
     <div><label>Status</label><select onchange="ahHdr('status',this.value)">${Object.entries(AH_STATUS).map(([k,v])=>`<option value="${k}" ${s.status===k?'selected':''}>${v.t}</option>`).join('')}</select></div>
   </div>
   <div class="ah-rates">
@@ -19046,18 +19094,27 @@ function ahModalAddCadastro(){
   ahListaCad();
 }
 function ahListaCad(){
-  const S=ahSel,obraId=String(S.sol.obra_id),termo=_semAcento(ahBuscaCad);
+  const S=ahSel,obraId=String(S.sol.obra_id),termo=_semAcento(ahBuscaCad).trim();
   const jaIds=new Set(S.itens.map(it=>it.funcionario_id).filter(Boolean)),jaRe=new Set(S.itens.map(it=>String(it.re||'').trim()).filter(Boolean));
-  let l=funcionarios.filter(f=>f.situacao!=='inativo'&&(ahCadOutras||String(f.obra_id)===obraId));
-  if(termo)l=l.filter(f=>_semAcento((f.nome_completo||'')+' '+(f.matricula||'')).includes(termo));
-  l=l.sort((a,b)=>String(a.nome_completo).localeCompare(String(b.nome_completo))).slice(0,300);
-  document.getElementById('ahc-lista').innerHTML=l.length?l.map(f=>{
+  const ativos=funcionarios.filter(f=>f.situacao!=='inativo');
+  const casa=f=>!termo||_semAcento((f.nome_completo||'')+' '+(f.matricula||'')).includes(termo);
+  const ord=(a,b)=>String(a.nome_completo).localeCompare(String(b.nome_completo),'pt-BR');
+  const daObra=ativos.filter(f=>String(f.obra_id)===obraId&&casa(f)).sort(ord).slice(0,300);
+  // com busca digitada, procura também em outras obras (empréstimo) sem precisar marcar a caixa
+  const outras=(ahCadOutras||termo.length>=2)?ativos.filter(f=>String(f.obra_id)!==obraId&&casa(f)).sort(ord).slice(0,300):[];
+  const totalObra=ativos.filter(f=>String(f.obra_id)===obraId).length;
+  const linha=f=>{
     const ja=jaIds.has(f.id)||(f.matricula&&jaRe.has(String(f.matricula).trim())),outra=String(f.obra_id)!==obraId;
     return`<label style="display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid #EEF2F8;${ja?'opacity:.45':'cursor:pointer'}"><input type="checkbox" class="ahc-ck" value="${f.id}" ${ja?'disabled':''}>
       <span style="flex:1"><b>${escHtml(f.nome_completo)}</b><br><span style="font-size:11px;color:var(--text-muted)">RE ${escHtml(f.matricula||'—')} · ${escHtml(f.funcao?.nome||'—')}${outra?' · '+escHtml(f.obra?.nome||'outra obra'):''}</span></span>
-      ${ja?'<span class="ah-chip" style="background:var(--success-light);color:var(--success)">já na lista</span>':(outra?'<span class="ah-chip" style="background:var(--info-light);color:var(--info)">emprestado</span>':'')}</label>`;}).join('')
-    :`<div style="padding:24px;text-align:center;color:var(--text-muted)">Nenhum funcionário encontrado${ahCadOutras?'':'. Marque “Incluir de outras obras” para empréstimos'}.</div>`;
-  document.getElementById('ahc-qtd').textContent=l.length+' listado(s)';
+      ${ja?'<span class="ah-chip" style="background:var(--success-light);color:var(--success)">já na lista</span>':(outra?'<span class="ah-chip" style="background:var(--info-light);color:var(--info)">emprestado</span>':'')}</label>`;};
+  const tit=t=>`<div style="padding:6px 12px;background:#F3F6FB;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em">${t}</div>`;
+  let h='';
+  if(daObra.length)h+=tit('Desta obra ('+daObra.length+')')+daObra.map(linha).join('');
+  if(outras.length)h+=tit('De outras obras — entram como emprestado ('+outras.length+')')+outras.map(linha).join('');
+  if(!h)h=`<div style="padding:24px;text-align:center;color:var(--text-muted)">Nenhum funcionário encontrado${termo?` para “${escHtml(ahBuscaCad)}”`:''}.<br><span style="font-size:12px">${totalObra?`Esta obra tem ${totalObra} funcionário(s) ativo(s) no cadastro.`:'Nenhum funcionário ativo está vinculado a esta obra no cadastro — digite para buscar em outras obras ou use “Linha manual”.'}</span></div>`;
+  document.getElementById('ahc-lista').innerHTML=h;
+  document.getElementById('ahc-qtd').textContent=(daObra.length+outras.length)+' listado(s)';
 }
 function ahAddSelecionados(){
   const ids=[...document.querySelectorAll('.ahc-ck:checked')].map(x=>x.value);
