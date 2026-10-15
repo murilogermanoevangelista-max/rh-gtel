@@ -18735,7 +18735,7 @@ function ahCss(){
   .ah-grid td.n{text-align:center;color:var(--text-muted)}
   .ah-grid td.v{text-align:right;background:#f7f9fc;font-variant-numeric:tabular-nums}
   .ah-grid td.v.b{font-weight:700}
-  .ah-in{border:1px solid transparent;background:transparent;border-radius:5px;padding:4px 5px;font:inherit;font-size:12px;width:100%;color:var(--text)}
+  .ah-grid td{overflow:hidden}.ah-in{text-overflow:ellipsis;min-width:0;border:1px solid transparent;background:transparent;border-radius:5px;padding:4px 5px;font:inherit;font-size:12px;width:100%;color:var(--text)}
   .ah-in:hover{border-color:var(--border)}.ah-in:focus{outline:none;border-color:var(--primary);background:#fff}
   .ah-q{width:52px;text-align:center;font-weight:600;color:var(--primary)}
   .ah-grid tfoot td{background:var(--accent-light);font-weight:700;text-align:center}
@@ -18745,8 +18745,8 @@ function ahCss(){
   .ah-hdr input,.ah-hdr select,.ah-rates input{width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:8px;font:inherit;font-size:13px;background:#fff}
   .ah-rates{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:flex-end}.ah-rates>div{width:132px}
   .ah-dirty{color:var(--warning);font-size:12px;font-weight:600}
-  .ah-cp{position:absolute;z-index:40;left:0;right:0;top:100%;margin-top:2px;background:#fff;border:1px solid var(--border);border-radius:8px;max-height:260px;overflow:auto;box-shadow:0 6px 18px rgba(18,63,115,.15)}
-  .ah-co{padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #EEF2F8}.ah-co:hover{background:var(--primary-light)}.ah-co small{color:var(--text-muted);margin-left:6px}
+  .ah-cp{position:fixed;z-index:5000;background:#fff;border:1px solid var(--border);border-radius:8px;max-height:260px;overflow:auto;box-shadow:0 6px 18px rgba(18,63,115,.15)}
+  .ah-co{padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #EEF2F8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ah-co:hover{background:var(--primary-light)}.ah-co small{color:var(--text-muted);margin-left:6px}
   .ah-chip{display:inline-flex;align-items:center;gap:4px;border-radius:20px;padding:1px 8px;font-size:11px;font-weight:600}`;
   document.head.appendChild(s);
 }
@@ -18820,24 +18820,59 @@ function ahOpcoesElab(){
 let ahComboOpc={},ahComboFil={};
 function ahCombo(id,valor,opcoes,handler,ph){
   ahComboOpc[id]=opcoes;
-  return`<div style="position:relative"><input id="${id}" value="${escHtml(valor)}" placeholder="${escHtml(ph||'')}" autocomplete="off" style="padding-right:30px" oninput="ahComboAbre('${id}',true)" onfocus="ahComboAbre('${id}',false)" onblur="setTimeout(()=>ahComboFecha('${id}'),160)" onchange="${handler}(this.value.trim())">
+  const h=handler.includes('$V')?handler.replace('$V','this.value.trim()'):handler+'(this.value.trim())';
+  return`<div style="position:relative"><input id="${id}" value="${escHtml(valor)}" placeholder="${escHtml(ph||'')}" autocomplete="off" style="padding-right:30px;text-overflow:ellipsis" oninput="ahComboAbre('${id}',true)" onfocus="ahComboAbre('${id}',false)" onblur="setTimeout(()=>ahComboFecha('${id}'),160)" onchange="${h}">
    <button type="button" tabindex="-1" onmousedown="event.preventDefault();ahComboAbre('${id}',false,true)" style="position:absolute;right:3px;top:3px;bottom:3px;width:24px;border:0;background:transparent;cursor:pointer;color:var(--text-muted)"><i class="ti ti-chevron-down"></i></button>
    <div id="${id}-p" class="ah-cp" style="display:none"></div></div>`;
 }
 function ahComboFecha(id){const p=document.getElementById(id+'-p');if(p)p.style.display='none';}
+function ahComboFechaTodos(ev){if(ev&&ev.target&&ev.target.closest&&ev.target.closest('.ah-cp'))return;document.querySelectorAll('.ah-cp').forEach(p=>p.style.display='none');}
+window.addEventListener('scroll',ahComboFechaTodos,true);window.addEventListener('resize',()=>ahComboFechaTodos());
+let ahComboUltimo=null;
 function ahComboAbre(id,filtrar,alternar){
   const p=document.getElementById(id+'-p'),inp=document.getElementById(id);if(!p||!inp)return;
   if(alternar&&p.style.display==='block'){p.style.display='none';return;}
   const t=filtrar?_semAcento(inp.value).trim():'';
-  const l=(ahComboOpc[id]||[]).filter(o=>!t||_semAcento(o.v+' '+(o.l||'')).includes(t));
-  ahComboFil[id]=l;
-  p.innerHTML=l.length?l.map((o,i)=>`<div class="ah-co" onmousedown="event.preventDefault();ahComboEscolhe('${id}',${i})"><b>${escHtml(o.v)}</b>${o.l?`<small>${escHtml(o.l)}</small>`:''}</div>`).join('')
-    :'<div class="ah-co" style="color:var(--text-muted);cursor:default">Nada na lista — pode digitar o valor manualmente</div>';
+  const todos=(ahComboOpc[id]||[]).filter(o=>!t||_semAcento(o.v+' '+(o.l||'')).includes(t));
+  const l=todos.slice(0,80);ahComboFil[id]=l;
+  p.innerHTML=l.length?l.map((o,i)=>`<div class="ah-co" title="${escHtml(o.v+(o.l?' — '+o.l:''))}" onmousedown="event.preventDefault();ahComboEscolhe('${id}',${i})"><b>${escHtml(o.v)}</b>${o.l?`<small>${escHtml(o.l)}</small>`:''}</div>`).join('')
+      +(todos.length>l.length?`<div class="ah-co" style="color:var(--text-muted);cursor:default;font-size:12px">Mostrando ${l.length} de ${todos.length} — continue digitando para filtrar</div>`:'')
+    :'<div class="ah-co" style="color:var(--text-muted);cursor:default">Nada na lista — pode digitar manualmente</div>';
+  const r=inp.getBoundingClientRect(),w=Math.max(r.width,id==='ahc-busca'?460:300);
+  p.style.width=Math.min(w,window.innerWidth-16)+'px';p.style.left=Math.max(8,Math.min(r.left,window.innerWidth-w-8))+'px';
+  const abaixo=window.innerHeight-r.bottom-8;
+  if(abaixo<190&&r.top>abaixo){p.style.top='auto';p.style.bottom=(window.innerHeight-r.top+2)+'px';p.style.maxHeight=Math.min(260,r.top-12)+'px';}
+  else{p.style.bottom='auto';p.style.top=(r.bottom+2)+'px';p.style.maxHeight=Math.min(260,abaixo)+'px';}
   p.style.display='block';
 }
 function ahComboEscolhe(id,i){
   const o=(ahComboFil[id]||[])[i];if(!o)return;
-  const inp=document.getElementById(id);inp.value=o.v;ahComboFecha(id);inp.dispatchEvent(new Event('change'));
+  const inp=document.getElementById(id);inp.value=o.v;ahComboFecha(id);ahComboUltimo={id,o};inp.dispatchEvent(new Event('change'));
+}
+function ahNoop(){}
+function ahObrasPorCC(cc){
+  const c=String(cc||'').trim().toLowerCase();if(!c)return[];
+  return ahObrasVisiveis().filter(o=>String(o.centro_custo||'').split(/[\s·,;|/]+/).some(t=>t.toLowerCase()===c));
+}
+function ahUnicoCCDaObra(o){
+  const t=String(o?.centro_custo||'').split(/[\s·,;|/]+/).filter(x=>x.length>=3&&/\d/.test(x));
+  return t.length===1?t[0]:null;
+}
+function ahOpcoesObras(){return ahObrasVisiveis().map(o=>({v:o.nome,l:o.codigo||'',id:o.id})).sort((a,b)=>a.v.localeCompare(b.v,'pt-BR'));}
+function ahOpcoesFuncoes(){return funcoes.map(f=>({v:f.nome,l:''}));}
+// troca a obra da solicitação aberta (sem duplicar obra+mês)
+function ahTrocarObra(o){
+  const s=ahSel.sol;if(String(o.id)===String(s.obra_id))return true;
+  if(ahSols.some(x=>x.id!==s.id&&String(x.obra_id)===String(o.id)&&String(x.competencia).slice(0,10)===String(s.competencia).slice(0,10))){
+    showToast('Já existe solicitação de '+o.nome+' neste mês','error');return false;}
+  s.obra_id=o.id;s.obra={nome:o.nome,codigo:o.codigo};return true;
+}
+function ahHdrObra(v){
+  const t=_semAcento(v).trim(),o=ahObrasVisiveis().find(x=>_semAcento(x.nome)===t||_semAcento(x.codigo||'')===t);
+  if(!o){showToast('Escolha uma obra da lista','error');renderAhEditor();return;}
+  if(!ahTrocarObra(o)){renderAhEditor();return;}
+  if(!ahSel.sol.centro_custo){const u=ahUnicoCCDaObra(o);if(u)ahSel.sol.centro_custo=u;}
+  ahSujo();renderAhEditor();
 }
 function ahMudarMes(v){
   const s=ahSel.sol;
@@ -18883,30 +18918,70 @@ function ahModalNova(){
   const obs=ahObrasVisiveis();
   insertModal('modal-ah-nova',`<div class="modal" style="max-width:520px"><div class="modal-header"><span class="modal-title">Nova solicitação de Auxílio Hospedagem</span><button class="btn btn-sm" onclick="closeModal('modal-ah-nova')"><i class="ti ti-x"></i></button></div>
   <div class="modal-body"><div class="form-grid">
-   <div class="form-group full"><label>Obra *</label><select id="ahn-obra"><option value="">Selecione…</option>${obs.map(o=>`<option value="${o.id}" ${String(o.id)===String(globalObraFiltro)?'selected':''}>${escHtml(o.codigo||'')} — ${escHtml(o.nome)}</option>`).join('')}</select></div>
-   <div class="form-group"><label>Mês de referência *</label><input type="month" id="ahn-mes" value="${mesPad}"></div>
-   <div class="form-group full"><label style="display:flex;gap:8px;align-items:center;font-weight:500"><input type="checkbox" id="ahn-copiar" checked> Copiar funcionários e valores do mês anterior da obra</label>
-     <div style="font-size:12px;color:var(--text-muted);margin-top:4px">Os dias começam em branco. Os valores das refeições vêm da Convenção Coletiva da obra (se cadastrados) ou do mês anterior.</div></div>
+   <div class="form-group full"><label>Centro de custo (lista ▾ ou digitar) — preenche a obra</label>${ahCombo('ahn-cc','',ahOpcoesCC(),'ahNovaCC','Ex.: 23787')}</div>
+   <div class="form-group full"><label>Obra *</label><select id="ahn-obra" onchange="ahNovaObra()"><option value="">Selecione…</option>${obs.map(o=>`<option value="${o.id}" ${String(o.id)===String(globalObraFiltro)?'selected':''}>${escHtml(o.codigo||'')} — ${escHtml(o.nome)}</option>`).join('')}</select></div>
+   <div class="form-group"><label>Mês de referência *</label><input type="month" id="ahn-mes" value="${mesPad}" onchange="ahNovaFontes()"></div>
+   <div class="form-group full"><label>Copiar funcionários de uma solicitação anterior</label><select id="ahn-fonte" onchange="ahNovaFonte()"><option value="">Não copiar (começar vazia)</option></select>
+     <div style="font-size:12px;color:var(--text-muted);margin-top:4px">Os dias começam em branco. Desmarque quem não entra neste mês; depois você ainda pode incluir ou excluir pessoas na planilha.</div>
+     <div id="ahn-lista" style="display:none;max-height:230px;overflow:auto;border:1px solid var(--border);border-radius:8px;margin-top:8px"></div></div>
   </div></div><div class="modal-footer"><button class="btn" onclick="closeModal('modal-ah-nova')">Cancelar</button><button class="btn btn-primary" onclick="ahCriar()"><i class="ti ti-check"></i> Criar</button></div></div>`);
+  ahNovaFontes();
+}
+let ahFonteItens=[];
+function ahNovaFontes(){
+  const sel=document.getElementById('ahn-fonte');if(!sel)return;
+  const obraId=document.getElementById('ahn-obra').value,mes=document.getElementById('ahn-mes').value,comp=mes?mes+'-01':'9999-12-01';
+  const vis=ahSols.slice().sort((a,b)=>String(b.competencia).localeCompare(String(a.competencia)));
+  const mesma=vis.filter(x=>String(x.obra_id)===String(obraId)),outras=vis.filter(x=>String(x.obra_id)!==String(obraId));
+  const lbl=x=>`${ahMesTxt(x.competencia)} — ${x.obra?.nome||''} (${ahResumo[x.id]?.n||0} func.)`;
+  const pre=mesma.find(x=>String(x.competencia).slice(0,10)<comp)||mesma[0]||null;
+  sel.innerHTML='<option value="">Não copiar (começar vazia)</option>'+(mesma.length?`<optgroup label="Desta obra">${mesma.map(x=>`<option value="${x.id}">${escHtml(lbl(x))}</option>`).join('')}</optgroup>`:'')
+    +(outras.length?`<optgroup label="Outras obras">${outras.map(x=>`<option value="${x.id}">${escHtml(lbl(x))}</option>`).join('')}</optgroup>`:'');
+  sel.value=pre?pre.id:'';ahNovaFonte();
+}
+async function ahNovaFonte(){
+  const id=document.getElementById('ahn-fonte').value,box=document.getElementById('ahn-lista');
+  ahFonteItens=[];if(!id){box.style.display='none';box.innerHTML='';return;}
+  box.style.display='block';box.innerHTML='<div style="padding:14px;color:var(--text-muted)">Carregando…</div>';
+  const a=await sb.from('auxilio_hosp_itens').select('*').eq('solicitacao_id',id).order('ordem');
+  if(document.getElementById('ahn-fonte')?.value!==id)return;
+  ahFonteItens=a.data||[];
+  box.innerHTML=ahFonteItens.length?`<div style="padding:6px 12px;background:#F3F6FB;display:flex;justify-content:space-between;align-items:center;font-size:12px"><span id="ahn-cont"></span><a href="#" onclick="event.preventDefault();ahNovaMarcar()" style="color:var(--primary);font-weight:600">marcar / desmarcar todos</a></div>`
+    +ahFonteItens.map(it=>`<label style="display:flex;gap:10px;align-items:center;padding:6px 12px;border-bottom:1px solid #EEF2F8;cursor:pointer"><input type="checkbox" class="ahn-ck" value="${it.id}" checked onchange="ahNovaConta()"><span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><b>${escHtml(it.nome||'—')}</b> <span style="font-size:11px;color:var(--text-muted)">RE ${escHtml(it.re||'—')} · ${escHtml(it.funcao||'—')}${it.emprestado?' · emprestado':''}</span></span></label>`).join('')
+    :'<div style="padding:14px;color:var(--text-muted)">Essa solicitação não tem funcionários.</div>';
+  ahNovaConta();
+}
+function ahNovaConta(){const t=document.querySelectorAll('.ahn-ck'),c=document.querySelectorAll('.ahn-ck:checked'),e=document.getElementById('ahn-cont');if(e)e.textContent=c.length+' de '+t.length+' selecionado(s)';}
+function ahNovaMarcar(){const t=[...document.querySelectorAll('.ahn-ck')],todos=t.every(x=>x.checked);t.forEach(x=>x.checked=!todos);ahNovaConta();}
+function ahNovaCC(v){
+  const os=ahObrasPorCC(v);
+  if(os.length===1){document.getElementById('ahn-obra').value=os[0].id;ahNovaFontes();}
+  else if(os.length>1)showToast('Mais de uma obra usa este centro de custo — escolha a obra','error');
+}
+function ahNovaObra(){
+  const o=obras.find(x=>String(x.id)===document.getElementById('ahn-obra').value),cc=document.getElementById('ahn-cc');
+  if(o&&cc&&!cc.value.trim()){const u=ahUnicoCCDaObra(o);if(u)cc.value=u;}
+  ahNovaFontes();
 }
 async function ahCriar(){
-  const obraId=document.getElementById('ahn-obra').value,mes=document.getElementById('ahn-mes').value,copiar=document.getElementById('ahn-copiar').checked;
+  const obraId=document.getElementById('ahn-obra').value,mes=document.getElementById('ahn-mes').value,fonteId=document.getElementById('ahn-fonte').value,marcados=new Set([...document.querySelectorAll('.ahn-ck:checked')].map(x=>x.value));
   if(!obraId||!mes){showToast('Informe a obra e o mês','error');return;}
   const comp=mes+'-01';
   const ja=ahSols.find(s=>String(s.obra_id)===String(obraId)&&String(s.competencia).slice(0,10)===comp);
   if(ja){closeModal('modal-ah-nova');showToast('Já existe solicitação desta obra neste mês — abrindo.');ahAbrir(ja.id);return;}
   const anteriores=ahSols.filter(s=>String(s.obra_id)===String(obraId)&&String(s.competencia)<comp).sort((a,b)=>String(b.competencia).localeCompare(String(a.competencia)));
-  const ant=anteriores[0]||null,conv=ahConvencaoDaObra(obraId);
+  const fonte=fonteId?ahSols.find(x=>x.id===fonteId):null;
+  const ant=(fonte&&String(fonte.obra_id)===String(obraId)?fonte:null)||anteriores[0]||null,conv=ahConvencaoDaObra(obraId);
   const v=(k,ck)=>conv&&conv[ck]!=null?conv[ck]:(ant?ant[k]:0)||0;
   const obra=obras.find(o=>String(o.id)===String(obraId));
-  const novo={obra_id:obraId,competencia:comp,centro_custo:ant?.centro_custo||((t=>t.length===1?t[0]:null)(String(obra?.centro_custo||'').split(/[\s·,;|/]+/).filter(t=>t.length>=3&&/\d/.test(t)))),
+  const ccDigitado=(document.getElementById('ahn-cc')?.value||'').trim();
+  const novo={obra_id:obraId,competencia:comp,centro_custo:ccDigitado||ant?.centro_custo||((t=>t.length===1?t[0]:null)(String(obra?.centro_custo||'').split(/[\s·,;|/]+/).filter(t=>t.length>=3&&/\d/.test(t)))),
     data_emissao:null,elaborado_por:(currentUser&&(currentUser.nome||currentUser.usuario))||null,status:'rascunho',criado_por:(currentUser&&(currentUser.nome||currentUser.usuario))||null,
     vr_cafe_manha:v('vr_cafe_manha','vr_cafe_manha'),vr_cafe_tarde:v('vr_cafe_tarde','vr_cafe_tarde'),vr_almoco_fds:v('vr_almoco_fds','vr_almoco_fds'),vr_jantar:v('vr_jantar','vr_jantar')};
   const r=await sb.from('auxilio_hosp_solicitacoes').insert(novo).select('*,obra:obras(nome,codigo)').single();
   if(r.error){showToast('Erro: '+r.error.message,'error');return;}
-  if(copiar&&ant){
-    const a=await sb.from('auxilio_hosp_itens').select('*').eq('solicitacao_id',ant.id).order('ordem');
-    const linhas=(a.data||[]).map((it,i)=>({id:ahUuid(),solicitacao_id:r.data.id,funcionario_id:it.funcionario_id,re:it.re,nome:it.nome,funcao:it.funcao,emprestado:it.emprestado,obra_origem:it.obra_origem,ordem:i}));
+  if(fonteId){
+    const linhas=ahFonteItens.filter(it=>marcados.has(it.id)).map((it,k)=>({id:ahUuid(),solicitacao_id:r.data.id,funcionario_id:it.funcionario_id,re:it.re,nome:it.nome,funcao:it.funcao,emprestado:it.emprestado,obra_origem:it.obra_origem,ordem:k}));
     if(linhas.length){const ins=await sb.from('auxilio_hosp_itens').insert(linhas);if(ins.error)showToast('Solicitação criada, mas não consegui copiar os funcionários: '+ins.error.message,'error');}
   }
   closeModal('modal-ah-nova');
@@ -18943,7 +19018,13 @@ function ahHdr(campo,val){
   else s[campo]=val===''?null:val;
   ahSujo();
 }
-function ahHdrCC(v){ahHdr('centro_custo',v);}
+function ahHdrCC(v){
+  ahHdr('centro_custo',v);
+  const os=ahObrasPorCC(v);
+  if(os.length===1&&String(os[0].id)!==String(ahSel.sol.obra_id)){
+    if(ahTrocarObra(os[0])){showToast('Obra ajustada para '+os[0].nome+' (centro de custo '+v+')');renderAhEditor();}
+  }else if(os.length>1&&!os.some(o=>String(o.id)===String(ahSel.sol.obra_id)))showToast('Mais de uma obra usa este centro de custo — escolha a obra na lista','error');
+}
 function ahHdrElab(v){ahHdr('elaborado_por',v);}
 function ahEdit(i,campo,val){ahSel.itens[i][campo]=val;ahSujo();}
 function ahEditQ(i,campo,val){ahSel.itens[i][campo]=val===''?null:ahNum(val);ahRecalcLinha(i);ahRecalcTotais();ahSujo();}
@@ -18966,10 +19047,10 @@ function ahLinhaHtml(i){
   const it=ahSel.itens[i],rt=ahRates(ahSel.sol),k=ahCalc(it,rt);
   return`<tr id="ah-r-${i}" class="${it.emprestado?'emp':''}">
    <td class="n">${i+1}</td>
-   <td style="width:84px"><input class="ah-in" value="${escHtml(it.re)}" placeholder="RE" oninput="ahEdit(${i},'re',this.value)"></td>
-   <td style="min-width:260px"><input class="ah-in" value="${escHtml(it.nome)}" placeholder="Nome completo" oninput="ahEdit(${i},'nome',this.value)">
+   <td style="width:84px;min-width:84px;max-width:84px"><input class="ah-in" value="${escHtml(it.re)}" placeholder="RE" oninput="ahEdit(${i},'re',this.value)"></td>
+   <td style="width:290px;min-width:290px;max-width:290px"><input class="ah-in" title="${escHtml(it.nome)}" value="${escHtml(it.nome)}" placeholder="Nome completo" oninput="ahEdit(${i},'nome',this.value)">
      ${it.emprestado?`<input class="ah-in" style="font-size:11px;color:var(--info)" value="${escHtml(it.obra_origem)}" placeholder="Emprestado de qual obra?" oninput="ahEdit(${i},'obra_origem',this.value)">`:''}</td>
-   <td style="min-width:200px"><input class="ah-in" list="ah-dl-funcoes" value="${escHtml(it.funcao)}" placeholder="Função" oninput="ahEdit(${i},'funcao',this.value)"></td>
+   <td style="width:230px;min-width:230px;max-width:230px">${ahComboLinha(i)}</td>
    ${AH_Q.map(q=>`<td><input class="ah-in ah-q" type="number" min="0" step="0.5" value="${it[q]==null?'':it[q]}" oninput="ahEditQ(${i},'${q}',this.value)"></td>`).join('')}
    ${ahVerVal?AH_Q.map((q,j)=>`<td class="v" id="ah-v-${i}-${j}">${ahBRL((Number(it[q])||0)*rt[AH_RC[j]])}</td>`).join(''):''}
    <td class="v b" id="ah-t-${i}">${ahBRL(k.tot)}</td>
@@ -18977,6 +19058,14 @@ function ahLinhaHtml(i){
    <td style="white-space:nowrap"><button class="btn btn-sm" title="Funcionário emprestado de outra obra" style="${it.emprestado?'background:var(--info-light);color:var(--info);border-color:var(--info)':''}" onclick="ahToggleEmp(${i})"><i class="ti ti-arrows-exchange"></i></button>
      <button class="btn btn-sm btn-danger" title="Remover linha" onclick="ahRemover(${i})"><i class="ti ti-trash"></i></button></td></tr>`;
 }
+function ahComboLinha(i){
+  const id='ah-fn-'+i;ahComboOpc[id]=ahFuncoesCache||(ahFuncoesCache=ahOpcoesFuncoes());
+  const it=ahSel.itens[i];
+  return`<div style="position:relative"><input id="${id}" class="ah-in" value="${escHtml(it.funcao)}" title="${escHtml(it.funcao)}" placeholder="Função" autocomplete="off" style="padding-right:22px" oninput="ahEdit(${i},'funcao',this.value);ahComboAbre('${id}',true)" onfocus="ahComboAbre('${id}',false)" onblur="setTimeout(()=>ahComboFecha('${id}'),160)" onchange="ahEdit(${i},'funcao',this.value)">
+   <button type="button" tabindex="-1" onmousedown="event.preventDefault();ahComboAbre('${id}',false,true)" style="position:absolute;right:1px;top:1px;bottom:1px;width:20px;border:0;background:transparent;cursor:pointer;color:var(--text-muted)"><i class="ti ti-chevron-down"></i></button>
+   <div id="${id}-p" class="ah-cp" style="display:none"></div></div>`;
+}
+let ahFuncoesCache=null;
 function ahToggleEmp(i){const it=ahSel.itens[i];it.emprestado=!it.emprestado;const tr=document.getElementById('ah-r-'+i);if(tr)tr.outerHTML=ahLinhaHtml(i);ahSujo();}
 function ahRemover(i){
   const it=ahSel.itens[i];
@@ -19002,7 +19091,7 @@ async function ahSalvar(silencioso){
   ahSalvando=true;
   try{
     const s=S.sol,num=v=>v==null||v===''?null:ahNum(v);
-    const ps={competencia:String(s.competencia).slice(0,10),centro_custo:s.centro_custo||null,data_emissao:s.data_emissao||null,elaborado_por:s.elaborado_por||null,status:s.status,observacao:s.observacao||null,updated_at:new Date().toISOString(),
+    const ps={obra_id:s.obra_id,competencia:String(s.competencia).slice(0,10),centro_custo:s.centro_custo||null,data_emissao:s.data_emissao||null,elaborado_por:s.elaborado_por||null,status:s.status,observacao:s.observacao||null,updated_at:new Date().toISOString(),
       vr_cafe_manha:ahNum(s.vr_cafe_manha),vr_cafe_tarde:ahNum(s.vr_cafe_tarde),vr_almoco_fds:ahNum(s.vr_almoco_fds),vr_jantar:ahNum(s.vr_jantar),
       vr_ret_cafe_manha:num(s.vr_ret_cafe_manha),vr_ret_cafe_tarde:num(s.vr_ret_cafe_tarde),vr_ret_almoco_fds:num(s.vr_ret_almoco_fds),vr_ret_jantar:num(s.vr_ret_jantar)};
     const r=await sb.from('auxilio_hosp_solicitacoes').update(ps).eq('id',s.id);
@@ -19017,7 +19106,7 @@ async function ahSalvar(silencioso){
       if(p.error)throw p.error;
       ahPend.forEach(x=>{if(S.lancadas.includes(x.id)){x.situacao='lancada';x.lancada_solicitacao_id=s.id;}});S.lancadas=[];
     }
-    const idx=ahSols.findIndex(x=>x.id===s.id);if(idx>=0)ahSols[idx]={...ahSols[idx],...ps};
+    const idx=ahSols.findIndex(x=>x.id===s.id);if(idx>=0)ahSols[idx]={...ahSols[idx],...ps,obra:s.obra};
     const rt=ahRates(s);let vig=0,ret=0;S.itens.forEach(it=>{const k=ahCalc(it,rt);vig+=k.vig;ret+=k.ret;});
     ahResumo[s.id]={n:S.itens.length,vig,ret,tot:vig+ret};
     ahDirty=false;const ind=document.getElementById('ah-sujo');if(ind)ind.style.display='none';
@@ -19032,13 +19121,12 @@ async function ahVoltar(){
 }
 function renderAhEditor(){
   const S=ahSel,s=S.sol,el=document.getElementById('main-content'),st=AH_STATUS[s.status]||AH_STATUS.rascunho;
-  const nPendObra=ahPend.filter(p=>String(p.obra_id)===String(s.obra_id)&&p.situacao==='pendente'&&!S.lancadas.includes(p.id)).length;
+  ahFuncoesCache=null;const nPendObra=ahPend.filter(p=>String(p.obra_id)===String(s.obra_id)&&p.situacao==='pendente'&&!S.lancadas.includes(p.id)).length;
   const retDif=ahRetDif||['vr_ret_cafe_manha','vr_ret_cafe_tarde','vr_ret_almoco_fds','vr_ret_jantar'].some(k=>s[k]!=null);
   const rin=(campo,rot)=>`<div><label>${rot}</label><input type="number" min="0" step="0.01" value="${s[campo]==null?'':s[campo]}" oninput="ahHdr('${campo}',this.value)"></div>`;
   const colsQ=[['Café da Manhã',0],['Café da Tarde',2],['Almoço Fim de Sem.',4],['Jantar',6]];
   const thVal=ahVerVal?`<th colspan="8">Valores (R$)</th>`:'';
   el.innerHTML=`
-  <datalist id="ah-dl-funcoes">${funcoes.map(f=>`<option value="${escHtml(f.nome)}">`).join('')}</datalist>
   <div class="page-header"><div><div class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><button class="btn btn-sm" onclick="ahVoltar()" title="Voltar à lista"><i class="ti ti-arrow-left"></i></button>
       Auxílio Hospedagem · ${escHtml(s.obra?.nome||'')} · ${ahMesTxt(s.competencia)} <span class="badge" style="background:${st.bg};color:${st.c};font-weight:600">${st.t}</span></div>
     <div class="page-subtitle">Equivale à planilha ADM 33 · <span id="ah-sujo" class="ah-dirty" style="display:${ahDirty?'inline':'none'}">● alterações não salvas (salva sozinho em instantes)</span></div></div>
@@ -19046,7 +19134,7 @@ function renderAhEditor(){
     <button class="btn btn-primary" onclick="ahBaixar('${s.id}')"><i class="ti ti-download"></i> Baixar Excel (modelo ADM 33)</button></div></div>
   <div class="ah-hdr">
     <div><label>Centro de custo (lista ▾ ou digitar)</label>${ahCombo('ah-cc',s.centro_custo||'',ahOpcoesCC(),"ahHdrCC",'Ex.: 23787')}</div>
-    <div><label>Obra</label><input value="${escHtml(s.obra?.nome||'')}" disabled></div>
+    <div><label>Obra (lista ▾)</label>${ahCombo('ah-obra',s.obra?.nome||'',ahOpcoesObras(),'ahHdrObra','Escolha a obra')}</div>
     <div><label>Mês</label><input type="month" value="${String(s.competencia).slice(0,7)}" onchange="ahMudarMes(this.value)"></div>
     <div><label>Data da emissão</label><input type="date" id="ah-emissao" value="${s.data_emissao||''}" onchange="ahHdr('data_emissao',this.value)"></div>
     <div><label>Elaborado por (lista ▾ ou digitar)</label>${ahCombo('ah-elab',s.elaborado_por||'',ahOpcoesElab(),"ahHdrElab",'Nome ou cargo')}</div>
@@ -19065,7 +19153,7 @@ function renderAhEditor(){
   </div>
   <div id="ah-lim" style="display:none;background:var(--warning-light);border:1px solid #E5C68A;color:#7a4a0c;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:13px"><i class="ti ti-alert-triangle"></i> A planilha ADM 33 comporta ${AH_MAX_LINHAS} funcionários. Ao baixar, o sistema gera uma planilha para cada ${AH_MAX_LINHAS}.</div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
-    <button class="btn" onclick="ahModalAddCadastro()"><i class="ti ti-user-plus"></i> Adicionar do cadastro</button>
+    <button class="btn" onclick="ahModalAddFunc()"><i class="ti ti-user-plus"></i> Adicionar funcionário</button>
     <button class="btn" onclick="ahAddManual()"><i class="ti ti-pencil-plus"></i> Linha manual</button>
     <button class="btn" onclick="ahPreencherDias()"><i class="ti ti-calendar-check"></i> Preencher dias do mês</button>
     <button class="btn" onclick="ahModalLancarPend()"><i class="ti ti-flag"></i> Pendências retroativas${nPendObra?` <span class="badge" style="background:var(--accent);color:#fff;margin-left:4px">${nPendObra}</span>`:''}</button>
@@ -19081,49 +19169,53 @@ function renderAhEditor(){
   ahRecalcTotais();
 }
 
-// ── Adicionar funcionários do cadastro ──
-let ahBuscaCad='',ahCadOutras=false;
-function ahModalAddCadastro(){
-  ahBuscaCad='';ahCadOutras=false;
-  insertModal('modal-ah-cad',`<div class="modal" style="max-width:620px"><div class="modal-header"><span class="modal-title">Adicionar funcionários do cadastro</span><button class="btn btn-sm" onclick="closeModal('modal-ah-cad')"><i class="ti ti-x"></i></button></div>
-  <div class="modal-body"><div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
-    <input id="ahc-busca" placeholder="Buscar por nome ou matrícula…" oninput="ahBuscaCad=this.value;ahListaCad()" style="flex:1;min-width:200px;padding:8px 10px;border:1px solid var(--border);border-radius:8px">
-    <label style="display:flex;gap:6px;align-items:center;font-size:12px;font-weight:500"><input type="checkbox" onchange="ahCadOutras=this.checked;ahListaCad()"> Incluir de outras obras (empréstimo)</label></div>
-    <div id="ahc-lista" style="max-height:48vh;overflow:auto;border:1px solid var(--border);border-radius:8px"></div></div>
-  <div class="modal-footer"><span id="ahc-qtd" style="margin-right:auto;font-size:12px;color:var(--text-muted)"></span><button class="btn" onclick="closeModal('modal-ah-cad')">Fechar</button><button class="btn btn-primary" onclick="ahAddSelecionados()"><i class="ti ti-check"></i> Adicionar selecionados</button></div></div>`);
-  ahListaCad();
-}
-function ahListaCad(){
-  const S=ahSel,obraId=String(S.sol.obra_id),termo=_semAcento(ahBuscaCad).trim();
-  const jaIds=new Set(S.itens.map(it=>it.funcionario_id).filter(Boolean)),jaRe=new Set(S.itens.map(it=>String(it.re||'').trim()).filter(Boolean));
+// ── Adicionar funcionário: busca em lista suspensa (cadastro) OU digitação manual de RE + nome + função ──
+let ahAddQtd=0;
+function ahOpcoesFunc(){
+  const obraId=String(ahSel.sol.obra_id),ord=(a,b)=>String(a.nome_completo).localeCompare(String(b.nome_completo),'pt-BR');
   const ativos=funcionarios.filter(f=>f.situacao!=='inativo');
-  const casa=f=>!termo||_semAcento((f.nome_completo||'')+' '+(f.matricula||'')).includes(termo);
-  const ord=(a,b)=>String(a.nome_completo).localeCompare(String(b.nome_completo),'pt-BR');
-  const daObra=ativos.filter(f=>String(f.obra_id)===obraId&&casa(f)).sort(ord).slice(0,300);
-  // com busca digitada, procura também em outras obras (empréstimo) sem precisar marcar a caixa
-  const outras=(ahCadOutras||termo.length>=2)?ativos.filter(f=>String(f.obra_id)!==obraId&&casa(f)).sort(ord).slice(0,300):[];
-  const totalObra=ativos.filter(f=>String(f.obra_id)===obraId).length;
-  const linha=f=>{
-    const ja=jaIds.has(f.id)||(f.matricula&&jaRe.has(String(f.matricula).trim())),outra=String(f.obra_id)!==obraId;
-    return`<label style="display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid #EEF2F8;${ja?'opacity:.45':'cursor:pointer'}"><input type="checkbox" class="ahc-ck" value="${f.id}" ${ja?'disabled':''}>
-      <span style="flex:1"><b>${escHtml(f.nome_completo)}</b><br><span style="font-size:11px;color:var(--text-muted)">RE ${escHtml(f.matricula||'—')} · ${escHtml(f.funcao?.nome||'—')}${outra?' · '+escHtml(f.obra?.nome||'outra obra'):''}</span></span>
-      ${ja?'<span class="ah-chip" style="background:var(--success-light);color:var(--success)">já na lista</span>':(outra?'<span class="ah-chip" style="background:var(--info-light);color:var(--info)">emprestado</span>':'')}</label>`;};
-  const tit=t=>`<div style="padding:6px 12px;background:#F3F6FB;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em">${t}</div>`;
-  let h='';
-  if(daObra.length)h+=tit('Desta obra ('+daObra.length+')')+daObra.map(linha).join('');
-  if(outras.length)h+=tit('De outras obras — entram como emprestado ('+outras.length+')')+outras.map(linha).join('');
-  if(!h)h=`<div style="padding:24px;text-align:center;color:var(--text-muted)">Nenhum funcionário encontrado${termo?` para “${escHtml(ahBuscaCad)}”`:''}.<br><span style="font-size:12px">${totalObra?`Esta obra tem ${totalObra} funcionário(s) ativo(s) no cadastro.`:'Nenhum funcionário ativo está vinculado a esta obra no cadastro — digite para buscar em outras obras ou use “Linha manual”.'}</span></div>`;
-  document.getElementById('ahc-lista').innerHTML=h;
-  document.getElementById('ahc-qtd').textContent=(daObra.length+outras.length)+' listado(s)';
+  const op=f=>({v:f.nome_completo||'',id:f.id,f,l:`RE ${f.matricula||'—'} · ${f.funcao?.nome||'—'}`+(String(f.obra_id)!==obraId?` · ${f.obra?.nome||'outra obra'} (emprestado)`:'')});
+  return[...ativos.filter(f=>String(f.obra_id)===obraId).sort(ord),...ativos.filter(f=>String(f.obra_id)!==obraId).sort(ord)].map(op);
 }
-function ahAddSelecionados(){
-  const ids=[...document.querySelectorAll('.ahc-ck:checked')].map(x=>x.value);
-  if(!ids.length){showToast('Selecione ao menos um funcionário','error');return;}
-  const obraId=String(ahSel.sol.obra_id);
-  ids.forEach(id=>{const f=funcionarios.find(x=>x.id===id);if(!f)return;
-    const emp=String(f.obra_id)!==obraId;
-    ahSel.itens.push(ahNovoItem({funcionario_id:f.id,re:f.matricula||'',nome:f.nome_completo||'',funcao:f.funcao?.nome||'',emprestado:emp,obra_origem:emp?(f.obra?.nome||''):''}));});
-  closeModal('modal-ah-cad');ahSujo();renderAhEditor();showToast(ids.length+' funcionário(s) adicionado(s)');
+function ahModalAddFunc(){
+  ahAddQtd=0;
+  insertModal('modal-ah-func',`<div class="modal" style="max-width:600px"><div class="modal-header"><span class="modal-title">Adicionar funcionário</span><button class="btn btn-sm" onclick="closeModal('modal-ah-func')"><i class="ti ti-x"></i></button></div>
+  <div class="modal-body"><div class="form-grid">
+   <div class="form-group full"><label>Buscar no cadastro (nome, RE ou função) ▾</label>${ahCombo('ahc-busca','',ahOpcoesFunc(),'ahCadEscolhido','Digite para buscar ou abra a lista…')}
+     <div style="font-size:12px;color:var(--text-muted);margin-top:4px">Os da obra aparecem primeiro. De outra obra entram como “emprestado”. Escolher preenche os campos abaixo; você pode corrigir qualquer um.</div></div>
+   <div class="form-group"><label>RE</label><input id="ahc-re" placeholder="Matrícula"></div>
+   <div class="form-group"><label>Nome completo *</label><input id="ahc-nome" placeholder="Nome"></div>
+   <div class="form-group full"><label>Função ▾</label>${ahCombo('ahc-funcao','',ahOpcoesFuncoes(),'ahNoop','Função')}</div>
+   <div class="form-group full" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label style="display:flex;gap:6px;align-items:center;font-weight:500;margin:0"><input type="checkbox" id="ahc-emp" onchange="document.getElementById('ahc-orig').style.display=this.checked?'block':'none'"> Emprestado de outra obra</label>
+     <input id="ahc-orig" placeholder="Obra de origem" style="display:none;flex:1;min-width:180px"></div>
+  </div></div>
+  <div class="modal-footer"><span id="ahc-qtd" style="margin-right:auto;font-size:12px;color:var(--text-muted)"></span><button class="btn" onclick="closeModal('modal-ah-func')">Fechar</button>
+   <button class="btn" onclick="ahCadAdicionar(false)"><i class="ti ti-plus"></i> Adicionar e continuar</button><button class="btn btn-primary" onclick="ahCadAdicionar(true)"><i class="ti ti-check"></i> Adicionar</button></div></div>`);
+  setTimeout(()=>{const e=document.getElementById('ahc-busca');if(e)e.focus();},50);
+}
+function ahCadEscolhido(v){
+  const u=ahComboUltimo;if(!u||u.id!=='ahc-busca'||u.o.v!==v)return;
+  const f=u.o.f,outra=String(f.obra_id)!==String(ahSel.sol.obra_id);
+  document.getElementById('ahc-re').value=f.matricula||'';document.getElementById('ahc-nome').value=f.nome_completo||'';document.getElementById('ahc-funcao').value=f.funcao?.nome||'';
+  const emp=document.getElementById('ahc-emp'),orig=document.getElementById('ahc-orig');
+  emp.checked=outra;orig.style.display=outra?'block':'none';orig.value=outra?(f.obra?.nome||''):'';
+  document.getElementById('ahc-busca').dataset.fid=f.id;document.getElementById('ahc-busca').dataset.fnome=f.nome_completo||'';
+}
+function ahCadAdicionar(fechar){
+  const g=id=>document.getElementById(id).value.trim(),S=ahSel;
+  const re=g('ahc-re'),nome=g('ahc-nome'),funcao=g('ahc-funcao');
+  if(!nome){showToast('Informe o nome','error');return;}
+  if(re&&S.itens.some(it=>String(it.re||'').trim()===re)&&!confirm('Já existe o RE '+re+' nesta solicitação. Adicionar mesmo assim?'))return;
+  const b=document.getElementById('ahc-busca'),fid=(b.dataset.fid&&_semAcento(b.dataset.fnome)===_semAcento(nome))?b.dataset.fid:null;
+  const emp=document.getElementById('ahc-emp').checked;
+  S.itens.push(ahNovoItem({funcionario_id:fid,re,nome,funcao,emprestado:emp,obra_origem:emp?g('ahc-orig'):''}));
+  ahSujo();ahAddQtd++;
+  const idx=S.itens.length-1,tb=document.getElementById('ah-tbody');
+  if(idx===0||!tb||!document.getElementById('ah-r-0'))renderAhEditor();else{tb.insertAdjacentHTML('beforeend',ahLinhaHtml(idx));ahRecalcTotais();}
+  if(fechar){closeModal('modal-ah-func');showToast(nome+' adicionado');return;}
+  ['ahc-busca','ahc-re','ahc-nome','ahc-funcao','ahc-orig'].forEach(id=>{document.getElementById(id).value='';});
+  b.dataset.fid='';b.dataset.fnome='';document.getElementById('ahc-emp').checked=false;document.getElementById('ahc-orig').style.display='none';
+  document.getElementById('ahc-qtd').textContent=ahAddQtd+' adicionado(s) nesta janela';b.focus();
 }
 
 // ── Pendências retroativas: lançar na solicitação aberta ──
