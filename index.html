@@ -18994,7 +18994,7 @@ async function ahAbrir(id){
   const a=await sb.from('auxilio_hosp_itens').select('*').eq('solicitacao_id',id).order('ordem');
   if(a.error){showToast('Erro: '+a.error.message,'error');return;}
   ahSel={sol:{...sol},itens:(a.data||[]).map(it=>ahNovoItem(it)),removidos:[],lancadas:[]};
-  ahDirty=false;ahRetDif=false;ahTela='editor';renderAuxHosp();
+  ahDirty=false;ahRetDif=false;ahConfIgnorado=null;ahTela='editor';renderAuxHosp();
 }
 async function ahExcluir(id){
   const s=ahSols.find(x=>x.id===id);if(!s)return;
@@ -19131,7 +19131,7 @@ function renderAhEditor(){
   <div class="page-header"><div><div class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><button class="btn btn-sm" onclick="ahVoltar()" title="Voltar à lista"><i class="ti ti-arrow-left"></i></button>
       Auxílio Hospedagem · ${escHtml(s.obra?.nome||'')} · ${ahMesTxt(s.competencia)} <span class="badge" style="background:${st.bg};color:${st.c};font-weight:600">${st.t}</span></div>
     <div class="page-subtitle">Equivale à planilha ADM 33 · <span id="ah-sujo" class="ah-dirty" style="display:${ahDirty?'inline':'none'}">● alterações não salvas (salva sozinho em instantes)</span></div></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="ahSalvar(false)"><i class="ti ti-device-floppy"></i> Salvar</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="ahSalvarBtn()"><i class="ti ti-device-floppy"></i> Salvar</button>
     <button class="btn btn-primary" onclick="ahBaixar('${s.id}')"><i class="ti ti-download"></i> Baixar Excel (modelo ADM 33)</button></div></div>
   <div class="ah-hdr">
     <div><label>Centro de custo (lista ▾ ou digitar)</label>${ahCombo('ah-cc',s.centro_custo||'',ahOpcoesCC(),"ahHdrCC",'Ex.: 23787')}</div>
@@ -19158,6 +19158,7 @@ function renderAhEditor(){
     <button class="btn" onclick="ahAddManual()"><i class="ti ti-pencil-plus"></i> Linha manual</button>
     <button class="btn" onclick="ahPreencherDias()"><i class="ti ti-calendar-check"></i> Preencher dias do mês</button>
     <button class="btn" onclick="ahModalLancarPend()"><i class="ti ti-flag"></i> Pendências retroativas${nPendObra?` <span class="badge" style="background:var(--accent);color:#fff;margin-left:4px">${nPendObra}</span>`:''}</button>
+    <button class="btn" onclick="ahConferirAgora()" title="Compara a planilha com o cadastro de funcionários da obra"><i class="ti ti-checklist"></i> Conferir com o cadastro</button>
     <button class="btn" onclick="ahModalExc()" title="Funcionários da obra marcados como não recebem o auxílio"><i class="ti ti-user-off"></i> Não recebem (${ahExc.filter(e=>String(e.obra_id)===String(s.obra_id)).length})</button>
     <button class="btn" onclick="ahVerValores()"><i class="ti ti-${ahVerVal?'eye-off':'eye'}"></i> ${ahVerVal?'Ocultar':'Ver'} valores por refeição</button></div>
   <div class="table-container" style="overflow:auto;max-height:68vh"><table class="ah-grid">
@@ -19258,6 +19259,23 @@ function ahConferencia(){
   const extras=S.itens.filter(i=>!i.emprestado&&(i.re||i.nome)&&!(i.funcionario_id&&idsObra.has(String(i.funcionario_id)))&&!(ahReNorm(i.re)&&resObra.has(ahReNorm(i.re))));
   return{total:daObra.length,naPlanilha:S.itens.filter(i=>i.re||i.nome).length,faltam,extras,nExc:excIds.size};
 }
+let ahConfIgnorado=null;
+const ahConfSig=c=>c.faltam.map(f=>f.id).sort().join(',')+'|'+c.extras.length;
+// botão "Conferir com o cadastro" (a qualquer momento)
+function ahConferirAgora(){
+  const c=ahConferencia();
+  if(c.faltam.length||c.extras.length){ahModalConf('',c);return;}
+  showToast(`Tudo certo: cadastro da obra ${c.total} funcionário(s)${c.nExc?` (+${c.nExc} “não recebem”)`:''} · planilha ${c.naPlanilha} linha(s) — ninguém faltando.`);
+}
+// Salvar: com a solicitação já Emitida/Enviada, confere antes (uma vez por situação; o salvamento automático nunca pergunta)
+function ahSalvarBtn(){
+  const s=ahSel.sol;
+  if(s.status!=='rascunho'){
+    const c=ahConferencia();
+    if((c.faltam.length||c.extras.length)&&ahConfIgnorado!==ahConfSig(c)){ahModalConf('__salvar',c);return;}
+  }
+  ahSalvar(false);
+}
 function ahMudarStatus(v){
   const s=ahSel.sol;
   if(v==='rascunho'||s.status!=='rascunho'){ahHdr('status',v);renderAhEditor();return;}
@@ -19267,19 +19285,19 @@ function ahMudarStatus(v){
 }
 function ahModalConf(alvo,c){
   ahConfAlvo=alvo;ahConfFaltam=c.faltam;
-  const nomeAlvo=AH_STATUS[alvo].t.toLowerCase();
+  const titulo=AH_STATUS[alvo]?`Conferir antes de marcar como ${AH_STATUS[alvo].t.toLowerCase()}`:(alvo==='__salvar'?'Conferir antes de salvar':'Conferência com o cadastro');
   const blocoFaltam=c.faltam.length?`<div style="margin-bottom:6px"><b>${c.faltam.length} funcionário(s) do cadastro desta obra não estão na planilha:</b></div>
     <div style="max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:8px">${c.faltam.map(f=>`<label style="display:flex;gap:10px;align-items:center;padding:6px 12px;border-bottom:1px solid #EEF2F8;cursor:pointer"><input type="checkbox" class="ahf-ck" value="${f.id}" checked>
       <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><b>${escHtml(f.nome_completo)}</b> <span style="font-size:11px;color:var(--text-muted)">RE ${escHtml(f.matricula||'—')} · ${escHtml(f.funcao?.nome||'—')}${f.situacao==='inativo'?' · desligado no mês':''}</span></span></label>`).join('')}</div>
     <div style="font-size:12px;color:var(--text-muted);margin:6px 0 10px">Marcado = recebe (será incluído). Desmarque quem <b>não</b> recebe o auxílio.</div>
     <div class="form-group"><label>Motivo para quem ficar desmarcado (opcional)</label><input id="ahf-motivo" placeholder="Ex.: mora na cidade / alojamento da empresa"></div>`:'';
   const blocoExtras=c.extras.length?`<div style="background:var(--info-light);border:1px solid #B9D5F2;color:#124a80;border-radius:8px;padding:8px 12px;margin-top:10px;font-size:12px"><b>Aviso:</b> ${c.extras.length} linha(s) da planilha não estão no cadastro desta obra (e não estão marcadas como emprestado): ${c.extras.slice(0,12).map(i=>escHtml(i.nome||i.re)).join(', ')}${c.extras.length>12?'…':''}. Confira se o RE está certo ou marque como emprestado.</div>`:'';
-  insertModal('modal-ah-conf',`<div class="modal" style="max-width:640px"><div class="modal-header"><span class="modal-title"><i class="ti ti-alert-triangle" style="color:var(--warning)"></i> Conferir antes de marcar como ${nomeAlvo}</span><button class="btn btn-sm" onclick="closeModal('modal-ah-conf')"><i class="ti ti-x"></i></button></div>
+  insertModal('modal-ah-conf',`<div class="modal" style="max-width:640px"><div class="modal-header"><span class="modal-title"><i class="ti ti-alert-triangle" style="color:var(--warning)"></i> ${titulo}</span><button class="btn btn-sm" onclick="closeModal('modal-ah-conf')"><i class="ti ti-x"></i></button></div>
   <div class="modal-body"><div style="margin-bottom:10px;font-size:13px">Cadastro da obra: <b>${c.total}</b> funcionário(s)${c.nExc?` (mais ${c.nExc} marcado(s) como “não recebem”)`:''} · Planilha: <b>${c.naPlanilha}</b> linha(s).</div>${blocoFaltam}${blocoExtras}</div>
   <div class="modal-footer" style="flex-wrap:wrap;gap:8px"><button class="btn" onclick="closeModal('modal-ah-conf')">Cancelar</button>
    ${c.faltam.length?`<button class="btn" onclick="ahConfAplicar('voltar')" title="Inclui os marcados na planilha e volta para você revisar"><i class="ti ti-arrow-back-up"></i> Voltar e incluir os marcados</button>
-   <button class="btn" onclick="ahConfAplicar('seguir')" title="Segue sem mexer na lista; o aviso volta na próxima vez"><i class="ti ti-player-skip-forward"></i> Seguir sem incluir</button>
-   <button class="btn btn-primary" onclick="ahConfAplicar('lembrar')" title="Inclui os marcados, guarda os desmarcados como “não recebem” (não perguntamos de novo) e segue"><i class="ti ti-check"></i> Incluir marcados, lembrar desmarcados e seguir</button>`
+   <button class="btn" onclick="ahConfAplicar('seguir')" title="Segue sem mexer na lista; o aviso volta na próxima vez"><i class="ti ti-player-skip-forward"></i> ${alvo===''?'Fechar sem incluir':(alvo==='__salvar'?'Salvar sem incluir':'Seguir sem incluir')}</button>
+   <button class="btn btn-primary" onclick="ahConfAplicar('lembrar')" title="Inclui os marcados, guarda os desmarcados como “não recebem” (não perguntamos de novo) e segue"><i class="ti ti-check"></i> Incluir marcados, lembrar desmarcados e ${alvo==='__salvar'?'salvar':'seguir'}</button>`
    :`<button class="btn btn-primary" onclick="ahConfAplicar('seguir')"><i class="ti ti-check"></i> Seguir mesmo assim</button>`}</div></div>`);
 }
 function ahIncluirFuncs(lista){
@@ -19299,8 +19317,11 @@ async function ahConfAplicar(modo){
   }
   if(modo==='voltar'||modo==='lembrar')ahIncluirFuncs(incluir);
   closeModal('modal-ah-conf');
+  if(modo!=='voltar')ahConfIgnorado=ahConfSig(ahConferencia());
   if(modo==='voltar'){renderAhEditor();showToast(incluir.length?incluir.length+' incluído(s) com os dias do mês inteiro — ajuste quem entrou/saiu no mês e emita de novo':'Nada incluído — revise a lista');return;}
-  ahHdr('status',ahConfAlvo);renderAhEditor();
+  if(ahConfAlvo==='__salvar'){renderAhEditor();await ahSalvar(false);return;}
+  if(AH_STATUS[ahConfAlvo])ahHdr('status',ahConfAlvo);
+  renderAhEditor();
   if(modo==='lembrar')showToast(`${incluir.length} incluído(s)${nao.length?`, ${nao.length} guardado(s) como “não recebem”`:''}`);
 }
 function ahModalExc(){
