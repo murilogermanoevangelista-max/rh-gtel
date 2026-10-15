@@ -4659,13 +4659,14 @@ function renderFolgasLocal(){
     const historicoNsInline=historicoNs.slice(-LIMITE_INLINE);
     const historicoHtml=historicoNsInline.length?historicoNsInline.map(n=>{
       const real=getSaidaReal(f,n);
-      return`<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid var(--border)">
+      return`<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:3px 0">
         <span style="color:var(--text-muted)">Venc.${n}: ${formatDate(getVencN(f,vencs,n))}</span>
         <span style="display:flex;align-items:center;gap:6px;white-space:nowrap">
           <span style="color:var(--success);font-weight:600">✓ ${formatDate(real)}</span>
           <span title="Remover este lançamento (ex: duplicidade)" style="cursor:pointer;color:var(--danger)" onclick="event.stopPropagation();removeSaidaReal('${f.id}',${n})">✕</span>
         </span>
-      </div>`;
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:6px;font-size:10px;padding:2px 0 4px;border-bottom:1px solid var(--border)">${adm15HistHtml(f.id,n,true)}</div>`;
     }).join(''):'';
     const historicoCell=`<div class="folga-cell">
       <div class="folga-cell-header">Histórico</div>
@@ -5135,6 +5136,16 @@ async function salvarTranslado(folgaId,numeroCiclo){
 }
 
 // ── Histórico completo de ciclos (desde o início na GTEL, sem limite de 5) ──
+// Termo ADM 15 de um ciclo, para consulta no histórico (link se anexado; aviso se não).
+function adm15HistHtml(folgaId,n,comAnexar){
+  const tr=folgasTranslados.find(x=>String(x.folga_id)===String(folgaId)&&x.numero_ciclo===n);
+  if(tr?.termo_adm15_url)return`<a href="${tr.termo_adm15_url}" target="_blank" onclick="event.stopPropagation()" style="color:var(--success);font-weight:600;text-decoration:underline;white-space:nowrap">📎 ADM 15</a>`;
+  const semTermo=tr?.passagem_comprada
+    ?`<span style="color:var(--danger);font-weight:700;white-space:nowrap">⚠ sem ADM 15</span>`
+    :`<span style="color:var(--text-muted);white-space:nowrap">sem ADM 15</span>`;
+  const anexar=comAnexar?` <label onclick="event.stopPropagation()" style="color:var(--primary);cursor:pointer;font-weight:600">anexar<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${folgaId}',${n},this)"></label>`:'';
+  return semTermo+anexar;
+}
 async function abrirHistoricoCompletoFolga(folgaId){
   const f=folgas.find(x=>String(x.id)===String(folgaId));
   if(!f){showToast('Registro de folga não encontrado','error');return;}
@@ -5142,6 +5153,7 @@ async function abrirHistoricoCompletoFolga(folgaId){
   const{data,error}=await sb.from('folgas_ciclos').select('*').eq('folga_id',folgaId).order('numero_ciclo');
   if(error){showToast('Erro ao buscar histórico: '+error.message,'error');return;}
   folgasCiclos=[...folgasCiclos.filter(x=>String(x.folga_id)!==String(folgaId)),...(data||[])];
+  try{await loadFolgasTranslados();}catch(e){console.warn('Translados não carregados:',e);}
   document.getElementById('modal-hist-folga')?.remove();
   renderModalHistoricoCompletoFolga(folgaId);
 }
@@ -5172,11 +5184,12 @@ function renderModalHistoricoCompletoFolga(folgaId){
       <td style="padding:6px 10px">${real?formatDate(real):'—'}</td>
       <td style="padding:6px 10px">${prog?formatDate(prog):'—'}</td>
       <td style="padding:6px 10px">${statusHtml}</td>
+      <td style="padding:6px 10px;font-size:12px">${adm15HistHtml(folgaId,n,false)}</td>
     </tr>`;
   }).join('');
   document.body.insertAdjacentHTML('beforeend',`
     <div class="modal-overlay" id="modal-hist-folga" onclick="if(event.target===this)closeModal('modal-hist-folga')">
-      <div class="modal" style="max-width:640px">
+      <div class="modal" style="max-width:760px">
         <div class="modal-header">
           <span class="modal-title">Histórico completo de folgas — ${nome}</span>
           <button class="btn btn-sm" onclick="closeModal('modal-hist-folga')"><i class="ti ti-x"></i></button>
@@ -5193,8 +5206,9 @@ function renderModalHistoricoCompletoFolga(folgaId){
                 <th style="padding:6px 10px">Saída real</th>
                 <th style="padding:6px 10px">Programada</th>
                 <th style="padding:6px 10px">Situação</th>
+                <th style="padding:6px 10px">Termo ADM 15</th>
               </tr></thead>
-              <tbody>${linhas||'<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-muted)">Sem ciclos registrados ainda.</td></tr>'}</tbody>
+              <tbody>${linhas||'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">Sem ciclos registrados ainda.</td></tr>'}</tbody>
             </table>
           </div>
         </div>
