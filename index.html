@@ -1295,7 +1295,7 @@ function alojExcesso(a){return a.tipo_alojamento==='hotel'?0:Math.max(0,alojOcup
 //   sistema/    → index.html: o código do próprio sistema, como está publicado agora
 // A data do último backup fica salva neste navegador; passando de 7 dias, o Menu principal mostra um aviso para o admin.
 // Arquivos enviados (fotos, PDFs) NÃO entram — no backup ficam só os links deles.
-const BACKUP_TABELAS=['auxilio_hosp_solicitacoes','auxilio_hosp_itens','auxilio_hosp_pendencias','mobilizacao_fornecedores','alojamentos','alojamentos_contas','alojamentos_relatorios','ativos_imob_fotos','ativos_imob_responsaveis','ativos_imobilizados',
+const BACKUP_TABELAS=['auxilio_hosp_excecoes','auxilio_hosp_solicitacoes','auxilio_hosp_itens','auxilio_hosp_pendencias','mobilizacao_fornecedores','alojamentos','alojamentos_contas','alojamentos_relatorios','ativos_imob_fotos','ativos_imob_responsaveis','ativos_imobilizados',
   'contratacoes','contratacoes_prospeccoes','contratacoes_vagas','cronograma_entregas','cronograma_permissoes','cronograma_tarefas','efetivo_he','efetivo_horas','efetivo_presenca','empresas','ferias',
   'folgas','folgas_ciclos','folgas_translados','fornecedor_orcamentos','fornecedores','funcionarios','funcoes','grd','grd_importacoes','grd_obra_mapa',
   'matriz_contatos','mobilizacao_casas','mobilizacao_itens','mobilizacao_modelo','mobilizacoes','desmobilizacoes','desmobilizacao_itens','movimentacoes_historico','obras','prestadores','prestadores_presenca','procedimentos','procedimentos_anexos','procedimentos_versoes',
@@ -18710,7 +18710,7 @@ const AH_TPL_B64='UEsDBBQABgAIAAAAIQC+pOOLlQEAAC4GAAATAAgCW0NvbnRlbnRfVHlwZXNdLn
 // ─── AUXÍLIO HOSPEDAGEM (Vale Alimentação / Refeição) ───────────────────────────────────────────
 // Uma solicitação por obra + mês. Exporta no modelo original ADM 33 (ahGerarXlsx). SQL: sql_auxilio_hospedagem.sql
 // RE / Nome / Função são sempre digitáveis (empréstimo de funcionários entre obras); o vínculo com o cadastro é opcional.
-let ahSols=[],ahResumo={},ahPend=[],ahErro=null,ahAno=new Date().getFullYear(),ahTela='lista',ahSel=null;
+let ahExc=[],ahSols=[],ahResumo={},ahPend=[],ahErro=null,ahAno=new Date().getFullYear(),ahTela='lista',ahSel=null;
 let ahDirty=false,ahTimer=null,ahSalvando=false,ahVerVal=false,ahRetDif=false,ahPendSit='pendente',ahPendBusca='';
 const AH_Q=['cm_ret','cm_vig','ct_ret','ct_vig','al_ret','al_vig','ja_ret','ja_vig'];
 const AH_RC=['L','M','N','O','P','Q','R','S'];
@@ -18761,11 +18761,12 @@ async function ahCarregar(){
   }
   ahSols=a.data||[];
   const ids=new Set(ahSols.map(s=>s.id));
-  const [b,c]=await Promise.all([
+  const [b,c,d]=await Promise.all([
     pagAll(()=>sb.from('auxilio_hosp_itens').select('id,solicitacao_id,'+AH_Q.join(','))),
-    pagAll(r=>{let q=sb.from('auxilio_hosp_pendencias').select('*,obra:obras(nome,codigo)');if(r)q=q.in('obra_id',[...obrasPermitidasIds]);return q.order('competencia_origem',{ascending:false});})
+    pagAll(r=>{let q=sb.from('auxilio_hosp_pendencias').select('*,obra:obras(nome,codigo)');if(r)q=q.in('obra_id',[...obrasPermitidasIds]);return q.order('competencia_origem',{ascending:false});}),
+    pagAll(r=>{let q=sb.from('auxilio_hosp_excecoes').select('*');if(r)q=q.in('obra_id',[...obrasPermitidasIds]);return q;})
   ]);
-  ahPend=c.data||[];
+  ahPend=c.data||[];ahExc=d.error?[]:(d.data||[]);
   ahResumo={};
   ahSols.forEach(s=>{ahResumo[s.id]={n:0,vig:0,ret:0,tot:0};});
   (b.data||[]).filter(it=>ids.has(it.solicitacao_id)).forEach(it=>{
@@ -19138,7 +19139,7 @@ function renderAhEditor(){
     <div><label>Mês</label><input type="month" value="${String(s.competencia).slice(0,7)}" onchange="ahMudarMes(this.value)"></div>
     <div><label>Data da emissão</label><input type="date" id="ah-emissao" value="${s.data_emissao||''}" onchange="ahHdr('data_emissao',this.value)"></div>
     <div><label>Elaborado por (lista ▾ ou digitar)</label>${ahCombo('ah-elab',s.elaborado_por||'',ahOpcoesElab(),"ahHdrElab",'Nome ou cargo')}</div>
-    <div><label>Status</label><select onchange="ahHdr('status',this.value)">${Object.entries(AH_STATUS).map(([k,v])=>`<option value="${k}" ${s.status===k?'selected':''}>${v.t}</option>`).join('')}</select></div>
+    <div><label>Status</label><select onchange="ahMudarStatus(this.value)">${Object.entries(AH_STATUS).map(([k,v])=>`<option value="${k}" ${s.status===k?'selected':''}>${v.t}</option>`).join('')}</select></div>
   </div>
   <div class="ah-rates">
     ${rin('vr_cafe_manha','Café da Manhã (R$)')}${rin('vr_cafe_tarde','Café da Tarde (R$)')}${rin('vr_almoco_fds','Almoço Fim Sem. (R$)')}${rin('vr_jantar','Jantar (R$)')}
@@ -19157,6 +19158,7 @@ function renderAhEditor(){
     <button class="btn" onclick="ahAddManual()"><i class="ti ti-pencil-plus"></i> Linha manual</button>
     <button class="btn" onclick="ahPreencherDias()"><i class="ti ti-calendar-check"></i> Preencher dias do mês</button>
     <button class="btn" onclick="ahModalLancarPend()"><i class="ti ti-flag"></i> Pendências retroativas${nPendObra?` <span class="badge" style="background:var(--accent);color:#fff;margin-left:4px">${nPendObra}</span>`:''}</button>
+    <button class="btn" onclick="ahModalExc()" title="Funcionários da obra marcados como não recebem o auxílio"><i class="ti ti-user-off"></i> Não recebem (${ahExc.filter(e=>String(e.obra_id)===String(s.obra_id)).length})</button>
     <button class="btn" onclick="ahVerValores()"><i class="ti ti-${ahVerVal?'eye-off':'eye'}"></i> ${ahVerVal?'Ocultar':'Ver'} valores por refeição</button></div>
   <div class="table-container" style="overflow:auto;max-height:68vh"><table class="ah-grid">
     <thead><tr><th rowspan="3">#</th><th rowspan="3">RE</th><th rowspan="3">Nome completo</th><th rowspan="3">Função</th>
@@ -19239,6 +19241,80 @@ function ahLancarPend(pid){
   it.observacao=it.observacao?it.observacao+'; '+nota:nota;
   S.lancadas.push(pid);ahSujo();renderAhEditor();ahModalLancarPend();
   showToast('Pendência lançada no retroativo — salve para confirmar');
+}
+
+// ── Conferência com o cadastro ao emitir/enviar ──
+const ahReNorm=v=>String(v==null?'':v).toUpperCase().replace(/[^A-Z0-9]/g,'').replace(/^0+/,'');
+let ahConfFaltam=[],ahConfAlvo='';
+function ahConferencia(){
+  const S=ahSel,s=S.sol,obraId=String(s.obra_id),ini=String(s.competencia).slice(0,10),fim=ini.slice(0,8)+String(ahDiasMes(ini)).padStart(2,'0');
+  const excIds=new Set(ahExc.filter(e=>String(e.obra_id)===obraId).map(e=>String(e.funcionario_id)));
+  // do cadastro da obra: ativos + demitidos dentro do mês; fora quem foi admitido depois do mês
+  const daObra=funcionarios.filter(f=>String(f.obra_id)===obraId&&(f.situacao!=='inativo'||(f.data_demissao&&String(f.data_demissao).slice(0,10)>=ini))&&!(f.data_admissao&&String(f.data_admissao).slice(0,10)>fim));
+  const ids=new Set(S.itens.map(i=>i.funcionario_id).filter(Boolean).map(String)),res=new Set(S.itens.map(i=>ahReNorm(i.re)).filter(Boolean));
+  const ord=(a,b)=>String(a.nome_completo).localeCompare(String(b.nome_completo),'pt-BR');
+  const faltam=daObra.filter(f=>!excIds.has(String(f.id))&&!ids.has(String(f.id))&&!(ahReNorm(f.matricula)&&res.has(ahReNorm(f.matricula)))).sort(ord);
+  const idsObra=new Set(daObra.map(f=>String(f.id))),resObra=new Set(daObra.map(f=>ahReNorm(f.matricula)).filter(Boolean));
+  const extras=S.itens.filter(i=>!i.emprestado&&(i.re||i.nome)&&!(i.funcionario_id&&idsObra.has(String(i.funcionario_id)))&&!(ahReNorm(i.re)&&resObra.has(ahReNorm(i.re))));
+  return{total:daObra.length,naPlanilha:S.itens.filter(i=>i.re||i.nome).length,faltam,extras,nExc:excIds.size};
+}
+function ahMudarStatus(v){
+  const s=ahSel.sol;
+  if(v==='rascunho'||s.status!=='rascunho'){ahHdr('status',v);renderAhEditor();return;}
+  const c=ahConferencia();
+  if(!c.faltam.length&&!c.extras.length){ahHdr('status',v);renderAhEditor();return;}
+  ahModalConf(v,c);
+}
+function ahModalConf(alvo,c){
+  ahConfAlvo=alvo;ahConfFaltam=c.faltam;
+  const nomeAlvo=AH_STATUS[alvo].t.toLowerCase();
+  const blocoFaltam=c.faltam.length?`<div style="margin-bottom:6px"><b>${c.faltam.length} funcionário(s) do cadastro desta obra não estão na planilha:</b></div>
+    <div style="max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:8px">${c.faltam.map(f=>`<label style="display:flex;gap:10px;align-items:center;padding:6px 12px;border-bottom:1px solid #EEF2F8;cursor:pointer"><input type="checkbox" class="ahf-ck" value="${f.id}" checked>
+      <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><b>${escHtml(f.nome_completo)}</b> <span style="font-size:11px;color:var(--text-muted)">RE ${escHtml(f.matricula||'—')} · ${escHtml(f.funcao?.nome||'—')}${f.situacao==='inativo'?' · desligado no mês':''}</span></span></label>`).join('')}</div>
+    <div style="font-size:12px;color:var(--text-muted);margin:6px 0 10px">Marcado = recebe (será incluído). Desmarque quem <b>não</b> recebe o auxílio.</div>
+    <div class="form-group"><label>Motivo para quem ficar desmarcado (opcional)</label><input id="ahf-motivo" placeholder="Ex.: mora na cidade / alojamento da empresa"></div>`:'';
+  const blocoExtras=c.extras.length?`<div style="background:var(--info-light);border:1px solid #B9D5F2;color:#124a80;border-radius:8px;padding:8px 12px;margin-top:10px;font-size:12px"><b>Aviso:</b> ${c.extras.length} linha(s) da planilha não estão no cadastro desta obra (e não estão marcadas como emprestado): ${c.extras.slice(0,12).map(i=>escHtml(i.nome||i.re)).join(', ')}${c.extras.length>12?'…':''}. Confira se o RE está certo ou marque como emprestado.</div>`:'';
+  insertModal('modal-ah-conf',`<div class="modal" style="max-width:640px"><div class="modal-header"><span class="modal-title"><i class="ti ti-alert-triangle" style="color:var(--warning)"></i> Conferir antes de marcar como ${nomeAlvo}</span><button class="btn btn-sm" onclick="closeModal('modal-ah-conf')"><i class="ti ti-x"></i></button></div>
+  <div class="modal-body"><div style="margin-bottom:10px;font-size:13px">Cadastro da obra: <b>${c.total}</b> funcionário(s)${c.nExc?` (mais ${c.nExc} marcado(s) como “não recebem”)`:''} · Planilha: <b>${c.naPlanilha}</b> linha(s).</div>${blocoFaltam}${blocoExtras}</div>
+  <div class="modal-footer" style="flex-wrap:wrap;gap:8px"><button class="btn" onclick="closeModal('modal-ah-conf')">Cancelar</button>
+   ${c.faltam.length?`<button class="btn" onclick="ahConfAplicar('voltar')" title="Inclui os marcados na planilha e volta para você revisar"><i class="ti ti-arrow-back-up"></i> Voltar e incluir os marcados</button>
+   <button class="btn" onclick="ahConfAplicar('seguir')" title="Segue sem mexer na lista; o aviso volta na próxima vez"><i class="ti ti-player-skip-forward"></i> Seguir sem incluir</button>
+   <button class="btn btn-primary" onclick="ahConfAplicar('lembrar')" title="Inclui os marcados, guarda os desmarcados como “não recebem” (não perguntamos de novo) e segue"><i class="ti ti-check"></i> Incluir marcados, lembrar desmarcados e seguir</button>`
+   :`<button class="btn btn-primary" onclick="ahConfAplicar('seguir')"><i class="ti ti-check"></i> Seguir mesmo assim</button>`}</div></div>`);
+}
+function ahIncluirFuncs(lista){
+  const S=ahSel,comp=String(S.sol.competencia).slice(0,10),dm=ahDiasMes(comp),dom=ahDomingos(comp);
+  lista.forEach(f=>S.itens.push(ahNovoItem({funcionario_id:f.id,re:f.matricula||'',nome:f.nome_completo||'',funcao:f.funcao?.nome||'',cm_vig:dm,ct_vig:dm,al_vig:dom,ja_vig:dm})));
+  if(lista.length)ahSujo();
+}
+async function ahConfAplicar(modo){
+  const marc=new Set([...document.querySelectorAll('.ahf-ck:checked')].map(x=>x.value));
+  const incluir=ahConfFaltam.filter(f=>marc.has(String(f.id))),nao=ahConfFaltam.filter(f=>!marc.has(String(f.id)));
+  const motivo=(document.getElementById('ahf-motivo')?.value||'').trim()||null;
+  if(modo==='lembrar'&&nao.length){
+    const rows=nao.map(f=>({obra_id:ahSel.sol.obra_id,funcionario_id:f.id,nome:f.nome_completo,re:f.matricula||null,motivo,criado_por:(currentUser&&(currentUser.nome||currentUser.usuario))||null}));
+    const r=await sb.from('auxilio_hosp_excecoes').upsert(rows,{onConflict:'obra_id,funcionario_id'});
+    if(r.error){showToast('Não consegui guardar “não recebem”: '+(/excecoes|schema cache|does not exist|relation/i.test(r.error.message||'')?'rode o SQL atualizado (sql_auxilio_hospedagem.sql) no Supabase':r.error.message),'error');return;}
+    const d=await sb.from('auxilio_hosp_excecoes').select('*');if(!d.error)ahExc=d.data||[];
+  }
+  if(modo==='voltar'||modo==='lembrar')ahIncluirFuncs(incluir);
+  closeModal('modal-ah-conf');
+  if(modo==='voltar'){renderAhEditor();showToast(incluir.length?incluir.length+' incluído(s) com os dias do mês inteiro — ajuste quem entrou/saiu no mês e emita de novo':'Nada incluído — revise a lista');return;}
+  ahHdr('status',ahConfAlvo);renderAhEditor();
+  if(modo==='lembrar')showToast(`${incluir.length} incluído(s)${nao.length?`, ${nao.length} guardado(s) como “não recebem”`:''}`);
+}
+function ahModalExc(){
+  const oid=String(ahSel.sol.obra_id),l=ahExc.filter(e=>String(e.obra_id)===oid).sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR'));
+  insertModal('modal-ah-exc',`<div class="modal" style="max-width:620px"><div class="modal-header"><span class="modal-title">Não recebem o auxílio · ${escHtml(ahSel.sol.obra?.nome||'')}</span><button class="btn btn-sm" onclick="closeModal('modal-ah-exc')"><i class="ti ti-x"></i></button></div>
+  <div class="modal-body" style="max-height:60vh;overflow:auto">${l.length?`<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Estes funcionários do cadastro não entram no aviso de conferência.</div><table style="width:100%"><thead><tr><th>RE</th><th>Nome</th><th>Motivo</th><th></th></tr></thead><tbody>
+   ${l.map(e=>`<tr><td>${escHtml(e.re||'—')}</td><td>${escHtml(e.nome||'—')}</td><td>${escHtml(e.motivo||'')}</td><td><button class="btn btn-sm" onclick="ahRemoverExc('${e.id}')">Voltar a considerar</button></td></tr>`).join('')}</tbody></table>`
+   :'<div class="empty-state"><i class="ti ti-user-off"></i><div>Ninguém marcado. Ao emitir, o sistema pergunta quando faltar alguém.</div></div>'}</div>
+  <div class="modal-footer"><button class="btn" onclick="closeModal('modal-ah-exc')">Fechar</button></div></div>`);
+}
+async function ahRemoverExc(id){
+  const r=await sb.from('auxilio_hosp_excecoes').delete().eq('id',id);
+  if(r.error){showToast('Erro: '+r.error.message,'error');return;}
+  ahExc=ahExc.filter(e=>e.id!==id);ahModalExc();renderAhEditor();
 }
 
 // ── Tela de pendências (gestão) ──
