@@ -19037,7 +19037,7 @@ async function ahAbrir(id){
   const a=await sb.from('auxilio_hosp_itens').select('*').eq('solicitacao_id',id).order('ordem');
   if(a.error){showToast('Erro: '+a.error.message,'error');return;}
   ahSel={sol:{...sol},itens:(a.data||[]).map(it=>ahNovoItem(it)),removidos:[],lancadas:[]};
-  ahDirty=false;ahRetDif=false;ahOrdNome=null;ahFil={q:'',re:'',nome:'',funcao:'',dias:'',obs:'',emp:''};ahConfIgnorado=null;ahTela='editor';renderAuxHosp();
+  ahDirty=false;ahRetDif=false;ahOrdNome=null;ahFil=ahFilVazio();ahConfIgnorado=null;ahTela='editor';renderAuxHosp();
 }
 async function ahExcluir(id){
   const s=ahSols.find(x=>x.id===id);if(!s)return;
@@ -19115,13 +19115,15 @@ function ahRemover(i){
   if((it.nome||it.re)&&!confirm('Remover '+(it.nome||it.re)+' desta solicitação?'))return;
   ahSel.removidos.push(it.id);ahSel.itens.splice(i,1);ahSujo();renderAhEditor();
 }
-function ahAddManual(){ahFil={q:'',re:'',nome:'',funcao:'',dias:'',obs:'',emp:''};ahSel.itens.push(ahNovoItem({}));ahSujo();renderAhEditor();setTimeout(()=>{const l=document.querySelector(`#ah-r-${ahSel.itens.length-1} input`);if(l){l.scrollIntoView({block:'center'});l.focus();}},50);}
+function ahAddManual(){ahFil=ahFilVazio();ahSel.itens.push(ahNovoItem({}));ahSujo();renderAhEditor();setTimeout(()=>{const l=document.querySelector(`#ah-r-${ahSel.itens.length-1} input`);if(l){l.scrollIntoView({block:'center'});l.focus();}},50);}
 let ahOrdNome=null;
-let ahFil={q:'',re:'',nome:'',funcao:'',dias:'',obs:'',emp:''};
+let ahFil={};
+function ahFilVazio(){const o={q:'',re:'',nome:'',funcao:'',obs:'',emp:''};AH_Q.forEach(k=>{o[k]='';});return o;}
+ahFil=ahFilVazio();
 function ahFilAtivo(){return Object.values(ahFil).some(v=>v!=='');}
 function ahFiltrar(campo,val){ahFil[campo]=val;ahAplicarFiltro();}
 function ahLimparFiltro(){
-  ahFil={q:'',re:'',nome:'',funcao:'',dias:'',obs:'',emp:''};
+  ahFil=ahFilVazio();
   document.querySelectorAll('[data-ahf]').forEach(e=>{e.value='';});ahAplicarFiltro();
 }
 function ahAplicarFiltro(){
@@ -19135,7 +19137,7 @@ function ahAplicarFiltro(){
     if(ok&&ahFil.re&&!(n(it.re).includes(fre0)||(fre&&rn(it.re).includes(fre))))ok=false;
     if(ok&&fn&&!n(it.nome).includes(fn))ok=false;
     if(ok&&ff&&n(it.funcao)!==ff)ok=false;
-    if(ok&&ahFil.dias){const tem=AH_Q.some(k=>it[k]!=null&&it[k]!=='');if(ahFil.dias==='com'&&!tem)ok=false;if(ahFil.dias==='sem'&&tem)ok=false;}
+    if(ok)for(const k of AH_Q){const f=ahFil[k];if(!f)continue;const v=Number(it[k])||0;if(f==='com'&&!(v>0))ok=false;if(f==='sem'&&v>0)ok=false;}
     if(ok&&ahFil.obs){const tem=!!String(it.observacao||'').trim();if(ahFil.obs==='com'&&!tem)ok=false;if(ahFil.obs==='sem'&&tem)ok=false;}
     if(ok&&ahFil.emp==='sim'&&!it.emprestado)ok=false;
     const tr=document.getElementById('ah-r-'+i);if(tr)tr.style.display=ok?'':'none';
@@ -19250,7 +19252,7 @@ function renderAhEditor(){
       <th class="fz fz2"><input class="ah-fi" data-ahf placeholder="RE" value="${escHtml(ahFil.re)}" oninput="ahFiltrar('re',this.value)"></th>
       <th class="fz fz3"><input class="ah-fi" data-ahf placeholder="Filtrar nome" value="${escHtml(ahFil.nome)}" oninput="ahFiltrar('nome',this.value)"></th>
       <th><select class="ah-fi" data-ahf onchange="ahFiltrar('funcao',this.value)"><option value="">Todas as funções</option>${[...new Set(S.itens.map(it=>(it.funcao||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR')).map(f=>`<option value="${escHtml(f)}" ${_semAcento(f).toLowerCase()===_semAcento(ahFil.funcao).toLowerCase()&&ahFil.funcao?'selected':''}>${escHtml(f)}</option>`).join('')}</select></th>
-      <th colspan="8"><select class="ah-fi" data-ahf style="max-width:230px" onchange="ahFiltrar('dias',this.value)"><option value="">Dias: todos</option><option value="com" ${ahFil.dias==='com'?'selected':''}>Com dias lançados</option><option value="sem" ${ahFil.dias==='sem'?'selected':''}>Sem dias lançados</option></select></th>
+      ${AH_Q.map(k=>`<th style="padding:2px 1px"><select class="ah-fi" data-ahf title="Filtrar esta coluna" style="padding:3px 0" onchange="ahFiltrar('${k}',this.value)"><option value="">Todos</option><option value="com" ${ahFil[k]==='com'?'selected':''}>Com</option><option value="sem" ${ahFil[k]==='sem'?'selected':''}>Sem</option></select></th>`).join('')}
       ${ahVerVal?'<th colspan="8"></th>':''}<th></th>
       <th><select class="ah-fi" data-ahf onchange="ahFiltrar('obs',this.value)"><option value="">Observação: todas</option><option value="com" ${ahFil.obs==='com'?'selected':''}>Com observação</option><option value="sem" ${ahFil.obs==='sem'?'selected':''}>Sem observação</option></select></th>
       <th><select class="ah-fi" data-ahf title="Emprestados" onchange="ahFiltrar('emp',this.value)"><option value="">Todos</option><option value="sim" ${ahFil.emp==='sim'?'selected':''}>Empr.</option></select></th></tr></thead>
