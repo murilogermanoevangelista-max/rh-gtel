@@ -8739,6 +8739,47 @@ function insertModal(id,html){
   document.body.insertAdjacentHTML('beforeend',`<div class="modal-overlay" id="${id}" onclick="if(event.target===this)closeModal('${id}')">${html}</div>`);
 }
 
+// ── Busca de pessoa (funcionário/prestador) dentro de Alojamentos ──
+function alojBuscaPessoas(termo,incluirTodos){
+  const q=_semAcento(termo||'').trim();
+  if(!q) return [];
+  const todosAloj=(typeof alojamentosTodos!=='undefined'&&alojamentosTodos&&alojamentosTodos.length)?alojamentosTodos:alojamentos;
+  const nomeAloj=id=>{const a=todosAloj.find(x=>x.id===id)||alojamentos.find(x=>x.id===id);return a?(a.nome||a.endereco||'—'):null;};
+  const res=[];
+  (funcionarios||[]).forEach(f=>{
+    if(f.situacao==='inativo') return;
+    if(!(_semAcento(f.nome_completo||'').includes(q)||String(f.matricula||'').toLowerCase().includes(q))) return;
+    const alojId=f.alojamento_id||null;
+    res.push({tipo:'func',id:f.id,nome:f.nome_completo,matricula:f.matricula,funcao:f.funcao_manual||f.funcao||'',obra:f.obra||'',situacao:f.situacao,alojId,alojNome:alojId?nomeAloj(alojId):null});
+  });
+  (prestadores||[]).forEach(p=>{
+    if(p.situacao!=='ativo') return;
+    const nm=p.nome_completo||p.razao_social||'';
+    if(!_semAcento(nm).includes(q)) return;
+    const alojId=p.alojamento_id||null;
+    res.push({tipo:'prest',id:p.id,nome:nm,matricula:'',funcao:p.funcao||'Prestador',obra:'',situacao:p.situacao,alojId,alojNome:alojId?nomeAloj(alojId):null});
+  });
+  res.sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR'));
+  return incluirTodos?res:res.slice(0,15);
+}
+function alojBuscaPessoasHtml(){
+  if(!alojBusca||alojBusca.trim().length<2) return '';
+  const todos=alojBuscaPessoas(alojBusca,true);
+  if(!todos.length) return '';
+  const lista=todos.slice(0,15);
+  const linhas=lista.map(p=>{
+    const nomeHtml=p.tipo==='func'?nomeFichaHtml(p.id,p.nome):escHtml(p.nome||'');
+    const sub=[p.matricula?('Mat. '+escHtml(String(p.matricula))):'',escHtml(p.funcao||''),escHtml(p.obra||''),p.situacao==='transferido'?'Transferido':''].filter(Boolean).join(' · ');
+    const status=p.alojId
+      ?`<a href="#" onclick="event.preventDefault();alojSelecionadoId='${p.alojId}';renderAlojamentos();setTimeout(()=>{const e=document.querySelector('.aloj-item');},0)" style="display:inline-flex;align-items:center;gap:5px;background:#E6F4EA;color:#1E7B34;border-radius:12px;padding:3px 10px;font-size:12px;font-weight:600;text-decoration:none"><i class="ti ti-home"></i> Alojado em: ${escHtml(p.alojNome||'—')}</a>`
+      :`<span style="display:inline-flex;align-items:center;gap:5px;background:#F1F1F4;color:#6B6F7B;border-radius:12px;padding:3px 10px;font-size:12px;font-weight:600"><i class="ti ti-home-off"></i> Não alojado</span>`;
+    return `<tr><td style="padding:8px 10px;font-weight:600">${nomeHtml}${p.tipo==='prest'?' <span style="font-size:10px;color:var(--text-muted)">(prestador)</span>':''}</td><td style="padding:8px 10px;font-size:12px;color:var(--text-muted)">${sub}</td><td style="padding:8px 10px">${status}</td></tr>`;
+  }).join('');
+  return `<div style="margin-bottom:14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+    <div style="padding:8px 12px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);border-bottom:1px solid var(--border)"><i class="ti ti-user-search"></i> Pessoas encontradas (${todos.length})${todos.length>15?' — mostrando 15, refine a busca':''}</div>
+    <table style="width:100%;border-collapse:collapse"><tbody>${linhas}</tbody></table></div>`;
+}
+
 function renderAlojamentos(){
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const alojsFiltrados=(()=>{
@@ -8760,7 +8801,9 @@ function renderAlojamentos(){
     }
     if(alojBusca){
       const b=alojBusca.toLowerCase();
-      lista=lista.filter(a=>a.endereco?.toLowerCase().includes(b)||a.nome?.toLowerCase().includes(b));
+      const _bs=_semAcento(alojBusca);
+      const _idsComPessoa=new Set(alojBuscaPessoas(alojBusca,true).filter(p=>p.alojId).map(p=>p.alojId));
+      lista=lista.filter(a=>a.endereco?.toLowerCase().includes(b)||a.nome?.toLowerCase().includes(b)||_semAcento(a.nome||'').includes(_bs)||_idsComPessoa.has(a.id));
     }
     return lista;
   })();
@@ -9154,7 +9197,7 @@ function renderAlojamentos(){
         </div>
     </div>
     <div style="margin-bottom:12px;display:flex;gap:8px">
-      <div class="search-box" style="max-width:320px"><i class="ti ti-search"></i><input placeholder="Buscar por endereço ou nome..." value="${alojBusca}" oninput="alojBusca=this.value;if(!_buscaHandlers.aloj)_buscaHandlers.aloj=makeBuscaHandler(v=>alojBusca=v,renderAlojamentos,300);_buscaHandlers.aloj(this.value);this.focus()"></div>
+      <div class="search-box" style="max-width:480px;width:100%"><i class="ti ti-search"></i><input placeholder="Buscar alojamento, endereço ou funcionário (nome/matrícula)..." value="${alojBusca}" oninput="alojBusca=this.value;if(!_buscaHandlers.aloj)_buscaHandlers.aloj=makeBuscaHandler(v=>alojBusca=v,renderAlojamentos,300);_buscaHandlers.aloj(this.value);this.focus()"></div>
       ${alojBusca?`<button class="btn btn-sm" onclick="alojBusca='';renderAlojamentos()"><i class="ti ti-x"></i> Limpar</button>`:''}
     </div>
     <!-- Seletor de mês para tabela -->
@@ -9174,6 +9217,7 @@ function renderAlojamentos(){
       })()}
     </div>
 
+    ${alojBuscaPessoasHtml()}
     <div id="aloj-tabela-secao">${masterDetailHtml}</div>`;
 }
 
