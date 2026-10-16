@@ -7756,17 +7756,24 @@ function exportarTreinamentosExcel(){
 }
 
 // ─── USUÁRIOS ─────────────────────────────────────────────────────────────────
+const _usrObras=()=>(obrasTodas&&obrasTodas.length?obrasTodas:obras)||[];
+const _usrObraTxt=id=>{const o=_usrObras().find(x=>String(x.id)===String(id));return o?((o.codigo?o.codigo+' · ':'')+(o.nome||'')):'(obra removida)';};
+const _usrObraCod=id=>{const o=_usrObras().find(x=>String(x.id)===String(id));return o?(o.codigo||o.nome||'—'):'?';};
+let _usrEst={q:'',nivel:'',status:'',acesso:'',modo:'u',ord:'nome',dir:1,log:[],logOk:false};
+function _usrDias(u){if(!u.ultimo_acesso)return null;const d=new Date(u.ultimo_acesso);if(isNaN(d))return null;const h=new Date();h.setHours(0,0,0,0);const dd=new Date(d);dd.setHours(0,0,0,0);return Math.round((h-dd)/86400000);}
 function _usrUltimoAcesso(u){
   if(!('ultimo_acesso' in u))return '<span style="font-size:11px;color:var(--text-muted)">—</span>';
-  if(!u.ultimo_acesso)return '<span style="font-size:11.5px;color:var(--text-muted)">Nunca acessou</span>';
+  if(!u.ultimo_acesso)return '<span style="font-size:12.5px;font-weight:600;color:var(--danger)">Nunca acessou</span>';
   const d=new Date(u.ultimo_acesso);if(isNaN(d))return '—';
-  const hoje=new Date();hoje.setHours(0,0,0,0);
-  const dia=new Date(d);dia.setHours(0,0,0,0);
-  const dias=Math.round((hoje-dia)/86400000);
-  const hora=d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  const dias=_usrDias(u),hora=d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
   const txt=dias===0?'Hoje às '+hora:dias===1?'Ontem às '+hora:'Há '+dias+' dias';
-  const cor=dias<=7?'var(--success)':dias<=15?'var(--warning)':'var(--danger)';
+  const cor=dias<=7?'var(--success)':dias<=30?'var(--warning)':'var(--danger)';
   return '<div style="font-size:12.5px;font-weight:600;color:'+cor+'">'+txt+'</div><div style="font-size:11px;color:var(--text-muted)">'+d.toLocaleDateString('pt-BR')+' '+hora+'</div>';
+}
+function _usrLogar(registros){   // histórico de alterações de acesso (melhor esforço: se a tabela não existir, ignora)
+  const por=(currentUser&&(currentUser.nome||currentUser.usuario))||null;
+  const rows=registros.filter(Boolean).map(r=>({...r,feito_por:por}));if(!rows.length)return;
+  sb.from('usuarios_acesso_log').insert(rows).then(()=>{},()=>{});
 }
 async function alternarBloqueioUsuario(id){
   const u=(window._usuariosLista||[]).find(x=>String(x.id)===String(id));if(!u)return;
@@ -7776,55 +7783,123 @@ async function alternarBloqueioUsuario(id){
   const dados={nome:u.nome,usuario:u.usuario,perfil:u.perfil,obras_acesso:(u.obras_acesso||[]).map(String),ativo:!bloquear};
   const{error}=await sb.rpc('salvar_usuario',{p_id:id,p_dados:dados,p_senha:null});
   if(error){showToast('Erro: '+error.message,'error');return;}
+  _usrLogar([{usuario_login:u.usuario,usuario_nome:u.nome,acao:bloquear?'bloqueio':'desbloqueio',detalhe:bloquear?'Acesso bloqueado':'Acesso liberado novamente'}]);
   showToast(bloquear?'Acesso bloqueado':'Acesso liberado');
   renderUsuarios();
+}
+function _usrFiltrados(){
+  const E=_usrEst,q=_semAcento(E.q).trim(),L=window._usuariosLista||[];
+  const casaObra=u=>{const ids=(u.obras_acesso||[]).map(String);return ids.some(id=>_semAcento(_usrObraTxt(id)).includes(q));};
+  let l=L.filter(u=>(!q||_semAcento((u.nome||'')+' '+(u.usuario||'')).includes(q)||casaObra(u))
+    &&(!E.nivel||u.perfil===E.nivel)&&(!E.status||(E.status==='bloq'?u.ativo===false:u.ativo!==false))
+    &&(!E.acesso||(E.acesso==='nunca'?!u.ultimo_acesso:E.acesso==='hoje'?_usrDias(u)===0:(_usrDias(u)!==null&&_usrDias(u)>Number(E.acesso)))));
+  const k={nome:u=>_semAcento(u.nome||''),nivel:u=>u.perfil||'',status:u=>u.ativo===false?1:0,acesso:u=>u.ultimo_acesso?-new Date(u.ultimo_acesso).getTime():1e18,obras:u=>(u.obras_acesso||[]).length||9999}[E.ord]||(u=>u.nome);
+  return l.sort((a,b)=>{const x=k(a),y=k(b);return(x>y?1:x<y?-1:0)*E.dir;});
+}
+function usrFiltro(campo,v){_usrEst[campo]=v;usrDesenha();}
+function usrOrdenar(c){_usrEst.dir=_usrEst.ord===c?-_usrEst.dir:1;_usrEst.ord=c;usrDesenha();}
+function usrModo(m){_usrEst.modo=m;usrDesenha();}
+function _usrObrasCell(u){
+  const ids=(u.obras_acesso||[]).map(String);
+  if(!ids.length)return'<span class="badge badge-green" title="Sem lista de obras = enxerga todas">Todas as obras (sem restrição)</span>';
+  const chip=id=>`<span style="display:inline-block;font-size:11.5px;background:var(--primary-light);color:var(--primary-dark);padding:2px 8px;border-radius:7px;margin:0 4px 4px 0" title="${escHtml(_usrObraTxt(id))}"><b>${escHtml(_usrObraCod(id))}</b> ${escHtml((_usrObras().find(o=>String(o.id)===id)?.nome)||'')}</span>`;
+  if(ids.length<=4)return ids.map(chip).join('');
+  return`<span style="display:inline-block;font-size:11.5px;font-weight:700;background:var(--primary-light);color:var(--primary-dark);padding:2px 8px;border-radius:7px;margin-right:6px">${ids.length} obras</span><button class="btn btn-sm" onclick="usrVerObras('${u.id}')"><i class="ti ti-list-search"></i> Ver obras</button>`;
+}
+function usrVerObras(id){
+  const u=(window._usuariosLista||[]).find(x=>String(x.id)===String(id));if(!u)return;
+  const ids=(u.obras_acesso||[]).map(String).sort((a,b)=>_usrObraTxt(a).localeCompare(_usrObraTxt(b),'pt-BR',{numeric:true}));
+  closeModal('modal-usr-obras');
+  document.body.insertAdjacentHTML('beforeend',`<div class="modal-overlay" id="modal-usr-obras" onclick="if(event.target===this)closeModal('modal-usr-obras')"><div class="modal" style="max-width:560px"><div class="modal-header"><span class="modal-title">${escHtml(u.nome||u.usuario)} — ${ids.length} obra(s)</span><button class="btn btn-sm" onclick="closeModal('modal-usr-obras')"><i class="ti ti-x"></i></button></div>
+   <div class="modal-body"><input placeholder="Buscar obra (número ou nome)…" style="width:100%;margin-bottom:8px" oninput="const t=_semAcento(this.value);document.querySelectorAll('#modal-usr-obras .usr-ob').forEach(e=>e.style.display=_semAcento(e.textContent).includes(t)?'':'none')">
+   <div style="max-height:52vh;overflow:auto">${ids.map(i=>{const o=_usrObras().find(x=>String(x.id)===i);return`<div class="usr-ob" style="padding:6px 2px;border-bottom:1px solid var(--border);${o?.status_obra==='encerrada'?'color:var(--text-muted)':''}"><b>${escHtml(o?.codigo||'—')}</b> · ${escHtml(o?.nome||'(obra removida)')}${o?.status_obra==='encerrada'?' <span class="badge" style="font-size:10px">encerrada</span>':''}</div>`;}).join('')}</div></div>
+   <div class="modal-footer"><button class="btn" onclick="closeModal('modal-usr-obras')">Fechar</button></div></div></div>`);
+}
+function usrHistorico(login){
+  const l=_usrEst.log.filter(x=>x.usuario_login===login);
+  closeModal('modal-usr-hist');
+  document.body.insertAdjacentHTML('beforeend',`<div class="modal-overlay" id="modal-usr-hist" onclick="if(event.target===this)closeModal('modal-usr-hist')"><div class="modal" style="max-width:620px"><div class="modal-header"><span class="modal-title">Histórico de acesso — ${escHtml(login)}</span><button class="btn btn-sm" onclick="closeModal('modal-usr-hist')"><i class="ti ti-x"></i></button></div>
+   <div class="modal-body" style="max-height:60vh;overflow:auto">${!_usrEst.logOk?'<div style="color:var(--text-muted)">O histórico ainda não está ativado. Rode o SQL <b>sql_usuarios_historico.sql</b> no Supabase; a partir daí cada alteração fica registrada.</div>'
+   :l.length?l.map(x=>`<div style="padding:8px 2px;border-bottom:1px solid var(--border)"><div style="font-size:12px;color:var(--text-muted)">${new Date(x.created_at).toLocaleString('pt-BR')} · por ${escHtml(x.feito_por||'—')}</div><div><b>${escHtml(x.acao)}</b> — ${escHtml(x.detalhe||'')}</div></div>`).join(''):'<div style="color:var(--text-muted)">Nenhuma alteração registrada para este usuário ainda.</div>'}</div>
+   <div class="modal-footer"><button class="btn" onclick="closeModal('modal-usr-hist')">Fechar</button></div></div></div>`);
+}
+function usrExportar(){
+  const L=_usrFiltrados(),pad=n=>String(n).padStart(2,'0');
+  const fmt=v=>{if(!v)return'Nunca acessou';const d=new Date(v);return pad(d.getDate())+'/'+pad(d.getMonth()+1)+'/'+d.getFullYear()+' '+pad(d.getHours())+':'+pad(d.getMinutes());};
+  const nv=n=>n==='admin'?'Admin':n==='gerente'?'Gerente':'Usuário';
+  const a=[['Nome','Usuário','Nível','Status','Último acesso','Nº de obras','Obras com acesso']];
+  const b=[['Nome','Usuário','Nível','Status','Último acesso','Código da obra','Obra']];
+  L.forEach(u=>{const ids=(u.obras_acesso||[]).map(String),st=u.ativo===false?'Bloqueado':'Ativo';
+    a.push([u.nome,u.usuario,nv(u.perfil),st,fmt(u.ultimo_acesso),ids.length||'Todas',ids.length?ids.map(_usrObraTxt).join('; '):'Todas as obras (sem restrição)']);
+    if(!ids.length)b.push([u.nome,u.usuario,nv(u.perfil),st,fmt(u.ultimo_acesso),'—','TODAS (sem restrição)']);
+    else ids.forEach(i=>{const o=_usrObras().find(x=>String(x.id)===i);b.push([u.nome,u.usuario,nv(u.perfil),st,fmt(u.ultimo_acesso),o?.codigo||'—',o?.nome||'(obra removida)']);});});
+  const wb=XLSX.utils.book_new(),w1=XLSX.utils.aoa_to_sheet(a),w2=XLSX.utils.aoa_to_sheet(b);
+  w1['!cols']=[{wch:32},{wch:24},{wch:10},{wch:11},{wch:18},{wch:11},{wch:70}];w2['!cols']=[{wch:32},{wch:24},{wch:10},{wch:11},{wch:18},{wch:14},{wch:44}];
+  XLSX.utils.book_append_sheet(wb,w1,'Usuários');XLSX.utils.book_append_sheet(wb,w2,'Acesso por obra');
+  const h=new Date();XLSX.writeFile(wb,`Acessos_Usuarios_GTEL_${h.getFullYear()}-${pad(h.getMonth()+1)}-${pad(h.getDate())}.xlsx`);
+  showToast('Excel exportado — '+L.length+' usuário(s)');
+}
+function usrDesenha(){
+  const E=_usrEst,L0=window._usuariosLista||[],area=document.getElementById('usr-area');if(!area)return;
+  const ob=_usrObras().filter(o=>o.status_obra!=='encerrada');
+  const ativos=L0.filter(u=>u.ativo!==false),semUsuario=ob.filter(o=>!ativos.some(u=>!(u.obras_acesso||[]).length||(u.obras_acesso||[]).map(String).includes(String(o.id))));
+  const card=(t,v,c)=>`<div class="metric-card"><div class="metric-label">${t}</div><div class="metric-value" style="${c?'color:'+c:''}">${v}</div></div>`;
+  document.getElementById('usr-cards').innerHTML=card('Usuários',L0.length)+card('Ativos',ativos.length,'var(--success)')+card('Bloqueados',L0.length-ativos.length,L0.length-ativos.length?'var(--danger)':'')+card('Nunca acessaram',L0.filter(u=>!u.ultimo_acesso).length,'var(--warning)')+card('Obras sem nenhum usuário',semUsuario.length,semUsuario.length?'var(--danger)':'');
+  document.querySelectorAll('.usr-modo').forEach(b=>b.classList.toggle('btn-primary',b.dataset.m===E.modo));
+  const nivelBadge=n=>n==='admin'?'<span class="badge badge-red">Admin</span>':n==='gerente'?'<span class="badge badge-amber">Gerente</span>':'<span class="badge badge-blue">Usuário</span>';
+  if(E.modo==='u'){
+    const L=_usrFiltrados(),th=(c,t)=>`<th style="cursor:pointer;white-space:nowrap" onclick="usrOrdenar('${c}')">${t} ${E.ord===c?(E.dir>0?'▲':'▼'):'<span style="opacity:.35">↕</span>'}</th>`;
+    const ultimoLog=(login,acoes)=>E.log.find(x=>x.usuario_login===login&&acoes.includes(x.acao));
+    const rows=L.map(u=>{const bl=u.ativo===false,lg=bl?ultimoLog(u.usuario,['bloqueio']):null,lo=ultimoLog(u.usuario,['obras']);
+      return`<tr style="${bl?'background:var(--bg);color:var(--text-muted)':''}">
+      <td><div style="font-weight:500;${bl?'text-decoration:line-through':''}">${escHtml(u.nome||'—')}</div><div style="font-size:11px;color:var(--text-muted)">👤 ${escHtml(u.usuario||'—')}</div></td>
+      <td>${nivelBadge(u.perfil)}</td>
+      <td>${bl?'<span class="badge badge-red"><i class="ti ti-lock"></i> Bloqueado</span>':'<span class="badge badge-green">Ativo</span>'}${lg?`<div style="font-size:11px;margin-top:3px">desde ${new Date(lg.created_at).toLocaleDateString('pt-BR')}${lg.feito_por?' · por '+escHtml(lg.feito_por):''}</div>`:''}</td>
+      <td>${_usrUltimoAcesso(u)}</td>
+      <td>${_usrObrasCell(u)}${lo?`<div style="font-size:11px;color:var(--text-muted);margin-top:2px" title="${escHtml(lo.detalhe||'')}">Obras alteradas em ${new Date(lo.created_at).toLocaleDateString('pt-BR')}${lo.feito_por?' por '+escHtml(lo.feito_por):''}</div>`:''}</td>
+      <td><button class="btn btn-sm" style="padding:2px 8px;font-size:11px" title="Definir uma nova senha" onclick="openModalUsuario('${u.id}',true)"><i class="ti ti-key"></i> Redefinir</button></td>
+      <td><div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-sm" onclick="openModalUsuario('${u.id}')"><i class="ti ti-edit"></i> Editar</button>
+        <button class="btn btn-sm" title="Histórico de bloqueios e de obras liberadas/retiradas" onclick="usrHistorico('${escHtml(u.usuario||'')}')"><i class="ti ti-history"></i></button>
+        <button class="btn btn-sm" style="${bl?'color:var(--success);border-color:var(--success)':'color:#B45309;border-color:#F59E0B'}" onclick="alternarBloqueioUsuario('${u.id}')">${bl?'<i class="ti ti-lock-open"></i> Desbloquear':'<i class="ti ti-lock"></i> Bloquear'}</button>
+        <button class="btn btn-sm btn-danger" onclick="excluirUsuario('${u.id}')"><i class="ti ti-trash"></i></button></div></td></tr>`;}).join('')||'<tr><td colspan="7"><div class="empty-state"><i class="ti ti-users"></i><div>Nenhum usuário encontrado</div></div></td></tr>';
+    area.innerHTML=`<div class="table-container" style="overflow:auto"><table class="table"><thead><tr>${th('nome','Nome / Usuário')}${th('nivel','Nível')}${th('status','Status')}${th('acesso','Último acesso')}${th('obras','Obras com acesso (nº · nome)')}<th>Senha</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }else{
+    const q=_semAcento(E.q).trim();
+    const lista=_usrObras().slice().sort((a,b)=>String(a.codigo||a.nome).localeCompare(String(b.codigo||b.nome),'pt-BR',{numeric:true})).filter(o=>!q||_semAcento((o.codigo||'')+' '+(o.nome||'')).includes(q));
+    const rows=lista.map(o=>{
+      const tem=u=>!(u.obras_acesso||[]).length||(u.obras_acesso||[]).map(String).includes(String(o.id));
+      const us=L0.filter(tem).sort((a,b)=>(a.ativo===false)-(b.ativo===false)||String(a.nome).localeCompare(String(b.nome),'pt-BR'));
+      const chips=us.map(u=>{const d=_usrDias(u),cor=u.ativo===false?'var(--danger)':!u.ultimo_acesso?'var(--danger)':d<=7?'var(--success)':d<=30?'var(--warning)':'var(--danger)',tx=!u.ultimo_acesso?'nunca':d===0?'hoje':'há '+d+'d';
+        return`<span style="display:inline-block;font-size:11.5px;background:${u.ativo===false?'var(--bg)':'var(--primary-light)'};padding:2px 8px;border-radius:7px;margin:0 4px 4px 0;${u.ativo===false?'text-decoration:line-through;color:var(--text-muted)':''}" title="${!(u.obras_acesso||[]).length?'Sem restrição de obras':''}"><b>${escHtml((u.nome||u.usuario||'').split(' ')[0])}</b> <span style="color:${cor};font-weight:600;text-decoration:none">${u.ativo===false?'bloqueado':tx}</span>${!(u.obras_acesso||[]).length?' ·∗':''}</span>`;}).join('');
+      const nAt=us.filter(u=>u.ativo!==false).length;
+      return`<tr><td style="white-space:nowrap"><b>${escHtml(o.codigo||'—')}</b> · ${escHtml(o.nome||'')}${o.status_obra==='encerrada'?' <span class="badge" style="font-size:10px">encerrada</span>':''}</td><td>${chips||'<span style="color:var(--danger);font-weight:600">Nenhum usuário com acesso</span>'}</td><td style="text-align:center">${nAt}</td></tr>`;}).join('')||'<tr><td colspan="3"><div class="empty-state"><div>Nenhuma obra encontrada</div></div></td></tr>';
+    area.innerHTML=`<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:6px">∗ = usuário sem lista de obras (enxerga todas). Cor do último acesso: verde até 7 dias, amarelo até 30, vermelho acima disso ou nunca.</div><div class="table-container" style="overflow:auto"><table class="table"><thead><tr><th>Obra</th><th>Usuários com acesso (último acesso)</th><th style="text-align:center">Ativos</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
 }
 async function renderUsuarios(){
   const{data:usuarios,error}=await sb.rpc('listar_usuarios');
   if(error){showToast(rpcAusente(error)?'Rode o script de segurança 01 no Supabase para usar esta tela.':'Erro ao carregar usuários: '+error.message,'error');return;}
   window._usuariosLista=usuarios||[];
-  const nivelBadge=n=>n==='admin'?'<span class="badge badge-red">Admin</span>':n==='gerente'?'<span class="badge badge-amber">Gerente</span>':'<span class="badge badge-blue">Usuário</span>';
-  const rows=(usuarios||[]).map(u=>{
-    const obrasIds=(u.obras_acesso||[]).map(String);
-    const obrasCodigos=obrasIds.map(oid=>obras.find(o=>String(o.id)===oid)?.codigo).filter(Boolean);
-    const obrasCell=obrasIds.length===0
-      ?'<span style="font-size:11px;color:var(--text-muted)">Sem restrição</span>'
-      :'<span style="font-size:11px;background:var(--primary-light);color:var(--primary-dark);padding:2px 8px;border-radius:20px;font-weight:500" title="'+obrasCodigos.join(', ')+'">'+obrasIds.length+' obra(s)'+(obrasCodigos.length?': '+obrasCodigos.slice(0,3).join(', ')+(obrasCodigos.length>3?'...':''):'')+'</span>';
-    return`<tr>
-      <td><div style="font-weight:500">${u.nome||'—'}</div><div style="font-size:11px;color:var(--text-muted)">👤 ${u.usuario||'—'}</div></td>
-      <td>${nivelBadge(u.perfil)}</td>
-      <td>${u.ativo===false?'<span class="badge badge-red"><i class="ti ti-lock"></i> Bloqueado</span>':'<span class="badge badge-green">Ativo</span>'}</td>
-      <td>${_usrUltimoAcesso(u)}</td>
-      <td>
-        <div style="display:flex;align-items:center;gap:6px">
-          <span style="font-family:monospace;font-size:12px;color:var(--text-muted)">••••••••</span>
-          <button class="btn btn-sm" style="padding:2px 8px;font-size:11px" title="Definir uma nova senha para este usuário" onclick="openModalUsuario('${u.id}',true)"><i class="ti ti-key"></i> Redefinir</button>
-        </div>
-      </td>
-      <td>${obrasCell}</td>
-      <td>
-        <div style="display:flex;gap:6px">
-          <button class="btn btn-sm" onclick="openModalUsuario('${u.id}')"><i class="ti ti-edit"></i> Editar</button>
-          <button class="btn btn-sm" style="${u.ativo===false?'color:var(--success);border-color:var(--success)':'color:#B45309;border-color:#F59E0B'}" onclick="alternarBloqueioUsuario('${u.id}')">${u.ativo===false?'<i class="ti ti-lock-open"></i> Desbloquear':'<i class="ti ti-lock"></i> Bloquear'}</button>
-          <button class="btn btn-sm btn-danger" onclick="excluirUsuario('${u.id}')">
-            <i class="ti ti-trash"></i> Remover
-          </button>
-        </div>
-      </td>
-    </tr>`;}).join('')||'<tr><td colspan="7"><div class="empty-state"><i class="ti ti-users"></i><div>Nenhum usuário cadastrado</div></div></td></tr>';
+  try{const r=await sb.from('usuarios_acesso_log').select('*').order('created_at',{ascending:false}).limit(2000);_usrEst.logOk=!r.error;_usrEst.log=r.error?[]:(r.data||[]);}catch(e){_usrEst.logOk=false;_usrEst.log=[];}
+  const E=_usrEst;
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
-      <div><div class="page-title">Usuários do Sistema</div><div class="page-subtitle">${(usuarios||[]).length} usuários cadastrados</div></div>
-      <button class="btn btn-primary" onclick="openModalUsuario()"><i class="ti ti-plus"></i> Novo usuário</button>
+      <div><div class="page-title">Usuários do Sistema</div><div class="page-subtitle">${(usuarios||[]).length} usuários cadastrados · quem acessa cada obra, último acesso e bloqueios</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="usrExportar()"><i class="ti ti-file-spreadsheet"></i> Exportar Excel</button><button class="btn btn-primary" onclick="openModalUsuario()"><i class="ti ti-plus"></i> Novo usuário</button></div>
     </div>
-    <div class="table-container">
-      <table class="table">
-        <thead><tr>
-          <th>Nome / Usuário</th><th>Nível de Acesso</th><th>Status</th><th>Último acesso</th><th>Senha</th><th>Obras com acesso</th><th>Ações</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
+    <div class="metrics" id="usr-cards" style="margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
+      <input id="usr-q" placeholder="Buscar usuário ou obra (número ou nome)…" value="${escHtml(E.q)}" oninput="usrFiltro('q',this.value)" style="max-width:320px">
+      <select onchange="usrFiltro('nivel',this.value)" style="max-width:150px"><option value="">Nível: todos</option>${['admin','gerente','usuario'].map(n=>`<option value="${n}" ${E.nivel===n?'selected':''}>${n==='admin'?'Admin':n==='gerente'?'Gerente':'Usuário'}</option>`).join('')}</select>
+      <select onchange="usrFiltro('status',this.value)" style="max-width:150px"><option value="">Status: todos</option><option value="ativo" ${E.status==='ativo'?'selected':''}>Ativo</option><option value="bloq" ${E.status==='bloq'?'selected':''}>Bloqueado</option></select>
+      <select onchange="usrFiltro('acesso',this.value)" style="max-width:190px"><option value="">Último acesso: todos</option><option value="hoje" ${E.acesso==='hoje'?'selected':''}>Hoje</option><option value="7" ${E.acesso==='7'?'selected':''}>Há mais de 7 dias</option><option value="30" ${E.acesso==='30'?'selected':''}>Há mais de 30 dias</option><option value="nunca" ${E.acesso==='nunca'?'selected':''}>Nunca acessou</option></select>
+      <span style="flex:1"></span>
+      <button class="btn usr-modo" data-m="u" onclick="usrModo('u')"><i class="ti ti-user"></i> Por usuário</button><button class="btn usr-modo" data-m="o" onclick="usrModo('o')"><i class="ti ti-building"></i> Por obra</button>
+    </div>
+    ${E.logOk?'':'<div style="font-size:12px;background:var(--warning-light,#fff6e0);border:1px solid #f0d58a;border-radius:8px;padding:6px 12px;margin-bottom:10px">O histórico de quem liberou/retirou acesso ainda não está ativado — rode o SQL <b>sql_usuarios_historico.sql</b> no Supabase. O restante da tela já funciona.</div>'}
+    <div id="usr-area"></div>`;
+  usrDesenha();
 }
 
 function openModalUsuario(id,focarSenha){
@@ -7939,8 +8014,21 @@ async function salvarUsuario(id){
   if(!id&&!senha){showToast('Senha é obrigatória para novo usuário','error');return;}
   if(senha&&senha.length<8){showToast('A senha deve ter pelo menos 8 caracteres','error');return;}
   const dados={nome,usuario:email,perfil:nivel,obras_acesso:obrasAcesso,ativo};
+  const antes=id?(window._usuariosLista||[]).find(x=>String(x.id)===String(id)):null;
   const{error}=await sb.rpc('salvar_usuario',{p_id:id||null,p_dados:dados,p_senha:senha||null});
   if(error){showToast(rpcAusente(error)?'Rode o script de segurança 01 no Supabase.':'Erro: '+error.message,'error');return;}
+  try{
+    const L=[],base={usuario_login:email,usuario_nome:nome};
+    if(!antes)L.push({...base,acao:'criado',detalhe:'Usuário criado ('+nivel+') com '+(obrasAcesso.length?obrasAcesso.length+' obra(s): '+obrasAcesso.map(_usrObraCod).join(', '):'acesso a todas as obras')});
+    else{
+      const a0=(antes.obras_acesso||[]).map(String),add=obrasAcesso.filter(x=>!a0.includes(x)),rem=a0.filter(x=>!obrasAcesso.includes(x));
+      if(add.length||rem.length||(!a0.length)!==(!obrasAcesso.length))L.push({...base,acao:'obras',detalhe:(add.length?'Liberadas: '+add.map(_usrObraTxt).join(', ')+'. ':'')+(rem.length?'Retiradas: '+rem.map(_usrObraTxt).join(', ')+'. ':'')+(!a0.length&&obrasAcesso.length?'Passou de “todas as obras” para lista restrita.':a0.length&&!obrasAcesso.length?'Passou para “todas as obras (sem restrição)”.':'')});
+      if(antes.perfil!==nivel)L.push({...base,acao:'nível',detalhe:'De '+antes.perfil+' para '+nivel});
+      if((antes.ativo!==false)!==ativo)L.push({...base,acao:ativo?'desbloqueio':'bloqueio',detalhe:ativo?'Acesso liberado novamente':'Acesso bloqueado'});
+      if(senha)L.push({...base,acao:'senha',detalhe:'Nova senha definida'});
+    }
+    _usrLogar(L);
+  }catch(e){}
   await cronoSalvarPermUsuario(email);
   showToast(id?'Usuário atualizado! Se mudou as obras ou o nível, ele precisa sair e entrar de novo no sistema para valer.':'Usuário criado!');
   closeModal('modal-usuario');renderUsuarios();
@@ -7971,8 +8059,10 @@ function mostrarCredenciaisUsuario(nome,usuario,senha){
 }
 async function excluirUsuario(id){
   if(!confirm('Remover usuário?'))return;
+  const ant=(window._usuariosLista||[]).find(x=>String(x.id)===String(id));
   const{error}=await sb.rpc('excluir_usuario',{p_id:id});
   if(error){showToast('Erro: '+error.message,'error');return;}
+  if(ant)_usrLogar([{usuario_login:ant.usuario,usuario_nome:ant.nome,acao:'removido',detalhe:'Usuário removido do sistema'}]);
   showToast('Usuário removido!');renderUsuarios();
 }
 
@@ -18819,6 +18909,12 @@ async function ahCarregar(){
   });
   try{await loadConvencoes();}catch(e){}
 }
+const AH_VR_PADRAO={vr_cafe_manha:9,vr_cafe_tarde:9,vr_almoco_fds:34,vr_jantar:34};   // valores iniciais (sempre editáveis)
+function ahValoresPadrao(){
+  const s=ahSel&&ahSel.sol;if(!s||s.status!=='rascunho')return;
+  const ks=Object.keys(AH_VR_PADRAO);
+  if(ks.every(k=>!Number(s[k]))){ks.forEach(k=>{s[k]=AH_VR_PADRAO[k];});ahSujo();}
+}
 function ahRates(s){
   const n=v=>Number(v)||0,r=(a,b)=>a!=null&&a!==''?n(a):n(b);
   return{L:r(s.vr_ret_cafe_manha,s.vr_cafe_manha),M:n(s.vr_cafe_manha),N:r(s.vr_ret_cafe_tarde,s.vr_cafe_tarde),O:n(s.vr_cafe_tarde),
@@ -19038,7 +19134,7 @@ async function ahCriar(){
   const anteriores=ahSols.filter(s=>String(s.obra_id)===String(obraId)&&String(s.competencia)<comp).sort((a,b)=>String(b.competencia).localeCompare(String(a.competencia)));
   const fonte=fonteId?ahSols.find(x=>x.id===fonteId):null;
   const ant=(fonte&&String(fonte.obra_id)===String(obraId)?fonte:null)||anteriores[0]||null,conv=ahConvencaoDaObra(obraId);
-  const v=(k,ck)=>conv&&conv[ck]!=null?conv[ck]:(ant?ant[k]:0)||0;
+  const v=(k,ck)=>conv&&Number(conv[ck])>0?conv[ck]:(ant&&Number(ant[k])>0?ant[k]:AH_VR_PADRAO[k]);
   const obra=obras.find(o=>String(o.id)===String(obraId));
   const ccDigitado=(document.getElementById('ahn-cc')?.value||'').trim();
   const novo={obra_id:obraId,competencia:comp,centro_custo:ccDigitado||ant?.centro_custo||((t=>t.length===1?t[0]:null)(String(obra?.centro_custo||'').split(/[\s·,;|/]+/).filter(t=>t.length>=3&&/\d/.test(t)))),
@@ -19059,7 +19155,7 @@ async function ahAbrir(id){
   const a=await sb.from('auxilio_hosp_itens').select('*').eq('solicitacao_id',id).order('ordem');
   if(a.error){showToast('Erro: '+a.error.message,'error');return;}
   ahSel={sol:{...sol},itens:(a.data||[]).map(it=>ahNovoItem(it)),removidos:[],lancadas:[]};
-  ahDirty=false;ahRetDif=false;ahOrdNome=null;ahFil=ahFilVazio();ahConfIgnorado=null;ahTela='editor';renderAuxHosp();
+  ahDirty=false;ahRetDif=false;ahOrdNome=null;ahFil=ahFilVazio();ahValoresPadrao();ahConfIgnorado=null;ahTela='editor';renderAuxHosp();
 }
 async function ahExcluir(id){
   const s=ahSols.find(x=>x.id===id);if(!s)return;
@@ -19481,14 +19577,50 @@ function ahSalvarBtn(){
   if(s.status!=='rascunho'){
     const c=ahConferencia();
     if((c.faltam.length||c.extras.length)&&ahConfIgnorado!==ahConfSig(c)){ahModalConf('__salvar',c);return;}
+    ahPosConf('__salvar');return;
   }
   ahSalvar(false);
+}
+// Linhas com RE/nome mas sem NENHUM dia lançado (as 8 colunas em branco)
+const ahLinhaVazia=it=>(String(it.nome||'').trim()||String(it.re||'').trim())&&AH_Q.every(k=>it[k]==null||it[k]==='');
+const ahVazSig=l=>l.map(i=>i.id).sort().join(',');
+let ahVazIgnorado=null;
+function ahPosConf(alvo){
+  const l=ahSel.itens.filter(ahLinhaVazia);
+  if(l.length&&ahVazIgnorado!==ahVazSig(l)){ahModalVazias(alvo,l);return;}
+  ahExecAlvo(alvo);
+}
+function ahExecAlvo(alvo){
+  if(alvo==='__salvar'){renderAhEditor();ahSalvar(false);return;}
+  if(AH_STATUS[alvo])ahHdr('status',alvo);
+  renderAhEditor();
+}
+function ahModalVazias(alvo,l){
+  const acao=alvo==='__salvar'?'salvar':'marcar como '+(AH_STATUS[alvo]?.t||'').toLowerCase();
+  insertModal('modal-ah-vaz',`<div class="modal" style="max-width:600px"><div class="modal-header"><span class="modal-title"><i class="ti ti-alert-triangle" style="color:var(--warning)"></i> Revise antes de ${acao}</span><button class="btn btn-sm" onclick="closeModal('modal-ah-vaz')"><i class="ti ti-x"></i></button></div>
+  <div class="modal-body"><div style="margin-bottom:8px;font-size:13px"><b>${l.length} funcionário(s) estão com a linha inteira em branco</b> (nenhum dia lançado em nenhuma refeição). Vão para a planilha com valor R$ 0,00:</div>
+   <div style="max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:8px">${l.map(i=>`<div style="padding:6px 12px;border-bottom:1px solid #EEF2F8;font-size:13px"><b>${escHtml(i.nome||'(sem nome)')}</b> <span style="font-size:11px;color:var(--text-muted)">RE ${escHtml(i.re||'—')} · ${escHtml(i.funcao||'—')}</span></div>`).join('')}</div>
+   <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Pode ser esquecimento (lançar os dias) ou alguém que não recebe neste mês (remover da planilha).</div></div>
+  <div class="modal-footer" style="flex-wrap:wrap;gap:8px"><button class="btn" onclick="closeModal('modal-ah-vaz')">Cancelar</button>
+   <button class="btn" onclick="ahVazAcao('remover','${alvo}')"><i class="ti ti-trash"></i> Remover estas linhas e seguir</button>
+   <button class="btn" onclick="ahVazAcao('seguir','${alvo}')"><i class="ti ti-player-skip-forward"></i> Seguir mesmo assim</button>
+   <button class="btn btn-primary" onclick="ahVazAcao('revisar','${alvo}')"><i class="ti ti-eye-search"></i> Voltar e revisar</button></div></div>`);
+}
+function ahVazAcao(modo,alvo){
+  closeModal('modal-ah-vaz');
+  const l=ahSel.itens.filter(ahLinhaVazia);
+  if(modo==='revisar'){ahFil=ahFilVazio();ahFil.tot='sem';renderAhEditor();showToast(l.length+' linha(s) sem valores — lance os dias ou remova e emita de novo');return;}
+  if(modo==='remover'){
+    const ids=new Set(l.map(i=>i.id));l.forEach(i=>ahSel.removidos.push(i.id));
+    ahSel.itens=ahSel.itens.filter(i=>!ids.has(i.id));ahSujo();showToast(l.length+' linha(s) removida(s)');
+  }else ahVazIgnorado=ahVazSig(l);
+  ahExecAlvo(alvo);
 }
 function ahMudarStatus(v){
   const s=ahSel.sol;
   if(v==='rascunho'||s.status!=='rascunho'){ahHdr('status',v);renderAhEditor();return;}
   const c=ahConferencia();
-  if(!c.faltam.length&&!c.extras.length){ahHdr('status',v);renderAhEditor();return;}
+  if(!c.faltam.length&&!c.extras.length){ahPosConf(v);return;}
   ahModalConf(v,c);
 }
 function ahModalConf(alvo,c){
@@ -19527,9 +19659,7 @@ async function ahConfAplicar(modo){
   closeModal('modal-ah-conf');
   if(modo!=='voltar')ahConfIgnorado=ahConfSig(ahConferencia());
   if(modo==='voltar'){renderAhEditor();showToast(incluir.length?incluir.length+' incluído(s) com os dias do mês inteiro — ajuste quem entrou/saiu no mês e emita de novo':'Nada incluído — revise a lista');return;}
-  if(ahConfAlvo==='__salvar'){renderAhEditor();await ahSalvar(false);return;}
-  if(AH_STATUS[ahConfAlvo])ahHdr('status',ahConfAlvo);
-  renderAhEditor();
+  if(ahConfAlvo==='__salvar'||AH_STATUS[ahConfAlvo])ahPosConf(ahConfAlvo);else renderAhEditor();
   if(modo==='lembrar')showToast(`${incluir.length} incluído(s)${nao.length?`, ${nao.length} guardado(s) como “não recebem”`:''}`);
 }
 function ahModalExc(){
