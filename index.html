@@ -1690,6 +1690,25 @@ function remItensHTML(){
     <div class="table-container"><table><thead><tr><th>Item</th><th>Tipo</th><th>Obra atual</th><th>Nota</th><th style="text-align:right">Enviado</th><th style="text-align:right">Saldo</th><th style="text-align:right">V. unit.</th><th style="text-align:right">Valor do saldo</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>`;
 }
 
+// Situação do equipamento no Ativo GTEL: existe? tem responsável? tem termo anexado?
+function remAtivoDoItem(i){
+  return (i.ativo_id&&(ativosImob||[]).find(a=>String(a.id)===String(i.ativo_id)))||remAtivoDoPat(i.patrimonio)||null;
+}
+function remSituacaoAtivo(i){
+  const ativo=remAtivoDoItem(i);
+  if(!ativo)return{ativo:null};
+  const r=respAtualDoAtivo(ativo.id);
+  const nome=r?(r.eh_terceirizado?r.nome:(r.funcionario?.nome_completo||r.nome||'—')):'';
+  return{ativo,resp:r||null,nome,semResp:!r,semTermo:!!r&&!r.termo_url};
+}
+// Vai para o Ativo GTEL e abre a tela de responsável + termo do equipamento
+async function remIrAtivo(id){
+  await showPage('ativos-imobilizados');
+  if((ativosImob||[]).some(a=>String(a.id)===String(id)))abrirModalResponsavelAtivo(id);
+  else showToast('Equipamento não encontrado no Ativo GTEL (ou sem acesso à obra dele).','error');
+}
+async function remIrAtivoLista(){await showPage('ativos-imobilizados');}
+
 // ─── EQUIPAMENTOS: localizar por patrimônio / série (caminho completo) ───────
 function remBuscaAtivoSet(v){
   remBuscaAtivo=v;
@@ -1703,6 +1722,19 @@ function remEquipHTML(){
     <style>.grd-lbl{display:block;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}</style></div>
     <div id="rem-equip-res">${remEquipResultado()}</div>`;
 }
+function remAtivoBlocoHTML(sit,emUso){
+  if(!sit.ativo){
+    if(!emUso)return '';
+    return `<div style="margin-top:10px;background:#FFFBEB;border:1px solid #FCD34D;color:#92400E;border-radius:8px;padding:8px 12px;font-size:12.5px;display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">
+      <span><i class="ti ti-alert-triangle"></i> <strong>Não está no Ativo GTEL.</strong> Cadastre o equipamento, indique o responsável e anexe o termo.</span>
+      <button class="btn btn-sm" onclick="remIrAtivoLista()">Ir ao Ativo GTEL</button></div>`;
+  }
+  const falta=[];if(sit.semResp)falta.push('indicar o responsável');if(sit.semTermo)falta.push('anexar o termo assinado');
+  const ok=emUso&&!falta.length;
+  return `<div style="margin-top:10px;background:${ok||!emUso?'#F0FDF4':'#FEF2F2'};border:1px solid ${ok||!emUso?'#BBF7D0':'#FCA5A5'};color:${ok||!emUso?'#166534':'#991B1B'};border-radius:8px;padding:8px 12px;font-size:12.5px;display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">
+    <span><i class="ti ${ok||!emUso?'ti-circle-check':'ti-alert-circle'}"></i> <strong>Cadastrado no Ativo GTEL.</strong> ${!emUso?'':ok?`Responsável: <strong>${escHtml(sit.nome)}</strong> · termo anexado.`:`Falta ${falta.join(' e ')}${sit.resp?` (responsável atual: ${escHtml(sit.nome)})`:''}.`}</span>
+    <button class="btn btn-sm${!ok&&emUso?' btn-primary':''}" onclick="remIrAtivo('${sit.ativo.id}')">${!ok&&emUso?'Regularizar no Ativo GTEL':'Abrir no Ativo GTEL'}</button></div>`;
+}
 function remEquipResultado(){
   const q=_semAcento(remBuscaAtivo).trim();
   const comPat=remItens.filter(i=>i.patrimonio||i.serie_equip);
@@ -1713,8 +1745,8 @@ function remEquipResultado(){
   return Object.values(grupos).slice(0,60).map(g=>{
     g.sort((a,b)=>String(a.created_at).localeCompare(String(b.created_at)));
     const ref=g[g.length-1];
-    const ativo=g.map(i=>i.ativo_id&&ativosImob.find(a=>String(a.id)===String(i.ativo_id))).find(Boolean);
     const ativaLinha=g.slice().reverse().find(i=>remSaldo(i)>0);
+    const sit=remSituacaoAtivo(ativaLinha||ref);const ativo=sit.ativo;
     const onde=ativaLinha?remObraNome(ativaLinha.obra_atual_id):null;
     const passos=[];
     g.forEach(i=>{
@@ -1727,10 +1759,11 @@ function remEquipResultado(){
     });
     return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start">
-        <div><div style="font-weight:700;color:var(--primary-dark)">${escHtml(ref.descricao)}</div>
-          <div style="font-size:12px;color:var(--text-muted)">${ref.patrimonio?'Pat. '+escHtml(ref.patrimonio):''}${ref.serie_equip?' · Série '+escHtml(ref.serie_equip):''}${ativo?' · <span class="badge badge-green">no Ativo GTEL</span>':''}</div></div>
+        <div><div style="font-weight:700;color:var(--primary-dark)">${ativo?`<a href="#" onclick="event.preventDefault();remIrAtivo('${ativo.id}')" title="Abrir no Ativo GTEL" style="color:inherit;text-decoration:underline dotted">${escHtml(ref.descricao)}</a>`:escHtml(ref.descricao)}</div>
+          <div style="font-size:12px;color:var(--text-muted)">${ref.patrimonio?'Pat. '+escHtml(ref.patrimonio):''}${ref.serie_equip?' · Série '+escHtml(ref.serie_equip):''}</div></div>
         <div style="text-align:right;font-size:13px">${onde?`Agora em <strong>${escHtml(onde)}</strong>`:'<span class="badge badge-amber">sem saldo em nenhuma obra (devolvido / baixado)</span>'}</div>
       </div>
+      ${remAtivoBlocoHTML(sit,!!ativaLinha)}
       <ul style="margin:10px 0 0 18px;padding:0;font-size:12.5px;line-height:1.6">${passos.join('')}</ul></div>`;
   }).join('')+(Object.keys(grupos).length>60?'<div style="font-size:12px;color:var(--text-muted)">Mostrando 60 equipamentos; refine a busca.</div>':'');
 }
@@ -1772,6 +1805,13 @@ function remPendencias(){
       detalhe:`Está em ${remObraNome(i.obra_atual_id)} há ${dias} dias, desde a NF ${n.numero} (emitida em ${formatDate(n.data_emissao)}).`,
       acao:'Quando o equipamento voltar ou seguir para outra obra, dê baixa informando a NF.'});
   });
+  // 1b) equipamento com saldo que não está no Ativo GTEL, ou está sem responsável / sem termo
+  remItens.filter(i=>i.tipo==='retornavel'&&i.patrimonio&&remSaldo(i)>0).forEach(i=>{
+    const s=remSituacaoAtivo(i);
+    const nome=i.descricao+' · Pat. '+i.patrimonio;
+    if(!s.ativo)p.push({grupo:'ativo_pend',ativo:null,item:i.id,titulo:nome,detalhe:'Está em '+remObraNome(i.obra_atual_id)+' mas não está cadastrado no Ativo GTEL.',acao:'Cadastre no Ativo GTEL, indique o responsável e anexe o termo.'});
+    else if(s.semResp||s.semTermo)p.push({grupo:'ativo_pend',ativo:s.ativo.id,item:i.id,titulo:nome,detalhe:'Está em '+remObraNome(i.obra_atual_id)+'. No Ativo GTEL falta '+[s.semResp?'indicar o responsável':'',s.semTermo?'anexar o termo assinado':''].filter(Boolean).join(' e ')+'.',acao:'Abra o equipamento no Ativo GTEL e regularize.'});
+  });
   // 2) notas citadas por transferências e que não foram lançadas
   const citadas={};
   remRemessas.filter(n=>n.tipo_nota==='transferencia'&&n.nota_referenciada).forEach(n=>{
@@ -1793,8 +1833,9 @@ function remPendencias(){
 }
 const REM_GRUPOS_PEND={
   duplicado:{ord:0,titulo:'Equipamento em dois lugares ao mesmo tempo',sub:'Algo ficou sem baixa. Corrija primeiro.',cor:'#991B1B',bg:'#FEF2F2',bd:'#FCA5A5',ic:'ti-copy'},
-  nao_voltou:{ord:1,titulo:'Equipamentos que ainda não voltaram',sub:'Equipamentos com mais de 90 dias fora, sem devolução nem transferência registrada.',cor:'#92400E',bg:'#FFFBEB',bd:'#FCD34D',ic:'ti-clock-exclamation'},
-  nf_citada:{ord:2,titulo:'Notas citadas que não foram lançadas',sub:'Informativo: ajuda a completar o histórico, não trava nada.',cor:'#1E40AF',bg:'#EFF6FF',bd:'#BFDBFE',ic:'ti-file-search'},
+  ativo_pend:{ord:1,titulo:'Equipamentos sem responsável ou sem termo',sub:'Todo equipamento precisa estar no Ativo GTEL, com responsável e termo assinado.',cor:'#991B1B',bg:'#FEF2F2',bd:'#FCA5A5',ic:'ti-user-exclamation'},
+  nao_voltou:{ord:2,titulo:'Equipamentos que ainda não voltaram',sub:'Equipamentos com mais de 90 dias fora, sem devolução nem transferência registrada.',cor:'#92400E',bg:'#FFFBEB',bd:'#FCD34D',ic:'ti-clock-exclamation'},
+  nf_citada:{ord:3,titulo:'Notas citadas que não foram lançadas',sub:'Informativo: ajuda a completar o histórico, não trava nada.',cor:'#1E40AF',bg:'#EFF6FF',bd:'#BFDBFE',ic:'ti-file-search'},
 };
 function remPendHTML(){
   const p=remPendencias();
@@ -1807,6 +1848,8 @@ function remPendHTML(){
     const cards=its.map(x=>{
       const bts=g==='nf_citada'
         ?`<button class="btn btn-sm btn-primary" onclick="document.getElementById('rem-pdf').click()"><i class="ti ti-file-upload"></i> Enviar a nota</button><button class="btn btn-sm" onclick="remAbrirNota('${x.nota}')">Ver NF de transferência</button>`
+        :g==='ativo_pend'
+        ?(x.ativo?`<button class="btn btn-sm btn-primary" onclick="remIrAtivo('${x.ativo}')">Regularizar no Ativo GTEL</button>`:`<button class="btn btn-sm btn-primary" onclick="remIrAtivoLista()">Ir ao Ativo GTEL</button>`)+`<button class="btn btn-sm" onclick="remAbrirHistorico('${x.item}')"><i class="ti ti-history"></i> Ver histórico</button>`
         :`${g==='nao_voltou'?`<button class="btn btn-sm btn-primary" onclick="remAbrirBaixa('${x.item}')">Dar baixa</button>`:''}<button class="btn btn-sm" onclick="remAbrirHistorico('${x.item}')"><i class="ti ti-history"></i> Ver histórico</button>`;
       return `<div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid ${c.cor};border-radius:8px;padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;gap:14px;align-items:center;flex-wrap:wrap">
         <div style="flex:1 1 380px;min-width:0">
