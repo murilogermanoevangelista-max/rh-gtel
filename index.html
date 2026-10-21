@@ -1633,7 +1633,7 @@ function remFiltrosHTML(){
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
       <div style="flex:2 1 260px"><label class="grd-lbl">Buscar (item, código, patrimônio, série, nº da nota)</label><input value="${escHtml(f.q)}" placeholder="ex.: terrômetro, 001798, 121175, tubo PU…" oninput="remSetFiltro('q',this.value,true)"></div>
       <div style="flex:1 1 220px"><label class="grd-lbl">Obra (onde o item está)</label><select class="filter-select" style="width:100%" onchange="remSetFiltro('obra',this.value)"><option value="">Todas as obras</option>${opObras}</select></div>
-      <div style="flex:0 1 160px"><label class="grd-lbl">Tipo</label><select class="filter-select" style="width:100%" onchange="remSetFiltro('tipo',this.value)"><option value="">Todos</option><option value="retornavel" ${f.tipo==='retornavel'?'selected':''}>Retornável</option><option value="consumo" ${f.tipo==='consumo'?'selected':''}>Consumo</option></select></div>
+      <div style="flex:0 1 160px"><label class="grd-lbl">Tipo</label><select class="filter-select" style="width:100%" onchange="remSetFiltro('tipo',this.value)"><option value="">Todos</option><option value="retornavel" ${f.tipo==='retornavel'?'selected':''}>Equipamento (deve voltar)</option><option value="consumo" ${f.tipo==='consumo'?'selected':''}>Material de consumo</option></select></div>
       <div style="flex:0 1 170px"><label class="grd-lbl">Saldo</label><select class="filter-select" style="width:100%" onchange="remSetFiltro('saldo',this.value)"><option value="com" ${f.saldo==='com'?'selected':''}>Com saldo</option><option value="zero" ${f.saldo==='zero'?'selected':''}>Baixados (saldo zero)</option><option value="" ${f.saldo===''?'selected':''}>Todos</option></select></div>
       <button class="btn btn-sm" onclick="remLimparFiltros()">Limpar</button>
     </div></div>
@@ -1643,7 +1643,9 @@ function remAtualizarLista(){
   const box=document.getElementById('rem-lista');if(!box)return;
   box.innerHTML=remAba==='notas'?remNotasHTML():remItensHTML();
 }
-function remBadgeTipo(t){return t==='retornavel'?'<span class="badge badge-blue">Retornável</span>':'<span class="badge badge-amber">Consumo</span>';}
+function remBadgeTipo(t){return t==='retornavel'
+  ?'<span class="badge badge-blue" title="Equipamento ou ferramenta (tem patrimônio) que deve voltar para a GTEL. A baixa é devolução ou transferência.">Equipamento</span>'
+  :'<span class="badge badge-amber" title="Material gasto na obra (tubos, conexões, parafusos…). A baixa é consumo.">Consumo</span>';}
 
 function remNotasHTML(){
   const itens=remItensFiltrados();
@@ -1663,7 +1665,7 @@ function remNotasHTML(){
       <td>${escHtml(remOrigemTxt(n)||'—')}${n.nota_referenciada?`<div style="font-size:11px;color:var(--text-muted)">ref. NF ${escHtml(n.nota_referenciada)}</div>`:''}</td>
       <td style="text-align:right">${its.length}</td>
       <td style="text-align:right;white-space:nowrap">${remFmtBRL(n.valor_total)}</td>
-      <td style="text-align:right">${comSaldo.length?`<strong>${comSaldo.length}</strong>${retorn?` <span class="badge badge-blue" title="retornáveis com saldo">${retorn} retorn.</span>`:''}`:'<span class="badge badge-green">tudo baixado</span>'}</td></tr>`;
+      <td style="text-align:right">${comSaldo.length?`<strong>${comSaldo.length}</strong>${retorn?` <span class="badge badge-blue" title="equipamentos que ainda estão na obra">${retorn} equip.</span>`:''}`:'<span class="badge badge-green">tudo baixado</span>'}</td></tr>`;
   }).join('');
   return `<div class="table-container"><table><thead><tr><th>Nota</th><th>Emissão</th><th>Obra</th><th>Tipo</th><th>Origem</th><th style="text-align:right">Itens</th><th style="text-align:right">Valor da nota</th><th style="text-align:right">Com saldo</th></tr></thead><tbody>${linhas}</tbody></table></div>`;
 }
@@ -1751,7 +1753,7 @@ function remObraHTML(){
     const totalObra=its.reduce((s,i)=>s+remValSaldo(i),0);
     return `<details style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);margin-bottom:10px">
       <summary style="cursor:pointer;padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><strong style="color:var(--primary-dark)">${escHtml(remObraNome(id))}</strong>
-        <span class="badge badge-blue">${ret} retornável(is)</span><span class="badge badge-amber">${con} de consumo</span><span style="margin-left:auto;font-size:13px">Valor em saldo: <strong>${remFmtBRL(totalObra)}</strong></span></summary>
+        <span class="badge badge-blue" title="Equipamentos e ferramentas que devem voltar">${ret} equipamento(s) a devolver</span><span class="badge badge-amber" title="Material gasto na obra">${con} de consumo</span><span style="margin-left:auto;font-size:13px">Valor em saldo: <strong>${remFmtBRL(totalObra)}</strong></span></summary>
       <div style="padding:0 16px 14px"><div style="margin-bottom:8px"><button class="btn btn-sm" onclick="remAbrirLote('${id}',null)"><i class="ti ti-checks"></i> Baixa de consumo em lote</button></div>
       <div class="table-container"><table><thead><tr><th>Item</th><th>Tipo</th><th>Nota</th><th style="text-align:right">Saldo</th><th style="text-align:right">Valor do saldo</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div></div></details>`;
   }).join('');
@@ -1761,31 +1763,63 @@ function remObraHTML(){
 function remPendencias(){
   const p=[];
   const hoje=Date.now();
-  // 1) retornáveis com saldo parados há mais de 90 dias
+  // 1) equipamentos (devem voltar) com saldo há mais de 90 dias
   remItens.filter(i=>i.tipo==='retornavel'&&remSaldo(i)>0).forEach(i=>{
     const n=remNotaDe(i);if(!n||!n.data_emissao)return;
     const dias=Math.floor((hoje-new Date(n.data_emissao+'T12:00:00').getTime())/86400000);
-    if(dias>90)p.push({nivel:'warning',txt:`<strong>${escHtml(i.descricao)}</strong>${i.patrimonio?' (Pat. '+escHtml(i.patrimonio)+')':''} está há ${dias} dias em ${escHtml(remObraNome(i.obra_atual_id))} (NF ${escHtml(n.numero)}) e ainda não voltou.`,item:i.id});
+    if(dias>90)p.push({grupo:'nao_voltou',item:i.id,
+      titulo:i.descricao+(i.patrimonio?' · Pat. '+i.patrimonio:''),
+      detalhe:`Está em ${remObraNome(i.obra_atual_id)} há ${dias} dias, desde a NF ${n.numero} (emitida em ${formatDate(n.data_emissao)}).`,
+      acao:'Quando o equipamento voltar ou seguir para outra obra, dê baixa informando a NF.'});
   });
-  // 2) transferências cuja nota referenciada não está cadastrada
+  // 2) notas citadas por transferências e que não foram lançadas
+  const citadas={};
   remRemessas.filter(n=>n.tipo_nota==='transferencia'&&n.nota_referenciada).forEach(n=>{
     if(!remRemessas.some(x=>String(x.numero)===String(n.nota_referenciada)))
-      p.push({nivel:'info',txt:`A NF de transferência <strong>${escHtml(n.numero)}</strong> cita a NF <strong>${escHtml(n.nota_referenciada)}</strong>, que ainda não foi lançada aqui.`,nota:n.id});
+      p.push({grupo:'nf_citada',nota:n.id,
+        titulo:'NF '+n.nota_referenciada+' ainda não foi lançada',
+        detalhe:`A NF de transferência ${n.numero} diz que o equipamento veio da NF ${n.nota_referenciada}, e essa nota não está no sistema.`,
+        acao:`Envie o PDF ou XML da NF ${n.nota_referenciada} para completar o histórico do equipamento.`});
   });
-  // 3) mesmo patrimônio com saldo em mais de uma linha
+  // 3) mesmo patrimônio com saldo em mais de um lugar
   const vistos={};
   remItens.filter(i=>i.patrimonio&&remSaldo(i)>0).forEach(i=>{(vistos[normMatricula(i.patrimonio)]=vistos[normMatricula(i.patrimonio)]||[]).push(i);});
   Object.values(vistos).filter(g=>g.length>1).forEach(g=>
-    p.push({nivel:'danger',txt:`O patrimônio <strong>${escHtml(g[0].patrimonio)}</strong> aparece com saldo em ${g.length} lugares ao mesmo tempo (${g.map(i=>escHtml(remObraNome(i.obra_atual_id))).join(' e ')}). Falta dar baixa em alguma nota.`,item:g[0].id}));
+    p.push({grupo:'duplicado',item:g[0].id,
+      titulo:'Patrimônio '+g[0].patrimonio+' aparece em '+g.length+' lugares ao mesmo tempo',
+      detalhe:g.map(i=>remObraNome(i.obra_atual_id)).join(' e '),
+      acao:'O equipamento só pode estar em um lugar. Dê baixa na obra de onde ele já saiu.'}));
   return p;
 }
+const REM_GRUPOS_PEND={
+  duplicado:{ord:0,titulo:'Equipamento em dois lugares ao mesmo tempo',sub:'Algo ficou sem baixa. Corrija primeiro.',cor:'#991B1B',bg:'#FEF2F2',bd:'#FCA5A5',ic:'ti-copy'},
+  nao_voltou:{ord:1,titulo:'Equipamentos que ainda não voltaram',sub:'Equipamentos com mais de 90 dias fora, sem devolução nem transferência registrada.',cor:'#92400E',bg:'#FFFBEB',bd:'#FCD34D',ic:'ti-clock-exclamation'},
+  nf_citada:{ord:2,titulo:'Notas citadas que não foram lançadas',sub:'Informativo: ajuda a completar o histórico, não trava nada.',cor:'#1E40AF',bg:'#EFF6FF',bd:'#BFDBFE',ic:'ti-file-search'},
+};
 function remPendHTML(){
   const p=remPendencias();
   if(!p.length)return '<div class="empty-state"><i class="ti ti-circle-check"></i>Nenhuma pendência. Tudo em dia.</div>';
-  const cor={danger:['#FEF2F2','#FCA5A5','#991B1B'],warning:['#FFFBEB','#FCD34D','#92400E'],info:['#EFF6FF','#BFDBFE','#1E40AF']};
-  return p.map(x=>{const c=cor[x.nivel];
-    const bt=x.item?`<button class="btn btn-sm" onclick="remAbrirHistorico('${x.item}')">Ver</button>`:`<button class="btn btn-sm" onclick="remAbrirNota('${x.nota}')">Ver nota</button>`;
-    return `<div style="background:${c[0]};border:1px solid ${c[1]};color:${c[2]};border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;justify-content:space-between;gap:12px;align-items:center;font-size:13px"><span>${x.txt}</span>${bt}</div>`;}).join('');
+  const grupos=Object.keys(REM_GRUPOS_PEND).sort((a,b)=>REM_GRUPOS_PEND[a].ord-REM_GRUPOS_PEND[b].ord).filter(g=>p.some(x=>x.grupo===g));
+  const precisam=p.filter(x=>x.grupo!=='nf_citada').length;
+  const resumo=`<div style="font-size:13.5px;margin-bottom:14px"><strong>${p.length} pendência(s)</strong> · ${precisam} precisa(m) de ação${p.length-precisam?` · ${p.length-precisam} informativa(s)`:''}</div>`;
+  return resumo+grupos.map(g=>{
+    const c=REM_GRUPOS_PEND[g],its=p.filter(x=>x.grupo===g);
+    const cards=its.map(x=>{
+      const bts=g==='nf_citada'
+        ?`<button class="btn btn-sm btn-primary" onclick="document.getElementById('rem-pdf').click()"><i class="ti ti-file-upload"></i> Enviar a nota</button><button class="btn btn-sm" onclick="remAbrirNota('${x.nota}')">Ver NF de transferência</button>`
+        :`${g==='nao_voltou'?`<button class="btn btn-sm btn-primary" onclick="remAbrirBaixa('${x.item}')">Dar baixa</button>`:''}<button class="btn btn-sm" onclick="remAbrirHistorico('${x.item}')"><i class="ti ti-history"></i> Ver histórico</button>`;
+      return `<div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid ${c.cor};border-radius:8px;padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;gap:14px;align-items:center;flex-wrap:wrap">
+        <div style="flex:1 1 380px;min-width:0">
+          <div style="font-weight:700;font-size:14px;color:var(--primary-dark)">${escHtml(x.titulo)}</div>
+          <div style="font-size:13px;margin-top:2px">${escHtml(x.detalhe)}</div>
+          <div style="font-size:12.5px;color:var(--text-muted);margin-top:4px"><strong>O que fazer:</strong> ${escHtml(x.acao)}</div></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${bts}</div></div>`;
+    }).join('');
+    return `<div style="margin-bottom:20px">
+      <div style="background:${c.bg};border:1px solid ${c.bd};color:${c.cor};border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px">
+        <i class="ti ${c.ic}" style="font-size:20px"></i>
+        <div><div style="font-weight:700">${c.titulo} <span style="font-weight:600">(${its.length})</span></div><div style="font-size:12.5px;opacity:.9">${c.sub}</div></div></div>${cards}</div>`;
+  }).join('');
 }
 
 // ─── DETALHE DA NOTA ─────────────────────────────────────────────────────────
@@ -2063,7 +2097,7 @@ function remDesenharConferencia(){
     <td><input value="${escHtml(it.unidade||'')}" style="width:52px" oninput="remConf.itens[${k}].unidade=this.value"></td>
     <td><input value="${it.quantidade??''}" inputmode="decimal" style="width:80px;text-align:right" oninput="remConf.itens[${k}].quantidade=remNum(this.value);remConfChecar()"></td>
     <td><input value="${it.valor_unitario??''}" inputmode="decimal" style="width:92px;text-align:right" oninput="remConf.itens[${k}].valor_unitario=remNum(this.value);remConfChecar()"></td>
-    <td><select onchange="remConf.itens[${k}].tipo=this.value"><option value="consumo" ${it.tipo==='consumo'?'selected':''}>Consumo</option><option value="retornavel" ${it.tipo==='retornavel'?'selected':''}>Retornável</option></select></td>
+    <td><select onchange="remConf.itens[${k}].tipo=this.value"><option value="consumo" ${it.tipo==='consumo'?'selected':''}>Material de consumo</option><option value="retornavel" ${it.tipo==='retornavel'?'selected':''}>Equipamento (deve voltar)</option></select></td>
     <td><input value="${escHtml(it.patrimonio||'')}" style="width:88px" placeholder="—" oninput="remConf.itens[${k}].patrimonio=this.value.trim();remConfAtivoCol(${k})"></td>
     <td><input value="${escHtml(it.serie_equip||'')}" style="width:100px" placeholder="—" oninput="remConf.itens[${k}].serie_equip=this.value.trim()"></td>
     <td id="rc-ativo-${k}" style="font-size:11.5px;min-width:120px"></td>
@@ -2089,7 +2123,8 @@ function remDesenharConferencia(){
         <div class="form-group" style="grid-column:span 3"><label>Observação / informações complementares</label><input value="${escHtml(c.observacao||'')}" oninput="remConf.observacao=this.value"></div>
       </div>
       <div style="overflow-x:auto"><table class="table"><thead><tr><th>Código</th><th>Descrição</th><th>Un.</th><th>Qtd.</th><th>V. unit.</th><th>Tipo</th><th>Patrimônio</th><th>Série</th><th>Ativo GTEL</th><th></th></tr></thead><tbody id="rc-itens">${linhas}</tbody></table></div>
-      <div style="margin:8px 0 12px"><button class="btn btn-sm" onclick="remConfAdd()"><i class="ti ti-plus"></i> Adicionar item</button></div>
+      <div style="margin:8px 0 12px;display:flex;gap:14px;align-items:center;flex-wrap:wrap"><button class="btn btn-sm" onclick="remConfAdd()"><i class="ti ti-plus"></i> Adicionar item</button>
+        <span style="font-size:12px;color:var(--text-muted)"><strong>Equipamento</strong> = ferramenta ou equipamento com patrimônio, que deve voltar. <strong>Material de consumo</strong> = gasto na obra (tubos, conexões…).</span></div>
       <div id="rc-checks"></div>
     </div>
     <div class="modal-footer">${remFila.length?`<button class="btn" style="margin-right:auto" onclick="remConfCancelarTodas()">Cancelar as ${remFila.length+1} restantes</button>`:''}<button class="btn" onclick="remConfPular()">${remFila.length?'Pular esta nota':'Cancelar'}</button>
