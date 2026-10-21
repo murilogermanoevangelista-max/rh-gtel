@@ -1593,10 +1593,11 @@ function renderRemessas(){
   const el=document.getElementById('main-content');
   if(remErroTabela){
     const faltaTabela=/could not find the table|does not exist|schema cache|PGRST205|42P01/i.test(remErroTabela);
+    const somenteLeitura=/read-only transaction/i.test(remErroTabela);
     el.innerHTML=`<div class="page-header"><div><div class="page-title">Notas de Remessa</div></div></div>
       <div style="background:var(--warning-light);border:1px solid #E7CFA0;border-radius:var(--radius-lg);padding:18px 20px;color:#6B4A0E">
-      <strong>${faltaTabela?'As tabelas do módulo Notas de Remessa ainda não existem no banco.':'Não foi possível carregar as notas de remessa.'}</strong><br>
-      ${faltaTabela?'Rode o script <code>sql_notas_remessa.sql</code> no SQL Editor do Supabase e abra esta tela de novo.':'Tente novamente. Se continuar, envie o detalhe abaixo para quem cuida do sistema.'}<br>
+      <strong>${faltaTabela?'As tabelas do módulo Notas de Remessa ainda não existem no banco.':somenteLeitura?'O banco recusou a leitura por causa da regra de segurança das tabelas de Notas de Remessa.':'Não foi possível carregar as notas de remessa.'}</strong><br>
+      ${faltaTabela?'Rode o script <code>sql_notas_remessa.sql</code> no SQL Editor do Supabase e abra esta tela de novo.':somenteLeitura?'Rode o script <code>sql_notas_remessa_corrigir_politicas.sql</code> no SQL Editor do Supabase e abra esta tela de novo.':'Tente novamente. Se continuar, envie o detalhe abaixo para quem cuida do sistema.'}<br>
       <span style="font-size:12px;opacity:.8">Detalhe: ${escHtml(remErroTabela)}</span></div>`;
     return;
   }
@@ -2040,6 +2041,7 @@ function remAbrirConferencia(d,info){
     else if(d.origem_obra_txt){remConf.origem_sel='__ext';remConf.origem_ext=d.origem_obra_txt;}
     else if(d.origem){remConf.origem_sel='__ext';remConf.origem_ext=d.origem;}
   }
+  if(remConf.tipo_nota==='transferencia'&&remConf.origem_sel==='__ext')remConf.origem_sel='';
   remDesenharConferencia();
 }
 function remDesenharConferencia(){
@@ -2066,14 +2068,15 @@ function remDesenharConferencia(){
       <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px 14px;margin-bottom:12px">
         ${inp('numero','Nº da nota *')}${inp('serie','Série')}
         <div class="form-group"><label>Emissão *</label><input type="date" value="${escHtml(c.data_emissao||'')}" onchange="remConf.data_emissao=this.value"></div>
-        <div class="form-group"><label>Obra de destino da nota *${c.sugerida?' <span style="color:#166534;font-weight:400">(sugerida pela nota, confira)</span>':''}</label><select onchange="remConf.obra_id=this.value;remConf.sugerida=false;remConfChecar();remConfAtivoTodos()"><option value="">— Selecione —</option>${obrasOpt}</select></div>
+        <div class="form-group"><label>${c.tipo_nota==='transferencia'?'Obra de destino *':'Obra que recebeu o material *'}${c.sugerida?' <span style="color:#166534;font-weight:400">(sugerida pela nota, confira)</span>':''}</label><select onchange="remConf.obra_id=this.value;remConf.sugerida=false;remConfChecar();remConfAtivoTodos()"><option value="">— Selecione —</option>${obrasOpt}</select></div>
         ${inp('natureza','Natureza da operação')}${inp('cfop','CFOP')}
-        <div class="form-group"><label>Tipo da nota</label><select onchange="remConf.tipo_nota=this.value"><option value="remessa" ${c.tipo_nota==='remessa'?'selected':''}>Remessa</option><option value="transferencia" ${c.tipo_nota==='transferencia'?'selected':''}>Transferência</option></select></div>
+        <div class="form-group"><label>Tipo da nota</label><select onchange="remConf.tipo_nota=this.value;if(this.value==='transferencia'&&remConf.origem_sel==='__ext')remConf.origem_sel='';remDesenharConferencia()"><option value="remessa" ${c.tipo_nota==='remessa'?'selected':''}>Remessa</option><option value="transferencia" ${c.tipo_nota==='transferencia'?'selected':''}>Transferência</option></select></div>
         <div class="form-group"><label>Valor total da nota (R$)</label><input value="${c.valor_total??''}" inputmode="decimal" oninput="remConf.valor_total=remNum(this.value);remConfChecar()"></div>
         ${inp('chave','Chave de acesso (44 dígitos) *','style="grid-column:span 2"')}
-        <div class="form-group" style="grid-column:span 2"><label>Obra de origem${c.origem_sel&&c.origem_sel!=='__ext'?' <span style="color:#166534;font-weight:400">(sugerida pela nota, confira)</span>':''}</label>
-          <select onchange="remConf.origem_sel=this.value;document.getElementById('rc-orig-ext').style.display=this.value==='__ext'?'':'none'"><option value="">— Selecione —</option>${origOpt}<option value="__ext" ${c.origem_sel==='__ext'?'selected':''}>Outra origem (fornecedor, cliente, sede…)</option></select>
-          <input id="rc-orig-ext" style="margin-top:6px;display:${c.origem_sel==='__ext'?'':'none'}" placeholder="Quem enviou" value="${escHtml(c.origem_ext||'')}" oninput="remConf.origem_ext=this.value"></div>
+        ${c.tipo_nota==='transferencia'?`<div class="form-group" style="grid-column:span 2"><label>Obra de origem *${c.origem_sel?' <span style="color:#166534;font-weight:400">(sugerida pela nota, confira)</span>':''}</label>
+          <select onchange="remConf.origem_sel=this.value"><option value="">— Selecione —</option>${origOpt}</select>
+          ${!c.origem_sel&&c.origem_ext?`<div style="font-size:11.5px;color:var(--text-muted)">A nota cita: ${escHtml(c.origem_ext)}</div>`:''}</div>`
+        :`<div class="form-group" style="grid-column:span 2"><label>Enviado por (fornecedor, sede…)</label><input value="${escHtml(c.origem_ext||'')}" oninput="remConf.origem_ext=this.value"></div>`}
         ${inp('nota_referenciada','Nota referenciada (nº)')}
         <div class="form-group" style="grid-column:span 3"><label>Observação / informações complementares</label><input value="${escHtml(c.observacao||'')}" oninput="remConf.observacao=this.value"></div>
       </div>
@@ -2106,7 +2109,7 @@ function remConfAtivoCol(k){
   const it=remConf.itens[k];
   if(!it.patrimonio){td.innerHTML='<span style="color:var(--text-muted)">—</span>';return;}
   const a=remAtivoDoPat(it.patrimonio);
-  if(!a)td.innerHTML='<span class="badge badge-amber">não cadastrado</span>';
+  if(!a)td.innerHTML='<span class="badge badge-amber">será cadastrado</span><div style="color:var(--text-muted)">com pendências</div>';
   else if(remConf.obra_id&&String(a.obra_id)!==String(remConf.obra_id))td.innerHTML=`<span class="badge badge-green">encontrado</span><div style="color:#92400E">hoje em ${escHtml(remObraNome(a.obra_id))}</div>`;
   else td.innerHTML='<span class="badge badge-green">encontrado</span>';
 }
@@ -2145,7 +2148,11 @@ async function remConfSalvar(){
   if(String(Number(c.numero))!==String(Number(chave.slice(25,34)))){erro('O número da nota não bate com a chave de acesso.');return;}
   if(c.serie&&String(Number(c.serie))!==String(Number(chave.slice(22,25)))){erro('A série não bate com a chave de acesso.');return;}
   if(!c.data_emissao){erro('Informe a data de emissão.');return;}
-  if(!c.obra_id){erro('Escolha a obra de destino da nota.');return;}
+  if(!c.obra_id){erro(c.tipo_nota==='transferencia'?'Escolha a obra de destino.':'Escolha a obra que recebeu o material.');return;}
+  if(c.tipo_nota==='transferencia'){
+    if(!c.origem_sel||c.origem_sel==='__ext'){erro('Em transferência, escolha a obra de origem.');return;}
+    if(String(c.origem_sel)===String(c.obra_id)){erro('A obra de origem e a de destino são a mesma.');return;}
+  }
   if(remRemessas.some(n=>n.chave_acesso===chave)){erro('Esta nota já está lançada.');return;}
   const itens=c.itens.filter(i=>(i.descricao||'').trim());
   if(!itens.length){erro('Inclua ao menos um item.');return;}
@@ -2157,7 +2164,7 @@ async function remConfSalvar(){
   try{
     const{data:nota,error:e1}=await sb.from('remessas').insert({
       chave_acesso:chave,numero:String(Number(c.numero)),serie:c.serie||null,data_emissao:c.data_emissao,natureza:c.natureza||null,cfop:c.cfop||null,
-      tipo_nota:c.tipo_nota,valor_total:c.valor_total,origem:c.origem_sel==='__ext'?((c.origem_ext||'').trim()||null):null,obra_origem_id:(c.origem_sel&&c.origem_sel!=='__ext')?c.origem_sel:null,nota_referenciada:c.nota_referenciada||null,
+      tipo_nota:c.tipo_nota,valor_total:c.valor_total,origem:c.tipo_nota==='transferencia'?null:((c.origem_ext||'').trim()||null),obra_origem_id:c.tipo_nota==='transferencia'?c.origem_sel:null,nota_referenciada:c.nota_referenciada||null,
       obra_id:c.obra_id,observacao:c.observacao||null,criado_por:remQuem()}).select().single();
     if(e1)throw new Error(e1.code==='23505'?'Esta nota já está lançada.':e1.message);
     const encontrados=[];
@@ -2190,17 +2197,19 @@ async function remPosGravacaoAtivos(nota,criados,encontrados){
       if(error)showToast('Não consegui atualizar '+x.a.descricao+': '+error.message,'error');
     }
   }
+  // Patrimônio que ainda não existe no Ativo GTEL: já é cadastrado automaticamente (os dados que faltam aparecem lá como pendências)
   const novos=criados.filter(i=>i.patrimonio&&!i.ativo_id&&i.tipo==='retornavel');
-  if(novos.length&&confirm(`Estes patrimônios não estão no Ativo GTEL:\n\n${novos.map(i=>'• '+i.descricao+' (Pat. '+i.patrimonio+')').join('\n')}\n\nCadastrar agora, em ${obraNome}?`)){
-    for(const i of novos){
-      const{data:a,error}=await sb.from('ativos_imobilizados').insert({
-        descricao:i.descricao,patrimonio_numero:i.patrimonio,serie_numero:i.serie_equip||null,obra_id:nota.obra_id,status:'em_uso',
-        valor:i.valor_unitario,quantidade:1,nf_remessa_numero:nota.numero}).select().single();
-      if(error){showToast('Não consegui cadastrar '+i.descricao+': '+error.message,'error');continue;}
-      await sb.from('remessa_itens').update({ativo_id:a.id}).eq('id',i.id);
-    }
-    showToast('Ativos cadastrados no Ativo GTEL.');
+  let cad=0;
+  for(const i of novos){
+    const{data:a,error}=await sb.from('ativos_imobilizados').insert({
+      descricao:i.descricao,patrimonio_numero:i.patrimonio,serie_numero:i.serie_equip||null,obra_id:nota.obra_id,status:'em_uso',
+      valor:i.valor_unitario,quantidade:1,nf_remessa_numero:nota.numero,
+      observacoes:'Cadastrado automaticamente pela NF de remessa '+nota.numero+'. Complete os dados pendentes.'}).select().single();
+    if(error){showToast('Não consegui cadastrar '+i.descricao+' no Ativo GTEL: '+error.message,'error');continue;}
+    await sb.from('remessa_itens').update({ativo_id:a.id}).eq('id',i.id);
+    cad++;
   }
+  if(cad)showToast(cad+' equipamento(s) cadastrado(s) no Ativo GTEL, com pendências para completar.');
 }
 
 // ─── BACKUP (somente admin) ──────────────────────────────────────────────────
