@@ -1137,6 +1137,7 @@ const MODULOS=[
   {page:'grd',grupo:'obras',icone:'ti-file-invoice',nome:'G.R.D.',desc:'Guias, fornecedores e valores'},
   {page:'pcmso-pgr',grupo:'patrimonio',icone:'ti-stethoscope',nome:'PCMSO / PGR',desc:'Documentos por obra e datas de atualização'},
   {page:'ativos-imobilizados',grupo:'patrimonio',icone:'ti-package',nome:'Ativo GTEL',desc:'Ferramentas e equipamentos'},
+  {page:'notas-remessa',grupo:'patrimonio',icone:'ti-file-export',nome:'Notas de Remessa',desc:'Materiais e equipamentos enviados às obras'},
   {page:'procedimentos',grupo:'patrimonio',icone:'ti-file-text',nome:'Procedimentos',desc:'Procedimentos e formulários'},
   {page:'cronograma',grupo:'admin',icone:'ti-calendar-check',nome:'Cronograma ADM',desc:'Prazos e cobranças das obras'},
   {page:'empresas',grupo:'admin',icone:'ti-briefcase',nome:'Empresas',desc:'Cadastro de empresas'},
@@ -1254,6 +1255,7 @@ async function showPage(page){
     else if(page==='alojamentos'){alojAba='lista';if(!_vindoDeAlerta)alojFiltroAtivo=null;bannerNaoLancadasAberto=false;bannerFiltroObra='';bannerRelatoriosAberto=false;bannerRelatoriosFiltroObra='';await loadAlojamentos();await loadPrestadores();renderAlojamentos();}
     else if(page==='veiculos'){await loadVeiculos();renderVeiculos();verificarKmAtrasadaVeiculos();}
     else if(page==='ativos-imobilizados'){await loadAtivosImobilizados();await loadFornecedores();renderAtivosImobilizados();}
+    else if(page==='notas-remessa'){await remCarregar();renderRemessas();}
     else if(page==='procedimentos'){procTipoAberto='';procBusca='';procFiltroSemArquivo=false;await loadProcedimentos();renderProcedimentos();}
     else if(page==='grd'){await loadGRD();renderGRD();}
     else if(page==='cronograma'){cronoFiltroStatus=null;await cronoCarregarTudo();renderCronograma();}
@@ -1287,6 +1289,836 @@ function alojOcupantes(a){
 function alojLivres(a){return a.tipo_alojamento==='hotel'?0:Math.max(0,(a.vagas_total||0)-alojOcupantes(a));}
 function alojExcesso(a){return a.tipo_alojamento==='hotel'?0:Math.max(0,alojOcupantes(a)-(a.vagas_total||0));}
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// NOTAS DE REMESSA — controle de materiais e equipamentos enviados às obras
+// Tabelas: remessas · remessa_itens · remessa_movimentos (script sql_notas_remessa.sql)
+// • O PDF da nota é lido no navegador e NÃO é arquivado: só os dados e a chave de acesso.
+// • Controle por quantidade. Saldo = enviado − baixas não estornadas (sempre calculado, nunca gravado).
+// • Baixa nunca é apagada: é estornada (fica o registro de quem fez e quando).
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// <<PARSER-INICIO>>
+// Converte "1.711,88" → 1711.88
+function remNum(s){
+  if(s==null)return null;
+  const t=String(s).trim().replace(/\s/g,'');
+  if(!t)return null;
+  const n=t.includes(',')?parseFloat(t.replace(/\./g,'').replace(',','.')):parseFloat(t);
+  return isNaN(n)?null:n;
+}
+function remSemAcento(t){return String(t||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase();}
+// Dígito verificador da chave de acesso (módulo 11, pesos 2..9 da direita para a esquerda)
+function remChaveDV(c43){
+  let soma=0,peso=2;
+  for(let i=c43.length-1;i>=0;i--){soma+=Number(c43[i])*peso;peso=peso===9?2:peso+1;}
+  const r=soma%11;return r<2?0:11-r;
+}
+function remChaveValida(chave){
+  return /^\d{44}$/.test(chave||'')&&remChaveDV(chave.slice(0,43))===Number(chave[43]);
+}
+// "rows": lista de linhas do PDF, na ordem de leitura. Cada linha = {p:página, its:[{x,s}] ordenados por x}.
+// Layout esperado: DANFE padrão (inclusive o gerado pelo TOTVS da GTEL). Nunca bloqueia: o que não achar fica em branco
+// para o usuário completar na tela de conferência.
+function remParsearRows(rows){
+  const txt=r=>r.its.map(i=>i.s).join(' ').trim();
+  const T=rows.map(r=>remSemAcento(txt(r)));
+  const out={chave:'',numero:'',serie:'',data_emissao:'',natureza:'',cfop:'',valor_total:null,origem:'',nota_referenciada:'',observacao:'',tipo_nota:'remessa',itens:[],avisos:[]};
+
+  // chave de acesso: 11 grupos de 4 dígitos
+  for(let i=0;i<rows.length&&!out.chave;i++){
+    const m=txt(rows[i]).match(/(?:\d{4}\s+){10}\d{4}/);
+    if(m)out.chave=m[0].replace(/\s+/g,'');
+  }
+  if(out.chave.length===44){
+    out.serie=String(Number(out.chave.slice(22,25)));
+    out.numero=String(Number(out.chave.slice(25,34)));
+  }else{
+    for(let i=0;i<rows.length;i++){const m=txt(rows[i]).match(/N[.º°]\s*0*(\d{1,9})\b/);if(m){out.numero=m[1];break;}}
+    out.avisos.push('Não encontrei a chave de acesso (44 dígitos) no PDF. Digite-a abaixo.');
+  }
+  const idxLabel=(re,de=0)=>{for(let i=de;i<T.length;i++)if(re.test(T[i]))return i;return -1;};
+
+  // natureza da operação
+  let i=idxLabel(/NATUREZA DA OPERACAO/);
+  if(i>=0&&rows[i+1])out.natureza=rows[i+1].its.filter(t=>t.x<340).map(t=>t.s).join(' ').trim();
+  // data de emissão
+  i=idxLabel(/DATA DE EMISSAO/);
+  if(i>=0)for(let k=i+1;k<=i+2&&k<rows.length;k++){
+    const d=rows[k].its.filter(t=>/^\d{2}\/\d{2}\/\d{4}$/.test(t.s.trim())).sort((a,b)=>b.x-a.x)[0];
+    if(d){const [dd,mm,aa]=d.s.trim().split('/');out.data_emissao=`${aa}-${mm}-${dd}`;break;}
+  }
+  // valor total da nota
+  i=idxLabel(/VALOR TOTAL DA NOTA/);
+  if(i>=0&&rows[i+1]){const its=rows[i+1].its;out.valor_total=remNum(its[its.length-1].s);}
+
+  // itens
+  let dentro=false,atual=null;
+  const fecha=()=>{if(atual){out.itens.push(atual);atual=null;}};
+  for(let k=0;k<rows.length;k++){
+    const t=T[k];
+    if(/COD\.? ?PROD/.test(t)&&/NCM/.test(t)){dentro=true;continue;}
+    if(!dentro)continue;
+    if(/^(CALCULO DO ISSQN|DADOS ADICIONAIS|INFORMACOES COMPLEMENTARES)/.test(t)){fecha();dentro=false;continue;}
+    if(/^[-\s.]+$/.test(t))continue;
+    const its=rows[k].its;
+    const ncm=its.findIndex(x=>x.x>150&&/^\d{8}$/.test(x.s.trim()));
+    if(ncm>=0){
+      fecha();
+      const apos=its.slice(ncm+1).map(x=>x.s.trim());
+      const cf=apos.findIndex(s=>/^\d{4}$/.test(s));
+      const un=cf>=0?apos[cf+1]:'';
+      const nums=cf>=0?apos.slice(cf+2).filter(s=>/^[\d.]+,\d+$|^\d+$/.test(s)):[];
+      atual={
+        codigo:its.filter(x=>x.x<60).map(x=>x.s.trim()).join(''),
+        descricao:its.filter(x=>x.x>=60&&x.x<its[ncm].x-1).map(x=>x.s.trim()).join(' '),
+        ncm:its[ncm].s.trim(),
+        cfop:cf>=0?apos[cf]:'',
+        unidade:/^[A-Za-zÇç.]{1,6}$/.test(un||'')?un.toUpperCase():'',
+        quantidade:remNum(nums[0]),
+        valor_unitario:remNum(nums[1]),
+        valor_total:remNum(nums[2]),
+      };
+    }else if(atual){
+      const cod=its.filter(x=>x.x<60).map(x=>x.s.trim()).join('');
+      const dsc=its.filter(x=>x.x>=60&&x.x<240).map(x=>x.s.trim()).join(' ');
+      if(cod)atual.codigo+=cod;
+      if(dsc)atual.descricao+=' '+dsc;
+    }
+  }
+  fecha();
+  if(!out.itens.length)out.avisos.push('Não consegui ler os itens deste PDF (pode ser escaneado ou de outro layout). Lance os itens manualmente.');
+  out.cfop=out.itens[0]?.cfop||'';
+
+  // informações complementares (só a coluna da esquerda; a da direita é "reservado ao fisco")
+  i=idxLabel(/INFORMACOES COMPLEMENTARES/);
+  if(i>=0){
+    const p=rows[i].p;const parts=[];
+    for(let k=i+1;k<rows.length&&rows[k].p===p;k++){
+      const s=rows[k].its.filter(t=>t.x<340).map(t=>t.s).join(' ').trim();
+      if(!s||/^Protocolo:/i.test(s))continue;
+      parts.push(s);
+    }
+    out.observacao=parts.join(' ').replace(/\s+/g,' ').trim();
+  }
+  const comp=out.observacao;
+  // nota referenciada: "CONFORME NOTA FISCAL [DE RETORNO] 121059"
+  const mRef=comp.match(/CONFORME\s+(?:A\s+)?(?:NOTA\s+FISCAL|NF-?E?|NF)\s*(?:DE\s+\w+\s+)?(?:N[º°.]*\s*)?(\d{3,9})/i);
+  if(mRef)out.nota_referenciada=mRef[1];
+  // origem: primeira "RAZÃO SOCIAL - CNPJ: ..." das complementares
+  const mOr=comp.match(/([A-ZÀ-Ú0-9][A-ZÀ-Ú0-9 .&\/-]{3,60}?)\s+-\s+CNPJ:\s*([\d.\/-]{14,18})/i);
+  if(mOr)out.origem=mOr[1].replace(/^.*?(?:PARA|DE)\s+(?=[A-Z])/,'').trim()+' (CNPJ '+mOr[2]+')';
+  if(/TRANSF/i.test(out.natureza+' '+comp))out.tipo_nota='transferencia';
+
+  // patrimônio e série do equipamento (da descrição; série completada pelas informações complementares)
+  const reSerieComp=/S[ÉE]RIE\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-\/]+)/gi;
+  const seriesComp=[...comp.matchAll(reSerieComp)].map(m=>m[1]);
+  const patsComp=[...comp.matchAll(/PAT(?:RIM[ÔO]NIO)?\.?\s*(?:N[º°.]*\s*)?[:\-]?\s*(\d{3,})/gi)].map(m=>m[1]);
+  out.itens.forEach(it=>{
+    it.descricao=it.descricao.replace(/\s+/g,' ').trim();
+    const mp=it.descricao.match(/PAT(?:RIM[ÔO]NIO)?\.?\s*(?:N[º°.]*\s*)?[:\-]?\s*(\d{3,})/i);
+    it.patrimonio=mp?mp[1]:(out.itens.length===1&&patsComp.length===1?patsComp[0]:'');
+    it.serie_equip='';
+    const ms=it.descricao.match(/S[ÉE]RIE\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-\/]*)(?:\s+([A-Z0-9]+))?\s*$/i);
+    if(ms){
+      let serie=ms[1];
+      const completa=seriesComp.find(s=>s.length>serie.length&&s.toUpperCase().startsWith(serie.toUpperCase()));
+      if(completa){serie=completa;it.descricao=it.descricao.replace(new RegExp(ms[1].replace(/[-\/]/g,'\\$&')+'\\s+'+completa.slice(ms[1].length)+'\\s*$','i'),completa);}
+      it.serie_equip=serie;
+    }
+    // sugestão de tipo: patrimônio → retornável; CFOP 5554 ou natureza "ativo" → retornável; senão consumo
+    it.tipo=(it.patrimonio||it.cfop==='5554'||/ATIVO/.test(remSemAcento(out.natureza)))?'retornavel':'consumo';
+  });
+  return out;
+}
+// <<PARSER-FIM>>
+
+// Lê o PDF no navegador (pdf.js já usado pelo sistema) e devolve as linhas posicionadas
+async function remLinhasDoPdf(file){
+  await garantirPdfJs();
+  const buf=await file.arrayBuffer();
+  const pdf=await window.pdfjsLib.getDocument({data:buf}).promise;
+  const rows=[];
+  for(let p=1;p<=pdf.numPages;p++){
+    const c=await(await pdf.getPage(p)).getTextContent();
+    const pg=[];
+    c.items.forEach(it=>{
+      if(!String(it.str).trim())return;
+      const y=it.transform[5],x=it.transform[4];
+      let r=pg.find(q=>Math.abs(q.y-y)<2.5);
+      if(!r){r={p,y,its:[]};pg.push(r);}
+      r.its.push({x,s:it.str});
+    });
+    pg.sort((a,b)=>b.y-a.y).forEach(r=>{r.its.sort((a,b)=>a.x-b.x);rows.push(r);});
+  }
+  return rows;
+}
+
+// ─── ESTADO E CARGA ──────────────────────────────────────────────────────────
+let remRemessas=[],remItens=[],remMovs=[];
+let remAba='notas';
+let remFiltro={q:'',obra:'',tipo:'',saldo:'com'};
+let remBuscaAtivo='';
+let remTimer=null;
+let remErroTabela=null;
+
+function remObraNome(id){
+  const o=(obras||[]).find(x=>String(x.id)===String(id));
+  return o?((o.codigo?o.codigo+' · ':'')+o.nome):'—';
+}
+function remPodeVerObra(id){return !obrasPermitidasIds||(id&&obrasPermitidasIds.has(String(id)));}
+function remFmtQtd(n){
+  const v=Number(n)||0;
+  return v.toLocaleString('pt-BR',{maximumFractionDigits:4});
+}
+function remFmtBRL(n){return n==null||n===''?'—':Number(n).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});}
+const REM_TIPO_MOV={transferencia:'Transferência',devolucao:'Devolução',consumo:'Consumo',perda:'Perda / extravio',ajuste:'Ajuste'};
+const REM_COR_MOV={transferencia:'badge-blue',devolucao:'badge-green',consumo:'badge-amber',perda:'badge-red',ajuste:'badge-amber'};
+
+async function remCarregar(){
+  remErroTabela=null;
+  const[a,b,c]=await Promise.all([
+    pagAll(()=>sb.from('remessas').select('*').order('data_emissao',{ascending:false})),
+    pagAll(()=>sb.from('remessa_itens').select('*').order('linha')),
+    pagAll(()=>sb.from('remessa_movimentos').select('*').order('created_at')),
+  ]);
+  const erro=a.error||b.error||c.error;
+  if(erro){remErroTabela=erro.message||'erro desconhecido';remRemessas=[];remItens=[];remMovs=[];return;}
+  let itens=b.data||[],notas=a.data||[],movs=c.data||[];
+  if(obrasPermitidasIds){
+    itens=itens.filter(i=>remPodeVerObra(i.obra_atual_id));
+    const idsNota=new Set(itens.map(i=>String(i.remessa_id)));
+    notas=notas.filter(n=>remPodeVerObra(n.obra_id)||idsNota.has(String(n.id)));
+    const idsItem=new Set(itens.map(i=>String(i.id)));
+    movs=movs.filter(m=>idsItem.has(String(m.item_id)));
+  }
+  remRemessas=notas;remItens=itens;remMovs=movs;
+  try{if(!ativosImob||!ativosImob.length)await loadAtivosImobilizados();}catch(e){console.warn('Ativos não carregados para o módulo de remessas:',e);}
+}
+function remMovsDoItem(id,incluirEstornados){
+  return remMovs.filter(m=>String(m.item_id)===String(id)&&(incluirEstornados||!m.estornado));
+}
+function remSaldo(it){
+  return Number(it.quantidade)-remMovsDoItem(it.id).reduce((s,m)=>s+Number(m.quantidade),0);
+}
+function remNotaDe(it){return remRemessas.find(n=>String(n.id)===String(it.remessa_id));}
+function remQuem(){return currentUser?.nome||currentUser?.usuario||'—';}
+function remDataHora(ts){
+  if(!ts)return'—';const d=new Date(ts);if(isNaN(d))return'—';
+  return d.toLocaleDateString('pt-BR')+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+}
+function remTextoBusca(it){
+  const n=remNotaDe(it)||{};
+  return _semAcento([it.codigo,it.descricao,it.patrimonio,it.serie_equip,n.numero,n.chave_acesso,n.natureza,n.origem].join(' '));
+}
+function remItensFiltrados(extra){
+  const f=remFiltro,q=_semAcento(f.q).trim();
+  return remItens.filter(it=>{
+    if(f.obra&&String(it.obra_atual_id)!==String(f.obra))return false;
+    if(f.tipo&&it.tipo!==f.tipo)return false;
+    const s=remSaldo(it);
+    if(f.saldo==='com'&&s<=0)return false;
+    if(f.saldo==='zero'&&s>0)return false;
+    if(q&&!remTextoBusca(it).includes(q))return false;
+    return extra?extra(it):true;
+  });
+}
+
+// ─── TELA PRINCIPAL ──────────────────────────────────────────────────────────
+function remTrocarAba(a){remAba=a;renderRemessas();}
+function remSetFiltro(k,v,adiar){
+  remFiltro[k]=v;
+  if(remTimer)clearTimeout(remTimer);
+  if(adiar)remTimer=setTimeout(()=>remAtualizarLista(),250);else renderRemessas();
+}
+function remLimparFiltros(){remFiltro={q:'',obra:'',tipo:'',saldo:'com'};renderRemessas();}
+
+function renderRemessas(){
+  const el=document.getElementById('main-content');
+  if(remErroTabela){
+    const faltaTabela=/could not find the table|does not exist|schema cache|PGRST205|42P01/i.test(remErroTabela);
+    el.innerHTML=`<div class="page-header"><div><div class="page-title">Notas de Remessa</div></div></div>
+      <div style="background:var(--warning-light);border:1px solid #E7CFA0;border-radius:var(--radius-lg);padding:18px 20px;color:#6B4A0E">
+      <strong>${faltaTabela?'As tabelas do módulo Notas de Remessa ainda não existem no banco.':'Não foi possível carregar as notas de remessa.'}</strong><br>
+      ${faltaTabela?'Rode o script <code>sql_notas_remessa.sql</code> no SQL Editor do Supabase e abra esta tela de novo.':'Tente novamente. Se continuar, envie o detalhe abaixo para quem cuida do sistema.'}<br>
+      <span style="font-size:12px;opacity:.8">Detalhe: ${escHtml(remErroTabela)}</span></div>`;
+    return;
+  }
+  const abas=[['notas','ti-file-invoice','Notas'],['itens','ti-list-search','Itens'],['equip','ti-barcode','Equipamentos (patrimônio)'],['obra','ti-building','Saldo por obra'],['pend','ti-alert-triangle','Pendências']];
+  const nPend=remPendencias().length;
+  const tabs=abas.map(([k,ic,nm])=>`<button type="button" class="btn${remAba===k?' btn-primary':''}" onclick="remTrocarAba('${k}')"><i class="ti ${ic}"></i> ${nm}${k==='pend'&&nPend?` <span class="badge badge-red" style="margin-left:4px">${nPend}</span>`:''}</button>`).join('');
+  el.innerHTML=`
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+      <div><div class="page-title">Notas de Remessa</div><div class="page-subtitle">${remRemessas.length} nota(s) · ${remItens.length} item(ns) · controle por quantidade, a partir da NF-e de remessa/transferência</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" onclick="remAbrirConferencia(null)"><i class="ti ti-pencil"></i> Lançar manualmente</button>
+        <button class="btn btn-primary" onclick="document.getElementById('rem-pdf').click()"><i class="ti ti-file-upload"></i> Ler nota (PDF)</button>
+        <input type="file" id="rem-pdf" accept=".pdf,application/pdf" style="display:none" onchange="remLerPdf(this)">
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">${tabs}</div>
+    <div id="rem-corpo"></div>`;
+  remRenderCorpo();
+}
+function remRenderCorpo(){
+  const c=document.getElementById('rem-corpo');if(!c)return;
+  if(remAba==='notas'||remAba==='itens')c.innerHTML=remFiltrosHTML()+'<div id="rem-lista"></div>';
+  else if(remAba==='equip')c.innerHTML=remEquipHTML();
+  else if(remAba==='obra')c.innerHTML=remObraHTML();
+  else c.innerHTML=remPendHTML();
+  if(remAba==='notas'||remAba==='itens')remAtualizarLista();
+}
+function remFiltrosHTML(){
+  const f=remFiltro;
+  const opObras=(obras||[]).slice().sort((a,b)=>remObraNome(a.id).localeCompare(remObraNome(b.id),'pt-BR')).map(o=>`<option value="${o.id}" ${String(f.obra)===String(o.id)?'selected':''}>${escHtml(remObraNome(o.id))}</option>`).join('');
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:14px">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div style="flex:2 1 260px"><label class="grd-lbl">Buscar (item, código, patrimônio, série, nº da nota)</label><input value="${escHtml(f.q)}" placeholder="ex.: terrômetro, 001798, 121175, tubo PU…" oninput="remSetFiltro('q',this.value,true)"></div>
+      <div style="flex:1 1 220px"><label class="grd-lbl">Obra (onde o item está)</label><select class="filter-select" style="width:100%" onchange="remSetFiltro('obra',this.value)"><option value="">Todas as obras</option>${opObras}</select></div>
+      <div style="flex:0 1 160px"><label class="grd-lbl">Tipo</label><select class="filter-select" style="width:100%" onchange="remSetFiltro('tipo',this.value)"><option value="">Todos</option><option value="retornavel" ${f.tipo==='retornavel'?'selected':''}>Retornável</option><option value="consumo" ${f.tipo==='consumo'?'selected':''}>Consumo</option></select></div>
+      <div style="flex:0 1 170px"><label class="grd-lbl">Saldo</label><select class="filter-select" style="width:100%" onchange="remSetFiltro('saldo',this.value)"><option value="com" ${f.saldo==='com'?'selected':''}>Com saldo</option><option value="zero" ${f.saldo==='zero'?'selected':''}>Baixados (saldo zero)</option><option value="" ${f.saldo===''?'selected':''}>Todos</option></select></div>
+      <button class="btn btn-sm" onclick="remLimparFiltros()">Limpar</button>
+    </div></div>
+    <style>.grd-lbl{display:block;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}</style>`;
+}
+function remAtualizarLista(){
+  const box=document.getElementById('rem-lista');if(!box)return;
+  box.innerHTML=remAba==='notas'?remNotasHTML():remItensHTML();
+}
+function remBadgeTipo(t){return t==='retornavel'?'<span class="badge badge-blue">Retornável</span>':'<span class="badge badge-amber">Consumo</span>';}
+
+function remNotasHTML(){
+  const itens=remItensFiltrados();
+  const porNota={};itens.forEach(i=>{(porNota[i.remessa_id]=porNota[i.remessa_id]||[]).push(i);});
+  const semFiltroItem=!remFiltro.q&&!remFiltro.tipo&&!remFiltro.obra&&remFiltro.saldo==='';
+  const notas=remRemessas.filter(n=>porNota[n.id]||(semFiltroItem&&!remItens.some(i=>i.remessa_id===n.id)));
+  if(!notas.length)return '<div class="empty-state"><i class="ti ti-file-invoice"></i>Nenhuma nota encontrada com esses filtros.<br><span style="font-size:12px">Use “Ler nota (PDF)” para lançar a primeira.</span></div>';
+  const linhas=notas.map(n=>{
+    const its=remItens.filter(i=>i.remessa_id===n.id);
+    const comSaldo=its.filter(i=>remSaldo(i)>0);
+    const retorn=comSaldo.filter(i=>i.tipo==='retornavel').length;
+    return `<tr style="cursor:pointer" onclick="remAbrirNota('${n.id}')">
+      <td style="white-space:nowrap"><strong>${escHtml(n.numero)}</strong>${n.serie?` <span style="color:var(--text-muted);font-size:11px">/ ${escHtml(n.serie)}</span>`:''}</td>
+      <td style="white-space:nowrap">${formatDate(n.data_emissao)}</td>
+      <td>${escHtml(remObraNome(n.obra_id))}</td>
+      <td>${n.tipo_nota==='transferencia'?'<span class="badge badge-blue">Transferência</span>':'<span class="badge badge-green">Remessa</span>'}<div style="font-size:11px;color:var(--text-muted)">${escHtml(n.natureza||'')}</div></td>
+      <td>${escHtml(n.origem||'—')}${n.nota_referenciada?`<div style="font-size:11px;color:var(--text-muted)">ref. NF ${escHtml(n.nota_referenciada)}</div>`:''}</td>
+      <td style="text-align:right">${its.length}</td>
+      <td style="text-align:right">${comSaldo.length?`<strong>${comSaldo.length}</strong>${retorn?` <span class="badge badge-blue" title="retornáveis com saldo">${retorn} retorn.</span>`:''}`:'<span class="badge badge-green">tudo baixado</span>'}</td></tr>`;
+  }).join('');
+  return `<div class="table-container"><table><thead><tr><th>Nota</th><th>Emissão</th><th>Obra</th><th>Tipo</th><th>Origem</th><th style="text-align:right">Itens</th><th style="text-align:right">Com saldo</th></tr></thead><tbody>${linhas}</tbody></table></div>`;
+}
+function remItensHTML(){
+  const itens=remItensFiltrados().sort((a,b)=>String(a.descricao).localeCompare(String(b.descricao),'pt-BR'));
+  if(!itens.length)return '<div class="empty-state"><i class="ti ti-list-search"></i>Nenhum item encontrado com esses filtros.</div>';
+  const lim=itens.slice(0,300);
+  const linhas=lim.map(it=>{
+    const n=remNotaDe(it)||{};const s=remSaldo(it);
+    return `<tr>
+      <td><strong>${escHtml(it.descricao)}</strong><div style="font-size:11px;color:var(--text-muted)">${escHtml(it.codigo||'')}${it.patrimonio?` · Pat. ${escHtml(it.patrimonio)}`:''}${it.serie_equip?` · Série ${escHtml(it.serie_equip)}`:''}</div></td>
+      <td>${remBadgeTipo(it.tipo)}</td>
+      <td>${escHtml(remObraNome(it.obra_atual_id))}</td>
+      <td style="white-space:nowrap"><a href="#" onclick="event.preventDefault();remAbrirNota('${n.id}')">NF ${escHtml(n.numero||'—')}</a></td>
+      <td style="text-align:right;white-space:nowrap">${remFmtQtd(it.quantidade)} ${escHtml(it.unidade||'')}</td>
+      <td style="text-align:right;white-space:nowrap"><strong style="color:${s>0?'var(--primary-dark)':'var(--text-muted)'}">${remFmtQtd(s)}</strong></td>
+      <td style="white-space:nowrap">${s>0?`<button class="btn btn-sm btn-primary" onclick="remAbrirBaixa('${it.id}')">Dar baixa</button> `:''}<button class="btn btn-sm" onclick="remAbrirHistorico('${it.id}')" title="Histórico"><i class="ti ti-history"></i></button></td></tr>`;
+  }).join('');
+  return `<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:6px">${itens.length} item(ns)${itens.length>lim.length?' · mostrando os 300 primeiros, refine a busca':''}</div>
+    <div class="table-container"><table><thead><tr><th>Item</th><th>Tipo</th><th>Obra atual</th><th>Nota</th><th style="text-align:right">Enviado</th><th style="text-align:right">Saldo</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>`;
+}
+
+// ─── EQUIPAMENTOS: localizar por patrimônio / série (caminho completo) ───────
+function remBuscaAtivoSet(v){
+  remBuscaAtivo=v;
+  if(remTimer)clearTimeout(remTimer);
+  remTimer=setTimeout(()=>{const b=document.getElementById('rem-equip-res');if(b)b.innerHTML=remEquipResultado();},250);
+}
+function remEquipHTML(){
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:14px">
+    <label class="grd-lbl">Localizar equipamento por patrimônio, nº de série ou nome</label>
+    <input id="rem-equip-q" value="${escHtml(remBuscaAtivo)}" placeholder="ex.: 001798, MC-10470I, terrômetro" oninput="remBuscaAtivoSet(this.value)">
+    <style>.grd-lbl{display:block;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}</style></div>
+    <div id="rem-equip-res">${remEquipResultado()}</div>`;
+}
+function remEquipResultado(){
+  const q=_semAcento(remBuscaAtivo).trim();
+  const comPat=remItens.filter(i=>i.patrimonio||i.serie_equip);
+  const lista=comPat.filter(i=>!q||_semAcento([i.patrimonio,i.serie_equip,i.descricao].join(' ')).includes(q));
+  if(!lista.length)return `<div class="empty-state"><i class="ti ti-barcode"></i>${comPat.length?'Nenhum equipamento encontrado.':'Nenhum item com patrimônio ou série lançado ainda.'}</div>`;
+  const grupos={};
+  lista.forEach(i=>{const k=(i.patrimonio?'P'+normMatricula(i.patrimonio):'S'+(i.serie_equip||'').toUpperCase());(grupos[k]=grupos[k]||[]).push(i);});
+  return Object.values(grupos).slice(0,60).map(g=>{
+    g.sort((a,b)=>String(a.created_at).localeCompare(String(b.created_at)));
+    const ref=g[g.length-1];
+    const ativo=g.map(i=>i.ativo_id&&ativosImob.find(a=>String(a.id)===String(i.ativo_id))).find(Boolean);
+    const ativaLinha=g.slice().reverse().find(i=>remSaldo(i)>0);
+    const onde=ativaLinha?remObraNome(ativaLinha.obra_atual_id):null;
+    const passos=[];
+    g.forEach(i=>{
+      const n=remNotaDe(i)||{};
+      passos.push(`<li><strong>${formatDate(n.data_emissao)}</strong> — NF ${escHtml(n.numero||'—')} (${escHtml(n.natureza||'remessa')}) → <strong>${escHtml(remObraNome(i.obra_atual_id))}</strong>${i.item_origem_id?' <span style="color:var(--text-muted)">(transferido)</span>':''}</li>`);
+      remMovsDoItem(i.id,true).forEach(m=>{
+        const dest=m.tipo==='transferencia'?` para <strong>${escHtml(remObraNome(m.obra_destino_id))}</strong>`:'';
+        passos.push(`<li style="${m.estornado?'text-decoration:line-through;opacity:.55':''}"><strong>${formatDate(m.data)}</strong> — ${REM_TIPO_MOV[m.tipo]}${dest}${m.nf_numero?` · NF ${escHtml(m.nf_numero)}`:''} <span style="color:var(--text-muted);font-size:11px">por ${escHtml(m.registrado_por||'—')}${m.estornado?' · estornado':''}</span></li>`);
+      });
+    });
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start">
+        <div><div style="font-weight:700;color:var(--primary-dark)">${escHtml(ref.descricao)}</div>
+          <div style="font-size:12px;color:var(--text-muted)">${ref.patrimonio?'Pat. '+escHtml(ref.patrimonio):''}${ref.serie_equip?' · Série '+escHtml(ref.serie_equip):''}${ativo?' · <span class="badge badge-green">no Ativo GTEL</span>':''}</div></div>
+        <div style="text-align:right;font-size:13px">${onde?`Agora em <strong>${escHtml(onde)}</strong>`:'<span class="badge badge-amber">sem saldo em nenhuma obra (devolvido / baixado)</span>'}</div>
+      </div>
+      <ul style="margin:10px 0 0 18px;padding:0;font-size:12.5px;line-height:1.6">${passos.join('')}</ul></div>`;
+  }).join('')+(Object.keys(grupos).length>60?'<div style="font-size:12px;color:var(--text-muted)">Mostrando 60 equipamentos; refine a busca.</div>':'');
+}
+
+// ─── SALDO POR OBRA ──────────────────────────────────────────────────────────
+function remObraHTML(){
+  const ativos=remItens.filter(i=>remSaldo(i)>0);
+  const por={};ativos.forEach(i=>{(por[i.obra_atual_id]=por[i.obra_atual_id]||[]).push(i);});
+  const ids=Object.keys(por).sort((a,b)=>remObraNome(a).localeCompare(remObraNome(b),'pt-BR'));
+  if(!ids.length)return '<div class="empty-state"><i class="ti ti-building"></i>Nenhuma obra com saldo de remessa.</div>';
+  return ids.map(id=>{
+    const its=por[id].sort((a,b)=>String(a.descricao).localeCompare(String(b.descricao),'pt-BR'));
+    const ret=its.filter(i=>i.tipo==='retornavel').length,con=its.length-ret;
+    const linhas=its.map(it=>{const n=remNotaDe(it)||{};return `<tr>
+      <td>${escHtml(it.descricao)}<div style="font-size:11px;color:var(--text-muted)">${it.patrimonio?'Pat. '+escHtml(it.patrimonio):''}${it.serie_equip?' · Série '+escHtml(it.serie_equip):''}</div></td>
+      <td>${remBadgeTipo(it.tipo)}</td><td>NF ${escHtml(n.numero||'—')}</td>
+      <td style="text-align:right"><strong>${remFmtQtd(remSaldo(it))}</strong> ${escHtml(it.unidade||'')}</td>
+      <td><button class="btn btn-sm btn-primary" onclick="remAbrirBaixa('${it.id}')">Dar baixa</button></td></tr>`;}).join('');
+    return `<details style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);margin-bottom:10px">
+      <summary style="cursor:pointer;padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><strong style="color:var(--primary-dark)">${escHtml(remObraNome(id))}</strong>
+        <span class="badge badge-blue">${ret} retornável(is)</span><span class="badge badge-amber">${con} de consumo</span></summary>
+      <div style="padding:0 16px 14px"><div style="margin-bottom:8px"><button class="btn btn-sm" onclick="remAbrirLote('${id}',null)"><i class="ti ti-checks"></i> Baixa de consumo em lote</button></div>
+      <div class="table-container"><table><thead><tr><th>Item</th><th>Tipo</th><th>Nota</th><th style="text-align:right">Saldo</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div></div></details>`;
+  }).join('');
+}
+
+// ─── PENDÊNCIAS ──────────────────────────────────────────────────────────────
+function remPendencias(){
+  const p=[];
+  const hoje=Date.now();
+  // 1) retornáveis com saldo parados há mais de 90 dias
+  remItens.filter(i=>i.tipo==='retornavel'&&remSaldo(i)>0).forEach(i=>{
+    const n=remNotaDe(i);if(!n||!n.data_emissao)return;
+    const dias=Math.floor((hoje-new Date(n.data_emissao+'T12:00:00').getTime())/86400000);
+    if(dias>90)p.push({nivel:'warning',txt:`<strong>${escHtml(i.descricao)}</strong>${i.patrimonio?' (Pat. '+escHtml(i.patrimonio)+')':''} está há ${dias} dias em ${escHtml(remObraNome(i.obra_atual_id))} (NF ${escHtml(n.numero)}) e ainda não voltou.`,item:i.id});
+  });
+  // 2) transferências cuja nota referenciada não está cadastrada
+  remRemessas.filter(n=>n.tipo_nota==='transferencia'&&n.nota_referenciada).forEach(n=>{
+    if(!remRemessas.some(x=>String(x.numero)===String(n.nota_referenciada)))
+      p.push({nivel:'info',txt:`A NF de transferência <strong>${escHtml(n.numero)}</strong> cita a NF <strong>${escHtml(n.nota_referenciada)}</strong>, que ainda não foi lançada aqui.`,nota:n.id});
+  });
+  // 3) mesmo patrimônio com saldo em mais de uma linha
+  const vistos={};
+  remItens.filter(i=>i.patrimonio&&remSaldo(i)>0).forEach(i=>{(vistos[normMatricula(i.patrimonio)]=vistos[normMatricula(i.patrimonio)]||[]).push(i);});
+  Object.values(vistos).filter(g=>g.length>1).forEach(g=>
+    p.push({nivel:'danger',txt:`O patrimônio <strong>${escHtml(g[0].patrimonio)}</strong> aparece com saldo em ${g.length} lugares ao mesmo tempo (${g.map(i=>escHtml(remObraNome(i.obra_atual_id))).join(' e ')}). Falta dar baixa em alguma nota.`,item:g[0].id}));
+  return p;
+}
+function remPendHTML(){
+  const p=remPendencias();
+  if(!p.length)return '<div class="empty-state"><i class="ti ti-circle-check"></i>Nenhuma pendência. Tudo em dia.</div>';
+  const cor={danger:['#FEF2F2','#FCA5A5','#991B1B'],warning:['#FFFBEB','#FCD34D','#92400E'],info:['#EFF6FF','#BFDBFE','#1E40AF']};
+  return p.map(x=>{const c=cor[x.nivel];
+    const bt=x.item?`<button class="btn btn-sm" onclick="remAbrirHistorico('${x.item}')">Ver</button>`:`<button class="btn btn-sm" onclick="remAbrirNota('${x.nota}')">Ver nota</button>`;
+    return `<div style="background:${c[0]};border:1px solid ${c[1]};color:${c[2]};border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;justify-content:space-between;gap:12px;align-items:center;font-size:13px"><span>${x.txt}</span>${bt}</div>`;}).join('');
+}
+
+// ─── DETALHE DA NOTA ─────────────────────────────────────────────────────────
+function remAbrirNota(id){
+  const n=remRemessas.find(x=>String(x.id)===String(id));if(!n)return;
+  const its=remItens.filter(i=>i.remessa_id===n.id);
+  const soma=its.filter(i=>!i.item_origem_id).reduce((s,i)=>s+Number(i.quantidade)*Number(i.valor_unitario||0),0);
+  const linhas=its.map(it=>{const s=remSaldo(it);return `<tr>
+    <td style="color:var(--text-muted)">${it.linha}</td>
+    <td><strong>${escHtml(it.descricao)}</strong><div style="font-size:11px;color:var(--text-muted)">${escHtml(it.codigo||'')}${it.patrimonio?' · Pat. '+escHtml(it.patrimonio):''}${it.serie_equip?' · Série '+escHtml(it.serie_equip):''}${it.item_origem_id?' · <em>veio de transferência</em>':''}</div></td>
+    <td>${remBadgeTipo(it.tipo)}</td>
+    <td>${escHtml(remObraNome(it.obra_atual_id))}</td>
+    <td style="text-align:right;white-space:nowrap">${remFmtQtd(it.quantidade)} ${escHtml(it.unidade||'')}</td>
+    <td style="text-align:right"><strong>${remFmtQtd(s)}</strong></td>
+    <td style="white-space:nowrap">${s>0?`<button class="btn btn-sm btn-primary" onclick="remAbrirBaixa('${it.id}')">Dar baixa</button> `:''}<button class="btn btn-sm" onclick="remAbrirHistorico('${it.id}')"><i class="ti ti-history"></i></button></td></tr>`;}).join('');
+  const temMov=its.some(i=>remMovsDoItem(i.id,true).length);
+  insertModal('modal-rem-nota',`<div class="modal" style="max-width:1000px">
+    <div class="modal-header"><span class="modal-title"><i class="ti ti-file-invoice"></i> NF ${escHtml(n.numero)}${n.serie?' / série '+escHtml(n.serie):''}</span>
+      <button class="btn btn-sm" onclick="closeModal('modal-rem-nota')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 18px;font-size:13px;margin-bottom:14px">
+        <div><span class="grd-lbl">Obra</span>${escHtml(remObraNome(n.obra_id))}</div>
+        <div><span class="grd-lbl">Emissão</span>${formatDate(n.data_emissao)}</div>
+        <div><span class="grd-lbl">Natureza / CFOP</span>${escHtml(n.natureza||'—')} · ${escHtml(n.cfop||'—')}</div>
+        <div><span class="grd-lbl">Origem</span>${escHtml(n.origem||'—')}</div>
+        <div><span class="grd-lbl">Nota referenciada</span>${escHtml(n.nota_referenciada||'—')}</div>
+        <div><span class="grd-lbl">Valor total da nota</span>${remFmtBRL(n.valor_total)}</div>
+        <div style="grid-column:1/-1"><span class="grd-lbl">Chave de acesso</span><span style="font-family:monospace;font-size:12px">${escHtml(n.chave_acesso)}</span></div>
+        ${n.observacao?`<div style="grid-column:1/-1"><span class="grd-lbl">Observação / informações complementares</span><span style="font-size:12.5px">${escHtml(n.observacao)}</span></div>`:''}
+        <div style="grid-column:1/-1;font-size:11.5px;color:var(--text-muted)">Lançada por ${escHtml(n.criado_por||'—')} em ${remDataHora(n.created_at)}</div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap"><button class="btn btn-sm" onclick="remAbrirLote(null,'${n.id}')"><i class="ti ti-checks"></i> Baixa de consumo em lote</button></div>
+      <div class="table-container"><table><thead><tr><th>#</th><th>Item</th><th>Tipo</th><th>Obra atual</th><th style="text-align:right">Enviado</th><th style="text-align:right">Saldo</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>
+      <style>.grd-lbl{display:block;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px}</style>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" style="margin-right:auto;color:var(--danger)" ${temMov?'disabled title="Esta nota já tem baixas. Estorne-as antes de excluir."':''} onclick="remExcluirNota('${n.id}')"><i class="ti ti-trash"></i> Excluir nota</button>
+      <button class="btn" onclick="closeModal('modal-rem-nota')">Fechar</button></div></div>`);
+}
+async function remExcluirNota(id){
+  const n=remRemessas.find(x=>String(x.id)===String(id));if(!n)return;
+  if(!confirm(`Excluir a NF ${n.numero} e todos os seus itens? Só é possível se não houver baixas.`))return;
+  const{error}=await sb.from('remessas').delete().eq('id',id);
+  if(error){showToast('Não foi possível excluir: '+error.message,'error');return;}
+  showToast('Nota excluída.');closeModal('modal-rem-nota');
+  await remCarregar();renderRemessas();
+}
+
+// ─── BAIXAS ──────────────────────────────────────────────────────────────────
+function remAbrirBaixa(itemId){
+  const it=remItens.find(x=>String(x.id)===String(itemId));if(!it)return;
+  const s=remSaldo(it);
+  if(s<=0){showToast('Este item não tem saldo.','error');return;}
+  const hoje=new Date().toISOString().slice(0,10);
+  const outras=(obras||[]).filter(o=>String(o.id)!==String(it.obra_atual_id)).sort((a,b)=>remObraNome(a.id).localeCompare(remObraNome(b.id),'pt-BR')).map(o=>`<option value="${o.id}">${escHtml(remObraNome(o.id))}</option>`).join('');
+  const tipos=it.tipo==='retornavel'?['devolucao','transferencia','perda','ajuste','consumo']:['consumo','transferencia','devolucao','perda','ajuste'];
+  insertModal('modal-rem-baixa',`<div class="modal" style="max-width:600px">
+    <div class="modal-header"><span class="modal-title"><i class="ti ti-arrow-down-circle"></i> Dar baixa</span><button class="btn btn-sm" onclick="closeModal('modal-rem-baixa')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div style="font-size:13px;margin-bottom:12px"><strong>${escHtml(it.descricao)}</strong>${it.patrimonio?' · Pat. '+escHtml(it.patrimonio):''}<br><span style="color:var(--text-muted)">${escHtml(remObraNome(it.obra_atual_id))} · saldo atual <strong>${remFmtQtd(s)} ${escHtml(it.unidade||'')}</strong></span></div>
+      <div class="form-grid">
+        <div class="form-group"><label>Tipo de baixa</label><select id="rb-tipo" onchange="remBaixaTipoMudou()">${tipos.map(t=>`<option value="${t}">${REM_TIPO_MOV[t]}</option>`).join('')}</select></div>
+        <div class="form-group"><label>Quantidade (máx. ${remFmtQtd(s)})</label><input id="rb-qtd" inputmode="decimal" value="${remFmtQtd(s).replace(/\./g,'')}"></div>
+        <div class="form-group"><label>Data</label><input type="date" id="rb-data" value="${hoje}"></div>
+        <div class="form-group" id="rb-nf-wrap"><label>Nº da NF de <span id="rb-nf-rot">devolução</span> *</label><input id="rb-nf" placeholder="número da nota"></div>
+        <div class="form-group full" id="rb-dest-wrap" style="display:none"><label>Obra de destino *</label><select id="rb-dest"><option value="">— Selecione —</option>${outras}</select>
+          <label style="display:flex;gap:8px;align-items:center;font-weight:400;margin-top:6px"><input type="checkbox" id="rb-criar" checked style="width:16px;height:16px"> Criar o item na obra de destino automaticamente <span style="color:var(--text-muted);font-size:12px">(desmarque se a nota de transferência será lançada à parte)</span></label></div>
+        <div class="form-group full"><label>Observação</label><textarea id="rb-obs" rows="2"></textarea></div>
+      </div></div>
+    <div class="modal-footer"><button class="btn" onclick="closeModal('modal-rem-baixa')">Cancelar</button>
+      <button class="btn btn-primary" id="rb-salvar" onclick="remSalvarBaixa('${it.id}')"><i class="ti ti-check"></i> Registrar baixa</button></div></div>`);
+  remBaixaTipoMudou();
+}
+function remBaixaTipoMudou(){
+  const t=document.getElementById('rb-tipo').value;
+  const precisaNF=t==='transferencia'||t==='devolucao';
+  document.getElementById('rb-nf-wrap').style.display=precisaNF?'':'none';
+  document.getElementById('rb-nf-rot').textContent=t==='transferencia'?'transferência':'devolução';
+  document.getElementById('rb-dest-wrap').style.display=t==='transferencia'?'':'none';
+}
+async function remSalvarBaixa(itemId){
+  const it=remItens.find(x=>String(x.id)===String(itemId));if(!it)return;
+  const tipo=document.getElementById('rb-tipo').value;
+  const qtd=remNum(document.getElementById('rb-qtd').value);
+  const data=document.getElementById('rb-data').value;
+  const nf=document.getElementById('rb-nf').value.trim();
+  const dest=document.getElementById('rb-dest').value;
+  const obs=document.getElementById('rb-obs').value.trim();
+  const s=remSaldo(it);
+  if(!qtd||qtd<=0){showToast('Informe a quantidade.','error');return;}
+  if(qtd>s+1e-9){showToast('A quantidade é maior que o saldo ('+remFmtQtd(s)+').','error');return;}
+  if(!data){showToast('Informe a data.','error');return;}
+  if((tipo==='transferencia'||tipo==='devolucao')&&!nf){showToast('Informe o número da NF.','error');return;}
+  if(tipo==='transferencia'&&!dest){showToast('Escolha a obra de destino.','error');return;}
+  const btn=document.getElementById('rb-salvar');btn.disabled=true;
+  try{
+    let itemDestinoId=null;
+    if(tipo==='transferencia'&&document.getElementById('rb-criar').checked){
+      const maxLinha=Math.max(0,...remItens.filter(i=>i.remessa_id===it.remessa_id).map(i=>i.linha));
+      const{data:novo,error:e1}=await sb.from('remessa_itens').insert({
+        remessa_id:it.remessa_id,linha:maxLinha+1,codigo:it.codigo,descricao:it.descricao,ncm:it.ncm,unidade:it.unidade,
+        quantidade:qtd,valor_unitario:it.valor_unitario,tipo:it.tipo,patrimonio:it.patrimonio,serie_equip:it.serie_equip,
+        ativo_id:it.ativo_id,obra_atual_id:dest,item_origem_id:it.id}).select().single();
+      if(e1)throw new Error('Não consegui criar o item na obra de destino: '+e1.message);
+      itemDestinoId=novo.id;
+    }
+    const{error:e2}=await sb.from('remessa_movimentos').insert({
+      item_id:it.id,tipo,quantidade:qtd,data,nf_numero:nf||null,obra_destino_id:tipo==='transferencia'?dest:null,
+      item_destino_id:itemDestinoId,observacao:obs||null,registrado_por:remQuem()});
+    if(e2){
+      if(itemDestinoId)await sb.from('remessa_itens').delete().eq('id',itemDestinoId);
+      throw new Error(e2.message);
+    }
+    // equipamento no Ativo GTEL: a troca de obra só acontece depois de confirmar
+    if(tipo==='transferencia'&&it.ativo_id){
+      const a=ativosImob.find(x=>String(x.id)===String(it.ativo_id));
+      if(a&&String(a.obra_id)!==String(dest)&&confirm(`O equipamento "${a.descricao}" (Pat. ${a.patrimonio_numero||'—'}) está cadastrado no Ativo GTEL na obra ${remObraNome(a.obra_id)}.\n\nAtualizar a obra dele para ${remObraNome(dest)}?`)){
+        const{error:e3}=await sb.from('ativos_imobilizados').update({obra_id:dest}).eq('id',a.id);
+        if(e3)showToast('Baixa registrada, mas não consegui atualizar o Ativo GTEL: '+e3.message,'error');
+      }
+    }
+    showToast('Baixa registrada!');
+    closeModal('modal-rem-baixa');
+    await remCarregar();
+    try{await loadAtivosImobilizados();}catch(e){}
+    renderRemessas();
+    if(document.getElementById('modal-rem-nota'))remAbrirNota(it.remessa_id);
+  }catch(e){showToast('Erro: '+e.message,'error');btn.disabled=false;}
+}
+
+// Baixa de consumo em lote (por obra ou por nota)
+function remAbrirLote(obraId,remessaId){
+  window._remLoteNota=remessaId||null;
+  const its=remItens.filter(i=>i.tipo==='consumo'&&remSaldo(i)>0
+    &&(!obraId||String(i.obra_atual_id)===String(obraId))&&(!remessaId||String(i.remessa_id)===String(remessaId)));
+  if(!its.length){showToast('Não há itens de consumo com saldo aqui.','error');return;}
+  window._remLote=its.map(i=>i.id);
+  const hoje=new Date().toISOString().slice(0,10);
+  const linhas=its.map((it,k)=>{const n=remNotaDe(it)||{};return `<tr>
+    <td><input type="checkbox" id="rl-ck-${k}" checked style="width:16px;height:16px"></td>
+    <td>${escHtml(it.descricao)}<div style="font-size:11px;color:var(--text-muted)">NF ${escHtml(n.numero||'—')}${obraId?'':' · '+escHtml(remObraNome(it.obra_atual_id))}</div></td>
+    <td style="text-align:right;white-space:nowrap">${remFmtQtd(remSaldo(it))} ${escHtml(it.unidade||'')}</td>
+    <td style="width:110px"><input id="rl-q-${k}" inputmode="decimal" value="${remFmtQtd(remSaldo(it)).replace(/\./g,'')}" style="text-align:right"></td></tr>`;}).join('');
+  insertModal('modal-rem-lote',`<div class="modal" style="max-width:760px">
+    <div class="modal-header"><span class="modal-title"><i class="ti ti-checks"></i> Baixa de consumo em lote</span><button class="btn btn-sm" onclick="closeModal('modal-rem-lote')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">Marque o que foi consumido e ajuste a quantidade se foi só uma parte. Tudo entra como <strong>consumo</strong>, com seu nome e a data abaixo.</div>
+      <div class="form-group" style="max-width:200px;margin-bottom:10px"><label>Data do consumo</label><input type="date" id="rl-data" value="${hoje}"></div>
+      <div class="table-container"><table><thead><tr><th></th><th>Item</th><th style="text-align:right">Saldo</th><th>Consumido</th></tr></thead><tbody>${linhas}</tbody></table></div></div>
+    <div class="modal-footer"><button class="btn" onclick="closeModal('modal-rem-lote')">Cancelar</button>
+      <button class="btn btn-primary" id="rl-salvar" onclick="remSalvarLote()"><i class="ti ti-check"></i> Dar baixa nos selecionados</button></div></div>`);
+}
+async function remSalvarLote(){
+  const ids=window._remLote||[];const data=document.getElementById('rl-data').value;
+  if(!data){showToast('Informe a data.','error');return;}
+  const regs=[];
+  for(let k=0;k<ids.length;k++){
+    if(!document.getElementById('rl-ck-'+k).checked)continue;
+    const it=remItens.find(x=>x.id===ids[k]);const q=remNum(document.getElementById('rl-q-'+k).value);
+    if(!q||q<=0||q>remSaldo(it)+1e-9){showToast('Quantidade inválida em "'+it.descricao+'".','error');return;}
+    regs.push({item_id:it.id,tipo:'consumo',quantidade:q,data,registrado_por:remQuem(),observacao:'Baixa de consumo em lote'});
+  }
+  if(!regs.length){showToast('Nenhum item marcado.','error');return;}
+  const btn=document.getElementById('rl-salvar');btn.disabled=true;
+  const{error}=await sb.from('remessa_movimentos').insert(regs);
+  if(error){showToast('Erro: '+error.message,'error');btn.disabled=false;return;}
+  showToast(regs.length+' baixa(s) registrada(s)!');
+  closeModal('modal-rem-lote');
+  const nota=document.getElementById('modal-rem-nota');
+  await remCarregar();renderRemessas();
+  if(nota&&window._remLoteNota)remAbrirNota(window._remLoteNota);
+}
+
+// ─── HISTÓRICO E ESTORNO ─────────────────────────────────────────────────────
+function remAbrirHistorico(itemId){
+  const it=remItens.find(x=>String(x.id)===String(itemId));if(!it)return;
+  const n=remNotaDe(it)||{};
+  const movs=remMovsDoItem(it.id,true);
+  const linhas=movs.map(m=>`<tr style="${m.estornado?'opacity:.55':''}">
+    <td style="white-space:nowrap">${formatDate(m.data)}</td>
+    <td><span class="badge ${REM_COR_MOV[m.tipo]}">${REM_TIPO_MOV[m.tipo]}</span>${m.estornado?' <span class="badge badge-red">estornado</span>':''}</td>
+    <td style="text-align:right">${remFmtQtd(m.quantidade)}</td>
+    <td>${m.nf_numero?'NF '+escHtml(m.nf_numero):'—'}${m.obra_destino_id?`<div style="font-size:11px;color:var(--text-muted)">→ ${escHtml(remObraNome(m.obra_destino_id))}</div>`:''}</td>
+    <td style="font-size:12px">${escHtml(m.registrado_por||'—')}<div style="color:var(--text-muted);font-size:11px">${remDataHora(m.created_at)}</div>${m.observacao?`<div style="color:var(--text-muted);font-size:11px">${escHtml(m.observacao)}</div>`:''}
+      ${m.estornado?`<div style="color:#991B1B;font-size:11px">Estornado por ${escHtml(m.estornado_por||'—')} em ${remDataHora(m.estornado_em)}: ${escHtml(m.estorno_motivo||'')}</div>`:''}</td>
+    <td>${m.estornado?'':`<button class="btn btn-sm" onclick="remEstornar('${m.id}')">Estornar</button>`}</td></tr>`).join('');
+  insertModal('modal-rem-hist',`<div class="modal" style="max-width:820px">
+    <div class="modal-header"><span class="modal-title"><i class="ti ti-history"></i> Histórico do item</span><button class="btn btn-sm" onclick="closeModal('modal-rem-hist')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div style="font-size:13px;margin-bottom:12px"><strong>${escHtml(it.descricao)}</strong>${it.patrimonio?' · Pat. '+escHtml(it.patrimonio):''}${it.serie_equip?' · Série '+escHtml(it.serie_equip):''}<br>
+        <span style="color:var(--text-muted)">NF ${escHtml(n.numero||'—')} · ${escHtml(remObraNome(it.obra_atual_id))} · enviado ${remFmtQtd(it.quantidade)} ${escHtml(it.unidade||'')} · saldo <strong>${remFmtQtd(remSaldo(it))}</strong></span></div>
+      ${movs.length?`<div class="table-container"><table><thead><tr><th>Data</th><th>Baixa</th><th style="text-align:right">Qtd.</th><th>NF / destino</th><th>Quem</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>`:'<div class="empty-state" style="padding:24px">Nenhuma baixa registrada.</div>'}
+    </div><div class="modal-footer">${remSaldo(it)>0?`<button class="btn btn-primary" onclick="closeModal('modal-rem-hist');remAbrirBaixa('${it.id}')">Dar baixa</button>`:''}<button class="btn" onclick="closeModal('modal-rem-hist')">Fechar</button></div></div>`);
+}
+async function remEstornar(movId){
+  const m=remMovs.find(x=>String(x.id)===String(movId));if(!m)return;
+  const motivo=(prompt('Motivo do estorno (obrigatório):')||'').trim();
+  if(!motivo){showToast('Estorno cancelado: informe o motivo.','error');return;}
+  // transferência com item criado no destino: só estorna se esse item ainda não teve baixas
+  if(m.item_destino_id&&remMovsDoItem(m.item_destino_id,false).length){
+    showToast('O item recebido no destino já teve baixas. Estorne primeiro as baixas dele.','error');return;
+  }
+  const{error}=await sb.from('remessa_movimentos').update({
+    estornado:true,estornado_por:remQuem(),estornado_em:new Date().toISOString(),estorno_motivo:motivo,item_destino_id:null}).eq('id',m.id);
+  if(error){showToast('Erro ao estornar: '+error.message,'error');return;}
+  if(m.item_destino_id){
+    const{error:e2}=await sb.from('remessa_itens').delete().eq('id',m.item_destino_id);
+    if(e2)showToast('Estornado, mas não consegui remover o item criado no destino: '+e2.message,'error');
+  }
+  showToast('Baixa estornada.');
+  const itemId=m.item_id;
+  await remCarregar();renderRemessas();
+  remAbrirHistorico(itemId);
+}
+
+// ─── LEITURA DO PDF → CONFERÊNCIA ────────────────────────────────────────────
+async function remLerPdf(input){
+  const file=input.files&&input.files[0];input.value='';
+  if(!file)return;
+  showToast('Lendo a nota…');
+  let dados=null;
+  try{
+    const rows=await remLinhasDoPdf(file);
+    if(!rows.length){showToast('Este PDF não tem texto (parece escaneado). Abrindo o lançamento manual.','error');remAbrirConferencia(null);return;}
+    dados=remParsearRows(rows);
+  }catch(e){
+    console.error(e);
+    showToast('Não consegui ler o PDF ('+e.message+'). Abrindo o lançamento manual.','error');
+    remAbrirConferencia(null);return;
+  }
+  remAbrirConferencia(dados);
+}
+let remConf=null;
+function remAbrirConferencia(d){
+  const hoje=new Date().toISOString().slice(0,10);
+  remConf=d?{...d,obra_id:''}:{chave:'',numero:'',serie:'',data_emissao:hoje,natureza:'',cfop:'',valor_total:null,origem:'',nota_referenciada:'',observacao:'',tipo_nota:'remessa',obra_id:'',avisos:[],
+    itens:[{codigo:'',descricao:'',unidade:'',quantidade:1,valor_unitario:null,ncm:'',cfop:'',patrimonio:'',serie_equip:'',tipo:'consumo'}]};
+  remConf.manual=!d;
+  remDesenharConferencia();
+}
+function remDesenharConferencia(){
+  const c=remConf;
+  const obrasOpt=(obras||[]).slice().sort((a,b)=>remObraNome(a.id).localeCompare(remObraNome(b.id),'pt-BR')).map(o=>`<option value="${o.id}" ${String(c.obra_id)===String(o.id)?'selected':''}>${escHtml(remObraNome(o.id))}</option>`).join('');
+  const inp=(k,lbl,extra)=>`<div class="form-group" ${extra||''}><label>${lbl}</label><input value="${escHtml(c[k]??'')}" oninput="remConf.${k}=this.value;remConfChecar()"></div>`;
+  const linhas=c.itens.map((it,k)=>`<tr>
+    <td><input value="${escHtml(it.codigo||'')}" style="width:112px" oninput="remConf.itens[${k}].codigo=this.value"></td>
+    <td><input value="${escHtml(it.descricao||'')}" style="min-width:220px" oninput="remConf.itens[${k}].descricao=this.value"></td>
+    <td><input value="${escHtml(it.unidade||'')}" style="width:52px" oninput="remConf.itens[${k}].unidade=this.value"></td>
+    <td><input value="${it.quantidade??''}" inputmode="decimal" style="width:80px;text-align:right" oninput="remConf.itens[${k}].quantidade=remNum(this.value);remConfChecar()"></td>
+    <td><input value="${it.valor_unitario??''}" inputmode="decimal" style="width:92px;text-align:right" oninput="remConf.itens[${k}].valor_unitario=remNum(this.value);remConfChecar()"></td>
+    <td><select onchange="remConf.itens[${k}].tipo=this.value"><option value="consumo" ${it.tipo==='consumo'?'selected':''}>Consumo</option><option value="retornavel" ${it.tipo==='retornavel'?'selected':''}>Retornável</option></select></td>
+    <td><input value="${escHtml(it.patrimonio||'')}" style="width:88px" placeholder="—" oninput="remConf.itens[${k}].patrimonio=this.value.trim();remConfAtivoCol(${k})"></td>
+    <td><input value="${escHtml(it.serie_equip||'')}" style="width:100px" placeholder="—" oninput="remConf.itens[${k}].serie_equip=this.value.trim()"></td>
+    <td id="rc-ativo-${k}" style="font-size:11.5px;min-width:120px"></td>
+    <td style="white-space:nowrap">${Number(it.quantidade)>1&&it.patrimonio?`<button class="btn btn-sm" title="Dividir em linhas de 1 unidade, uma por patrimônio" onclick="remConfDividir(${k})"><i class="ti ti-arrows-split"></i></button> `:''}<button class="btn btn-sm" title="Remover linha" onclick="remConfRemover(${k})"><i class="ti ti-trash"></i></button></td></tr>`).join('');
+  insertModal('modal-rem-conf',`<div class="modal" style="max-width:1240px">
+    <div class="modal-header"><span class="modal-title"><i class="ti ti-checklist"></i> ${c.manual?'Lançar nota de remessa':'Conferir a nota lida'}</span><button class="btn btn-sm" onclick="closeModal('modal-rem-conf')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      ${(c.avisos||[]).map(a=>`<div style="background:var(--warning-light);border:1px solid #E7CFA0;color:#6B4A0E;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:13px"><i class="ti ti-alert-triangle"></i> ${escHtml(a)}</div>`).join('')}
+      <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px">Confira com a nota. O PDF <strong>não</strong> é guardado: só estes dados.</div>
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px 14px;margin-bottom:12px">
+        ${inp('numero','Nº da nota *')}${inp('serie','Série')}
+        <div class="form-group"><label>Emissão *</label><input type="date" value="${escHtml(c.data_emissao||'')}" onchange="remConf.data_emissao=this.value"></div>
+        <div class="form-group"><label>Obra de destino da nota *</label><select onchange="remConf.obra_id=this.value;remConfChecar();remConfAtivoTodos()"><option value="">— Selecione —</option>${obrasOpt}</select></div>
+        ${inp('natureza','Natureza da operação')}${inp('cfop','CFOP')}
+        <div class="form-group"><label>Tipo da nota</label><select onchange="remConf.tipo_nota=this.value"><option value="remessa" ${c.tipo_nota==='remessa'?'selected':''}>Remessa</option><option value="transferencia" ${c.tipo_nota==='transferencia'?'selected':''}>Transferência</option></select></div>
+        <div class="form-group"><label>Valor total da nota (R$)</label><input value="${c.valor_total??''}" inputmode="decimal" oninput="remConf.valor_total=remNum(this.value);remConfChecar()"></div>
+        ${inp('chave','Chave de acesso (44 dígitos) *','style="grid-column:span 2"')}
+        ${inp('origem','Origem / local citado na nota','style="grid-column:span 2"')}
+        ${inp('nota_referenciada','Nota referenciada (nº)')}
+        <div class="form-group" style="grid-column:span 3"><label>Observação / informações complementares</label><input value="${escHtml(c.observacao||'')}" oninput="remConf.observacao=this.value"></div>
+      </div>
+      <div style="overflow-x:auto"><table class="table"><thead><tr><th>Código</th><th>Descrição</th><th>Un.</th><th>Qtd.</th><th>V. unit.</th><th>Tipo</th><th>Patrimônio</th><th>Série</th><th>Ativo GTEL</th><th></th></tr></thead><tbody id="rc-itens">${linhas}</tbody></table></div>
+      <div style="margin:8px 0 12px"><button class="btn btn-sm" onclick="remConfAdd()"><i class="ti ti-plus"></i> Adicionar item</button></div>
+      <div id="rc-checks"></div>
+    </div>
+    <div class="modal-footer"><button class="btn" onclick="closeModal('modal-rem-conf')">Cancelar</button>
+      <button class="btn btn-primary" id="rc-salvar" onclick="remConfSalvar()"><i class="ti ti-check"></i> Gravar nota</button></div></div>`);
+  remConfChecar();remConfAtivoTodos();
+}
+function remConfAdd(){remConf.itens.push({codigo:'',descricao:'',unidade:'',quantidade:1,valor_unitario:null,ncm:'',cfop:'',patrimonio:'',serie_equip:'',tipo:'consumo'});remDesenharConferencia();}
+function remConfRemover(k){remConf.itens.splice(k,1);remDesenharConferencia();}
+function remConfDividir(k){
+  const it=remConf.itens[k];const q=Math.round(Number(it.quantidade));
+  if(!(q>1))return;
+  const pats=(it.patrimonio||'').split(/[,;\s\/]+/).filter(Boolean);
+  const novas=[];
+  for(let i=0;i<q;i++)novas.push({...it,quantidade:1,patrimonio:pats[i]||(i===0?pats[0]||'':''),serie_equip:i===0?it.serie_equip:'',tipo:'retornavel'});
+  remConf.itens.splice(k,1,...novas);
+  remDesenharConferencia();
+  showToast('Dividido em '+q+' linhas. Preencha o patrimônio de cada uma.');
+}
+function remAtivoDoPat(pat){
+  if(!pat)return null;
+  return (ativosImob||[]).find(a=>a.patrimonio_numero&&normMatricula(a.patrimonio_numero)===normMatricula(pat))||null;
+}
+function remConfAtivoCol(k){
+  const td=document.getElementById('rc-ativo-'+k);if(!td)return;
+  const it=remConf.itens[k];
+  if(!it.patrimonio){td.innerHTML='<span style="color:var(--text-muted)">—</span>';return;}
+  const a=remAtivoDoPat(it.patrimonio);
+  if(!a)td.innerHTML='<span class="badge badge-amber">não cadastrado</span>';
+  else if(remConf.obra_id&&String(a.obra_id)!==String(remConf.obra_id))td.innerHTML=`<span class="badge badge-green">encontrado</span><div style="color:#92400E">hoje em ${escHtml(remObraNome(a.obra_id))}</div>`;
+  else td.innerHTML='<span class="badge badge-green">encontrado</span>';
+}
+function remConfAtivoTodos(){(remConf?.itens||[]).forEach((_,k)=>remConfAtivoCol(k));}
+async function remConfChecar(){
+  const c=remConf;const box=document.getElementById('rc-checks');if(!box)return;
+  const chave=String(c.chave||'').replace(/\D/g,'');
+  const ok=(t)=>`<div style="color:#166534"><i class="ti ti-circle-check"></i> ${t}</div>`;
+  const ruim=(t)=>`<div style="color:#991B1B"><i class="ti ti-circle-x"></i> ${t}</div>`;
+  const aviso=(t)=>`<div style="color:#92400E"><i class="ti ti-alert-triangle"></i> ${t}</div>`;
+  const soma=c.itens.reduce((s,i)=>s+(Number(i.quantidade)||0)*(Number(i.valor_unitario)||0),0);
+  const linhas=[];
+  if(chave.length!==44)linhas.push(ruim('Chave de acesso incompleta ('+chave.length+' de 44 dígitos).'));
+  else{
+    const nChave=String(Number(chave.slice(25,34))),sChave=String(Number(chave.slice(22,25)));
+    if(String(Number(c.numero||0))!==nChave)linhas.push(ruim(`O número da nota (${escHtml(c.numero||'—')}) não bate com a chave (${nChave}).`));
+    else if(c.serie&&String(Number(c.serie))!==sChave)linhas.push(ruim(`A série (${escHtml(c.serie)}) não bate com a chave (${sChave}).`));
+    else if(!remChaveValida(chave))linhas.push(aviso('Chave com dígito verificador inválido: confira os 44 dígitos.'));
+    else linhas.push(ok('Chave de acesso confere com o número e a série.'));
+    const dup=remRemessas.find(n=>n.chave_acesso===chave);
+    if(dup)linhas.push(ruim(`Esta nota já está lançada (NF ${escHtml(dup.numero)}, obra ${escHtml(remObraNome(dup.obra_id))}).`));
+  }
+  if(c.valor_total!=null){
+    const dif=Math.abs(soma-Number(c.valor_total));
+    linhas.push(dif<0.05?ok(`Soma dos itens ${remFmtBRL(soma)} = total da nota.`):aviso(`Soma dos itens ${remFmtBRL(soma)} difere do total da nota ${remFmtBRL(c.valor_total)} (diferença ${remFmtBRL(dif)}). Confira quantidades e valores.`));
+  }else linhas.push(aviso('Total da nota não informado: a soma dos itens não pôde ser conferida.'));
+  if(c.nota_referenciada&&!remRemessas.some(n=>String(n.numero)===String(c.nota_referenciada)))
+    linhas.push(`<div style="color:#1E40AF"><i class="ti ti-info-circle"></i> A NF ${escHtml(c.nota_referenciada)} citada nesta nota ainda não está lançada aqui.</div>`);
+  box.innerHTML=`<div style="border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:13px;display:flex;flex-direction:column;gap:4px">${linhas.join('')}</div>`;
+}
+async function remConfSalvar(){
+  const c=remConf;const chave=String(c.chave||'').replace(/\D/g,'');
+  const erro=(m)=>{showToast(m,'error');};
+  if(!c.numero){erro('Informe o número da nota.');return;}
+  if(chave.length!==44){erro('A chave de acesso precisa ter 44 dígitos.');return;}
+  if(String(Number(c.numero))!==String(Number(chave.slice(25,34)))){erro('O número da nota não bate com a chave de acesso.');return;}
+  if(c.serie&&String(Number(c.serie))!==String(Number(chave.slice(22,25)))){erro('A série não bate com a chave de acesso.');return;}
+  if(!c.data_emissao){erro('Informe a data de emissão.');return;}
+  if(!c.obra_id){erro('Escolha a obra de destino da nota.');return;}
+  if(remRemessas.some(n=>n.chave_acesso===chave)){erro('Esta nota já está lançada.');return;}
+  const itens=c.itens.filter(i=>(i.descricao||'').trim());
+  if(!itens.length){erro('Inclua ao menos um item.');return;}
+  if(itens.some(i=>!(Number(i.quantidade)>0))){erro('Todos os itens precisam de quantidade maior que zero.');return;}
+  if(!remChaveValida(chave)&&!confirm('O dígito verificador da chave não confere. Gravar mesmo assim?'))return;
+  const soma=itens.reduce((s,i)=>s+Number(i.quantidade)*(Number(i.valor_unitario)||0),0);
+  if(c.valor_total!=null&&Math.abs(soma-Number(c.valor_total))>=0.05&&!confirm(`A soma dos itens (${remFmtBRL(soma)}) é diferente do total da nota (${remFmtBRL(c.valor_total)}). Gravar mesmo assim?`))return;
+  const btn=document.getElementById('rc-salvar');btn.disabled=true;
+  try{
+    const{data:nota,error:e1}=await sb.from('remessas').insert({
+      chave_acesso:chave,numero:String(Number(c.numero)),serie:c.serie||null,data_emissao:c.data_emissao,natureza:c.natureza||null,cfop:c.cfop||null,
+      tipo_nota:c.tipo_nota,valor_total:c.valor_total,origem:c.origem||null,nota_referenciada:c.nota_referenciada||null,
+      obra_id:c.obra_id,observacao:c.observacao||null,criado_por:remQuem()}).select().single();
+    if(e1)throw new Error(e1.code==='23505'?'Esta nota já está lançada.':e1.message);
+    const encontrados=[];
+    const regs=itens.map((i,k)=>{
+      const pat=(i.patrimonio||'').trim()||null;
+      const a=pat?remAtivoDoPat(pat):null;
+      if(a)encontrados.push({a,k});
+      return{remessa_id:nota.id,linha:k+1,codigo:i.codigo||null,descricao:i.descricao.trim(),ncm:i.ncm||null,unidade:i.unidade||null,
+        quantidade:Number(i.quantidade),valor_unitario:i.valor_unitario,tipo:pat?'retornavel':i.tipo,patrimonio:pat,serie_equip:(i.serie_equip||'').trim()||null,
+        ativo_id:a?a.id:null,obra_atual_id:c.obra_id};
+    });
+    const{data:criados,error:e2}=await sb.from('remessa_itens').insert(regs).select();
+    if(e2){await sb.from('remessas').delete().eq('id',nota.id);throw new Error('Itens: '+e2.message);}
+    closeModal('modal-rem-conf');
+    showToast('Nota '+nota.numero+' gravada com '+regs.length+' item(ns).');
+    await remPosGravacaoAtivos(nota,criados||[],encontrados);
+    await remCarregar();
+    try{await loadAtivosImobilizados();}catch(e){}
+    remAba='notas';renderRemessas();
+  }catch(e){showToast('Erro: '+e.message,'error');btn.disabled=false;}
+}
+// Depois de gravar: confirma troca de obra de ativos existentes e oferece cadastrar os que não existem
+async function remPosGravacaoAtivos(nota,criados,encontrados){
+  const obraNome=remObraNome(nota.obra_id);
+  const fora=encontrados.filter(x=>String(x.a.obra_id)!==String(nota.obra_id));
+  if(fora.length&&confirm(`Estes equipamentos já existem no Ativo GTEL, mas em outra obra:\n\n${fora.map(x=>'• '+x.a.descricao+' (Pat. '+(x.a.patrimonio_numero||'—')+') — hoje em '+remObraNome(x.a.obra_id)).join('\n')}\n\nAtualizar a obra deles para ${obraNome}?`)){
+    for(const x of fora){
+      const{error}=await sb.from('ativos_imobilizados').update({obra_id:nota.obra_id}).eq('id',x.a.id);
+      if(error)showToast('Não consegui atualizar '+x.a.descricao+': '+error.message,'error');
+    }
+  }
+  const novos=criados.filter(i=>i.patrimonio&&!i.ativo_id&&i.tipo==='retornavel');
+  if(novos.length&&confirm(`Estes patrimônios não estão no Ativo GTEL:\n\n${novos.map(i=>'• '+i.descricao+' (Pat. '+i.patrimonio+')').join('\n')}\n\nCadastrar agora, em ${obraNome}?`)){
+    for(const i of novos){
+      const{data:a,error}=await sb.from('ativos_imobilizados').insert({
+        descricao:i.descricao,patrimonio_numero:i.patrimonio,serie_numero:i.serie_equip||null,obra_id:nota.obra_id,status:'em_uso',
+        valor:i.valor_unitario,quantidade:1,nf_remessa_numero:nota.numero}).select().single();
+      if(error){showToast('Não consegui cadastrar '+i.descricao+': '+error.message,'error');continue;}
+      await sb.from('remessa_itens').update({ativo_id:a.id}).eq('id',i.id);
+    }
+    showToast('Ativos cadastrados no Ativo GTEL.');
+  }
+}
+
 // ─── BACKUP (somente admin) ──────────────────────────────────────────────────
 // Gera UM arquivo .zip com tudo que é preciso para reconstruir o sistema:
 //   dados/      → todas as tabelas (.json completo para restaurar + .xlsx para consulta)
@@ -1295,7 +2127,7 @@ function alojExcesso(a){return a.tipo_alojamento==='hotel'?0:Math.max(0,alojOcup
 //   sistema/    → index.html: o código do próprio sistema, como está publicado agora
 // A data do último backup fica salva neste navegador; passando de 7 dias, o Menu principal mostra um aviso para o admin.
 // Arquivos enviados (fotos, PDFs) NÃO entram — no backup ficam só os links deles.
-const BACKUP_TABELAS=['auxilio_hosp_excecoes','auxilio_hosp_solicitacoes','auxilio_hosp_itens','auxilio_hosp_pendencias','mobilizacao_fornecedores','alojamentos','alojamentos_contas','alojamentos_relatorios','ativos_imob_fotos','ativos_imob_responsaveis','ativos_imobilizados',
+const BACKUP_TABELAS=['remessas','remessa_itens','remessa_movimentos','auxilio_hosp_excecoes','auxilio_hosp_solicitacoes','auxilio_hosp_itens','auxilio_hosp_pendencias','mobilizacao_fornecedores','alojamentos','alojamentos_contas','alojamentos_relatorios','ativos_imob_fotos','ativos_imob_responsaveis','ativos_imobilizados',
   'contratacoes','contratacoes_prospeccoes','contratacoes_vagas','cronograma_entregas','cronograma_permissoes','cronograma_tarefas','efetivo_he','efetivo_horas','efetivo_presenca','empresas','ferias',
   'folgas','folgas_ciclos','folgas_translados','fornecedor_orcamentos','fornecedores','funcionarios','funcoes','grd','grd_importacoes','grd_obra_mapa',
   'matriz_contatos','mobilizacao_casas','mobilizacao_itens','mobilizacao_modelo','mobilizacoes','desmobilizacoes','desmobilizacao_itens','movimentacoes_historico','obras','prestadores','prestadores_presenca','procedimentos','procedimentos_anexos','procedimentos_versoes',
@@ -3113,12 +3945,6 @@ async function verFicha(id,historico=false){
       +'<div class="ficha-grid">'
       +'<div class="ficha-field"><div class="ficha-field-label">Data de Demissão</div><div class="ficha-field-value">'+(formatDate(f.data_demissao)||'—')+'</div></div>'
       +'<div class="ficha-field"><div class="ficha-field-label">Tipo de Demissão</div><div class="ficha-field-value">'+tipoDemLabel+'</div></div>'
-      +'<div class="ficha-field" style="grid-column:1/-1"><div class="ficha-field-label">Passagens</div><div class="ficha-field-value">'
-        +(f.local_alojamento==='local'?'Não se aplica (Local)'
-          :f.passagem_adm15_url?'<a href="'+f.passagem_adm15_url+'" target="_blank">📎 ADM 15 anexado</a>'
-          :f.passagem_adm10_url?'<a href="'+f.passagem_adm10_url+'" target="_blank">📎 ADM 10 anexado</a>'
-          :'<span style="color:#B91C1C">Pendente — anexar ADM 15 ou ADM 10</span>')
-        +'</div></div>'
       +(f.motivo_demissao?'<div class="ficha-field" style="grid-column:1/-1"><div class="ficha-field-label">Motivo</div><div class="ficha-field-value">'+f.motivo_demissao+'</div></div>':'')
       +'</div></div>';
   }
@@ -3547,21 +4373,6 @@ function toggleFuncaoModo(){
   document.getElementById('f-funcao-input').style.display=funcaoModoManual?'block':'none';
   document.getElementById('f-funcao-toggle').textContent=funcaoModoManual?'← Escolher da lista':'✏️ Digitar manualmente';
 }
-function onLocalAlojamentoChange(){
-  const v=document.getElementById('f-local-alojamento')?.value;
-  const na=document.getElementById('passagens-na'),op=document.getElementById('passagens-opcoes');
-  if(!na||!op)return;
-  na.style.display=v==='local'?'block':'none';
-  op.style.display=v==='local'?'none':'flex';
-}
-function onPassagemFile(tipo){
-  const outro=tipo==='adm15'?'adm10':'adm15';
-  const inp=document.getElementById('f-passagem-'+tipo);
-  if(inp&&inp.files[0]){
-    const o=document.getElementById('f-passagem-'+outro);if(o)o.value='';
-    const lbl=document.getElementById('passagem-'+outro+'-atual');if(lbl)lbl.innerHTML='<span style="color:#B91C1C">será anulado ao salvar</span>';
-  }
-}
 function onSituacaoChange(){
   const val=document.getElementById('f-situacao').value;
   const block=document.getElementById('transfer-block');
@@ -3572,7 +4383,6 @@ function onSituacaoChange(){
   const demBlock=document.getElementById('demissao-block');
   if(val==='inativo'){demBlock.classList.add('visible');}
   else{demBlock.classList.remove('visible');}
-  onLocalAlojamentoChange();
   atualizarAlojamentoPorObra();
 }
 function selectTipoTransferencia(tipo){
@@ -3739,15 +4549,6 @@ function openModalFuncionario(func=null){
               </div>
             </div>
           </div>
-          <div class="form-section" style="margin-top:8px">Alojamento</div>
-          <div class="form-group">
-            <label>Funcionário Alojado ou Local <span style="color:var(--red,#dc2626)">*</span></label>
-            <select id="f-local-alojamento" onchange="onLocalAlojamentoChange()">
-              <option value="">Selecione...</option>
-              <option value="alojado" ${func?.local_alojamento==='alojado'?'selected':''}>Alojado</option>
-              <option value="local" ${func?.local_alojamento==='local'?'selected':''}>Local</option>
-            </select>
-          </div>
           <div id="demissao-block" class="transfer-block ${isDemitido?'visible':''}">
             <div class="form-section" style="margin-top:8px">Dados da Demissão</div>
             <div class="form-group"><label>Data de Demissão</label><input type="date" id="f-data-demissao" value="${func?.data_demissao||''}"></div>
@@ -3765,23 +4566,6 @@ function openModalFuncionario(func=null){
             <div class="form-group full">
               <label>Motivo real da demissão</label>
               <textarea id="f-motivo-demissao" rows="2" placeholder="Detalhe o motivo real da demissão...">${func?.motivo_demissao||''}</textarea>
-            </div>
-            <div class="form-group full" id="passagens-box">
-              <label>Passagens</label>
-              <div id="passagens-na" style="display:${func?.local_alojamento==='local'?'block':'none'};font-size:12.5px;color:var(--text-muted,#6b7280)">Não se aplica (funcionário Local).</div>
-              <div id="passagens-opcoes" style="display:${func?.local_alojamento==='local'?'none':'flex'};flex-direction:column;gap:8px">
-                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                  <b style="min-width:90px;font-size:12.5px">ADM 15</b>
-                  <input type="file" id="f-passagem-adm15" accept=".pdf,image/*" onchange="onPassagemFile('adm15')">
-                  <span id="passagem-adm15-atual" style="font-size:12px">${func?.passagem_adm15_url?'<a href="'+func.passagem_adm15_url+'" target="_blank">📎 ver anexo atual</a>':''}</span>
-                </div>
-                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                  <b style="min-width:90px;font-size:12.5px">ADM 10</b>
-                  <input type="file" id="f-passagem-adm10" accept=".pdf,image/*" onchange="onPassagemFile('adm10')">
-                  <span id="passagem-adm10-atual" style="font-size:12px">${func?.passagem_adm10_url?'<a href="'+func.passagem_adm10_url+'" target="_blank">📎 ver anexo atual</a>':''}</span>
-                </div>
-                <div style="font-size:11.5px;color:var(--text-muted,#6b7280)">Anexando um, o outro é anulado.</div>
-              </div>
             </div>
           </div>
           <div class="form-section" style="margin-top:8px">Observações</div>
@@ -3827,8 +4611,6 @@ async function saveFuncionario(id){
   if(!mat||!nome){showToast('Matrícula e nome são obrigatórios','error');return;}
   const admissaoVal=document.getElementById('f-admissao').value;
   if(!admissaoVal){showToast('Data de Admissão é obrigatória','error');return;}
-  const localAlojVal=document.getElementById('f-local-alojamento').value;
-  if(!localAlojVal){showToast('Informe se o funcionário é Alojado ou Local','error');return;}
   const obraVal=document.getElementById('f-obra').value;
   if(!obraVal){showToast('Obra / Contrato é obrigatória','error');return;}
   const funcaoOk=funcaoModoManual
@@ -3982,28 +4764,7 @@ async function saveFuncionario(id){
     transf_pendente_solicitado_por:existente?.transf_pendente_solicitado_por||null,
     transf_pendente_solicitado_em:existente?.transf_pendente_solicitado_em||null,
   };
-  const passagemCampos={};
-  if(isDemitido&&localAlojVal==='alojado'){
-    const f15=document.getElementById('f-passagem-adm15')?.files[0];
-    const f10=document.getElementById('f-passagem-adm10')?.files[0];
-    const novo=f15?['adm15',f15]:f10?['adm10',f10]:null;
-    const jaTem=!!(existente?.passagem_adm15_url||existente?.passagem_adm10_url);
-    if(!novo&&!jaTem){showToast('Funcionário Alojado demitido: anexe o ADM 15 ou o ADM 10 em Passagens','error');return;}
-    if(novo){
-      const path='passagens/'+novo[0]+'_'+Date.now()+'_'+sanitizeFilename(novo[1].name);
-      const{error:upErr}=await sb.storage.from('funcionarios').upload(path,novo[1],{contentType:novo[1].type});
-      if(upErr){showToast('Erro no upload da passagem: '+upErr.message,'error');return;}
-      const url=sb.storage.from('funcionarios').getPublicUrl(path).data.publicUrl;
-      passagemCampos.passagem_tipo=novo[0];
-      passagemCampos.passagem_adm15_url=novo[0]==='adm15'?url:null;
-      passagemCampos.passagem_adm10_url=novo[0]==='adm10'?url:null;
-    }
-  }else if(localAlojVal==='local'){
-    passagemCampos.passagem_tipo=null;passagemCampos.passagem_adm15_url=null;passagemCampos.passagem_adm10_url=null;
-  }
   const payload={
-    local_alojamento:localAlojVal,
-    ...passagemCampos,
     matricula:mat,nome_completo:nome,
     data_admissao:document.getElementById('f-admissao').value||null,
     data_mobilizacao:integracaoSelecionada,
