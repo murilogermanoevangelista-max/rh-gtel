@@ -2139,6 +2139,10 @@ async function remConfChecar(){
     else linhas.push(ok('Chave de acesso confere com o número e a série.'));
     const dup=remRemessas.find(n=>n.chave_acesso===chave);
     if(dup)linhas.push(ruim(`Esta nota já está lançada (NF ${escHtml(dup.numero)}, obra ${escHtml(remObraNome(dup.obra_id))}).`));
+    else{
+      const mesmoNum=remRemessas.find(n=>String(n.numero)===String(Number(c.numero||0))&&String(n.serie||'')===String(c.serie||''));
+      if(mesmoNum)linhas.push(aviso(`Já existe uma NF ${escHtml(mesmoNum.numero)}${mesmoNum.serie?' série '+escHtml(mesmoNum.serie):''} lançada, mas com outra chave de acesso (outro emitente ou chave digitada errada). Confira antes de gravar.`));
+    }
   }
   if(c.valor_total!=null){
     const dif=Math.abs(soma-Number(c.valor_total));
