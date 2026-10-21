@@ -1322,7 +1322,7 @@ function remChaveValida(chave){
 function remParsearRows(rows){
   const txt=r=>r.its.map(i=>i.s).join(' ').trim();
   const T=rows.map(r=>remSemAcento(txt(r)));
-  const out={chave:'',numero:'',serie:'',data_emissao:'',natureza:'',cfop:'',valor_total:null,origem:'',nota_referenciada:'',observacao:'',tipo_nota:'remessa',itens:[],avisos:[]};
+  const out={chave:'',numero:'',serie:'',data_emissao:'',natureza:'',cfop:'',valor_total:null,origem:'',origem_obra_txt:'',destino_obra_txt:'',nota_referenciada:'',observacao:'',tipo_nota:'remessa',itens:[],avisos:[]};
 
   // chave de acesso: 11 grupos de 4 dígitos
   for(let i=0;i<rows.length&&!out.chave;i++){
@@ -1400,6 +1400,10 @@ function remParsearRows(rows){
     }
     out.observacao=parts.join(' ').replace(/\s+/g,' ').trim();
   }
+  return remEnriquecer(out);
+}
+// Parte comum à leitura do PDF e do XML: nota referenciada, origem, tipo, patrimônio, série e tipo sugerido
+function remEnriquecer(out){
   const comp=out.observacao;
   // nota referenciada: "CONFORME NOTA FISCAL [DE RETORNO] 121059"
   const mRef=comp.match(/CONFORME\s+(?:A\s+)?(?:NOTA\s+FISCAL|NF-?E?|NF)\s*(?:DE\s+\w+\s+)?(?:N[º°.]*\s*)?(\d{3,9})/i);
@@ -1408,6 +1412,10 @@ function remParsearRows(rows){
   const mOr=comp.match(/([A-ZÀ-Ú0-9][A-ZÀ-Ú0-9 .&\/-]{3,60}?)\s+-\s+CNPJ:\s*([\d.\/-]{14,18})/i);
   if(mOr)out.origem=mOr[1].replace(/^.*?(?:PARA|DE)\s+(?=[A-Z])/,'').trim()+' (CNPJ '+mOr[2]+')';
   if(/TRANSF/i.test(out.natureza+' '+comp))out.tipo_nota='transferencia';
+  // "TRANSF DO TERROMETRO DA OBRA <origem> PARA <destino> CONFORME ..."
+  const mTr=comp.match(/\bDA\s+OBRA\s+(.+?)\s+PARA\s+(?:A\s+)?(?:OBRA\s+)?(.+?)(?=\s+(?:CONFORME|NF\b|NOTA\b)|\s-\s|\.\s|$)/i);
+  out.origem_obra_txt=mTr?mTr[1].trim():'';
+  out.destino_obra_txt=mTr?mTr[2].trim():'';
 
   // patrimônio e série do equipamento (da descrição; série completada pelas informações complementares)
   const reSerieComp=/S[ÉE]RIE\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-\/]+)/gi;
@@ -1431,6 +1439,55 @@ function remParsearRows(rows){
   return out;
 }
 // <<PARSER-FIM>>
+
+// Leitura do XML da NF-e (dados exatos, sem depender do layout do PDF)
+function remParsearXml(txt){
+  const doc=new DOMParser().parseFromString(txt,'application/xml');
+  if(doc.getElementsByTagName('parsererror').length)throw new Error('o arquivo não é um XML válido');
+  const inf=doc.getElementsByTagName('infNFe')[0];
+  if(!inf)throw new Error('este XML não é de uma NF-e');
+  const g=(el,tag)=>{const n=el.getElementsByTagName(tag)[0];return n?n.textContent.trim():'';};
+  const ide=inf.getElementsByTagName('ide')[0];
+  const out={chave:(inf.getAttribute('Id')||'').replace(/^NFe/,'')||g(doc,'chNFe'),numero:String(Number(g(ide,'nNF'))||''),serie:g(ide,'serie'),
+    data_emissao:(g(ide,'dhEmi')||g(ide,'dEmi')).slice(0,10),natureza:g(ide,'natOp'),cfop:'',
+    valor_total:null,origem:'',origem_obra_txt:'',destino_obra_txt:'',nota_referenciada:'',observacao:'',tipo_nota:'remessa',itens:[],avisos:[],
+    emitente:g(inf.getElementsByTagName('emit')[0],'xNome'),emitente_cnpj:g(inf.getElementsByTagName('emit')[0],'CNPJ'),
+    destinatario:inf.getElementsByTagName('dest')[0]?g(inf.getElementsByTagName('dest')[0],'xNome'):'',
+    destinatario_cnpj:inf.getElementsByTagName('dest')[0]?g(inf.getElementsByTagName('dest')[0],'CNPJ'):''};
+  const vnf=g(inf.getElementsByTagName('total')[0]||inf,'vNF');out.valor_total=vnf?parseFloat(vnf):null;
+  [...inf.getElementsByTagName('det')].forEach(d=>{
+    const p=d.getElementsByTagName('prod')[0];
+    out.itens.push({codigo:g(p,'cProd'),descricao:g(p,'xProd'),ncm:g(p,'NCM'),cfop:g(p,'CFOP'),unidade:g(p,'uCom').toUpperCase(),
+      quantidade:parseFloat(g(p,'qCom'))||null,valor_unitario:parseFloat(g(p,'vUnCom'))||null,valor_total:parseFloat(g(p,'vProd'))||null});
+  });
+  out.cfop=out.itens[0]?.cfop||'';
+  const ic=inf.getElementsByTagName('infCpl')[0];out.observacao=ic?ic.textContent.replace(/\s+/g,' ').trim():'';
+  const ref=inf.getElementsByTagName('refNFe')[0];
+  const cst=g(doc,'cStat');
+  if(cst&&cst!=='100'&&cst!=='150')out.avisos.push('Esta NF-e não consta como autorizada (situação '+cst+': '+g(doc,'xMotivo')+').');
+  if(!doc.getElementsByTagName('protNFe').length)out.avisos.push('O XML não traz o protocolo de autorização da SEFAZ.');
+  const r=remEnriquecer(out);
+  if(ref&&!r.nota_referenciada){const k=ref.textContent.trim();if(k.length===44)r.nota_referenciada=String(Number(k.slice(25,34)));}
+  return r;
+}
+
+// Descobre qual obra do sistema o texto cita (compara as palavras do nome da obra; só aceita se houver um vencedor claro)
+const REM_STOP=new Set(['DE','DA','DO','DAS','DOS','OBRA','OBRAS','GTEL','LTDA','CONTRATO','TRANSF','REMESSA']);
+function remTokens(s){return remSemAcento(s).replace(/[^A-Z0-9 ]/g,' ').split(/\s+/).filter(t=>t.length>=3&&!REM_STOP.has(t));}
+function remObraPorTexto(txt,comCidade){
+  const alvo=new Set(remTokens(txt));if(!alvo.size)return '';
+  const pont=(obras||[]).map(o=>{
+    const tk=[...new Set(remTokens(o.nome||''))];
+    if(!tk.length)return{id:o.id,s:0};
+    let s=tk.filter(t=>alvo.has(t)).length/tk.length;
+    const cid=remTokens(o.cidade||'');
+    if(comCidade&&cid.length&&cid.every(t=>alvo.has(t)))s+=0.3;
+    return{id:o.id,s};
+  }).sort((a,b)=>b.s-a.s);
+  if(pont[0]&&pont[0].s>=0.6&&(!pont[1]||pont[0].s-pont[1].s>=0.2))return pont[0].id;
+  return '';
+}
+function remOrigemTxt(n){return n.obra_origem_id?remObraNome(n.obra_origem_id):(n.origem||'');}
 
 // Lê o PDF no navegador (pdf.js já usado pelo sistema) e devolve as linhas posicionadas
 async function remLinhasDoPdf(file){
@@ -1508,7 +1565,7 @@ function remDataHora(ts){
 }
 function remTextoBusca(it){
   const n=remNotaDe(it)||{};
-  return _semAcento([it.codigo,it.descricao,it.patrimonio,it.serie_equip,n.numero,n.chave_acesso,n.natureza,n.origem].join(' '));
+  return _semAcento([it.codigo,it.descricao,it.patrimonio,it.serie_equip,n.numero,n.chave_acesso,n.natureza,remOrigemTxt(n)].join(' '));
 }
 function remItensFiltrados(extra){
   const f=remFiltro,q=_semAcento(f.q).trim();
@@ -1551,8 +1608,8 @@ function renderRemessas(){
       <div><div class="page-title">Notas de Remessa</div><div class="page-subtitle">${remRemessas.length} nota(s) · ${remItens.length} item(ns) · controle por quantidade, a partir da NF-e de remessa/transferência</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn" onclick="remAbrirConferencia(null)"><i class="ti ti-pencil"></i> Lançar manualmente</button>
-        <button class="btn btn-primary" onclick="document.getElementById('rem-pdf').click()"><i class="ti ti-file-upload"></i> Ler nota (PDF)</button>
-        <input type="file" id="rem-pdf" accept=".pdf,application/pdf" style="display:none" onchange="remLerPdf(this)">
+        <button class="btn btn-primary" onclick="document.getElementById('rem-pdf').click()"><i class="ti ti-file-upload"></i> Ler notas (XML ou PDF)</button>
+        <input type="file" id="rem-pdf" accept=".pdf,.xml,application/pdf,text/xml,application/xml" multiple style="display:none" onchange="remLerPdf(this)">
       </div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">${tabs}</div>
@@ -1601,7 +1658,7 @@ function remNotasHTML(){
       <td style="white-space:nowrap">${formatDate(n.data_emissao)}</td>
       <td>${escHtml(remObraNome(n.obra_id))}</td>
       <td>${n.tipo_nota==='transferencia'?'<span class="badge badge-blue">Transferência</span>':'<span class="badge badge-green">Remessa</span>'}<div style="font-size:11px;color:var(--text-muted)">${escHtml(n.natureza||'')}</div></td>
-      <td>${escHtml(n.origem||'—')}${n.nota_referenciada?`<div style="font-size:11px;color:var(--text-muted)">ref. NF ${escHtml(n.nota_referenciada)}</div>`:''}</td>
+      <td>${escHtml(remOrigemTxt(n)||'—')}${n.nota_referenciada?`<div style="font-size:11px;color:var(--text-muted)">ref. NF ${escHtml(n.nota_referenciada)}</div>`:''}</td>
       <td style="text-align:right">${its.length}</td>
       <td style="text-align:right">${comSaldo.length?`<strong>${comSaldo.length}</strong>${retorn?` <span class="badge badge-blue" title="retornáveis com saldo">${retorn} retorn.</span>`:''}`:'<span class="badge badge-green">tudo baixado</span>'}</td></tr>`;
   }).join('');
@@ -1746,7 +1803,7 @@ function remAbrirNota(id){
         <div><span class="grd-lbl">Obra</span>${escHtml(remObraNome(n.obra_id))}</div>
         <div><span class="grd-lbl">Emissão</span>${formatDate(n.data_emissao)}</div>
         <div><span class="grd-lbl">Natureza / CFOP</span>${escHtml(n.natureza||'—')} · ${escHtml(n.cfop||'—')}</div>
-        <div><span class="grd-lbl">Origem</span>${escHtml(n.origem||'—')}</div>
+        <div><span class="grd-lbl">Origem</span>${escHtml(remOrigemTxt(n)||'—')}</div>
         <div><span class="grd-lbl">Nota referenciada</span>${escHtml(n.nota_referenciada||'—')}</div>
         <div><span class="grd-lbl">Valor total da nota</span>${remFmtBRL(n.valor_total)}</div>
         <div style="grid-column:1/-1"><span class="grd-lbl">Chave de acesso</span><span style="font-family:monospace;font-size:12px">${escHtml(n.chave_acesso)}</span></div>
@@ -1938,33 +1995,57 @@ async function remEstornar(movId){
 }
 
 // ─── LEITURA DO PDF → CONFERÊNCIA ────────────────────────────────────────────
+let remFila=[],remFilaTotal=0,remFilaPos=0;
 async function remLerPdf(input){
-  const file=input.files&&input.files[0];input.value='';
-  if(!file)return;
-  showToast('Lendo a nota…');
-  let dados=null;
-  try{
-    const rows=await remLinhasDoPdf(file);
-    if(!rows.length){showToast('Este PDF não tem texto (parece escaneado). Abrindo o lançamento manual.','error');remAbrirConferencia(null);return;}
-    dados=remParsearRows(rows);
-  }catch(e){
-    console.error(e);
-    showToast('Não consegui ler o PDF ('+e.message+'). Abrindo o lançamento manual.','error');
-    remAbrirConferencia(null);return;
+  const files=[...(input.files||[])];input.value='';
+  if(!files.length)return;
+  remFila=[];remFilaTotal=files.length;remFilaPos=0;
+  for(let k=0;k<files.length;k++){
+    showToast(`Lendo a nota ${k+1} de ${files.length}…`);
+    let dados=null,aviso='';
+    try{
+      if(/\.xml$/i.test(files[k].name))dados=remParsearXml(await files[k].text());
+      else{
+        const rows=await remLinhasDoPdf(files[k]);
+        if(!rows.length)aviso='Este PDF não tem texto (parece escaneado): lance os dados manualmente.';
+        else dados=remParsearRows(rows);
+      }
+    }catch(e){console.error(e);aviso='Não consegui ler este arquivo ('+e.message+'): lance os dados manualmente.';}
+    remFila.push({dados,aviso,arquivo:files[k].name});
   }
-  remAbrirConferencia(dados);
+  remProximaDaFila();
 }
+function remProximaDaFila(){
+  if(!remFila.length){remFilaTotal=0;remFilaPos=0;return;}
+  const f=remFila.shift();remFilaPos++;
+  remAbrirConferencia(f.dados,{arquivo:f.arquivo,aviso:f.aviso});
+}
+function remConfPular(){closeModal('modal-rem-conf');remProximaDaFila();}
+function remConfCancelarTodas(){remFila=[];remFilaTotal=0;remFilaPos=0;closeModal('modal-rem-conf');}
 let remConf=null;
-function remAbrirConferencia(d){
+function remAbrirConferencia(d,info){
   const hoje=new Date().toISOString().slice(0,10);
   remConf=d?{...d,obra_id:''}:{chave:'',numero:'',serie:'',data_emissao:hoje,natureza:'',cfop:'',valor_total:null,origem:'',nota_referenciada:'',observacao:'',tipo_nota:'remessa',obra_id:'',avisos:[],
     itens:[{codigo:'',descricao:'',unidade:'',quantidade:1,valor_unitario:null,ncm:'',cfop:'',patrimonio:'',serie_equip:'',tipo:'consumo'}]};
   remConf.manual=!d;
+  remConf.arquivo=info?.arquivo||'';
+  if(info?.aviso)remConf.avisos=[info.aviso];
+  remConf.origem_sel='';remConf.origem_ext='';remConf.sugerida=false;
+  if(d){
+    // obra de destino e de origem citadas nas informações complementares ("DA OBRA X PARA Y")
+    const dest=d.destino_obra_txt?remObraPorTexto(d.destino_obra_txt):remObraPorTexto(d.observacao,true);
+    if(dest){remConf.obra_id=dest;remConf.sugerida=true;}
+    const org=d.origem_obra_txt?remObraPorTexto(d.origem_obra_txt):'';
+    if(org){remConf.origem_sel=org;}
+    else if(d.origem_obra_txt){remConf.origem_sel='__ext';remConf.origem_ext=d.origem_obra_txt;}
+    else if(d.origem){remConf.origem_sel='__ext';remConf.origem_ext=d.origem;}
+  }
   remDesenharConferencia();
 }
 function remDesenharConferencia(){
   const c=remConf;
   const obrasOpt=(obras||[]).slice().sort((a,b)=>remObraNome(a.id).localeCompare(remObraNome(b.id),'pt-BR')).map(o=>`<option value="${o.id}" ${String(c.obra_id)===String(o.id)?'selected':''}>${escHtml(remObraNome(o.id))}</option>`).join('');
+  const origOpt=(obras||[]).slice().sort((a,b)=>remObraNome(a.id).localeCompare(remObraNome(b.id),'pt-BR')).map(o=>`<option value="${o.id}" ${String(c.origem_sel)===String(o.id)?'selected':''}>${escHtml(remObraNome(o.id))}</option>`).join('');
   const inp=(k,lbl,extra)=>`<div class="form-group" ${extra||''}><label>${lbl}</label><input value="${escHtml(c[k]??'')}" oninput="remConf.${k}=this.value;remConfChecar()"></div>`;
   const linhas=c.itens.map((it,k)=>`<tr>
     <td><input value="${escHtml(it.codigo||'')}" style="width:112px" oninput="remConf.itens[${k}].codigo=this.value"></td>
@@ -1978,19 +2059,21 @@ function remDesenharConferencia(){
     <td id="rc-ativo-${k}" style="font-size:11.5px;min-width:120px"></td>
     <td style="white-space:nowrap">${Number(it.quantidade)>1&&it.patrimonio?`<button class="btn btn-sm" title="Dividir em linhas de 1 unidade, uma por patrimônio" onclick="remConfDividir(${k})"><i class="ti ti-arrows-split"></i></button> `:''}<button class="btn btn-sm" title="Remover linha" onclick="remConfRemover(${k})"><i class="ti ti-trash"></i></button></td></tr>`).join('');
   insertModal('modal-rem-conf',`<div class="modal" style="max-width:1240px">
-    <div class="modal-header"><span class="modal-title"><i class="ti ti-checklist"></i> ${c.manual?'Lançar nota de remessa':'Conferir a nota lida'}</span><button class="btn btn-sm" onclick="closeModal('modal-rem-conf')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-header"><span class="modal-title"><i class="ti ti-checklist"></i> ${c.manual?'Lançar nota de remessa':'Conferir a nota lida'}${remFilaTotal>1?` <span class="badge badge-blue">nota ${remFilaPos} de ${remFilaTotal}</span>`:''}${c.arquivo?` <span style="font-weight:400;font-size:12px;color:var(--text-muted)">· ${escHtml(c.arquivo)}</span>`:''}</span><button class="btn btn-sm" onclick="remConfPular()"><i class="ti ti-x"></i></button></div>
     <div class="modal-body">
       ${(c.avisos||[]).map(a=>`<div style="background:var(--warning-light);border:1px solid #E7CFA0;color:#6B4A0E;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:13px"><i class="ti ti-alert-triangle"></i> ${escHtml(a)}</div>`).join('')}
-      <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px">Confira com a nota. O PDF <strong>não</strong> é guardado: só estes dados.</div>
+      <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px">Confira com a nota. O arquivo (PDF/XML) <strong>não</strong> é guardado: só estes dados.</div>
       <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px 14px;margin-bottom:12px">
         ${inp('numero','Nº da nota *')}${inp('serie','Série')}
         <div class="form-group"><label>Emissão *</label><input type="date" value="${escHtml(c.data_emissao||'')}" onchange="remConf.data_emissao=this.value"></div>
-        <div class="form-group"><label>Obra de destino da nota *</label><select onchange="remConf.obra_id=this.value;remConfChecar();remConfAtivoTodos()"><option value="">— Selecione —</option>${obrasOpt}</select></div>
+        <div class="form-group"><label>Obra de destino da nota *${c.sugerida?' <span style="color:#166534;font-weight:400">(sugerida pela nota, confira)</span>':''}</label><select onchange="remConf.obra_id=this.value;remConf.sugerida=false;remConfChecar();remConfAtivoTodos()"><option value="">— Selecione —</option>${obrasOpt}</select></div>
         ${inp('natureza','Natureza da operação')}${inp('cfop','CFOP')}
         <div class="form-group"><label>Tipo da nota</label><select onchange="remConf.tipo_nota=this.value"><option value="remessa" ${c.tipo_nota==='remessa'?'selected':''}>Remessa</option><option value="transferencia" ${c.tipo_nota==='transferencia'?'selected':''}>Transferência</option></select></div>
         <div class="form-group"><label>Valor total da nota (R$)</label><input value="${c.valor_total??''}" inputmode="decimal" oninput="remConf.valor_total=remNum(this.value);remConfChecar()"></div>
         ${inp('chave','Chave de acesso (44 dígitos) *','style="grid-column:span 2"')}
-        ${inp('origem','Origem / local citado na nota','style="grid-column:span 2"')}
+        <div class="form-group" style="grid-column:span 2"><label>Obra de origem${c.origem_sel&&c.origem_sel!=='__ext'?' <span style="color:#166534;font-weight:400">(sugerida pela nota, confira)</span>':''}</label>
+          <select onchange="remConf.origem_sel=this.value;document.getElementById('rc-orig-ext').style.display=this.value==='__ext'?'':'none'"><option value="">— Selecione —</option>${origOpt}<option value="__ext" ${c.origem_sel==='__ext'?'selected':''}>Outra origem (fornecedor, cliente, sede…)</option></select>
+          <input id="rc-orig-ext" style="margin-top:6px;display:${c.origem_sel==='__ext'?'':'none'}" placeholder="Quem enviou" value="${escHtml(c.origem_ext||'')}" oninput="remConf.origem_ext=this.value"></div>
         ${inp('nota_referenciada','Nota referenciada (nº)')}
         <div class="form-group" style="grid-column:span 3"><label>Observação / informações complementares</label><input value="${escHtml(c.observacao||'')}" oninput="remConf.observacao=this.value"></div>
       </div>
@@ -1998,7 +2081,7 @@ function remDesenharConferencia(){
       <div style="margin:8px 0 12px"><button class="btn btn-sm" onclick="remConfAdd()"><i class="ti ti-plus"></i> Adicionar item</button></div>
       <div id="rc-checks"></div>
     </div>
-    <div class="modal-footer"><button class="btn" onclick="closeModal('modal-rem-conf')">Cancelar</button>
+    <div class="modal-footer">${remFila.length?`<button class="btn" style="margin-right:auto" onclick="remConfCancelarTodas()">Cancelar as ${remFila.length+1} restantes</button>`:''}<button class="btn" onclick="remConfPular()">${remFila.length?'Pular esta nota':'Cancelar'}</button>
       <button class="btn btn-primary" id="rc-salvar" onclick="remConfSalvar()"><i class="ti ti-check"></i> Gravar nota</button></div></div>`);
   remConfChecar();remConfAtivoTodos();
 }
@@ -2074,7 +2157,7 @@ async function remConfSalvar(){
   try{
     const{data:nota,error:e1}=await sb.from('remessas').insert({
       chave_acesso:chave,numero:String(Number(c.numero)),serie:c.serie||null,data_emissao:c.data_emissao,natureza:c.natureza||null,cfop:c.cfop||null,
-      tipo_nota:c.tipo_nota,valor_total:c.valor_total,origem:c.origem||null,nota_referenciada:c.nota_referenciada||null,
+      tipo_nota:c.tipo_nota,valor_total:c.valor_total,origem:c.origem_sel==='__ext'?((c.origem_ext||'').trim()||null):null,obra_origem_id:(c.origem_sel&&c.origem_sel!=='__ext')?c.origem_sel:null,nota_referenciada:c.nota_referenciada||null,
       obra_id:c.obra_id,observacao:c.observacao||null,criado_por:remQuem()}).select().single();
     if(e1)throw new Error(e1.code==='23505'?'Esta nota já está lançada.':e1.message);
     const encontrados=[];
@@ -2094,6 +2177,7 @@ async function remConfSalvar(){
     await remCarregar();
     try{await loadAtivosImobilizados();}catch(e){}
     remAba='notas';renderRemessas();
+    remProximaDaFila();
   }catch(e){showToast('Erro: '+e.message,'error');btn.disabled=false;}
 }
 // Depois de gravar: confirma troca de obra de ativos existentes e oferece cadastrar os que não existem
