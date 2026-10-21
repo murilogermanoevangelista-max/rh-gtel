@@ -3113,6 +3113,12 @@ async function verFicha(id,historico=false){
       +'<div class="ficha-grid">'
       +'<div class="ficha-field"><div class="ficha-field-label">Data de Demissão</div><div class="ficha-field-value">'+(formatDate(f.data_demissao)||'—')+'</div></div>'
       +'<div class="ficha-field"><div class="ficha-field-label">Tipo de Demissão</div><div class="ficha-field-value">'+tipoDemLabel+'</div></div>'
+      +'<div class="ficha-field" style="grid-column:1/-1"><div class="ficha-field-label">Passagens</div><div class="ficha-field-value">'
+        +(f.local_alojamento==='local'?'Não se aplica (Local)'
+          :f.passagem_adm15_url?'<a href="'+f.passagem_adm15_url+'" target="_blank">📎 ADM 15 anexado</a>'
+          :f.passagem_adm10_url?'<a href="'+f.passagem_adm10_url+'" target="_blank">📎 ADM 10 anexado</a>'
+          :'<span style="color:#B91C1C">Pendente — anexar ADM 15 ou ADM 10</span>')
+        +'</div></div>'
       +(f.motivo_demissao?'<div class="ficha-field" style="grid-column:1/-1"><div class="ficha-field-label">Motivo</div><div class="ficha-field-value">'+f.motivo_demissao+'</div></div>':'')
       +'</div></div>';
   }
@@ -3541,6 +3547,21 @@ function toggleFuncaoModo(){
   document.getElementById('f-funcao-input').style.display=funcaoModoManual?'block':'none';
   document.getElementById('f-funcao-toggle').textContent=funcaoModoManual?'← Escolher da lista':'✏️ Digitar manualmente';
 }
+function onLocalAlojamentoChange(){
+  const v=document.getElementById('f-local-alojamento')?.value;
+  const na=document.getElementById('passagens-na'),op=document.getElementById('passagens-opcoes');
+  if(!na||!op)return;
+  na.style.display=v==='local'?'block':'none';
+  op.style.display=v==='local'?'none':'flex';
+}
+function onPassagemFile(tipo){
+  const outro=tipo==='adm15'?'adm10':'adm15';
+  const inp=document.getElementById('f-passagem-'+tipo);
+  if(inp&&inp.files[0]){
+    const o=document.getElementById('f-passagem-'+outro);if(o)o.value='';
+    const lbl=document.getElementById('passagem-'+outro+'-atual');if(lbl)lbl.innerHTML='<span style="color:#B91C1C">será anulado ao salvar</span>';
+  }
+}
 function onSituacaoChange(){
   const val=document.getElementById('f-situacao').value;
   const block=document.getElementById('transfer-block');
@@ -3551,6 +3572,7 @@ function onSituacaoChange(){
   const demBlock=document.getElementById('demissao-block');
   if(val==='inativo'){demBlock.classList.add('visible');}
   else{demBlock.classList.remove('visible');}
+  onLocalAlojamentoChange();
   atualizarAlojamentoPorObra();
 }
 function selectTipoTransferencia(tipo){
@@ -3717,6 +3739,15 @@ function openModalFuncionario(func=null){
               </div>
             </div>
           </div>
+          <div class="form-section" style="margin-top:8px">Alojamento</div>
+          <div class="form-group">
+            <label>Funcionário Alojado ou Local <span style="color:var(--red,#dc2626)">*</span></label>
+            <select id="f-local-alojamento" onchange="onLocalAlojamentoChange()">
+              <option value="">Selecione...</option>
+              <option value="alojado" ${func?.local_alojamento==='alojado'?'selected':''}>Alojado</option>
+              <option value="local" ${func?.local_alojamento==='local'?'selected':''}>Local</option>
+            </select>
+          </div>
           <div id="demissao-block" class="transfer-block ${isDemitido?'visible':''}">
             <div class="form-section" style="margin-top:8px">Dados da Demissão</div>
             <div class="form-group"><label>Data de Demissão</label><input type="date" id="f-data-demissao" value="${func?.data_demissao||''}"></div>
@@ -3734,6 +3765,23 @@ function openModalFuncionario(func=null){
             <div class="form-group full">
               <label>Motivo real da demissão</label>
               <textarea id="f-motivo-demissao" rows="2" placeholder="Detalhe o motivo real da demissão...">${func?.motivo_demissao||''}</textarea>
+            </div>
+            <div class="form-group full" id="passagens-box">
+              <label>Passagens</label>
+              <div id="passagens-na" style="display:${func?.local_alojamento==='local'?'block':'none'};font-size:12.5px;color:var(--text-muted,#6b7280)">Não se aplica (funcionário Local).</div>
+              <div id="passagens-opcoes" style="display:${func?.local_alojamento==='local'?'none':'flex'};flex-direction:column;gap:8px">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                  <b style="min-width:90px;font-size:12.5px">ADM 15</b>
+                  <input type="file" id="f-passagem-adm15" accept=".pdf,image/*" onchange="onPassagemFile('adm15')">
+                  <span id="passagem-adm15-atual" style="font-size:12px">${func?.passagem_adm15_url?'<a href="'+func.passagem_adm15_url+'" target="_blank">📎 ver anexo atual</a>':''}</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                  <b style="min-width:90px;font-size:12.5px">ADM 10</b>
+                  <input type="file" id="f-passagem-adm10" accept=".pdf,image/*" onchange="onPassagemFile('adm10')">
+                  <span id="passagem-adm10-atual" style="font-size:12px">${func?.passagem_adm10_url?'<a href="'+func.passagem_adm10_url+'" target="_blank">📎 ver anexo atual</a>':''}</span>
+                </div>
+                <div style="font-size:11.5px;color:var(--text-muted,#6b7280)">Anexando um, o outro é anulado.</div>
+              </div>
             </div>
           </div>
           <div class="form-section" style="margin-top:8px">Observações</div>
@@ -3779,6 +3827,8 @@ async function saveFuncionario(id){
   if(!mat||!nome){showToast('Matrícula e nome são obrigatórios','error');return;}
   const admissaoVal=document.getElementById('f-admissao').value;
   if(!admissaoVal){showToast('Data de Admissão é obrigatória','error');return;}
+  const localAlojVal=document.getElementById('f-local-alojamento').value;
+  if(!localAlojVal){showToast('Informe se o funcionário é Alojado ou Local','error');return;}
   const obraVal=document.getElementById('f-obra').value;
   if(!obraVal){showToast('Obra / Contrato é obrigatória','error');return;}
   const funcaoOk=funcaoModoManual
@@ -3932,7 +3982,26 @@ async function saveFuncionario(id){
     transf_pendente_solicitado_por:existente?.transf_pendente_solicitado_por||null,
     transf_pendente_solicitado_em:existente?.transf_pendente_solicitado_em||null,
   };
+  const passagemCampos={};
+  if(isDemitido&&localAlojVal==='alojado'){
+    const f15=document.getElementById('f-passagem-adm15')?.files[0];
+    const f10=document.getElementById('f-passagem-adm10')?.files[0];
+    const novo=f15?['adm15',f15]:f10?['adm10',f10]:null;
+    if(novo){
+      const path='passagens/'+novo[0]+'_'+Date.now()+'_'+sanitizeFilename(novo[1].name);
+      const{error:upErr}=await sb.storage.from('funcionarios').upload(path,novo[1],{contentType:novo[1].type});
+      if(upErr){showToast('Erro no upload da passagem: '+upErr.message,'error');return;}
+      const url=sb.storage.from('funcionarios').getPublicUrl(path).data.publicUrl;
+      passagemCampos.passagem_tipo=novo[0];
+      passagemCampos.passagem_adm15_url=novo[0]==='adm15'?url:null;
+      passagemCampos.passagem_adm10_url=novo[0]==='adm10'?url:null;
+    }
+  }else if(localAlojVal==='local'){
+    passagemCampos.passagem_tipo=null;passagemCampos.passagem_adm15_url=null;passagemCampos.passagem_adm10_url=null;
+  }
   const payload={
+    local_alojamento:localAlojVal,
+    ...passagemCampos,
     matricula:mat,nome_completo:nome,
     data_admissao:document.getElementById('f-admissao').value||null,
     data_mobilizacao:integracaoSelecionada,
