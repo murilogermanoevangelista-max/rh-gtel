@@ -1527,6 +1527,7 @@ function remFmtQtd(n){
   const v=Number(n)||0;
   return v.toLocaleString('pt-BR',{maximumFractionDigits:4});
 }
+function remValSaldo(it){return remSaldo(it)*(Number(it.valor_unitario)||0);}
 function remFmtBRL(n){return n==null||n===''?'—':Number(n).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});}
 const REM_TIPO_MOV={transferencia:'Transferência',devolucao:'Devolução',consumo:'Consumo',perda:'Perda / extravio',ajuste:'Ajuste'};
 const REM_COR_MOV={transferencia:'badge-blue',devolucao:'badge-green',consumo:'badge-amber',perda:'badge-red',ajuste:'badge-amber'};
@@ -1661,9 +1662,10 @@ function remNotasHTML(){
       <td>${n.tipo_nota==='transferencia'?'<span class="badge badge-blue">Transferência</span>':'<span class="badge badge-green">Remessa</span>'}<div style="font-size:11px;color:var(--text-muted)">${escHtml(n.natureza||'')}</div></td>
       <td>${escHtml(remOrigemTxt(n)||'—')}${n.nota_referenciada?`<div style="font-size:11px;color:var(--text-muted)">ref. NF ${escHtml(n.nota_referenciada)}</div>`:''}</td>
       <td style="text-align:right">${its.length}</td>
+      <td style="text-align:right;white-space:nowrap">${remFmtBRL(n.valor_total)}</td>
       <td style="text-align:right">${comSaldo.length?`<strong>${comSaldo.length}</strong>${retorn?` <span class="badge badge-blue" title="retornáveis com saldo">${retorn} retorn.</span>`:''}`:'<span class="badge badge-green">tudo baixado</span>'}</td></tr>`;
   }).join('');
-  return `<div class="table-container"><table><thead><tr><th>Nota</th><th>Emissão</th><th>Obra</th><th>Tipo</th><th>Origem</th><th style="text-align:right">Itens</th><th style="text-align:right">Com saldo</th></tr></thead><tbody>${linhas}</tbody></table></div>`;
+  return `<div class="table-container"><table><thead><tr><th>Nota</th><th>Emissão</th><th>Obra</th><th>Tipo</th><th>Origem</th><th style="text-align:right">Itens</th><th style="text-align:right">Valor da nota</th><th style="text-align:right">Com saldo</th></tr></thead><tbody>${linhas}</tbody></table></div>`;
 }
 function remItensHTML(){
   const itens=remItensFiltrados().sort((a,b)=>String(a.descricao).localeCompare(String(b.descricao),'pt-BR'));
@@ -1678,10 +1680,12 @@ function remItensHTML(){
       <td style="white-space:nowrap"><a href="#" onclick="event.preventDefault();remAbrirNota('${n.id}')">NF ${escHtml(n.numero||'—')}</a></td>
       <td style="text-align:right;white-space:nowrap">${remFmtQtd(it.quantidade)} ${escHtml(it.unidade||'')}</td>
       <td style="text-align:right;white-space:nowrap"><strong style="color:${s>0?'var(--primary-dark)':'var(--text-muted)'}">${remFmtQtd(s)}</strong></td>
+      <td style="text-align:right;white-space:nowrap">${remFmtBRL(it.valor_unitario)}</td>
+      <td style="text-align:right;white-space:nowrap">${s>0?remFmtBRL(remValSaldo(it)):'—'}</td>
       <td style="white-space:nowrap">${s>0?`<button class="btn btn-sm btn-primary" onclick="remAbrirBaixa('${it.id}')">Dar baixa</button> `:''}<button class="btn btn-sm" onclick="remAbrirHistorico('${it.id}')" title="Histórico"><i class="ti ti-history"></i></button></td></tr>`;
   }).join('');
   return `<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:6px">${itens.length} item(ns)${itens.length>lim.length?' · mostrando os 300 primeiros, refine a busca':''}</div>
-    <div class="table-container"><table><thead><tr><th>Item</th><th>Tipo</th><th>Obra atual</th><th>Nota</th><th style="text-align:right">Enviado</th><th style="text-align:right">Saldo</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>`;
+    <div class="table-container"><table><thead><tr><th>Item</th><th>Tipo</th><th>Obra atual</th><th>Nota</th><th style="text-align:right">Enviado</th><th style="text-align:right">Saldo</th><th style="text-align:right">V. unit.</th><th style="text-align:right">Valor do saldo</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>`;
 }
 
 // ─── EQUIPAMENTOS: localizar por patrimônio / série (caminho completo) ───────
@@ -1742,12 +1746,14 @@ function remObraHTML(){
       <td>${escHtml(it.descricao)}<div style="font-size:11px;color:var(--text-muted)">${it.patrimonio?'Pat. '+escHtml(it.patrimonio):''}${it.serie_equip?' · Série '+escHtml(it.serie_equip):''}</div></td>
       <td>${remBadgeTipo(it.tipo)}</td><td>NF ${escHtml(n.numero||'—')}</td>
       <td style="text-align:right"><strong>${remFmtQtd(remSaldo(it))}</strong> ${escHtml(it.unidade||'')}</td>
+      <td style="text-align:right;white-space:nowrap">${remFmtBRL(remValSaldo(it))}</td>
       <td><button class="btn btn-sm btn-primary" onclick="remAbrirBaixa('${it.id}')">Dar baixa</button></td></tr>`;}).join('');
+    const totalObra=its.reduce((s,i)=>s+remValSaldo(i),0);
     return `<details style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);margin-bottom:10px">
       <summary style="cursor:pointer;padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><strong style="color:var(--primary-dark)">${escHtml(remObraNome(id))}</strong>
-        <span class="badge badge-blue">${ret} retornável(is)</span><span class="badge badge-amber">${con} de consumo</span></summary>
+        <span class="badge badge-blue">${ret} retornável(is)</span><span class="badge badge-amber">${con} de consumo</span><span style="margin-left:auto;font-size:13px">Valor em saldo: <strong>${remFmtBRL(totalObra)}</strong></span></summary>
       <div style="padding:0 16px 14px"><div style="margin-bottom:8px"><button class="btn btn-sm" onclick="remAbrirLote('${id}',null)"><i class="ti ti-checks"></i> Baixa de consumo em lote</button></div>
-      <div class="table-container"><table><thead><tr><th>Item</th><th>Tipo</th><th>Nota</th><th style="text-align:right">Saldo</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div></div></details>`;
+      <div class="table-container"><table><thead><tr><th>Item</th><th>Tipo</th><th>Nota</th><th style="text-align:right">Saldo</th><th style="text-align:right">Valor do saldo</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div></div></details>`;
   }).join('');
 }
 
@@ -1794,6 +1800,8 @@ function remAbrirNota(id){
     <td>${escHtml(remObraNome(it.obra_atual_id))}</td>
     <td style="text-align:right;white-space:nowrap">${remFmtQtd(it.quantidade)} ${escHtml(it.unidade||'')}</td>
     <td style="text-align:right"><strong>${remFmtQtd(s)}</strong></td>
+    <td style="text-align:right;white-space:nowrap">${remFmtBRL(it.valor_unitario)}</td>
+    <td style="text-align:right;white-space:nowrap">${remFmtBRL(Number(it.quantidade)*(Number(it.valor_unitario)||0))}</td>
     <td style="white-space:nowrap">${s>0?`<button class="btn btn-sm btn-primary" onclick="remAbrirBaixa('${it.id}')">Dar baixa</button> `:''}<button class="btn btn-sm" onclick="remAbrirHistorico('${it.id}')"><i class="ti ti-history"></i></button></td></tr>`;}).join('');
   const temMov=its.some(i=>remMovsDoItem(i.id,true).length);
   insertModal('modal-rem-nota',`<div class="modal" style="max-width:1000px">
@@ -1812,7 +1820,7 @@ function remAbrirNota(id){
         <div style="grid-column:1/-1;font-size:11.5px;color:var(--text-muted)">Lançada por ${escHtml(n.criado_por||'—')} em ${remDataHora(n.created_at)}</div>
       </div>
       <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap"><button class="btn btn-sm" onclick="remAbrirLote(null,'${n.id}')"><i class="ti ti-checks"></i> Baixa de consumo em lote</button></div>
-      <div class="table-container"><table><thead><tr><th>#</th><th>Item</th><th>Tipo</th><th>Obra atual</th><th style="text-align:right">Enviado</th><th style="text-align:right">Saldo</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>
+      <div class="table-container"><table><thead><tr><th>#</th><th>Item</th><th>Tipo</th><th>Obra atual</th><th style="text-align:right">Enviado</th><th style="text-align:right">Saldo</th><th style="text-align:right">V. unit.</th><th style="text-align:right">Total</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>
       <style>.grd-lbl{display:block;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px}</style>
     </div>
     <div class="modal-footer">
