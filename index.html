@@ -3987,6 +3987,8 @@ async function saveFuncionario(id){
     const f15=document.getElementById('f-passagem-adm15')?.files[0];
     const f10=document.getElementById('f-passagem-adm10')?.files[0];
     const novo=f15?['adm15',f15]:f10?['adm10',f10]:null;
+    const jaTem=!!(existente?.passagem_adm15_url||existente?.passagem_adm10_url);
+    if(!novo&&!jaTem){showToast('Funcionário Alojado demitido: anexe o ADM 15 ou o ADM 10 em Passagens','error');return;}
     if(novo){
       const path='passagens/'+novo[0]+'_'+Date.now()+'_'+sanitizeFilename(novo[1].name);
       const{error:upErr}=await sb.storage.from('funcionarios').upload(path,novo[1],{contentType:novo[1].type});
