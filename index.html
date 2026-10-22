@@ -4128,6 +4128,8 @@ async function verFicha(id,historico=false){
       +'<div class="ficha-grid">'
       +'<div class="ficha-field"><div class="ficha-field-label">Data de Demissão</div><div class="ficha-field-value">'+(formatDate(f.data_demissao)||'—')+'</div></div>'
       +'<div class="ficha-field"><div class="ficha-field-label">Tipo de Demissão</div><div class="ficha-field-value">'+tipoDemLabel+'</div></div>'
+      +'<div class="ficha-field"><div class="ficha-field-label">Alojado ou Local</div><div class="ficha-field-value">'+(f.tipo_moradia==='alojado'?'Alojado':f.tipo_moradia==='local'?'Local':'—')+'</div></div>'
+      +(f.demissao_termo_url?'<div class="ficha-field"><div class="ficha-field-label">Termo</div><div class="ficha-field-value"><a href="'+f.demissao_termo_url+'" target="_blank">'+(f.demissao_termo_tipo||'Ver termo')+'</a></div></div>':'')
       +(f.motivo_demissao?'<div class="ficha-field" style="grid-column:1/-1"><div class="ficha-field-label">Motivo</div><div class="ficha-field-value">'+f.motivo_demissao+'</div></div>':'')
       +'</div></div>';
   }
@@ -4566,7 +4568,15 @@ function onSituacaoChange(){
   const demBlock=document.getElementById('demissao-block');
   if(val==='inativo'){demBlock.classList.add('visible');}
   else{demBlock.classList.remove('visible');}
+  onMoradiaChange();
   atualizarAlojamentoPorObra();
+}
+// Termo ADM 15/ADM 10 só é exigido quando: situação = demitido E moradia = Alojado
+function onMoradiaChange(){
+  const b=document.getElementById('demissao-termo-block');if(!b)return;
+  const dem=document.getElementById('f-situacao').value==='inativo';
+  const aloj=document.getElementById('f-tipo-moradia').value==='alojado';
+  b.style.display=(dem&&aloj)?'block':'none';
 }
 function selectTipoTransferencia(tipo){
   tipoTransferencia=tipo;
@@ -4681,6 +4691,14 @@ function openModalFuncionario(func=null){
               <option value="mensalista" ${func?.tipo_pagamento==='mensalista'?'selected':''}>Mensalista</option>
             </select>
           </div>
+          <div class="form-group">
+            <label>Alojado ou Local</label>
+            <select id="f-tipo-moradia" onchange="onMoradiaChange()">
+              <option value="">Selecione...</option>
+              <option value="alojado" ${func?.tipo_moradia==='alojado'?'selected':''}>Alojado</option>
+              <option value="local" ${func?.tipo_moradia==='local'?'selected':''}>Local</option>
+            </select>
+          </div>
           <div class="form-group full">
             <label>Função *</label>
             <select id="f-funcao-select" style="display:${funcaoModoManual?'none':'block'}"><option value="">Selecione...</option>${funcaoOptions}</select>
@@ -4749,6 +4767,16 @@ function openModalFuncionario(func=null){
             <div class="form-group full">
               <label>Motivo real da demissão</label>
               <textarea id="f-motivo-demissao" rows="2" placeholder="Detalhe o motivo real da demissão...">${func?.motivo_demissao||''}</textarea>
+            </div>
+            <div id="demissao-termo-block" class="form-group full" style="display:${(isDemitido&&func?.tipo_moradia==='alojado')?'block':'none'};background:#FEF2F2;border:1px solid #FECACA;border-radius:var(--radius);padding:10px 12px">
+              <label style="color:#B91C1C">📎 Termo obrigatório (funcionário Alojado) *</label>
+              <select id="f-demissao-termo-tipo" style="margin-bottom:6px">
+                <option value="">Selecione o termo...</option>
+                <option value="ADM 15" ${func?.demissao_termo_tipo==='ADM 15'?'selected':''}>ADM 15</option>
+                <option value="ADM 10" ${func?.demissao_termo_tipo==='ADM 10'?'selected':''}>ADM 10</option>
+              </select>
+              <input type="file" id="f-demissao-termo-file" accept=".pdf,image/*">
+              ${func?.demissao_termo_url?`<div style="font-size:12px;margin-top:6px">Anexo atual: <a href="${func.demissao_termo_url}" target="_blank">ver ${escHtml(func.demissao_termo_tipo||'termo')}</a> (envie outro arquivo para substituir)</div>`:''}
             </div>
           </div>
           <div class="form-section" style="margin-top:8px">Observações</div>
@@ -4865,6 +4893,22 @@ async function saveFuncionario(id){
   if(isRecebimento&&obraTransfId){
     obraOrigem=obraTransfId;  // veio desta obra
   }
+  // ── Termo ADM 15 / ADM 10: obrigatório para Alojado demitido ──
+  const moradiaVal=document.getElementById('f-tipo-moradia').value||null;
+  let termoTipo=null,termoUrl=null;
+  if(isDemitido&&moradiaVal==='alojado'){
+    const funcOrig=id?funcionarios.find(x=>x.id===id):null;
+    termoTipo=document.getElementById('f-demissao-termo-tipo').value;
+    const termoFile=document.getElementById('f-demissao-termo-file').files[0];
+    if(!termoTipo){showToast('Funcionário Alojado demitido: selecione o termo (ADM 15 ou ADM 10)','error');return;}
+    if(!termoFile&&!funcOrig?.demissao_termo_url){showToast('Funcionário Alojado demitido: anexar o '+termoTipo+' é obrigatório','error');return;}
+    if(termoFile){
+      const tpath='demissao-termos/'+Date.now()+'_'+sanitizeFilename(termoFile.name);
+      const{error:tErr}=await sb.storage.from('funcionarios').upload(tpath,termoFile,{contentType:termoFile.type});
+      if(tErr){showToast('Erro ao enviar termo: '+tErr.message,'error');return;}
+      termoUrl=sb.storage.from('funcionarios').getPublicUrl(tpath).data.publicUrl;
+    }else termoUrl=funcOrig.demissao_termo_url;
+  }
   let fotoUrl=null;
   if(fotoFile){
     const ext=fotoFile.name.split('.').pop();
@@ -4974,6 +5018,9 @@ async function saveFuncionario(id){
     data_demissao:isDemitido?document.getElementById('f-data-demissao').value||null:null,
     tipo_demissao:isDemitido?document.getElementById('f-tipo-demissao').value||null:null,
     motivo_demissao:isDemitido?document.getElementById('f-motivo-demissao').value.trim()||null:null,
+    tipo_moradia:moradiaVal,
+    demissao_termo_tipo:termoTipo,
+    demissao_termo_url:termoUrl,
     ...transfPendenteFields,
   };
   if(fotoUrl)payload.foto_url=fotoUrl;
