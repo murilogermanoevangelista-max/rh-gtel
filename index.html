@@ -17018,13 +17018,19 @@ function salVersoesDaObra(obraId){return salVersoes.filter(v=>String(v.obra_id)=
 function salVigente(obraId){return salVersoesDaObra(obraId).find(v=>!v.vigencia_fim)||null;}
 function salItensDaVersao(vid){return salItens.filter(i=>String(i.versao_id)===String(vid)).sort((a,b)=>(a.ordem||0)-(b.ordem||0));}
 function salNomeObra(o){return o?((o.codigo?o.codigo+' — ':'')+(o.nome||'')):'—';}
-function salObraAtual(){return obras.find(o=>String(o.id)===String(salObraId))||null;}
+function salListaObras(){return(obrasTodas&&obrasTodas.length?obrasTodas:obras).filter(o=>!obrasPermitidasIds||obrasPermitidasIds.has(String(o.id)));}
+function salObraAtual(){return salListaObras().find(o=>String(o.id)===String(salObraId))||null;}
+function salObraOpts(){
+  return`<option value="__todas" ${salObraId==='__todas'?'selected':''}>— Todas as obras —</option>`+salListaObras().slice().sort((a,b)=>String(a.codigo||a.nome).localeCompare(String(b.codigo||b.nome),'pt-BR',{numeric:true})).map(o=>`<option value="${o.id}" ${String(o.id)===String(salObraId)?'selected':''}>${escHtml(salNomeObra(o))}${obraEncerrada(o.id)?' (encerrada)':''}${salVersoesDaObra(o.id).length?'':'  (sem tabela)'}</option>`).join('');
+}
 
 function salEscolherObraInicial(){
-  if(salObraId&&obras.some(o=>String(o.id)===String(salObraId)))return;
-  const g=globalObraFiltro&&obras.find(o=>String(o.id)===String(globalObraFiltro));
-  const comTab=obras.find(o=>salVersoesDaObra(o.id).length);
-  salObraId=String((g||comTab||obras[0]||{}).id||'');
+  if(salObraId==='__todas')return;
+  const lista=salListaObras();
+  if(salObraId&&lista.some(o=>String(o.id)===String(salObraId)))return;
+  const g=globalObraFiltro&&lista.find(o=>String(o.id)===String(globalObraFiltro));
+  const comTab=lista.find(o=>salVersoesDaObra(o.id).length);
+  salObraId=String((g||comTab||lista[0]||{}).id||'');
   salVersaoId='';
 }
 
@@ -17034,13 +17040,14 @@ function renderSalarios(){
   const head=`<div class="page-header"><div><div class="page-title"><i class="ti ti-coin"></i> Salários</div><div class="page-subtitle">Tabela de remuneração referencial por obra · base de ${SAL_BASE_HORAS} h/mês</div></div></div>`;
   if(salErro){el.innerHTML=head+`<div style="background:var(--warning-light);border:1px solid #E5C68A;border-radius:var(--radius-lg);padding:20px;color:var(--warning)">${escHtml(salErro)}</div>`;return;}
   salEscolherObraInicial();
+  if(salObraId==='__todas'){salRenderTodas(head);return;}
   const obra=salObraAtual();
   const versoes=salVersoesDaObra(salObraId);
   if(!versoes.some(v=>String(v.id)===String(salVersaoId)))salVersaoId=String((versoes.find(v=>!v.vigencia_fim)||versoes[0]||{}).id||'');
   const ver=versoes.find(v=>String(v.id)===String(salVersaoId))||null;
   const ehVigente=!!ver&&!ver.vigencia_fim;
   const podeEditar=adm&&ehVigente;
-  const obraOpts=obras.slice().sort((a,b)=>String(a.codigo||a.nome).localeCompare(String(b.codigo||b.nome),'pt-BR',{numeric:true})).map(o=>`<option value="${o.id}" ${String(o.id)===String(salObraId)?'selected':''}>${escHtml(salNomeObra(o))}${salVersoesDaObra(o.id).length?'':'  (sem tabela)'}</option>`).join('');
+  const obraOpts=salObraOpts();
   const verOpts=versoes.map(v=>`<option value="${v.id}" ${String(v.id)===String(salVersaoId)?'selected':''}>${escHtml(v.nome||'Versão')} · ${v.vigencia_fim?salDataBR(v.vigencia_inicio)+' a '+salDataBR(v.vigencia_fim):'vigente desde '+salDataBR(v.vigencia_inicio)}</option>`).join('');
   const botoes=`
     <button class="btn" onclick="salExportar()" ${ver?'':'disabled'}><i class="ti ti-download"></i> Exportar Excel</button>
@@ -17055,6 +17062,7 @@ function renderSalarios(){
       ${versoes.length?`<select class="filter-select" onchange="salVersaoId=this.value;renderSalarios()">${verOpts}</select>`:''}
       <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar função..." value="${escHtml(salBusca)}" oninput="salBusca=this.value;salRedesenharTabela()"></div>
       ${versoes.length?`<button class="btn" onclick="salModalHistorico()"><i class="ti ti-history"></i> Histórico (${versoes.length})</button>`:''}
+      ${adm&&versoes.length?`<button class="btn" onclick="salModalCorrigirObra()" title="Lançou na obra errada? Mova ou exclua a tabela"><i class="ti ti-arrows-exchange"></i> Corrigir obra</button>`:''}
     </div>`;
   const topo=head.replace('</div></div>',`</div></div><div style="display:flex;gap:8px;flex-wrap:wrap">${botoes}</div>`);
   if(!ver){
@@ -17081,6 +17089,7 @@ function renderSalarios(){
 }
 
 function salRedesenharTabela(){
+  if(salObraId==='__todas'){salRedesenharTodas();return;}
   const tb=document.getElementById('sal-tbody');if(!tb)return;
   const versoes=salVersoesDaObra(salObraId);
   const idx=versoes.findIndex(v=>String(v.id)===String(salVersaoId));
@@ -17328,8 +17337,83 @@ function salComparar(vid){
     <div class="modal-body" style="max-height:65vh;overflow:auto"><div class="table-container"><table><thead><tr><th>Função</th><th style="text-align:right">${escHtml(v.nome||'')}</th><th style="text-align:right">Atual</th><th style="text-align:right">Variação</th></tr></thead><tbody>${linhas}</tbody></table></div></div></div>`);
 }
 
+
+// ── Visão "Todas as obras" (somente leitura: tabela vigente de cada obra) ──
+function salRenderTodas(head){
+  const el=document.getElementById('main-content');
+  const topo=head.replace('</div></div>',`</div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="salExportar()"><i class="ti ti-download"></i> Exportar Excel</button></div>`);
+  const banner=`<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#EAF1FA;border:1px solid #C5D7EE;border-radius:8px;font-size:13px;color:#14447D;margin-bottom:14px"><i class="ti ti-eye"></i><span>Visão consolidada: mostra a tabela <b>vigente</b> de cada obra. Para editar, reajustar ou ver o histórico, escolha uma obra.</span></div>`;
+  el.innerHTML=topo+banner+`<div class="filters">
+      <select class="filter-select" style="min-width:260px" onchange="salObraId=this.value;salVersaoId='';salBusca='';renderSalarios()">${salObraOpts()}</select>
+      <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar função ou obra..." value="${escHtml(salBusca)}" oninput="salBusca=this.value;salRedesenharTodas()"></div>
+    </div>
+    <div class="table-container"><table>
+      <thead><tr><th>Função</th><th>Categoria</th><th style="text-align:right">Salário mensal</th><th style="text-align:right">Valor hora (÷${SAL_BASE_HORAS})</th></tr></thead>
+      <tbody id="sal-tbody"></tbody></table></div>`;
+  salRedesenharTodas();
+}
+function salRedesenharTodas(){
+  const tb=document.getElementById('sal-tbody');if(!tb)return;
+  const q=_semAcento(salBusca).trim();
+  const blocos=salListaObras().map(o=>({o,v:salVigente(o.id)})).filter(x=>x.v);
+  let h='';
+  blocos.forEach(({o,v})=>{
+    const itens=salItensDaVersao(v.id).filter(i=>!q||_semAcento(i.nome).includes(q)||_semAcento(salNomeObra(o)).includes(q));
+    if(!itens.length)return;
+    h+=`<tr><td colspan="4" style="background:#EEF3F9;font-size:12px;font-weight:700;color:#14447D;cursor:pointer" onclick="salObraId='${o.id}';salVersaoId='';renderSalarios()">${escHtml(salNomeObra(o))} <span style="font-weight:400;color:var(--text-muted)">· versão ${escHtml(v.nome||'')} desde ${salDataBR(v.vigencia_inicio)}</span></td></tr>`;
+    h+=itens.map(i=>{const pj=i.categoria==='PJ';const hv=salHora(i);return`<tr><td style="font-weight:600">${escHtml(i.nome)} <span style="font-size:11px;color:var(--text-muted)">${escHtml(i.grupo||'')}</span></td><td><span class="badge" style="${pj?'background:#F3E8FF;color:#5B21B6':'background:#E6EEF8;color:#14447D'}">${pj?'PJ':'CLT'}</span></td><td style="text-align:right;font-weight:600;font-variant-numeric:tabular-nums">${salFmt(i.mensal)}</td><td style="text-align:right;font-variant-numeric:tabular-nums">${hv===null?'—':salFmt(hv)}</td></tr>`;}).join('');
+  });
+  tb.innerHTML=h||'<tr><td colspan="4"><div class="empty-state"><i class="ti ti-coin"></i><div>Nenhuma tabela lançada ainda</div></div></td></tr>';
+}
+function salExportarTodas(){
+  const aoa=[['TABELA DE REMUNERAÇÃO REFERENCIAL — TODAS AS OBRAS (versão vigente)'],[`Base de horas: ${SAL_BASE_HORAS}`],[],['Obra','Versão','Vigente desde','Grupo','Função','Categoria','Salário mensal','Valor hora']];
+  salListaObras().forEach(o=>{const v=salVigente(o.id);if(!v)return;salItensDaVersao(v.id).forEach(i=>aoa.push([salNomeObra(o),v.nome||'',salDataBR(v.vigencia_inicio),i.grupo||'',i.nome,i.categoria,i.mensal,i.categoria==='PJ'?'':salHora(i)]));});
+  if(aoa.length<5){showToast('Nada para exportar','error');return;}
+  const ws=XLSX.utils.aoa_to_sheet(aoa);ws['!cols']=[{wch:34},{wch:10},{wch:14},{wch:22},{wch:34},{wch:11},{wch:16},{wch:12}];
+  for(let r=4;r<aoa.length;r++){['G','H'].forEach(c=>{const cell=ws[c+(r+1)];if(cell&&typeof cell.v==='number')cell.z='#,##0.00';});}
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Todas as obras');
+  XLSX.writeFile(wb,'Tabela_Salarial_Todas_as_Obras.xlsx');showToast('Excel exportado!');
+}
+
+// ── Corrigir obra: mover a tabela (todas as versões) para outra obra, ou excluir ──
+function salModalCorrigirObra(){
+  if(!salAdmin())return;
+  const livres=salListaObras().filter(o=>String(o.id)!==String(salObraId)&&!salVersoesDaObra(o.id).length);
+  insertModal('modal-sal-corr',`<div class="modal" style="max-width:520px">
+    <div class="modal-header"><span class="modal-title"><i class="ti ti-arrows-exchange"></i> Corrigir obra da tabela</span><button class="btn btn-sm" onclick="closeModal('modal-sal-corr')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div style="font-size:13px;margin-bottom:12px">Tabela atual lançada em: <b>${escHtml(salNomeObra(salObraAtual()))}</b> (${salVersoesDaObra(salObraId).length} versão/versões).</div>
+      <div class="form-group full"><label>Mover toda a tabela (com histórico) para</label>
+        <select id="sc-dest"><option value="">Selecione a obra correta...</option>${livres.map(o=>`<option value="${o.id}">${escHtml(salNomeObra(o))}${obraEncerrada(o.id)?' (encerrada)':''}</option>`).join('')}</select>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Só aparecem obras que ainda não têm tabela.</div></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-danger" style="margin-right:auto" onclick="salExcluirTabela()"><i class="ti ti-trash"></i> Excluir tabela desta obra</button>
+      <button class="btn" onclick="closeModal('modal-sal-corr')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salMoverTabela()"><i class="ti ti-check"></i> Mover</button>
+    </div></div>`);
+}
+async function salMoverTabela(){
+  if(!salAdmin())return;
+  const dest=document.getElementById('sc-dest').value;if(!dest){showToast('Escolha a obra de destino','error');return;}
+  const{error}=await sb.from('salarios_versoes').update({obra_id:dest}).eq('obra_id',salObraId);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  closeModal('modal-sal-corr');showToast('Tabela movida');
+  salObraId=String(dest);salVersaoId='';await salCarregar();renderSalarios();
+}
+async function salExcluirTabela(){
+  if(!salAdmin())return;
+  const n=salVersoesDaObra(salObraId).length;
+  if(!confirm(`Excluir DEFINITIVAMENTE a tabela salarial desta obra, com as ${n} versão(ões) do histórico?\nEsta ação não pode ser desfeita.`))return;
+  const{error}=await sb.from('salarios_versoes').delete().eq('obra_id',salObraId);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  closeModal('modal-sal-corr');showToast('Tabela excluída');
+  salVersaoId='';await salCarregar();renderSalarios();
+}
+
 // ── Exportar Excel (versão escolhida + aba com a evolução por versão) ──
 function salExportar(vid){
+  if(salObraId==='__todas'){salExportarTodas();return;}
   const versoes=salVersoesDaObra(salObraId);
   const ver=versoes.find(v=>String(v.id)===String(vid||salVersaoId));if(!ver){showToast('Nada para exportar','error');return;}
   const obra=salObraAtual();
