@@ -15182,7 +15182,7 @@ const DOCS_CONTRATACAO=[
   ['cert_eletrica','Certificado de Elétrica'],
 ];
 
-let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesFiltroNome='',contratacoesFiltroEtapa='',contratacoesFiltroDocPendente=false,contratacoesFiltroEtapaData='',contratacoesFiltroData='',contratacoesVagasFiltroObra='',contratacoesVagasFiltroObraTocado=false,contratacoesVagasFiltroFalta=false,ctrFuncaoModoManual=false,prospBusca='',prospFiltroFuncao='',prospFiltroRetorno='',prospFuncaoModoManual=false,desistBusca='',desistFiltroFuncao='',desistFiltroTipo='',histBusca='',histFiltroFuncao='',histFiltroObra='',histFiltroMes='';
+let contratacoesTab='candidatos',contratacoesBusca='',contratacoesFiltroStatus='',contratacoesFiltroFuncao='',contratacoesFiltroObra='',contratacoesFiltroNome='',contratacoesFiltroEtapa='',contratacoesFiltroDocPendente=false,contratacoesFiltroEtapaData='',contratacoesFiltroData='',contratacoesVagasFiltroObra='',contratacoesVagasFiltroObraTocado=false,contratacoesVagasFiltroFalta=false,contratacoesVagasVerEncerradas=false,prospMostrarSemObra=false,ctrFuncaoModoManual=false,prospBusca='',prospFiltroFuncao='',prospFiltroRetorno='',prospFuncaoModoManual=false,desistBusca='',desistFiltroFuncao='',desistFiltroTipo='',histBusca='',histFiltroFuncao='',histFiltroObra='',histFiltroMes='';
 
 function ctrAddDiasUteis(dataISO,dias){
   if(!dataISO)return null;
@@ -15464,6 +15464,17 @@ function ctrCandidatosFiltrados(){
   return{ativos,lista};
 }
 
+// Vagas ativas = não encerradas (encerrar uma vaga NÃO apaga candidatos nem histórico).
+function ctrVagasAtivas(){return contratacoesVagas.filter(v=>!v.encerrada);}
+// Vagas que realmente precisam ser contratadas = previsto no histograma − transferências.
+function ctrVagaContratar(v){return Math.max(0,(v.quantidade_prevista||0)-(v.quantidade_transferencia||0));}
+// Filtro estrito por obra: com obra selecionada, só aparece o que é daquela obra.
+function ctrProspNaObra(p){
+  if(!globalObraFiltro)return true;
+  if(!p.obra_id)return prospMostrarSemObra;
+  return String(p.obra_id)===String(globalObraFiltro);
+}
+
 function renderContratacoesCandidatos(){
   const{ativos,lista}=ctrCandidatosFiltrados();
   // Quando uma função está selecionada no filtro, os cards (métricas e etapas)
@@ -15480,7 +15491,10 @@ function renderContratacoesCandidatos(){
   const integracaoLiberada=ativosFuncao.filter(c=>c.status==='integracao_liberada').length;
   // Integrados (Histórico): fora do total do processo, mas ainda contam como vaga preenchida.
   const integrados=contratacoes.filter(c=>c.status==='integrado'&&(!globalObraFiltro||String(c.obra_id)===String(globalObraFiltro))&&(!contratacoesFiltroFuncao||String(c.funcao_id)===String(contratacoesFiltroFuncao))).length;
-  const totalPrevisto=contratacoesVagas.filter(v=>(!globalObraFiltro||String(v.obra_id)===String(globalObraFiltro))&&(!contratacoesFiltroFuncao||String(v.funcao_id)===String(contratacoesFiltroFuncao))).reduce((s,v)=>s+(v.quantidade_prevista||0),0);
+  const vagasCand=ctrVagasAtivas().filter(v=>(!globalObraFiltro||String(v.obra_id)===String(globalObraFiltro))&&(!contratacoesFiltroFuncao||String(v.funcao_id)===String(contratacoesFiltroFuncao)));
+  const totalHistograma=vagasCand.reduce((s,v)=>s+(v.quantidade_prevista||0),0);
+  const totalTransf=vagasCand.reduce((s,v)=>s+(v.quantidade_transferencia||0),0);
+  const totalPrevisto=totalHistograma-totalTransf;
   const faltaCaptacao=Math.max(totalPrevisto-(total+integrados),0);
 
   const listaOrdenada=lista.slice().sort((a,b)=>{
@@ -15621,7 +15635,7 @@ function renderContratacoesCandidatos(){
     </div>
     <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:10px;margin-bottom:16px">
       <div class="metric-card" onclick="contratacoesTab='vagas';contratacoesVagasFiltroFalta=false;renderContratacoes()" style="cursor:pointer;border-color:var(--border)">
-        <div class="metric-label">Vagas Previstas</div><div class="metric-value">${totalPrevisto}</div>
+        <div class="metric-label">Vagas a Contratar</div><div class="metric-value">${totalPrevisto}</div>${totalTransf>0?`<div style="font-size:10px;color:var(--text-muted)" title="Histograma ${totalHistograma} − ${totalTransf} por transferência">Histograma ${totalHistograma} · ${totalTransf} transf.</div>`:''}
       </div>
       <div class="metric-card${faltaCaptacao>0?' red':''}" onclick="contratacoesTab='vagas';contratacoesVagasFiltroFalta=true;renderContratacoes()" title="Vagas previstas ainda sem candidato captado" style="cursor:pointer;border-color:${faltaCaptacao>0?'var(--danger)':'var(--border)'}">
         <div class="metric-label">Falta Captação</div><div class="metric-value">${faltaCaptacao}</div>
@@ -15822,7 +15836,7 @@ async function exportContratacoesExcel(){
   }
 
   // Aba Resumo — visão gerencial rápida
-  const totalPrevisto=contratacoesVagas.filter(v=>!globalObraFiltro||String(v.obra_id)===String(globalObraFiltro)).reduce((s,v)=>s+(v.quantidade_prevista||0),0);
+  const totalPrevisto=ctrVagasAtivas().filter(v=>!globalObraFiltro||String(v.obra_id)===String(globalObraFiltro)).reduce((s,v)=>s+ctrVagaContratar(v),0);
   const emProcesso=ativos.filter(c=>c.status==='em_processo'&&!c.data_prevista_admissao).length;
   const admitidos=ativos.filter(c=>c.status==='em_processo'&&!!c.data_prevista_admissao).length;
   const aguardando=ativos.filter(c=>c.status==='aguardando_integracao').length;
@@ -15916,9 +15930,10 @@ function ctrFuncoesUnicas(){
 
 function renderContratacoesVagas(){
   const vagasObraEfetiva=contratacoesVagasFiltroObraTocado?contratacoesVagasFiltroObra:(contratacoesVagasFiltroObra||globalObraFiltro);
-  const vagas=contratacoesVagas.filter(v=>!vagasObraEfetiva||String(v.obra_id)===String(vagasObraEfetiva));
+  const qtdEncerradas=contratacoesVagas.filter(v=>v.encerrada&&(!vagasObraEfetiva||String(v.obra_id)===String(vagasObraEfetiva))).length;
+  const vagas=contratacoesVagas.filter(v=>(!vagasObraEfetiva||String(v.obra_id)===String(vagasObraEfetiva))&&(contratacoesVagasVerEncerradas?true:!v.encerrada));
 
-  let tPrevisto=0,tFalta=0,tEmProcesso=0,tAguardando=0,tIntegracaoLiberada=0,tIntegrado=0;
+  let tPrevisto=0,tTransf=0,tFalta=0,tEmProcesso=0,tAguardando=0,tIntegracaoLiberada=0,tIntegrado=0;
 
   const linhas=vagas.map(v=>{
     // Match por funcao_id OU por nome da função normalizado (fallback para casos de
@@ -15932,16 +15947,19 @@ function renderContratacoesVagas(){
     const integracaoLiberada=candidatosVaga.filter(c=>c.status==='integracao_liberada').length;
     const integrado=candidatosVaga.filter(c=>c.status==='integrado').length;
     const previsto=v.quantidade_prevista||0;
-    const falta=Math.max(previsto-(emProcesso+aguardando+integracaoLiberada+integrado),0);
-    return{v,emProcesso,aguardando,integracaoLiberada,integrado,previsto,falta};
+    const transf=v.quantidade_transferencia||0;
+    const falta=v.encerrada?0:Math.max(previsto-transf-(emProcesso+aguardando+integracaoLiberada+integrado),0);
+    return{v,emProcesso,aguardando,integracaoLiberada,integrado,previsto,transf,falta};
   }).filter(l=>!contratacoesVagasFiltroFalta||l.falta>0);
 
-  const rows=linhas.map(({v,emProcesso,aguardando,integracaoLiberada,integrado,previsto,falta})=>{
-    tPrevisto+=previsto;tFalta+=falta;tEmProcesso+=emProcesso;tAguardando+=aguardando;tIntegracaoLiberada+=integracaoLiberada;tIntegrado+=integrado;
-    return`<tr>
-      <td style="font-weight:500">${v.funcao?.nome||'—'}${v.observacao?` <i class="ti ti-note" style="color:var(--warning);cursor:help" title="${v.observacao.replace(/"/g,'&quot;')}"></i>`:''}</td>
+  const rows=linhas.map(({v,emProcesso,aguardando,integracaoLiberada,integrado,previsto,transf,falta})=>{
+    if(!v.encerrada){tPrevisto+=previsto;tTransf+=transf;tFalta+=falta;}
+    tEmProcesso+=emProcesso;tAguardando+=aguardando;tIntegracaoLiberada+=integracaoLiberada;tIntegrado+=integrado;
+    return`<tr${v.encerrada?' style="opacity:.55"':''}>
+      <td style="font-weight:500">${v.funcao?.nome||'—'}${v.encerrada?` <span class="badge" style="background:var(--bg);color:var(--text-muted)" title="${(v.encerrada_motivo||'').replace(/"/g,'&quot;')}">Encerrada${v.encerrada_em?' em '+ctrFmtData(v.encerrada_em):''}</span>`:''}${v.observacao?` <i class="ti ti-note" style="color:var(--warning);cursor:help" title="${v.observacao.replace(/"/g,'&quot;')}"></i>`:''}</td>
       <td style="font-size:12px">${v.obra?`${v.obra.codigo?v.obra.codigo+' — ':''}${v.obra.nome||''}`:'<span style="color:var(--text-muted)">—</span>'}</td>
       <td style="text-align:center;font-weight:600">${previsto}</td>
+      <td style="text-align:center;${transf>0?'color:#7C3AED;font-weight:600':'color:var(--text-muted)'}" title="Entram no histograma mas serão preenchidas por transferência (não contratar)">${transf}</td>
       <td style="text-align:center;${falta>0?'color:var(--danger);font-weight:600':'color:var(--text-muted)'}">${falta}</td>
       <td style="text-align:center;color:var(--warning);font-weight:600">${emProcesso}</td>
       <td style="text-align:center;color:var(--info);font-weight:600">${aguardando}</td>
@@ -15951,11 +15969,14 @@ function renderContratacoesVagas(){
       <td>
         <div class="action-btns">
           <button class="btn btn-sm" onclick="openModalVaga('${v.id}')" title="Editar"><i class="ti ti-edit"></i></button>
+          ${v.encerrada
+            ?`<button class="btn btn-sm" onclick="reabrirVaga('${v.id}')" title="Reabrir vaga"><i class="ti ti-rotate"></i></button>`
+            :`<button class="btn btn-sm" onclick="encerrarVaga('${v.id}')" title="Encerrar vaga (obra/processo finalizado) — mantém o histórico"><i class="ti ti-archive"></i></button>`}
           <button class="btn btn-sm btn-danger" onclick="deleteVaga('${v.id}')" title="Excluir"><i class="ti ti-trash"></i></button>
         </div>
       </td>
     </tr>`;
-  }).join('')||`<tr><td colspan="10"><div class="empty-state"><i class="ti ti-clipboard-list"></i><div>${contratacoesVagasFiltroFalta?'Nenhuma vaga com falta de captação':'Nenhuma vaga prevista cadastrada'}</div></div></td></tr>`;
+  }).join('')||`<tr><td colspan="11"><div class="empty-state"><i class="ti ti-clipboard-list"></i><div>${contratacoesVagasFiltroFalta?'Nenhuma vaga com falta de captação':'Nenhuma vaga prevista cadastrada'}</div></div></td></tr>`;
 
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${String(vagasObraEfetiva)===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
 
@@ -15976,16 +15997,18 @@ function renderContratacoesVagas(){
         <option value="">Todas as obras</option>${obraOpts}
       </select>
       <button class="btn btn-sm" style="${contratacoesVagasFiltroFalta?'border-color:var(--danger);color:var(--danger)':''}" onclick="contratacoesVagasFiltroFalta=!contratacoesVagasFiltroFalta;renderContratacoesVagas()"><i class="ti ti-alert-triangle"></i> Falta Captação${contratacoesVagasFiltroFalta?' ✓':''}</button>
-      <button class="btn btn-sm" onclick="contratacoesVagasFiltroObra='';contratacoesVagasFiltroObraTocado=true;contratacoesVagasFiltroFalta=false;renderContratacoesVagas()"><i class="ti ti-x"></i> Limpar</button>
+      <button class="btn btn-sm" style="${contratacoesVagasVerEncerradas?'border-color:var(--primary);color:var(--primary)':''}" onclick="contratacoesVagasVerEncerradas=!contratacoesVagasVerEncerradas;renderContratacoesVagas()"><i class="ti ti-archive"></i> Mostrar encerradas (${qtdEncerradas})${contratacoesVagasVerEncerradas?' ✓':''}</button>
+      <button class="btn btn-sm" onclick="contratacoesVagasFiltroObra='';contratacoesVagasFiltroObraTocado=true;contratacoesVagasFiltroFalta=false;contratacoesVagasVerEncerradas=false;renderContratacoesVagas()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div class="table-container"><table>
       <thead><tr>
-        <th>Função</th><th>Obra</th><th>Previsto</th><th>Falta Captação</th><th>Em Processo</th><th>Aguardando Integração</th><th>Integ. Liberada</th><th>Integrado</th><th>Observação</th><th>Ações</th>
+        <th>Função</th><th>Obra</th><th title="Total do histograma">Previsto</th><th title="Do total previsto, quantas serão preenchidas por transferência">Transferência</th><th>Falta Captação</th><th>Em Processo</th><th>Aguardando Integração</th><th>Integ. Liberada</th><th>Integrado</th><th>Observação</th><th>Ações</th>
       </tr></thead>
       <tbody>${rows}</tbody>
       ${vagas.length?`<tfoot><tr style="font-weight:700;background:var(--bg)">
         <td colspan="2">Total</td>
         <td style="text-align:center">${tPrevisto}</td>
+        <td style="text-align:center;color:#7C3AED">${tTransf}</td>
         <td style="text-align:center;color:var(--danger)">${tFalta}</td>
         <td style="text-align:center;color:var(--warning)">${tEmProcesso}</td>
         <td style="text-align:center;color:var(--info)">${tAguardando}</td>
@@ -16005,7 +16028,7 @@ function prospRetornoInfo(retorno){
 
 function renderContratacoesProspeccao(){
   const lista=contratacoesProspeccoes.filter(p=>{
-    if(globalObraFiltro&&p.obra_id&&String(p.obra_id)!==String(globalObraFiltro))return false;
+    if(!ctrProspNaObra(p))return false;
     if(prospFiltroFuncao&&String(p.funcao_id)!==String(prospFiltroFuncao))return false;
     if(prospFiltroRetorno&&(p.retorno||'pendente')!==prospFiltroRetorno)return false;
     if(prospBusca){
@@ -16015,7 +16038,8 @@ function renderContratacoesProspeccao(){
     return true;
   }).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR'));
 
-  const baseContagem=globalObraFiltro?contratacoesProspeccoes.filter(p=>!p.obra_id||String(p.obra_id)===String(globalObraFiltro)):contratacoesProspeccoes;
+  const baseContagem=contratacoesProspeccoes.filter(ctrProspNaObra);
+  const semObraQtd=globalObraFiltro?contratacoesProspeccoes.filter(p=>!p.obra_id).length:0;
   const total=baseContagem.length;
   const aceitos=baseContagem.filter(p=>p.retorno==='aceitou').length;
   const recusados=baseContagem.filter(p=>p.retorno==='recusou').length;
@@ -16069,6 +16093,7 @@ function renderContratacoesProspeccao(){
         <div class="metric-label">Recusaram</div><div class="metric-value">${recusados}</div>
       </div>
     </div>
+    ${semObraQtd>0?`<div style="margin-bottom:10px;font-size:12px;color:var(--text-muted)"><i class="ti ti-info-circle"></i> ${semObraQtd} contato(s) antigo(s) sem obra definida ${prospMostrarSemObra?'estão sendo exibidos':'estão ocultos'}. <a href="#" onclick="prospMostrarSemObra=!prospMostrarSemObra;renderContratacoesProspeccao();return false">${prospMostrarSemObra?'Ocultar':'Mostrar'}</a></div>`:''}
     <div class="filters">
       <div class="search-box"><i class="ti ti-search"></i>
         <input placeholder="Buscar por nome, função ou telefone..." value="${prospBusca}"
@@ -16218,7 +16243,7 @@ function renderContratacoesDesistencias(){
     estagio:`${ctrEstagioDesistencia(c)}`,docsInfo:ctrDocsPct(c),
     observacao:c.observacao,raw:c
   }));
-  const recusados=contratacoesProspeccoes.filter(p=>p.retorno==='recusou').map(p=>({
+  const recusados=contratacoesProspeccoes.filter(p=>p.retorno==='recusou'&&ctrProspNaObra(p)).map(p=>({
     id:p.id,tipo:'recusou',nome:p.nome,origem:null,funcaoNome:p.funcao?.nome,
     obraLabel:null,funcaoId:p.funcao_id,data:p.data_contato,
     estagio:'Recusou na prospecção (ainda não era candidato)',docsInfo:null,
@@ -16878,6 +16903,8 @@ function openModalVaga(id){
               <select id="vaga-obra"><option value="">Selecione...</option>${obraOpts}</select></div>
             <div class="form-group full"><label>Quantidade Prevista *</label>
               <input type="number" min="0" id="vaga-qtd" value="${v?.quantidade_prevista??0}"></div>
+            <div class="form-group full"><label>Destas, por transferência <span style="font-weight:400;color:var(--text-muted)">(contam no histograma, mas não serão contratadas)</span></label>
+              <input type="number" min="0" id="vaga-transf" value="${v?.quantidade_transferencia??0}"></div>
             <div class="form-group full"><label>Observação <span style="font-weight:400;color:var(--text-muted)">(ex: pode vir por transferência, terceirizado, etc.)</span></label>
               <textarea id="vaga-obs" rows="3" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;resize:vertical" placeholder="Anotações livres sobre esta vaga...">${v?.observacao||''}</textarea></div>
           </div>
@@ -16908,12 +16935,31 @@ async function saveVaga(id){
   const obraId=document.getElementById('vaga-obra').value;
   const qtd=parseInt(document.getElementById('vaga-qtd').value,10)||0;
   const obs=document.getElementById('vaga-obs').value.trim()||null;
+  const transf=parseInt(document.getElementById('vaga-transf').value,10)||0;
   if(!funcaoId||!obraId){showToast('Função e Obra são obrigatórias','error');return;}
-  const payload={funcao_id:funcaoId,obra_id:obraId,quantidade_prevista:qtd,observacao:obs};
+  if(transf<0||transf>qtd){showToast('Transferência não pode ser maior que a quantidade prevista','error');return;}
+  const payload={funcao_id:funcaoId,obra_id:obraId,quantidade_prevista:qtd,quantidade_transferencia:transf,observacao:obs};
   const{error}=id?await sb.from('contratacoes_vagas').update(payload).eq('id',id):await sb.from('contratacoes_vagas').upsert(payload,{onConflict:'funcao_id,obra_id'});
   if(error){showToast('Erro: '+error.message,'error');return;}
   showToast(id?'Vaga atualizada!':'Vaga cadastrada!');
   closeModal('modal-vaga');
+  await loadContratacoesVagas();renderContratacoes();
+}
+
+// Encerrar vaga: só marca a vaga como encerrada. Candidatos/histórico (tabela contratacoes) não são tocados.
+async function encerrarVaga(id){
+  const v=contratacoesVagas.find(x=>x.id===id);
+  const motivo=prompt('Encerrar a vaga "'+(v?.funcao?.nome||'')+'"?\nO histórico das pessoas é mantido. Motivo (opcional):','Processo de contratação encerrado na obra');
+  if(motivo===null)return;
+  const{error}=await sb.from('contratacoes_vagas').update({encerrada:true,encerrada_em:ctrHojeISO(),encerrada_motivo:motivo.trim()||null}).eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Vaga encerrada. Histórico preservado.');
+  await loadContratacoesVagas();renderContratacoes();
+}
+async function reabrirVaga(id){
+  const{error}=await sb.from('contratacoes_vagas').update({encerrada:false,encerrada_em:null,encerrada_motivo:null}).eq('id',id);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  showToast('Vaga reaberta.');
   await loadContratacoesVagas();renderContratacoes();
 }
 
