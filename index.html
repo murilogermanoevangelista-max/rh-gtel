@@ -4660,6 +4660,10 @@ function openModalFuncionario(func=null){
           <div class="form-section">Dados Profissionais</div>
           <div class="form-group"><label>Matrícula *</label><input id="f-matricula" value="${func?.matricula||''}" placeholder="072119"></div>
           <div class="form-group full"><label>Nome Completo *</label><input id="f-nome" value="${func?.nome_completo||''}" placeholder="Nome completo do funcionário"></div>
+          <div class="form-section" style="margin-top:8px">Documentos pessoais <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--text-muted)">· usados no Termo ADM 15</span></div>
+          <div class="form-group"><label>RG</label><input id="f-rg" value="${escHtml(func?.rg||'')}" placeholder="00.000.000-0" maxlength="20"></div>
+          <div class="form-group"><label>CPF</label><input id="f-cpf" value="${escHtml(func?.cpf||'')}" placeholder="000.000.000-00" inputmode="numeric" maxlength="14" oninput="this.value=mascaraCpf(this.value)"></div>
+          <div class="form-group"><label>PIS</label><input id="f-pis" value="${escHtml(func?.pis||'')}" placeholder="000.00000.00-0" inputmode="numeric" maxlength="14" oninput="this.value=mascaraPis(this.value)"></div>
           <div class="form-group"><label>Data de Admissão *</label><input type="date" id="f-admissao" value="${func?.data_admissao||''}"></div>
           <div class="form-group"><label>Data de Integração</label><input type="date" id="f-integracao" value="${func?.data_mobilizacao||''}"><div id="f-integracao-hint" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div></div>
           <div class="form-group">
@@ -4822,10 +4826,49 @@ function editFuncionario(id){
   if(f)openModalFuncionario(f);
 }
 
+// ── Documentos pessoais (RG/CPF/PIS): máscaras e validação dos dígitos verificadores ──
+function _soDigitos(v){return String(v||'').replace(/\D/g,'');}
+function mascaraCpf(v){
+  const d=_soDigitos(v).slice(0,11);
+  return d.slice(0,3)+(d.length>3?'.'+d.slice(3,6):'')+(d.length>6?'.'+d.slice(6,9):'')+(d.length>9?'-'+d.slice(9):'');
+}
+function mascaraPis(v){
+  const d=_soDigitos(v).slice(0,11);
+  return d.slice(0,3)+(d.length>3?'.'+d.slice(3,8):'')+(d.length>8?'.'+d.slice(8,10):'')+(d.length>10?'-'+d.slice(10):'');
+}
+function cpfValido(v){
+  const d=_soDigitos(v);
+  if(d.length!==11||/^(\d)\1+$/.test(d))return false;
+  for(let t=9;t<=10;t++){
+    let s=0;for(let i=0;i<t;i++)s+=parseInt(d[i])*(t+1-i);
+    const dv=(s*10)%11%10;
+    if(dv!==parseInt(d[t]))return false;
+  }
+  return true;
+}
+function pisValido(v){
+  const d=_soDigitos(v);
+  if(d.length!==11||/^(\d)\1+$/.test(d))return false;
+  const pesos=[3,2,9,8,7,6,5,4,3,2];
+  let s=0;for(let i=0;i<10;i++)s+=parseInt(d[i])*pesos[i];
+  let dv=11-(s%11);if(dv>=10)dv=0;
+  return dv===parseInt(d[10]);
+}
 async function saveFuncionario(id){
   const mat=document.getElementById('f-matricula').value.trim();
   const nome=document.getElementById('f-nome').value.trim();
   if(!mat||!nome){showToast('Matrícula e nome são obrigatórios','error');return;}
+  const rgVal=document.getElementById('f-rg').value.trim()||null;
+  const cpfVal=document.getElementById('f-cpf').value.trim()?mascaraCpf(document.getElementById('f-cpf').value):null;
+  const pisVal=document.getElementById('f-pis').value.trim()?mascaraPis(document.getElementById('f-pis').value):null;
+  // só valida se o valor mudou (não trava fichas antigas que já tinham algo salvo)
+  const _funcAtual=funcionarios.find(f=>String(f.id)===String(id))||{};
+  if(cpfVal&&cpfVal!==_funcAtual.cpf&&!cpfValido(cpfVal)){showToast('CPF inválido — confira os dígitos','error');return;}
+  if(pisVal&&pisVal!==_funcAtual.pis&&!pisValido(pisVal)){showToast('PIS inválido — confira os dígitos','error');return;}
+  if(cpfVal){
+    const cpfDup=funcionarios.find(f=>f.cpf&&_soDigitos(f.cpf)===_soDigitos(cpfVal)&&String(f.id)!==String(id));
+    if(cpfDup){showToast(`CPF ${cpfVal} já está cadastrado para ${cpfDup.nome_completo} (matrícula ${cpfDup.matricula||'—'})`,'error');return;}
+  }
   const admissaoVal=document.getElementById('f-admissao').value;
   if(!admissaoVal){showToast('Data de Admissão é obrigatória','error');return;}
   const obraVal=document.getElementById('f-obra').value;
@@ -4999,6 +5042,7 @@ async function saveFuncionario(id){
   };
   const payload={
     matricula:mat,nome_completo:nome,
+    rg:rgVal,cpf:cpfVal,pis:pisVal,
     data_admissao:document.getElementById('f-admissao').value||null,
     data_mobilizacao:integracaoSelecionada,
     data_integracao_origem:integracaoOrigem,
