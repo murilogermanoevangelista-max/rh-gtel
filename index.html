@@ -4101,7 +4101,7 @@ async function verFicha(id,historico=false){
   if(!f)return;
   // Folgas, férias e translados só eram carregados ao visitar o Dashboard/telas próprias — se a pessoa
   // abrisse a ficha antes (ou o dado fosse novo), essas seções sumiam. Agora a ficha sempre carrega.
-  try{await Promise.all([loadTreinamentos(),loadFolgas(),loadFolgasTranslados(),loadFolgasCiclos(),loadFerias()]);}
+  try{await Promise.all([loadTreinamentos(),loadFolgas(),loadFolgasTranslados(),loadFolgasCiclos(),loadFerias(),loadAdm15()]);}
   catch(e){console.warn('Ficha: falha ao carregar folgas/férias/treinamentos:',e);}
   const funcaoNome=f.funcao?.nome||f.funcao_manual||'—';
 
@@ -5693,7 +5693,7 @@ function diasFolga(periodo){
 }
 
 async function renderFolgas(){
-  await Promise.all([loadFolgas(),loadFolgasTranslados(),loadFolgasCiclos()]);
+  await Promise.all([loadFolgas(),loadFolgasTranslados(),loadFolgasCiclos(),loadAdm15()]);
   renderFolgasLocal();
 }
 function irParaListaMesFolga(funcIds){
@@ -5876,6 +5876,7 @@ function renderFolgasLocal(){
         </div>
         <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">${passagemBadges}</div>
         ${f.cidade_origem?`<div style="font-size:11px;color:var(--text-muted);margin-top:2px">📍 ${f.cidade_origem}</div>`:''}
+        ${adm15BotaoHtml(f,currentN)}
       </div>
       <div class="folga-cell"><div class="folga-cell-header">Período</div><div style="font-weight:600">${f.periodo_trabalhado||'—'} dias</div></div>
       <div class="folga-cell"><div class="folga-cell-header">Início</div>${formatDate(f.data_inicio)}</div>
@@ -6331,6 +6332,440 @@ function renderModalHistoricoCompletoFolga(folgaId){
         </div>
       </div>
     </div>`);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ADM 15 — Termo de ciência de desconto (folga de campo) + Solicitação de passagem
+//   • Tabelas: adm15_termos (1 por saída/versão) e adm15_paradas (rota: origem, baldeações, destino)
+//   • O texto jurídico é FIXO (constantes abaixo): o usuário só preenche os dados e a rota.
+//   • Depois de emitido o termo trava (o banco também recusa alterações) — mudanças = revisão.
+// ═════════════════════════════════════════════════════════════════════════════
+let adm15Termos=[],adm15Paradas=[];
+async function loadAdm15(){
+  try{
+    const[t,p]=await Promise.all([
+      pagAll(()=>sb.from('adm15_termos').select('*')),
+      pagAll(()=>sb.from('adm15_paradas').select('*'))
+    ]);
+    if(t.error||p.error){adm15Termos=[];adm15Paradas=[];console.warn('[ADM15] tabelas indisponíveis (rode o SQL da etapa 1):',t.error||p.error);return;}
+    adm15Termos=t.data||[];adm15Paradas=p.data||[];
+  }catch(e){adm15Termos=[];adm15Paradas=[];console.warn('[ADM15] falha ao carregar:',e);}
+}
+
+const ADM15_VIVOS=['rascunho','emitido','assinado'];
+const ADM15_ST={
+  rascunho:{t:'Rascunho',bg:'#FEF3C7',c:'#92400E'},
+  emitido:{t:'Emitido · aguardando assinatura',bg:'#FEF3C7',c:'#92400E'},
+  assinado:{t:'Assinado',bg:'#DCFCE7',c:'#166534'}
+};
+const ADM15_TEXTO_VERSAO='v1';
+const ADM15_TITULO='TERMO DE CIÊNCIA E AUTORIZAÇÃO PARA DESCONTO EM FOLHA DE PAGAMENTO – FOLGA DE CAMPO';
+const ADM15_PARAGRAFOS=Object.freeze([
+  'Eu, {nome}, portador(a) da cédula de identidade RG nº {rg}, inscrito(a) no CPF/MF sob o nº {cpf}, autorizo, para os devidos fins, o quanto segue:',
+  'Inicialmente através desse termo tomo ciência inequívoca que, por mera liberalidade, a empresa vai fornecer de maneira gratuita o meio de transporte necessário para que eu possa viajar do local da obra até minha residência e o respectivo retorno para o local da obra, para que possa gozar da minha “Transferência”.',
+  'Tenho ciência das datas de embarque de ida e volta, que constam no quadro abaixo, que foram regularmente ajustadas em comum acordo entre empregado e empregador.',
+  'Desta forma, através do presente, nos termos descritos no art. 462 da CLT, autorizo expressamente o desconto em folha de pagamento do valor referente a quaisquer despesas que a empresa tenha no caso de ter que alterar as datas de embarque no caso do meu não comparecimento no local de embarque nos dias e horários descritos no quadro abaixo.'
+]);
+const ADM15_MESES=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+// ── helpers ──
+function adm15Vigente(folgaId,n){
+  return adm15Termos.find(t=>String(t.folga_id)===String(folgaId)&&t.numero_ciclo===n&&ADM15_VIVOS.includes(t.status))||null;
+}
+function adm15ParadasDe(termoId){
+  return adm15Paradas.filter(p=>p.termo_id===termoId).sort((a,b)=>a.ordem-b.ordem);
+}
+function a15Iso(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function a15SomaDias(iso,dias){
+  if(!iso)return null;
+  const d=new Date(iso+'T12:00:00');if(isNaN(d.getTime()))return null;
+  d.setDate(d.getDate()+(parseInt(dias)||0));return a15Iso(d);
+}
+function a15DiffDias(a,b){
+  if(!a||!b)return 0;
+  return Math.round((new Date(a+'T12:00:00')-new Date(b+'T12:00:00'))/86400000);
+}
+const a15Hh=h=>h?String(h).slice(0,5):'';
+
+// Botão da tela Programação (abaixo da cidade do funcionário)
+function adm15BotaoHtml(f,n){
+  const t=adm15Vigente(f.id,n);
+  if(!t)return`<button class="btn btn-sm" onclick="event.stopPropagation();abrirModalAdm15('${f.id}',${n})" style="margin-top:8px;border:1.5px solid var(--primary);background:var(--primary-light);color:var(--primary-dark);font-weight:700;padding:5px 10px;font-size:11px"><i class="ti ti-file-plus"></i> Criar ADM 15</button>`;
+  const s=ADM15_ST[t.status]||ADM15_ST.rascunho;
+  return`<button class="btn btn-sm" onclick="event.stopPropagation();abrirModalAdm15('${f.id}',${n})" style="margin-top:8px;border:1px solid ${s.c}33;background:${s.bg};color:${s.c};font-weight:700;padding:5px 10px;font-size:11px"><i class="ti ti-file-text"></i> ADM 15 · v${t.versao} · ${s.t}</button>`;
+}
+
+// ── estado do formulário ──
+let _a15=null;
+function a15EstadoInicial(f,func,n,t){
+  let cidadeEm='São Paulo';
+  try{cidadeEm=localStorage.getItem('gtel_adm15_cidade')||cidadeEm;}catch(e){}
+  const s={
+    folgaId:f.id,n,funcId:func.id,termoId:t?.id||null,status:t?.status||null,versao:t?.versao||1,
+    cidadeEmissao:t?.cidade_emissao||cidadeEm,
+    dataSolic:t?.data_solicitacao||a15Iso(new Date()),
+    aereo:t?!!t.aereo:!!f.tipo_passagem_aerea,
+    terrestre:t?!!t.terrestre:!!f.tipo_passagem_terrestre,
+    bagagem:!!t?.aereo_bagagem,aereoObs:t?.aereo_obs||'',terrObs:t?.terrestre_obs||'',
+    docs:{rg:'',cpf:'',pis:''},
+    ae:{idaOrig:'',idaDest:'',idaData:'',idaDe:'',idaAte:'',voltaOrig:'',voltaDest:'',voltaData:'',voltaDe:'',voltaAte:''},
+    te:{idaData:'',voltaData:'',ida:[{local:'',dia:0,hora:''},{local:'',dia:0,hora:''}],volta:[]},
+    modo:'form'
+  };
+  if(t){
+    const par=adm15ParadasDe(t.id);
+    ['ida','volta'].forEach(sent=>{
+      const ae=par.filter(p=>p.modal==='aereo'&&p.sentido===sent);
+      if(ae.length){
+        const o=ae[0],d=ae[1];
+        s.ae[sent+'Orig']=o.local||'';s.ae[sent+'Dest']=d?.local||'';
+        s.ae[sent+'Data']=o.data||d?.data||'';
+        s.ae[sent+'De']=a15Hh(o.hora);s.ae[sent+'Ate']=a15Hh(o.hora_fim);
+      }
+      const te=par.filter(p=>p.modal==='terrestre'&&p.sentido===sent);
+      if(te.length){
+        const base=te[0].data||'';
+        s.te[sent+'Data']=base;
+        s.te[sent]=te.map(p=>({local:p.local||'',dia:Math.max(0,a15DiffDias(p.data,base)),hora:a15Hh(p.hora)}));
+        while(sent==='ida'&&s.te.ida.length<2)s.te.ida.push({local:'',dia:0,hora:''});
+      }
+    });
+  }
+  s.modo=(t&&t.status!=='rascunho')?'previa':'form';
+  return s;
+}
+
+const _a15v=id=>{const e=document.getElementById(id);return e?e.value:undefined;};
+function a15Coletar(){
+  const s=_a15;if(!s||s.modo!=='form')return;
+  const g=(id,atual)=>{const v=_a15v(id);return v===undefined?atual:v;};
+  s.docs.rg=g('a15-rg',s.docs.rg);s.docs.cpf=g('a15-cpf',s.docs.cpf);s.docs.pis=g('a15-pis',s.docs.pis);
+  s.cidadeEmissao=g('a15-cidade',s.cidadeEmissao);
+  s.dataSolic=g('a15-dsolic',s.dataSolic);
+  const ckA=document.getElementById('a15-sw-ae'),ckT=document.getElementById('a15-sw-te');
+  if(ckA)s.aereo=ckA.checked;if(ckT)s.terrestre=ckT.checked;
+  const ckB=document.getElementById('a15-bag');if(ckB)s.bagagem=ckB.checked;
+  s.aereoObs=g('a15-ae-obs',s.aereoObs);s.terrObs=g('a15-te-obs',s.terrObs);
+  const mapa={idaOrig:'a15-ae-ida-orig',idaDest:'a15-ae-ida-dest',idaData:'a15-ae-ida-data',idaDe:'a15-ae-ida-de',idaAte:'a15-ae-ida-ate',
+    voltaOrig:'a15-ae-volta-orig',voltaDest:'a15-ae-volta-dest',voltaData:'a15-ae-volta-data',voltaDe:'a15-ae-volta-de',voltaAte:'a15-ae-volta-ate'};
+  Object.keys(mapa).forEach(k=>{s.ae[k]=g(mapa[k],s.ae[k]);});
+  s.te.idaData=g('a15-te-ida-data',s.te.idaData);s.te.voltaData=g('a15-te-volta-data',s.te.voltaData);
+  ['ida','volta'].forEach(sent=>{
+    s.te[sent].forEach((p,i)=>{
+      p.local=g(`a15-te-${sent}-local-${i}`,p.local);
+      p.dia=parseInt(g(`a15-te-${sent}-dia-${i}`,p.dia))||0;
+      p.hora=g(`a15-te-${sent}-hora-${i}`,p.hora);
+    });
+  });
+}
+function a15Redesenhar(){a15Coletar();a15Render();}
+function a15AddParada(sent){
+  a15Coletar();const L=_a15.te[sent];
+  const dia=L.length?L[L.length-1].dia:0;
+  L.splice(Math.max(1,L.length-1),0,{local:'',dia,hora:''});a15Render();
+}
+function a15RemParada(sent,i){a15Coletar();const L=_a15.te[sent];if(L.length>2){L.splice(i,1);a15Render();}}
+function a15AddVolta(){a15Coletar();_a15.te.volta=[{local:'',dia:0,hora:''},{local:'',dia:0,hora:''}];a15Render();}
+function a15RemVolta(){a15Coletar();_a15.te.volta=[];_a15.te.voltaData='';a15Render();}
+
+// ── estado → linhas de rota (usado para salvar, prévia e PDF) ──
+function a15ParadasDoEstado(s){
+  const out=[];
+  if(s.aereo){
+    const a=s.ae,t=x=>String(x||'').trim();
+    if(t(a.idaOrig)||t(a.idaDest)||a.idaData){
+      out.push({sentido:'ida',modal:'aereo',ordem:1,local:t(a.idaOrig),data:a.idaData||null,hora:a.idaDe||null,hora_fim:a.idaAte||null});
+      out.push({sentido:'ida',modal:'aereo',ordem:2,local:t(a.idaDest),data:a.idaData||null,hora:null,hora_fim:null});
+    }
+    if(t(a.voltaOrig)||t(a.voltaDest)||a.voltaData){
+      out.push({sentido:'volta',modal:'aereo',ordem:1,local:t(a.voltaOrig),data:a.voltaData||null,hora:a.voltaDe||null,hora_fim:a.voltaAte||null});
+      out.push({sentido:'volta',modal:'aereo',ordem:2,local:t(a.voltaDest),data:a.voltaData||null,hora:null,hora_fim:null});
+    }
+  }
+  if(s.terrestre){
+    ['ida','volta'].forEach(sent=>{
+      const base=s.te[sent+'Data']||null;
+      s.te[sent].filter(p=>String(p.local||'').trim()).forEach((p,i)=>{
+        out.push({sentido:sent,modal:'terrestre',ordem:i+1,local:p.local.trim(),
+          data:base?a15SomaDias(base,p.dia):null,hora:p.hora||null,hora_fim:null});
+      });
+    });
+  }
+  return out;
+}
+// Uma linha do quadro "DATAS E HORÁRIOS DE EMBARQUE" (paradas de um sentido+modal, já ordenadas)
+function a15Linha(par,modal){
+  const locais=par.map(p=>p.local).filter(Boolean);
+  if(!locais.length)return null;
+  const datas=[...new Set(par.map(p=>p.data).filter(Boolean))];
+  if(modal==='aereo'){
+    const o=par[0]||{};
+    const faixa=o.hora_fim&&o.hora?`, entre ${a15Hh(o.hora)} e ${a15Hh(o.hora_fim)}`:(o.hora?`, às ${a15Hh(o.hora)}`:'');
+    return locais.join(' x ')+(datas[0]?` – ${formatDate(datas[0])}`:'')+faixa;
+  }
+  const comHora=par.filter(p=>p.hora);
+  if(comHora.length<=1&&datas.length<=1){
+    return locais.join(' x ')+(datas[0]?` – ${formatDate(datas[0])}`:'')+(comHora[0]?` às ${a15Hh(comHora[0].hora)}`:'');
+  }
+  const porParada=par.filter(p=>p.local).map(p=>{
+    const dm=datas.length>1&&p.data?formatDate(p.data).slice(0,5):'';
+    const det=[dm,a15Hh(p.hora)].filter(Boolean).join(' ');
+    return p.local+(det?` (${det})`:'');
+  }).join(' x ');
+  return porParada+(datas.length===1?` – ${formatDate(datas[0])}`:'');
+}
+function a15TermoDados(s,func){
+  const par=a15ParadasDoEstado(s);
+  const linhas=sent=>['aereo','terrestre'].filter(m=>s[m]).map(m=>{
+    const l=a15Linha(par.filter(p=>p.sentido===sent&&p.modal===m),m);return l?{modal:m,txt:l}:null;
+  }).filter(Boolean);
+  const hoje=new Date();
+  const cpf=func.cpf||(s.docs.cpf?mascaraCpf(s.docs.cpf):'');
+  const rg=func.rg||(s.docs.rg||'').trim();
+  return{
+    nome:func.nome_completo||'—',rg:rg||'—',cpf:cpf||'—',cidade:(s.cidadeEmissao||'').trim(),
+    data:`${hoje.getDate()} de ${ADM15_MESES[hoje.getMonth()]} de ${hoje.getFullYear()}`,
+    ida:linhas('ida'),volta:linhas('volta'),ambos:!!(s.aereo&&s.terrestre)
+  };
+}
+function a15PapelHtml(d){
+  const sub=t=>escHtml(t).replace(/\{(\w+)\}/g,(m,k)=>`<strong>${escHtml(d[k]||'—')}</strong>`);
+  const quadro=(rot,ls)=>ls.length
+    ?ls.map(l=>`<div><strong>${rot}${d.ambos?' ('+(l.modal==='aereo'?'aéreo':'terrestre')+')':''}:</strong> ${escHtml(l.txt)}</div>`).join('')
+    :`<div><strong>${rot}:</strong> a definir</div>`;
+  return`<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:32px 44px;font-size:13px;line-height:1.6;color:#111">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:18px">
+      <div style="font-size:22px;font-weight:800">ADM 15</div><div style="font-size:11px;color:#555">texto ${ADM15_TEXTO_VERSAO}</div></div>
+    <div style="font-size:13.5px;font-weight:700;text-align:center;margin-bottom:16px">${ADM15_TITULO}</div>
+    ${ADM15_PARAGRAFOS.map(p=>`<p style="text-align:justify;margin:0 0 10px">${sub(p)}</p>`).join('')}
+    <div style="font-weight:800;margin:16px 0 8px">DATAS E HORÁRIOS DE EMBARQUE:</div>
+    <div style="border:1px solid #111;padding:12px 14px;display:flex;flex-direction:column;gap:8px">${quadro('IDA',d.ida)}${quadro('VOLTA',d.volta)}</div>
+    <div style="margin-top:24px">${escHtml(d.cidade||'—')}, ${d.data}.</div>
+    <div style="margin-top:44px;border-top:1px solid #111;width:300px;padding-top:4px;font-size:12px">Assinatura</div>
+    <div style="margin-top:10px;font-size:12px"><div><strong>Nome do Empregado:</strong> ${escHtml(d.nome)}</div><div><strong>CPF:</strong> ${escHtml(d.cpf)}</div></div>
+  </div>`;
+}
+
+// ── validação ──
+function a15Validar(estrito){
+  const s=_a15,func=funcionarios.find(x=>String(x.id)===String(s.funcId))||{},p=[];
+  const t=x=>String(x||'').trim();
+  if(!s.aereo&&!s.terrestre)p.push('Marque ao menos um tipo de passagem (aérea ou terrestre).');
+  if(s.docs.cpf&&!func.cpf&&!cpfValido(s.docs.cpf))p.push('CPF inválido — confira os dígitos.');
+  if(s.docs.pis&&!func.pis&&!pisValido(s.docs.pis))p.push('PIS inválido — confira os dígitos.');
+  if(!estrito)return p;
+  if(!t(func.rg||s.docs.rg))p.push('RG do funcionário é obrigatório no termo.');
+  if(!t(func.cpf||s.docs.cpf))p.push('CPF do funcionário é obrigatório no termo.');
+  if(!t(s.cidadeEmissao))p.push('Informe a cidade de emissão do termo.');
+  if(s.aereo){
+    const a=s.ae;
+    if(!t(a.idaOrig)||!t(a.idaDest)||!a.idaData)p.push('Aéreo: informe origem, destino e data da ida.');
+    if([a.voltaOrig,a.voltaDest,a.voltaData].some(t)&&(!t(a.voltaOrig)||!t(a.voltaDest)||!a.voltaData))p.push('Aéreo: volta incompleta (origem, destino e data).');
+    if(a.idaDe&&a.idaAte&&a.idaAte<a.idaDe)p.push('Aéreo: faixa de horário da ida inválida.');
+    if(a.voltaDe&&a.voltaAte&&a.voltaAte<a.voltaDe)p.push('Aéreo: faixa de horário da volta inválida.');
+    if(a.idaData&&a.voltaData&&a.voltaData<a.idaData)p.push('Aéreo: a volta é anterior à ida.');
+  }
+  if(s.terrestre){
+    const L=s.te.ida.filter(x=>t(x.local));
+    if(!s.te.idaData||L.length<2||!t(s.te.ida[0].local)||!s.te.ida[0].hora)p.push('Terrestre: informe a data da ida, a origem com horário e o destino.');
+    const V=s.te.volta.filter(x=>t(x.local));
+    if(V.length&&(!s.te.voltaData||V.length<2||!s.te.volta[0].hora))p.push('Terrestre: volta incompleta (data, origem com horário e destino).');
+    if(s.te.idaData&&s.te.voltaData&&s.te.voltaData<s.te.idaData)p.push('Terrestre: a volta é anterior à ida.');
+  }
+  return p;
+}
+
+// ── persistência (rascunho) ──
+async function a15Salvar(silencioso){
+  a15Coletar();
+  const s=_a15;
+  const probs=a15Validar(false);
+  if(probs.length){showToast(probs[0],'error');return false;}
+  const func=funcionarios.find(x=>String(x.id)===String(s.funcId));
+  const folga=folgas.find(x=>String(x.id)===String(s.folgaId));
+  if(!func||!folga){showToast('Funcionário ou folga não encontrados.','error');return false;}
+  // RG/CPF/PIS preenchidos aqui (faltavam na ficha) são gravados na ficha do funcionário
+  const upd={};
+  if(!func.rg&&s.docs.rg.trim())upd.rg=s.docs.rg.trim();
+  if(!func.cpf&&s.docs.cpf.trim())upd.cpf=mascaraCpf(s.docs.cpf);
+  if(!func.pis&&s.docs.pis.trim())upd.pis=mascaraPis(s.docs.pis);
+  if(upd.cpf){
+    const dup=funcionarios.find(f=>f.cpf&&_soDigitos(f.cpf)===_soDigitos(upd.cpf)&&String(f.id)!==String(func.id));
+    if(dup){showToast(`CPF ${upd.cpf} já está cadastrado para ${dup.nome_completo}.`,'error');return false;}
+  }
+  if(Object.keys(upd).length){
+    const{error}=await sb.from('funcionarios').update(upd).eq('id',func.id);
+    if(error){showToast('Erro ao gravar os documentos na ficha: '+error.message,'error');return false;}
+    Object.assign(func,upd);s.docs={rg:'',cpf:'',pis:''};
+  }
+  const agora=new Date().toISOString();
+  const base={
+    folga_id:folga.id,numero_ciclo:s.n,funcionario_id:func.id,obra_id:func.obra_id||null,
+    func_nome:func.nome_completo,func_matricula:func.matricula||null,func_rg:func.rg||null,func_cpf:func.cpf||null,func_pis:func.pis||null,
+    func_cidade:folga.cidade_origem||func.cidade||null,
+    cidade_emissao:(s.cidadeEmissao||'').trim()||null,data_solicitacao:s.dataSolic||a15Iso(new Date()),
+    aereo:!!s.aereo,terrestre:!!s.terrestre,aereo_bagagem:!!(s.aereo&&s.bagagem),
+    aereo_obs:s.aereo?(s.aereoObs||'').trim()||null:null,terrestre_obs:s.terrestre?(s.terrObs||'').trim()||null:null,
+    texto_versao:ADM15_TEXTO_VERSAO,updated_at:agora
+  };
+  const falhou=(err,etapa)=>{
+    const m=String(err.message||'');
+    if(/adm15/i.test(m)&&/(does not exist|schema cache|not find)/i.test(m))showToast('As tabelas do ADM 15 ainda não existem no Supabase. Rode o SQL da etapa 1.','error');
+    else showToast(`Erro ao salvar (${etapa}): ${m}`,'error');
+    return false;
+  };
+  let termoId=s.termoId;
+  if(termoId){
+    const{error}=await sb.from('adm15_termos').update(base).eq('id',termoId);
+    if(error)return falhou(error,'termo');
+  }else{
+    const{data,error}=await sb.from('adm15_termos').insert({...base,versao:s.versao||1,status:'rascunho',criado_por:currentUser?.nome||currentUser?.usuario||null}).select().single();
+    if(error)return falhou(error,'termo');
+    termoId=data.id;s.termoId=termoId;s.status='rascunho';
+  }
+  const{error:eDel}=await sb.from('adm15_paradas').delete().eq('termo_id',termoId);
+  if(eDel)return falhou(eDel,'rota');
+  const par=a15ParadasDoEstado(s).map(p=>({...p,termo_id:termoId}));
+  if(par.length){
+    const{error:eIns}=await sb.from('adm15_paradas').insert(par);
+    if(eIns)return falhou(eIns,'rota');
+  }
+  try{localStorage.setItem('gtel_adm15_cidade',(s.cidadeEmissao||'').trim());}catch(e){}
+  await loadAdm15();
+  if(typeof renderFolgasLocal==='function'&&document.getElementById('main-content'))renderFolgasLocal();
+  if(!silencioso)showToast('Rascunho do ADM 15 salvo!');
+  return true;
+}
+async function a15Excluir(){
+  const s=_a15;if(!s?.termoId||s.status!=='rascunho')return;
+  if(!confirm('Excluir este rascunho do ADM 15?'))return;
+  const{error}=await sb.from('adm15_termos').delete().eq('id',s.termoId);
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  await loadAdm15();a15Fechar();
+  if(typeof renderFolgasLocal==='function')renderFolgasLocal();
+  showToast('Rascunho excluído.');
+}
+function a15Fechar(){closeModal('modal-adm15');_a15=null;}
+function a15IrPrevia(){
+  a15Coletar();
+  const probs=a15Validar(false);
+  if(probs.length){showToast(probs[0],'error');return;}
+  _a15.modo='previa';a15Render();
+}
+function a15VoltarForm(){_a15.modo='form';a15Render();}
+
+// ── telas ──
+async function abrirModalAdm15(folgaId,n){
+  const f=folgas.find(x=>String(x.id)===String(folgaId));
+  if(!f){showToast('Folga não encontrada.','error');return;}
+  const func=funcionarios.find(x=>String(x.id)===String(f.funcionario_id));
+  if(!func){showToast('Funcionário não encontrado.','error');return;}
+  _a15=a15EstadoInicial(f,func,n,adm15Vigente(folgaId,n));
+  a15Render();
+}
+function a15Campo(label,html,extra=''){return`<div class="form-group" style="${extra}"><label>${label}</label>${html}</div>`;}
+function a15Inp(id,val,tipo='text',extra=''){return`<input id="${id}" type="${tipo}" value="${escHtml(val||'')}" ${extra}>`;}
+function a15DocHtml(label,id,valor,mask){
+  return valor
+    ?a15Campo(label,`<input value="${escHtml(valor)}" disabled>`)
+    :a15Campo(label+' <span style="color:#92400E;font-weight:600">· falta na ficha</span>',`<input id="${id}" value="${escHtml(_a15.docs[id.slice(4)]||'')}" ${mask?`oninput="this.value=${mask}(this.value)"`:''} placeholder="não cadastrado">`);
+}
+function a15ParadasHtml(sent){
+  const L=_a15.te[sent],n=L.length;
+  return L.map((p,i)=>{
+    const rotulo=i===0?'Origem':(i===n-1?'Destino final':'Parada / baldeação');
+    return`<div style="display:grid;grid-template-columns:26px 1fr 110px 110px 34px;gap:8px;align-items:end;margin-bottom:8px">
+      <div style="width:24px;height:24px;border-radius:50%;background:var(--primary);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-bottom:7px">${i+1}</div>
+      ${a15Campo(rotulo,a15Inp(`a15-te-${sent}-local-${i}`,p.local,'text','placeholder="Cidade / terminal"'))}
+      ${a15Campo('Dia',`<select id="a15-te-${sent}-dia-${i}">${[0,1,2,3].map(d=>`<option value="${d}" ${(+p.dia)===d?'selected':''}>${d?'+'+d+' dia'+(d>1?'s':''):'mesmo dia'}</option>`).join('')}</select>`)}
+      ${a15Campo('Hora',a15Inp(`a15-te-${sent}-hora-${i}`,p.hora,'time'))}
+      ${n>2?`<button type="button" class="btn btn-sm btn-danger" title="Remover" onclick="a15RemParada('${sent}',${i})" style="height:38px"><i class="ti ti-x"></i></button>`:'<div></div>'}
+    </div>`;
+  }).join('')+`<button type="button" class="btn btn-sm" onclick="a15AddParada('${sent}')"><i class="ti ti-plus"></i> Adicionar parada / baldeação</button>`;
+}
+function a15FormHtml(s,func){
+  const A=s.ae,T=s.te;
+  const caixa=(corpoHtml,ligado,idSw,icone,titulo)=>`<div style="border:1px solid var(--border);border-radius:10px;margin-top:14px;overflow:hidden">
+    <label style="display:flex;align-items:center;gap:10px;padding:12px 16px;font-weight:700;cursor:pointer;background:var(--bg);${ligado?'border-bottom:1px solid var(--border)':''}">
+      <input type="checkbox" id="${idSw}" ${ligado?'checked':''} onchange="a15Redesenhar()" style="width:auto;flex:none;margin:0"><i class="ti ${icone}"></i> ${titulo}</label>
+    ${ligado?`<div style="padding:14px 16px">${corpoHtml}</div>`:''}</div>`;
+  const aereo=`
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:12px">
+      ${a15Campo('Data ida',a15Inp('a15-ae-ida-data',A.idaData,'date'))}
+      ${a15Campo('Hora ida entre',a15Inp('a15-ae-ida-de',A.idaDe,'time'))}${a15Campo('e',a15Inp('a15-ae-ida-ate',A.idaAte,'time'))}
+      ${a15Campo('Data volta',a15Inp('a15-ae-volta-data',A.voltaData,'date'))}
+      ${a15Campo('Hora volta entre',a15Inp('a15-ae-volta-de',A.voltaDe,'time'))}${a15Campo('e',a15Inp('a15-ae-volta-ate',A.voltaAte,'time'))}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:12px">
+      ${a15Campo('Origem · ida',a15Inp('a15-ae-ida-orig',A.idaOrig,'text','placeholder="PE - Recife - REC"'),'grid-column:span 2')}
+      ${a15Campo('Destino · ida',a15Inp('a15-ae-ida-dest',A.idaDest,'text','placeholder="SP - Campinas - VCP"'),'grid-column:span 2')}
+      <div class="form-group" style="grid-column:span 2"><label>Bagagem</label><label style="display:flex;align-items:center;gap:6px;font-size:12px;height:38px;font-weight:500"><input type="checkbox" id="a15-bag" ${s.bagagem?'checked':''} style="width:auto;flex:none;margin:0"> Despachada</label></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px">
+      ${a15Campo('Origem · volta',a15Inp('a15-ae-volta-orig',A.voltaOrig),'grid-column:span 2')}
+      ${a15Campo('Destino · volta',a15Inp('a15-ae-volta-dest',A.voltaDest),'grid-column:span 2')}
+      ${a15Campo('Observações',a15Inp('a15-ae-obs',s.aereoObs),'grid-column:span 2')}
+    </div>`;
+  const volta=T.volta.length
+    ?`<div style="display:flex;justify-content:space-between;align-items:end;gap:12px;margin-bottom:8px">${a15Campo('Data volta',a15Inp('a15-te-volta-data',T.voltaData,'date'),'width:180px')}<button type="button" class="btn btn-sm" onclick="a15RemVolta()"><i class="ti ti-trash"></i> Remover volta</button></div>${a15ParadasHtml('volta')}`
+    :`<div style="padding:12px 14px;background:var(--bg);border:1px dashed var(--border);border-radius:10px;font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>Sem volta definida (só ida). O termo sai com <strong>VOLTA: a definir</strong>.</span><button type="button" class="btn btn-sm" onclick="a15AddVolta()"><i class="ti ti-plus"></i> Adicionar volta</button></div>`;
+  const terrestre=`
+    <div style="display:grid;grid-template-columns:180px 1fr;gap:12px;margin-bottom:10px">
+      ${a15Campo('Data ida',a15Inp('a15-te-ida-data',T.idaData,'date'))}${a15Campo('Observações',a15Inp('a15-te-obs',s.terrObs))}
+    </div>
+    <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin:4px 0 8px">Ida · rota completa</div>
+    ${a15ParadasHtml('ida')}
+    <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin:16px 0 8px">Volta · rota completa</div>
+    ${volta}`;
+  return`
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 16px">
+      <div style="font-size:12px;font-weight:700;margin-bottom:8px">Dados do funcionário <span style="font-weight:500;color:var(--text-muted)">· vêm da ficha; o que faltar você preenche aqui e é gravado na ficha ao salvar</span></div>
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px">
+        ${a15Campo('Nome',`<input value="${escHtml(func.nome_completo||'')}" disabled>`)}
+        ${a15DocHtml('RG','a15-rg',func.rg,'')}${a15DocHtml('CPF','a15-cpf',func.cpf,'mascaraCpf')}${a15DocHtml('PIS','a15-pis',func.pis,'mascaraPis')}
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">
+      ${a15Campo('Cidade de emissão do termo',a15Inp('a15-cidade',s.cidadeEmissao,'text','placeholder="São Paulo"'))}
+      ${a15Campo('Data da solicitação',a15Inp('a15-dsolic',s.dataSolic,'date'))}
+    </div>
+    ${caixa(aereo,s.aereo,'a15-sw-ae','ti-plane','Passagens aéreas (avião)')}
+    ${caixa(terrestre,s.terrestre,'a15-sw-te','ti-bus','Passagens terrestres (ônibus)')}`;
+}
+function a15Render(){
+  const s=_a15;if(!s)return;
+  const f=folgas.find(x=>String(x.id)===String(s.folgaId));
+  const func=funcionarios.find(x=>String(x.id)===String(s.funcId));
+  if(!f||!func)return;
+  const antigo=document.getElementById('modal-adm15');
+  const rolagem=antigo?.querySelector('.modal')?.scrollTop||0;
+  if(antigo)antigo.remove();
+  const st=ADM15_ST[s.status||'rascunho'];
+  const travado=!!s.status&&s.status!=='rascunho';
+  const corpo=s.modo==='previa'?a15PapelHtml(a15TermoDados(s,func)):a15FormHtml(s,func);
+  const rodape=travado
+    ?`<button class="btn" onclick="a15Fechar()">Fechar</button>`
+    :(s.modo==='previa'
+      ?`<button class="btn" onclick="a15Fechar()">Fechar</button><div style="flex:1"></div><button class="btn" onclick="a15VoltarForm()"><i class="ti ti-arrow-left"></i> Voltar ao formulário</button><button class="btn btn-primary" onclick="a15Salvar()"><i class="ti ti-check"></i> Salvar rascunho</button>`
+      :`<button class="btn" onclick="a15Fechar()">Cancelar</button>${s.termoId?`<button class="btn btn-danger" onclick="a15Excluir()"><i class="ti ti-trash"></i> Excluir rascunho</button>`:''}<div style="flex:1"></div><button class="btn" onclick="a15IrPrevia()"><i class="ti ti-eye"></i> Prévia do termo</button><button class="btn btn-primary" onclick="a15Salvar()"><i class="ti ti-check"></i> Salvar rascunho</button>`);
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="modal-overlay" id="modal-adm15">
+      <div class="modal" style="max-width:940px">
+        <div class="modal-header">
+          <div>
+            <div class="modal-title">ADM 15 · Solicitação de passagem</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${escHtml(func.nome_completo||'')} · saída Venc.${s.n} de ${formatDate(projecaoOuData(f,s.n))}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="badge" style="background:${st.bg};color:${st.c}">${st.t}${s.status?' · v'+s.versao:''}</span>
+            <button class="btn btn-sm" onclick="a15Fechar()"><i class="ti ti-x"></i></button>
+          </div>
+        </div>
+        <div style="padding:20px 24px">${corpo}</div>
+        <div class="modal-footer" style="justify-content:flex-start">${rodape}</div>
+      </div>
+    </div>`);
+  const m=document.querySelector('#modal-adm15 .modal');if(m)m.scrollTop=rolagem;
 }
 
 function openModalFolga(folgaId=null){
