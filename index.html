@@ -15779,18 +15779,19 @@ function ctrCalcularProjecoes(c){
   const resultadoExameCalc=c.data_exame?ctrAddDiasUteis(c.data_exame,diasExame):null;
   const resultadoExame=resultadoExameReal||resultadoExameCalc;
 
+  // Somente o ASO (resultado do exame) é projetado automaticamente.
+  // Portal, Aprovação, Envio DP e Admissão só existem quando forem lançados/confirmados.
   const docPortalReal=c.data_documentos_portal||null;
-  const docPortal=docPortalReal||resultadoExame;
+  const docPortal=docPortalReal;
 
   const aprovacaoReal=c.data_aprovacao_diretoria||null;
-  const aprovacao=aprovacaoReal||(docPortal?ctrAddDiasUteis(docPortal,2):null);
+  const aprovacao=aprovacaoReal;
 
   const envioDpReal=c.data_envio_dp||null;
-  const envioDp=envioDpReal||(aprovacao?ctrAddDiasUteis(aprovacao,1):null);
+  const envioDp=envioDpReal;
 
   const admissaoReal=c.data_prevista_admissao||null;
-  const admissaoCalc=envioDp?ctrAddDiasUteis(envioDp,1):null;
-  const admissao=admissaoReal||admissaoCalc;
+  const admissao=admissaoReal;
 
   return{
     resultadoExame,resultadoExameReal:!!resultadoExameReal,
@@ -15839,10 +15840,10 @@ function ctrProjCelulas(c){
   const nowrap='style="font-size:10px;white-space:normal;line-height:1.35"';
   return{
     exame:tipoLabel?`<div ${nowrap}>${tipoLabel} · ${ctrFmtData(c.data_exame)}<div style="margin-top:3px;display:flex;align-items:center;gap:4px"><span class="badge ${exameOk?'badge-green':'badge-amber'}">${exameOk?'Result. disp.':'Aguard.'} ${ctrFmtData(p.resultadoExame)}</span></div></div>`:'<span style="color:var(--text-muted)">—</span>',
-    docPortal:p.docPortal?ctrConfirmChk(c.id,'data_documentos_portal',p.docPortalReal,p.docPortal,c.data_documentos_portal):'<span style="color:var(--text-muted)">—</span>',
-    aprovacao:p.aprovacao?ctrConfirmChk(c.id,'data_aprovacao_diretoria',p.aprovacaoReal,p.aprovacao,c.data_aprovacao_diretoria):'<span style="color:var(--text-muted)">—</span>',
-    envioDp:p.envioDp?ctrConfirmChk(c.id,'data_envio_dp',p.envioDpReal,p.envioDp,c.data_envio_dp):'<span style="color:var(--text-muted)">—</span>',
-    admissao:p.admissao?`<span class="badge ${registroOk?'badge-green':'badge-amber'}" style="padding:2px 6px">${ctrConfirmChk(c.id,'data_prevista_admissao',p.admissaoReal,p.admissao,c.data_prevista_admissao)}</span>${c.funcionario_id?` <i class="ti ti-user-check" style="color:var(--success)" title="Funcionário já cadastrado"></i>`:''}`:'<span style="color:var(--text-muted)">—</span>',
+    docPortal:ctrConfirmChk(c.id,'data_documentos_portal',p.docPortalReal,p.docPortal,c.data_documentos_portal),
+    aprovacao:ctrConfirmChk(c.id,'data_aprovacao_diretoria',p.aprovacaoReal,p.aprovacao,c.data_aprovacao_diretoria),
+    envioDp:ctrConfirmChk(c.id,'data_envio_dp',p.envioDpReal,p.envioDp,c.data_envio_dp),
+    admissao:`<span class="badge ${p.admissaoReal?'badge-green':'badge-amber'}" style="padding:2px 6px">${ctrConfirmChk(c.id,'data_prevista_admissao',p.admissaoReal,p.admissao,c.data_prevista_admissao)}</span>${c.funcionario_id?` <i class="ti ti-user-check" style="color:var(--success)" title="Funcionário já cadastrado"></i>`:''}`,
     integracao:c.data_integracao_prevista?`<div ${nowrap}>${ctrFmtData(c.data_integracao_prevista)}</div>`:'<span style="color:var(--text-muted)">—</span>',
     mobilizacao:c.data_viagem_mobilizacao?`<div ${nowrap}>${ctrFmtData(c.data_viagem_mobilizacao)} → ${ctrFmtData(c.data_prevista_chegada)}</div>`:'<span style="color:var(--text-muted)">—</span>',
   };
@@ -16699,8 +16700,28 @@ async function saveProspeccao(id){
   };
   const{error}=id?await sb.from('contratacoes_prospeccoes').update(payload).eq('id',id):await sb.from('contratacoes_prospeccoes').insert(payload);
   if(error){showToast('Erro: '+error.message,'error');return;}
-  showToast(id?'Contato atualizado!':'Contato cadastrado!');
+  // Aceitou a vaga → vai automaticamente para Candidatos (se ainda não estiver lá)
+  let enviadoParaCandidatos=false;
+  if(payload.retorno==='aceitou'){
+    const jaExiste=contratacoes.some(c=>ctrNorm(c.nome)===ctrNorm(nome));
+    if(!jaExiste){
+      const novoCand={
+        nome,
+        funcao_id:payload.funcao_id,
+        obra_id:payload.obra_id,
+        contato:payload.telefone,
+        status:'em_processo',
+        documentos:{},
+        observacao:payload.observacao?`Da prospecção: ${payload.observacao}`:null,
+      };
+      const{error:errCand}=await sb.from('contratacoes').insert(novoCand);
+      if(errCand)showToast('Aceite salvo, mas não foi possível enviar para Candidatos: '+errCand.message,'error');
+      else enviadoParaCandidatos=true;
+    }
+  }
+  showToast(enviadoParaCandidatos?`${nome} aceitou e foi enviado para Candidatos!`:(id?'Contato atualizado!':'Contato cadastrado!'));
   closeModal('modal-prospeccao');
+  if(enviadoParaCandidatos)await loadContratacoes();
   await loadContratacoesProspeccoes();renderContratacoes();
 }
 
@@ -17124,7 +17145,7 @@ function openModalContratacao(id){
 
           <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:18px">
             <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Projeções (Exame, Portal, DP, Integração, Mobilização)</div>
-            <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">As datas de Portal, Aprovação, Envio DP e Admissão Prevista são projetadas automaticamente a partir da data do Exame. Edite qualquer campo para ajustar à realidade — os campos seguintes serão recalculados.</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">Somente o resultado do ASO é calculado automaticamente a partir da data do Exame. Portal, Aprovação, Envio DP e Admissão são lançados manualmente quando acontecerem.</div>
             <div class="form-grid">
               <div class="form-group"><label>Tipo de Exame</label>
                 <select id="proj-tipo-exame" onchange="ctrCascataExame()">
@@ -17139,16 +17160,16 @@ function openModalContratacao(id){
                 <div style="font-size:12px;color:var(--text-muted)">Resultado previsto: <b id="proj-resultado-exame" style="color:var(--text)">${ctrFmtData(p.resultadoExame)}</b></div>
               </div>
 
-              <div class="form-group"><label>Documentos lançados no Portal <span style="font-weight:400;color:var(--text-muted)">(auto: resultado do exame)</span></label>
-                <input type="date" id="proj-doc-portal" value="${c?.data_documentos_portal||p.docPortal||''}" data-auto="${c?.data_documentos_portal?'false':'true'}" oninput="ctrCascataPortal(true)"></div>
-              <div class="form-group"><label>Aprovação da Diretoria <span style="font-weight:400;color:var(--text-muted)">(auto: portal +2 dias úteis)</span></label>
-                <input type="date" id="proj-aprovacao" value="${c?.data_aprovacao_diretoria||p.aprovacao||''}" data-auto="${c?.data_aprovacao_diretoria?'false':'true'}" oninput="ctrCascataAprovacao(true)"></div>
+              <div class="form-group"><label>Documentos lançados no Portal</label>
+                <input type="date" id="proj-doc-portal" value="${c?.data_documentos_portal||''}"></div>
+              <div class="form-group"><label>Aprovação da Diretoria</label>
+                <input type="date" id="proj-aprovacao" value="${c?.data_aprovacao_diretoria||''}"></div>
 
-              <div class="form-group"><label>Envio ao DP para Registro <span style="font-weight:400;color:var(--text-muted)">(auto: aprovação +1 dia útil)</span></label>
-                <input type="date" id="proj-envio-dp" value="${c?.data_envio_dp||p.envioDp||''}" data-auto="${c?.data_envio_dp?'false':'true'}" oninput="ctrCascataEnvioDp(true)"></div>
+              <div class="form-group"><label>Envio ao DP para Registro</label>
+                <input type="date" id="proj-envio-dp" value="${c?.data_envio_dp||''}"></div>
               <div class="form-group">
-                <label>Admissão Prevista <span style="font-weight:400;color:var(--text-muted)">(auto: envio DP +1 dia útil)</span></label>
-                <input type="date" id="proj-registro-previsto" value="${c?.data_prevista_admissao||p.admissao||''}" data-auto="${c?.data_prevista_admissao?'false':'true'}" oninput="this.dataset.auto='false'">
+                <label>Admissão Prevista</label>
+                <input type="date" id="proj-registro-previsto" value="${c?.data_prevista_admissao||''}">
               </div>
 
               <div class="form-group"><label>Integração Prevista <span style="font-weight:400;color:var(--text-muted)">(manual — depende da obra)</span></label>
@@ -17219,63 +17240,17 @@ function ctrPreencherDeProspeccao(prospId){
 }
 
 function ctrCascataExame(){
+  // Única projeção automática: resultado do ASO (data do exame + dias úteis do tipo de exame)
   const tipo=document.getElementById('proj-tipo-exame').value;
   const data=document.getElementById('proj-data-exame').value;
   const elResultado=document.getElementById('proj-resultado-exame');
-  let resultado=null;
-  if(tipo&&data){
-    resultado=ctrAddDiasUteis(data,tipo==='operacional_ac'?5:2);
-    elResultado.textContent=ctrFmtData(resultado);
-  }else{
-    elResultado.textContent='—';
-  }
-  if(resultado){
-    const portalInput=document.getElementById('proj-doc-portal');
-    portalInput.value=resultado;
-    portalInput.dataset.auto='true'; // ainda é só projeção, não confirmado
-    ctrCascataPortal(false);
-  }
-}
-function ctrCascataPortal(manual=true){
-  const portalInput=document.getElementById('proj-doc-portal');
-  if(manual)portalInput.dataset.auto='false'; // usuário editou este campo diretamente
-  const dataPortal=portalInput.value;
-  if(dataPortal){
-    const aprovInput=document.getElementById('proj-aprovacao');
-    aprovInput.value=ctrAddDiasUteis(dataPortal,2);
-    aprovInput.dataset.auto='true';
-  }
-  ctrCascataAprovacao(false);
-}
-function ctrCascataAprovacao(manual=true){
-  const aprovInput=document.getElementById('proj-aprovacao');
-  if(manual)aprovInput.dataset.auto='false';
-  const dataAprovacao=aprovInput.value;
-  if(dataAprovacao){
-    const envioInput=document.getElementById('proj-envio-dp');
-    envioInput.value=ctrAddDiasUteis(dataAprovacao,1);
-    envioInput.dataset.auto='true';
-  }
-  ctrCascataEnvioDp(false);
-}
-function ctrCascataEnvioDp(manual=true){
-  const envioInput=document.getElementById('proj-envio-dp');
-  if(manual)envioInput.dataset.auto='false';
-  const dataEnvioDp=envioInput.value;
-  const elAdmissao=document.getElementById('proj-registro-previsto');
-  if(dataEnvioDp){
-    elAdmissao.value=ctrAddDiasUteis(dataEnvioDp,1);
-    elAdmissao.dataset.auto='true';
-  }else{
-    elAdmissao.value='';
-    elAdmissao.dataset.auto='true';
-  }
+  elResultado.textContent=(tipo&&data)?ctrFmtData(ctrAddDiasUteis(data,tipo==='operacional_ac'?5:2)):'—';
 }
 
 function ctrValorConfirmado(id){
   const el=document.getElementById(id);
   if(!el)return null;
-  return el.dataset.auto==='true'?null:(el.value||null);
+  return el.value||null;
 }
 
 async function saveContratacao(id){
