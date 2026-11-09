@@ -21124,6 +21124,11 @@ const AH_REFEICOES={cafe_manha:'Café da Manhã',cafe_tarde:'Café da Tarde',alm
 const AH_REF_KEY={cafe_manha:'cm_ret',cafe_tarde:'ct_ret',almoco_fds:'al_ret',jantar:'ja_ret'};
 const AH_STATUS={rascunho:{t:'Rascunho',bg:'var(--warning-light)',c:'var(--warning)'},emitida:{t:'Emitida',bg:'var(--info-light)',c:'var(--info)'},enviada:{t:'Enviada',bg:'var(--success-light)',c:'var(--success)'}};
 
+// Solicitação complementar: feita dentro do mesmo mês para colaboradores novos ou transferidos (além da mensal da obra)
+const AH_COMPL={novos:'Novos colaboradores',transferidos:'Transferidos'};
+const ahEhCompl=s=>!!s&&s.tipo==='complementar';
+const ahTipoTxt=s=>ahEhCompl(s)?('Complementar'+(AH_COMPL[s.complementar_para]?' · '+AH_COMPL[s.complementar_para]:'')):'Mensal';
+const ahTipoChip=s=>ahEhCompl(s)?`<span class="badge" style="background:var(--accent-light);color:var(--accent);font-weight:600;margin-left:6px;white-space:nowrap">${escHtml(ahTipoTxt(s))}</span>`:'';
 const ahBRL=n=>Number(n||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const ahNum=v=>{const n=Number(String(v==null?'':v).replace(',','.'));return isFinite(n)?n:0;};
 const ahQtd=v=>{const n=ahNum(v);return n%1===0?String(n):n.toFixed(1).replace('.',',');};
@@ -21306,7 +21311,7 @@ function ahOpcoesFuncoes(){return funcoes.map(f=>({v:f.nome,l:''}));}
 // troca a obra da solicitação aberta (sem duplicar obra+mês)
 function ahTrocarObra(o){
   const s=ahSel.sol;if(String(o.id)===String(s.obra_id))return true;
-  if(ahSols.some(x=>x.id!==s.id&&String(x.obra_id)===String(o.id)&&String(x.competencia).slice(0,10)===String(s.competencia).slice(0,10))){
+  if(!ahEhCompl(s)&&ahSols.some(x=>!ahEhCompl(x)&&x.id!==s.id&&String(x.obra_id)===String(o.id)&&String(x.competencia).slice(0,10)===String(s.competencia).slice(0,10))){
     showToast('Já existe solicitação de '+o.nome+' neste mês','error');return false;}
   s.obra_id=o.id;s.obra={nome:o.nome,codigo:o.codigo};return true;
 }
@@ -21322,7 +21327,7 @@ function ahMudarMes(v){
   const s=ahSel.sol;
   if(!/^\d{4}-\d{2}$/.test(v)){renderAhEditor();return;}
   const comp=v+'-01';if(comp===String(s.competencia).slice(0,10))return;
-  if(ahSols.some(x=>x.id!==s.id&&String(x.obra_id)===String(s.obra_id)&&String(x.competencia).slice(0,10)===comp)){showToast('Já existe solicitação desta obra nesse mês','error');renderAhEditor();return;}
+  if(!ahEhCompl(s)&&ahSols.some(x=>!ahEhCompl(x)&&x.id!==s.id&&String(x.obra_id)===String(s.obra_id)&&String(x.competencia).slice(0,10)===comp)){showToast('Já existe solicitação mensal desta obra nesse mês','error');renderAhEditor();return;}
   s.competencia=comp;ahSujo();renderAhEditor();
 }
 function ahObrasVisiveis(){return obras.filter(o=>o.status_obra!=='encerrada');}
@@ -21345,7 +21350,7 @@ function renderAuxHosp(){
     <select onchange="ahAno=+this.value;renderAuxHosp()" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px">${anos.map(a=>`<option ${a==ahAno?'selected':''}>${a}</option>`).join('')}</select>
     <span style="color:var(--text-muted);font-size:13px">${lista.length} solicitação(ões) · total ${ahBRL(totAno)}${globalObraFiltro?'':' · use o filtro de obra no topo para uma obra só'}</span></div>`;
   const rows=lista.map(s=>{const r=ahResumo[s.id]||{n:0,vig:0,ret:0,tot:0},st=AH_STATUS[s.status]||AH_STATUS.rascunho;
-    return`<tr><td style="font-weight:600">${ahMesTxt(s.competencia)}</td><td>${escHtml(s.obra?.nome||'—')}</td><td>${escHtml(s.centro_custo||'—')}</td>
+    return`<tr><td style="font-weight:600;white-space:nowrap">${ahMesTxt(s.competencia)}${ahTipoChip(s)}</td><td>${escHtml(s.obra?.nome||'—')}</td><td>${escHtml(s.centro_custo||'—')}</td>
       <td style="text-align:center">${r.n}</td><td style="text-align:right">${ahBRL(r.vig)}</td><td style="text-align:right">${ahBRL(r.ret)}</td><td style="text-align:right;font-weight:700">${ahBRL(r.tot)}</td>
       <td>${s.data_emissao?formatDate(s.data_emissao):'—'}</td><td><span class="badge" style="background:${st.bg};color:${st.c};font-weight:600">${st.t}</span></td>
       <td><div class="action-btns"><button class="btn btn-sm" title="Abrir" onclick="ahAbrir('${s.id}')"><i class="ti ti-edit"></i></button>
@@ -21362,6 +21367,14 @@ function ahModalNova(){
   const obs=ahObrasVisiveis();
   insertModal('modal-ah-nova',`<div class="modal" style="max-width:520px"><div class="modal-header"><span class="modal-title">Nova solicitação de Auxílio Hospedagem</span><button class="btn btn-sm" onclick="closeModal('modal-ah-nova')"><i class="ti ti-x"></i></button></div>
   <div class="modal-body"><div class="form-grid">
+   <div class="form-group full"><label>Tipo de solicitação</label>
+     <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px">
+       <label style="display:flex;gap:6px;align-items:center;cursor:pointer;text-transform:none;font-weight:500"><input type="radio" name="ahn-tipo" value="mensal" checked onchange="ahNovaTipo()" style="width:auto"> Mensal (completa da obra)</label>
+       <label style="display:flex;gap:6px;align-items:center;cursor:pointer;text-transform:none;font-weight:500"><input type="radio" name="ahn-tipo" value="complementar" onchange="ahNovaTipo()" style="width:auto"> Complementar (no mesmo mês)</label></div>
+     <div id="ahn-compl" style="display:none;margin-top:8px;padding:10px 12px;background:var(--accent-light);border-radius:8px">
+       <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">A complementar é para *</label>
+       <select id="ahn-compl-para" style="width:100%"><option value="">Selecione…</option><option value="novos">Novos colaboradores</option><option value="transferidos">Transferidos</option></select>
+       <div style="font-size:12px;color:var(--text-muted);margin-top:6px">Use quando, dentro de um mês que já tem solicitação, entram pessoas novas ou transferidas. Depois adicione só essas pessoas na planilha.</div></div></div>
    <div class="form-group full"><label>Centro de custo (lista ▾ ou digitar) — preenche a obra</label>${ahCombo('ahn-cc','',ahOpcoesCC(),'ahNovaCC','Ex.: 23787')}</div>
    <div class="form-group full"><label>Obra *</label><select id="ahn-obra" onchange="ahNovaObra()"><option value="">Selecione…</option>${obs.map(o=>`<option value="${o.id}" ${String(o.id)===String(globalObraFiltro)?'selected':''}>${escHtml(o.codigo||'')} — ${escHtml(o.nome)}</option>`).join('')}</select></div>
    <div class="form-group"><label>Mês de referência *</label><input type="month" id="ahn-mes" value="${mesPad}" onchange="ahNovaFontes()"></div>
@@ -21372,13 +21385,21 @@ function ahModalNova(){
   ahNovaFontes();
 }
 let ahFonteItens=[];
+const ahNovaTipoVal=()=>document.querySelector('input[name="ahn-tipo"]:checked')?.value||'mensal';
+function ahNovaTipo(){
+  const compl=ahNovaTipoVal()==='complementar',hoje=new Date();
+  const box=document.getElementById('ahn-compl');if(box)box.style.display=compl?'block':'none';
+  const mes=document.getElementById('ahn-mes');
+  if(mes){const d=compl?hoje:new Date(hoje.getFullYear(),hoje.getMonth()+1,1);mes.value=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
+  ahNovaFontes();
+}
 function ahNovaFontes(){
   const sel=document.getElementById('ahn-fonte');if(!sel)return;
   const obraId=document.getElementById('ahn-obra').value,mes=document.getElementById('ahn-mes').value,comp=mes?mes+'-01':'9999-12-01';
   const vis=ahSols.slice().sort((a,b)=>String(b.competencia).localeCompare(String(a.competencia)));
   const mesma=vis.filter(x=>String(x.obra_id)===String(obraId)),outras=vis.filter(x=>String(x.obra_id)!==String(obraId));
-  const lbl=x=>`${ahMesTxt(x.competencia)} — ${x.obra?.nome||''} (${ahResumo[x.id]?.n||0} func.)`;
-  const pre=mesma.find(x=>String(x.competencia).slice(0,10)<comp)||mesma[0]||null;
+  const lbl=x=>`${ahMesTxt(x.competencia)}${ahEhCompl(x)?' ['+ahTipoTxt(x)+']':''} — ${x.obra?.nome||''} (${ahResumo[x.id]?.n||0} func.)`;
+  const pre=ahNovaTipoVal()==='complementar'?null:(mesma.find(x=>!ahEhCompl(x)&&String(x.competencia).slice(0,10)<comp)||mesma.find(x=>!ahEhCompl(x))||null);
   sel.innerHTML='<option value="">Não copiar (começar vazia)</option>'+(mesma.length?`<optgroup label="Desta obra">${mesma.map(x=>`<option value="${x.id}">${escHtml(lbl(x))}</option>`).join('')}</optgroup>`:'')
     +(outras.length?`<optgroup label="Outras obras">${outras.map(x=>`<option value="${x.id}">${escHtml(lbl(x))}</option>`).join('')}</optgroup>`:'');
   sel.value=pre?pre.id:'';ahNovaFonte();
@@ -21410,9 +21431,10 @@ function ahNovaObra(){
 async function ahCriar(){
   const obraId=document.getElementById('ahn-obra').value,mes=document.getElementById('ahn-mes').value,fonteId=document.getElementById('ahn-fonte').value,marcados=new Set([...document.querySelectorAll('.ahn-ck:checked')].map(x=>x.value));
   if(!obraId||!mes){showToast('Informe a obra e o mês','error');return;}
-  const comp=mes+'-01';
-  const ja=ahSols.find(s=>String(s.obra_id)===String(obraId)&&String(s.competencia).slice(0,10)===comp);
-  if(ja){closeModal('modal-ah-nova');showToast('Já existe solicitação desta obra neste mês — abrindo.');ahAbrir(ja.id);return;}
+  const comp=mes+'-01',compl=ahNovaTipoVal()==='complementar',para=document.getElementById('ahn-compl-para')?.value||'';
+  if(compl&&!para){showToast('Indique se a complementar é para novos colaboradores ou transferidos','error');return;}
+  const ja=compl?null:ahSols.find(s=>!ahEhCompl(s)&&String(s.obra_id)===String(obraId)&&String(s.competencia).slice(0,10)===comp);
+  if(ja){closeModal('modal-ah-nova');showToast('Já existe solicitação mensal desta obra neste mês — abrindo. Para incluir novos ou transferidos, crie uma complementar.');ahAbrir(ja.id);return;}
   const anteriores=ahSols.filter(s=>String(s.obra_id)===String(obraId)&&String(s.competencia)<comp).sort((a,b)=>String(b.competencia).localeCompare(String(a.competencia)));
   const fonte=fonteId?ahSols.find(x=>x.id===fonteId):null;
   const ant=(fonte&&String(fonte.obra_id)===String(obraId)?fonte:null)||anteriores[0]||null,conv=ahConvencaoDaObra(obraId);
@@ -21422,8 +21444,11 @@ async function ahCriar(){
   const novo={obra_id:obraId,competencia:comp,centro_custo:ccDigitado||ant?.centro_custo||((t=>t.length===1?t[0]:null)(String(obra?.centro_custo||'').split(/[\s·,;|/]+/).filter(t=>t.length>=3&&/\d/.test(t)))),
     data_emissao:null,elaborado_por:(currentUser&&(currentUser.nome||currentUser.usuario))||null,status:'rascunho',criado_por:(currentUser&&(currentUser.nome||currentUser.usuario))||null,
     vr_cafe_manha:v('vr_cafe_manha','vr_cafe_manha'),vr_cafe_tarde:v('vr_cafe_tarde','vr_cafe_tarde'),vr_almoco_fds:v('vr_almoco_fds','vr_almoco_fds'),vr_jantar:v('vr_jantar','vr_jantar')};
+  if(compl){novo.tipo='complementar';novo.complementar_para=para;}
   const r=await sb.from('auxilio_hosp_solicitacoes').insert(novo).select('*,obra:obras(nome,codigo)').single();
-  if(r.error){showToast('Erro: '+r.error.message,'error');return;}
+  if(r.error){
+    const m=r.error.message||'';
+    showToast('Erro: '+(compl&&/tipo|complementar|column|schema cache|duplicate|unique/i.test(m)?'rode o SQL sql_auxilio_hospedagem_complementar.sql no Supabase para liberar a solicitação complementar ('+m+')':m),'error');return;}
   if(fonteId){
     const linhas=ahFonteItens.filter(it=>marcados.has(it.id)).map((it,k)=>({id:ahUuid(),solicitacao_id:r.data.id,funcionario_id:it.funcionario_id,re:it.re,nome:it.nome,funcao:it.funcao,emprestado:it.emprestado,obra_origem:it.obra_origem,alojamento:it.alojamento||null,ordem:k}));
     if(linhas.length){const ins=await sb.from('auxilio_hosp_itens').insert(linhas);if(ins.error)showToast('Solicitação criada, mas não consegui copiar os funcionários: '+ins.error.message,'error');}
@@ -21442,7 +21467,7 @@ async function ahAbrir(id){
 async function ahExcluir(id){
   const s=ahSols.find(x=>x.id===id);if(!s)return;
   if(s.status!=='rascunho'&&currentUser?.perfil!=='admin'){showToast('Só o administrador exclui solicitação já emitida/enviada','error');return;}
-  if(!confirm(`Excluir a solicitação de ${ahMesTxt(s.competencia)} — ${s.obra?.nome||''}? Os funcionários lançados nela serão apagados.`))return;
+  if(!confirm(`Excluir a solicitação ${ahEhCompl(s)?'complementar ('+(AH_COMPL[s.complementar_para]||'')+') ':''}de ${ahMesTxt(s.competencia)} — ${s.obra?.nome||''}? Os funcionários lançados nela serão apagados.`))return;
   await sb.from('auxilio_hosp_pendencias').update({situacao:'pendente',lancada_solicitacao_id:null}).eq('lancada_solicitacao_id',id);
   const r=await sb.from('auxilio_hosp_solicitacoes').delete().eq('id',id);
   if(r.error){showToast('Erro: '+r.error.message,'error');return;}
@@ -21606,6 +21631,7 @@ async function ahSalvar(silencioso){
     const ps={obra_id:s.obra_id,competencia:String(s.competencia).slice(0,10),centro_custo:s.centro_custo||null,data_emissao:s.data_emissao||null,elaborado_por:s.elaborado_por||null,status:s.status,observacao:s.observacao||null,updated_at:new Date().toISOString(),
       vr_cafe_manha:ahNum(s.vr_cafe_manha),vr_cafe_tarde:ahNum(s.vr_cafe_tarde),vr_almoco_fds:ahNum(s.vr_almoco_fds),vr_jantar:ahNum(s.vr_jantar),
       vr_ret_cafe_manha:num(s.vr_ret_cafe_manha),vr_ret_cafe_tarde:num(s.vr_ret_cafe_tarde),vr_ret_almoco_fds:num(s.vr_ret_almoco_fds),vr_ret_jantar:num(s.vr_ret_jantar)};
+    if(ahEhCompl(s))ps.complementar_para=s.complementar_para||null;
     const r=await sb.from('auxilio_hosp_solicitacoes').update(ps).eq('id',s.id);
     if(r.error)throw r.error;
     const linhas=S.itens.map((it,idx)=>{const o={id:it.id,solicitacao_id:s.id,funcionario_id:it.funcionario_id||null,re:(it.re||'').trim()||null,nome:(it.nome||'').trim()||null,funcao:(it.funcao||'').trim()||null,
@@ -21640,7 +21666,7 @@ function renderAhEditor(){
   const thVal=ahVerVal?`<th colspan="8">Valores (R$)</th>`:'';
   el.innerHTML=`
   <div class="page-header"><div><div class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><button class="btn btn-sm" onclick="ahVoltar()" title="Voltar à lista"><i class="ti ti-arrow-left"></i></button>
-      Auxílio Hospedagem · ${escHtml(s.obra?.nome||'')} · ${ahMesTxt(s.competencia)} <span class="badge" style="background:${st.bg};color:${st.c};font-weight:600">${st.t}</span></div>
+      Auxílio Hospedagem · ${escHtml(s.obra?.nome||'')} · ${ahMesTxt(s.competencia)} <span class="badge" style="background:${st.bg};color:${st.c};font-weight:600">${st.t}</span>${ahTipoChip(s)}</div>
     <div class="page-subtitle">Equivale à planilha ADM 33 · <span id="ah-sujo" class="ah-dirty" style="display:${ahDirty?'inline':'none'}">● alterações não salvas (salva sozinho em instantes)</span></div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="ahSalvarBtn()"><i class="ti ti-device-floppy"></i> Salvar</button>
     <button class="btn btn-primary" onclick="ahBaixar('${s.id}')"><i class="ti ti-download"></i> Baixar Excel (modelo ADM 33)</button></div></div>
@@ -21648,6 +21674,7 @@ function renderAhEditor(){
     <div><label>Centro de custo (lista ▾ ou digitar)</label>${ahCombo('ah-cc',s.centro_custo||'',ahOpcoesCC(),"ahHdrCC",'Ex.: 23787')}</div>
     <div><label>Obra (lista ▾)</label>${ahCombo('ah-obra',s.obra?.nome||'',ahOpcoesObras(),'ahHdrObra','Escolha a obra')}</div>
     <div><label>Mês</label><input type="month" value="${String(s.competencia).slice(0,7)}" onchange="ahMudarMes(this.value)"></div>
+    ${ahEhCompl(s)?`<div><label>Complementar para</label><select onchange="ahSel.sol.complementar_para=this.value;ahSujo();renderAhEditor()"><option value="novos" ${s.complementar_para==='novos'?'selected':''}>Novos colaboradores</option><option value="transferidos" ${s.complementar_para==='transferidos'?'selected':''}>Transferidos</option></select></div>`:''}
     <div><label>Data da emissão</label><input type="date" id="ah-emissao" value="${s.data_emissao||''}" onchange="ahHdr('data_emissao',this.value)"></div>
     <div><label>Elaborado por (lista ▾ ou digitar)</label>${ahCombo('ah-elab',s.elaborado_por||'',ahOpcoesElab(),"ahHdrElab",'Nome ou cargo')}</div>
     <div><label>Status</label><select onchange="ahMudarStatus(this.value)">${Object.entries(AH_STATUS).map(([k,v])=>`<option value="${k}" ${s.status===k?'selected':''}>${v.t}</option>`).join('')}</select></div>
@@ -22036,12 +22063,13 @@ async function ahBaixar(solId){
     const rt=ahRates(sol),partes=[];
     partes.push(itens); // uma única planilha, com quantas linhas forem necessárias (o modelo é estendido sem mudar o layout)
     const nomeArq=String(sol.obra?.nome||'obra').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[\\/:*?"<>|]/g,'').trim();
+    const sufCompl=ahEhCompl(sol)?` - Complementar ${sol.complementar_para==='transferidos'?'Transferidos':'Novos'}`:'';
     for(let p=0;p<partes.length;p++){
       const zip=await ahGerarXlsx(window.JSZip,AH_TPL_B64,{cc:sol.centro_custo,obra:sol.obra?.nome||'',mes:String(sol.competencia).slice(0,10),emissao:sol.data_emissao,elaborado:sol.elaborado_por,rates:rt,
         itens:partes[p].map(it=>({re:it.re,nome:it.nome,funcao:it.funcao,q:AH_Q.map(q=>it[q]),obs:it.observacao}))});
       const blob=await zip.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',compression:'DEFLATE'});
       const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-      a.download=`ADM 33 - Auxilio Hospedagem - ${nomeArq} - ${String(sol.competencia).slice(5,7)}-${String(sol.competencia).slice(0,4)}${partes.length>1?` (parte ${p+1} de ${partes.length})`:''}.xlsx`;
+      a.download=`ADM 33 - Auxilio Hospedagem - ${nomeArq} - ${String(sol.competencia).slice(5,7)}-${String(sol.competencia).slice(0,4)}${sufCompl}${partes.length>1?` (parte ${p+1} de ${partes.length})`:''}.xlsx`;
       document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000);
       if(p<partes.length-1)await new Promise(r=>setTimeout(r,600));
     }
