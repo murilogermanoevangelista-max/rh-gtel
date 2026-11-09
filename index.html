@@ -6072,17 +6072,17 @@ function trDeslocamentos(){
     const func=funcionarios.find(x=>String(x.id)===String(t.funcionario_id))||{};
     const obra=obras.find(o=>String(o.id)===String(t.obra_id||func.obra_id))||null;
     const tr=folgasTranslados.find(x=>String(x.folga_id)===String(t.folga_id)&&x.numero_ciclo===t.numero_ciclo)||{};
-    const par=adm15ParadasDe(t.id);
-    ['ida','volta'].forEach(sent=>['aereo','terrestre'].forEach(modal=>{
-      const ps=par.filter(p=>p.sentido===sent&&p.modal===modal);
+    const par=adm15ParadasDe(t.id),temPassagem=!!(t.aereo||t.terrestre);
+    a15Grupos(par).forEach(g=>{
+      const ps=g.rows;
       if(!ps.length)return;
       const o=ps[0];
-      out.push({termo:t,func,obra,sentido:sent,modal,
+      out.push({termo:t,func,obra,sentido:g.sentido,modal:g.modal,isento:g.modal==='isento',temPassagem,
         data:o.data||(ps.find(p=>p.data)||{}).data||null,hora:a15Hh(o.hora),horaFim:a15Hh(o.hora_fim),
-        origem:o.local||'',destino:ps[ps.length-1].local||'',linha:a15Linha(ps,modal)||'',
+        origem:o.local||'',destino:ps[ps.length-1].local||'',linha:a15Linha(ps,g.modal)||'',
         comprada:tr.passagem_comprada===true,assinado:!!tr.termo_adm15_url,
         nome:t.func_nome||func.nome_completo||'—'});
-    }));
+    });
   });
   let l=out;
   if(transladoObraFiltro)l=l.filter(d=>String(d.obra?.id||'')===String(transladoObraFiltro));
@@ -6094,7 +6094,7 @@ function trDeslocamentos(){
 }
 function trChips(d){
   const sai=d.sentido==='ida';
-  return`<span class="badge" style="background:${sai?'#E0F2FE':'#F0FDF4'};color:${sai?'#075985':'var(--success)'}">${sai?'Saída':'Retorno'}</span> <span class="badge" style="background:#F3F4F6;color:#374151">${d.modal==='aereo'?'✈️ Aéreo':'🚌 Terrestre'}</span>`;
+  return`<span class="badge" style="background:${sai?'#E0F2FE':'#F0FDF4'};color:${sai?'#075985':'var(--success)'}">${sai?'Saída':'Retorno'}</span> <span class="badge" style="background:#F3F4F6;color:#374151">${d.modal==='aereo'?'✈️ Aéreo':d.modal==='isento'?'Sem passagem':'🚌 Terrestre'}</span>`;
 }
 function trHorario(d){return d.hora?(d.horaFim&&d.modal==='aereo'?`${d.hora}–${d.horaFim}`:d.hora):'—';}
 function trLinhaItem(d,comData){
@@ -6109,7 +6109,7 @@ function trAlertas(lista,p){
   lista.filter(d=>d.data&&d.data>=p.hoje&&d.data<=lim).forEach(d=>{if(!porTermo[d.termo.id])porTermo[d.termo.id]=d;});
   return Object.values(porTermo).map(d=>{
     const pend=[];
-    if(!d.comprada)pend.push('passagem não comprada');
+    if(d.temPassagem&&!d.comprada)pend.push('passagem não comprada');
     if(!d.assinado)pend.push('ADM 15 sem assinatura anexada');
     if(!pend.length)return null;
     const dias=Math.round((new Date(d.data+'T12:00:00')-new Date(p.hoje+'T12:00:00'))/86400000);
@@ -6130,10 +6130,14 @@ function trAeroporto(s){
 // Trechos de um sentido: o voo é 1 trecho; o ônibus vira 1 trecho entre cada par de paradas (origem → baldeação → destino)
 function trTrechos(t,sent){
   const par=adm15ParadasDe(t.id).filter(p=>p.sentido===sent),legs=[];
-  const ae=par.filter(p=>p.modal==='aereo');
-  if(ae.length>=2)legs.push({modal:'aereo',de:ae[0].local,para:ae[ae.length-1].local,data:ae[0].data,hora:a15Hh(ae[0].hora),horaFim:a15Hh(ae[0].hora_fim),horaPara:'',dataPara:ae[ae.length-1].data});
-  const te=par.filter(p=>p.modal==='terrestre');
-  for(let i=0;i<te.length-1;i++)legs.push({modal:'terrestre',de:te[i].local,para:te[i+1].local,data:te[i].data,hora:a15Hh(te[i].hora),horaFim:'',horaPara:a15Hh(te[i+1].hora),dataPara:te[i+1].data});
+  a15Grupos(par).forEach(g=>{
+    const r=g.rows;
+    if(g.modal==='aereo'){
+      if(r.length>=2)legs.push({modal:'aereo',de:r[0].local,para:r[r.length-1].local,data:r[0].data,hora:a15Hh(r[0].hora),horaFim:a15Hh(r[0].hora_fim),horaPara:'',dataPara:r[r.length-1].data});
+    }else{
+      for(let i=0;i<r.length-1;i++)legs.push({modal:g.modal,de:r[i].local,para:r[i+1].local,data:r[i].data,hora:a15Hh(r[i].hora),horaFim:'',horaPara:a15Hh(r[i+1].hora),dataPara:r[i+1].data});
+    }
+  });
   return legs.sort((a,b)=>String(a.data||'').localeCompare(String(b.data||''))||String(a.hora).localeCompare(String(b.hora)));
 }
 function trPendencias(t,tr,p){
@@ -6141,7 +6145,7 @@ function trPendencias(t,tr,p){
   const datas=[...ida,...volta].map(l=>l.data).filter(d=>d&&d>=p.hoje).sort();
   const dias=datas.length?Math.round((new Date(datas[0]+'T12:00:00')-new Date(p.hoje+'T12:00:00'))/86400000):null;
   const quando=dias==null?'':dias===0?' · viaja hoje':dias===1?' · viaja amanhã':` · viaja em ${dias} dias`;
-  if(tr.passagem_comprada!==true)out.push('Passagem não comprada'+quando);
+  if((t.aereo||t.terrestre)&&tr.passagem_comprada!==true)out.push('Passagem não comprada'+quando);
   if(!tr.termo_adm15_url)out.push('ADM 15 sem assinatura anexada');
   const conexao=(a,b,txt)=>{ // a = trecho terrestre que chega; b = voo que sai
     const ca=trAeroporto(a.para),cb=trAeroporto(b.de);
@@ -6151,16 +6155,18 @@ function trPendencias(t,tr,p){
   if(vooI&&terI)conexao(terI,vooI,'Ida');
   const vooV=volta.find(l=>l.modal==='aereo'),terV=volta.find(l=>l.modal==='terrestre');
   if(vooV&&terV){const ca=trAeroporto(vooV.para),cb=trAeroporto(terV.de);if(ca&&cb&&ca!==cb)out.push(`Volta: o voo pousa em ${ca}, mas o ônibus sai de ${cb}. Confira o aeroporto.`);}
-  if(t.terrestre&&vooV&&!terV)out.push('Volta aérea sem trecho terrestre até a obra.');
+  if(t.terrestre&&vooV&&!terV&&!volta.some(l=>l.modal==='isento'))out.push('Volta aérea sem trecho terrestre até a obra.');
   if(t.aereo_obs)out.push('Obs. aéreo: '+t.aereo_obs);
   if(t.terrestre_obs)out.push('Obs. terrestre: '+t.terrestre_obs);
+  const obsIso=adm15ParadasDe(t.id).filter(x=>x.modal==='isento'&&x.trecho_obs).map(x=>x.trecho_obs);
+  if(obsIso.length)out.push('Obs. sem passagem: '+obsIso.join(' | '));
   return out;
 }
 function trItens(lista,p,per){
   const g={};
   lista.filter(d=>d.data&&d.data>=p.hoje&&(!per||trPeriodoDe(d.data,p)===per)).forEach(d=>{
     const k=d.termo.id+'|'+d.sentido,x=g[k];
-    if(!x)g[k]={termo:d.termo,sentido:d.sentido,data:d.data,hora:d.hora||'99:99',nome:d.nome,pend:!d.comprada||!d.assinado};
+    if(!x)g[k]={termo:d.termo,sentido:d.sentido,data:d.data,hora:d.hora||'99:99',nome:d.nome,pend:(d.temPassagem&&!d.comprada)||!d.assinado};
     else{if(d.data<x.data)x.data=d.data;if(d.hora&&d.hora<x.hora)x.hora=d.hora;}
   });
   return Object.values(g).sort((a,b)=>a.data.localeCompare(b.data)||a.hora.localeCompare(b.hora)||a.nome.localeCompare(b.nome));
@@ -6194,15 +6200,15 @@ function trAgendaHtml(lista,p){
     const dt=legs.find(l=>l.data)?.data;
     return`<div style="background:#EEF2F8;padding:7px 18px;font-size:11.5px;font-weight:700;color:#243244;letter-spacing:.03em;border-bottom:1px solid #E0E2E7">${tit}${dt?` · ${trDow(dt)} ${formatDate(dt)}`:''}</div>`
     +legs.map((l,i)=>{
-      const id=t.id+sent+i,ab=!!transladoTrechosAbertos[id],aereo=l.modal==='aereo';
+      const id=t.id+sent+i,ab=!!transladoTrechosAbertos[id],aereo=l.modal==='aereo',isen=l.modal==='isento';
       const hor=aereo?(l.hora?(l.horaFim?`${l.hora}–${l.horaFim}`:l.hora):'—'):`${l.hora||'—'} → ${l.horaPara||'—'}`;
       const det=aereo
         ?[['Embarque',l.hora?(l.horaFim?`entre ${l.hora} e ${l.horaFim}`:l.hora):'—'],['Data',l.data?formatDate(l.data):'—'],['Bagagem',t.aereo_bagagem?'Despachada':'Sem bagagem despachada']]
         :[['Saída',`${l.data?formatDate(l.data):'—'} às ${l.hora||'—'}`],['Chegada',`${l.dataPara?formatDate(l.dataPara):'—'} às ${l.horaPara||'—'}`]];
       return`<div class="aloj-secao-row" onclick="transladoTrechosAbertos['${id}']=${!ab};renderFolgasTranslados()" style="display:grid;grid-template-columns:170px 1fr 120px;align-items:center;padding:12px 18px;border-bottom:1px solid #EEF0F2;cursor:pointer;background:${ab?'#FAFBFC':'#fff'}">
-        <span style="font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px"><i class="ti ti-chevron-down" style="font-size:12px;color:#8B95A5;transform:rotate(${ab?'0deg':'-90deg'})"></i><i class="ti ti-${aereo?'plane':'bus'}" style="font-size:15px;color:#4B5160"></i>${aereo?'Voo':'Ônibus'} · trecho ${i+1}</span>
+        <span style="font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px"><i class="ti ti-chevron-down" style="font-size:12px;color:#8B95A5;transform:rotate(${ab?'0deg':'-90deg'})"></i><i class="ti ti-${aereo?'plane':isen?'route':'bus'}" style="font-size:15px;color:#4B5160"></i>${aereo?'Voo':isen?'Sem passagem':'Ônibus'} · trecho ${i+1}</span>
         <span style="font-size:12.5px;color:#4B5563"><span style="display:block">${escHtml(l.de)} → ${escHtml(l.para)}</span><span style="font-size:11.5px;color:#6B7280">${hor}</span></span>
-        <span style="font-size:11px;font-weight:700;color:${comprada?'#166534':'#92400E'};background:${comprada?'#DCFCE7':'#FFFBEB'};padding:3px 10px;border-radius:3px;width:fit-content">${comprada?'COMPRADA':'A COMPRAR'}</span></div>`
+        <span style="font-size:11px;font-weight:700;color:${isen?'#4B5563':comprada?'#166534':'#92400E'};background:${isen?'#F3F4F6':comprada?'#DCFCE7':'#FFFBEB'};padding:3px 10px;border-radius:3px;width:fit-content">${isen?'SEM PASSAGEM':comprada?'COMPRADA':'A COMPRAR'}</span></div>`
         +(ab?`<div style="padding:10px 18px 12px 46px;background:#FAFBFC;border-bottom:1px solid #EEF0F2;font-size:12.5px;color:#4B5563">${det.map(x=>`<div style="display:flex;justify-content:space-between;gap:12px;padding:2px 0"><span>${x[0]}</span><strong>${escHtml(x[1])}</strong></div>`).join('')}</div>`:'');
     }).join('');
   };
@@ -6211,9 +6217,9 @@ function trAgendaHtml(lista,p){
       <div style="display:flex;gap:6px">${t.folga_id?`<button class="btn btn-sm" onclick="abrirModalAdm15('${t.folga_id}',${t.numero_ciclo})" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2)"><i class="ti ti-file-text"></i> ADM 15</button>`:''}</div></div>
     <div style="background:#fff;border:1px solid #E0E2E7;border-top:none;padding:12px 18px;font-size:12.5px"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 16px">
       ${kv('Matrícula',t.func_matricula)}${kv('Função',func.funcao?.nome||func.funcao_manual)}${kv('Obra',obra?[obra.codigo,obra.nome].filter(Boolean).join(' — '):'')}${kv('Cidade',t.func_cidade)}
-      ${kv('Passagem',[t.aereo?'Aéreo':'',t.terrestre?'Terrestre':''].filter(Boolean).join(' + '))}${kv('RG / CPF',[t.func_rg,t.func_cpf].filter(Boolean).join(' · '))}</div>
+      ${kv('Passagem',[t.aereo?'Aéreo':'',t.terrestre?'Terrestre':'',adm15ParadasDe(t.id).some(x=>x.modal==='isento')?'Sem passagem':''].filter(Boolean).join(' + '))}${kv('RG / CPF',[t.func_rg,t.func_cpf].filter(Boolean).join(' · '))}</div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid #EEF0F2">
-        <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600"><input type="checkbox" ${comprada?'checked':''} style="width:auto" ${t.folga_id?`onchange="togglePassagemComprada('${t.folga_id}',${t.numero_ciclo},this.checked?'sim':'nao')"`:'disabled'}> Passagem comprada</label>
+        ${(t.aereo||t.terrestre)?`<label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600"><input type="checkbox" ${comprada?'checked':''} style="width:auto" ${t.folga_id?`onchange="togglePassagemComprada('${t.folga_id}',${t.numero_ciclo},this.checked?'sim':'nao')"`:'disabled'}> Passagem comprada</label>`:'<span style="font-size:12px;color:#6B7280">Sem passagem a comprar</span>'}
         ${t.folga_id?(tr.termo_adm15_url
           ?`<a href="${tr.termo_adm15_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-file-text"></i> ADM 15 assinado</a><label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-upload"></i> Trocar<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${t.folga_id}',${t.numero_ciclo},this)"></label>`
           :`<label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-upload"></i> Anexar ADM 15 assinado<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${t.folga_id}',${t.numero_ciclo},this)"></label>`):''}
@@ -6283,7 +6289,7 @@ async function trExportarExcel(){
   if(!lista.length){showToast('Nenhuma viagem para exportar.','error');return;}
   try{await garantirXLSXStyle();}catch(e){showToast('Não foi possível carregar o gerador de Excel. Verifique a conexão.','error');return;}
   const X=window.XLSXStyle;
-  const modalR=m=>m==='aereo'?'Aéreo':'Terrestre';
+  const modalR=m=>m==='aereo'?'Aéreo':m==='isento'?'Sem passagem':'Terrestre';
   // Aba 1 — uma linha por ADM 15 (por pessoa)
   const h1=['Matrícula','Nome','Obra','Cidade','Tipo','Saída — data','Saída — trajeto / horários','Retorno — data','Retorno — trajeto / horários','Bagagem','Passagem comprada','ADM 15 assinado','Observações'];
   const porT={};lista.forEach(d=>{(porT[d.termo.id]=porT[d.termo.id]||[]).push(d);});
@@ -6291,14 +6297,14 @@ async function trExportarExcel(){
     const t=ds[0].termo,ida=ds.filter(d=>d.sentido==='ida'),volta=ds.filter(d=>d.sentido==='volta');
     const txt=l=>l.map(d=>(ds.some(x=>x!==d&&x.sentido===d.sentido)?modalR(d.modal)+': ':'')+d.linha).join('\n');
     return[t.func_matricula||'',ds[0].nome,ds[0].obra?(ds[0].obra.codigo||ds[0].obra.nome):'',t.func_cidade||'',
-      [t.aereo?'Aéreo':'',t.terrestre?'Terrestre':''].filter(Boolean).join(' + '),
+      [t.aereo?'Aéreo':'',t.terrestre?'Terrestre':'',ds.some(x=>x.isento)?'Sem passagem':''].filter(Boolean).join(' + '),
       ida[0]?.data?formatDate(ida[0].data):'',txt(ida),volta[0]?.data?formatDate(volta[0].data):'',txt(volta),
-      t.aereo_bagagem?'Despachada':'',ds[0].comprada?'Sim':'Não',ds[0].assinado?'Sim':'Não',
+      t.aereo_bagagem?'Despachada':'',ds[0].temPassagem?(ds[0].comprada?'Sim':'Não'):'—',ds[0].assinado?'Sim':'Não',
       [t.aereo_obs,t.terrestre_obs].filter(Boolean).join(' | ')];
   });
   // Aba 2 — programação dia a dia (um deslocamento por linha)
   const h2=['Data','Dia','Horário','Movimento','Modal','Nome','Cidade','Obra','Trajeto','Passagem comprada'];
-  const r2=lista.filter(d=>d.data).map(d=>[formatDate(d.data),trDow(d.data),trHorario(d),d.sentido==='ida'?'Saída':'Retorno',modalR(d.modal),d.nome,d.termo.func_cidade||'',d.obra?(d.obra.codigo||d.obra.nome):'',d.linha,d.comprada?'Sim':'Não']);
+  const r2=lista.filter(d=>d.data).map(d=>[formatDate(d.data),trDow(d.data),trHorario(d),d.sentido==='ida'?'Saída':'Retorno',modalR(d.modal),d.nome,d.termo.func_cidade||'',d.obra?(d.obra.codigo||d.obra.nome):'',d.linha,d.isento||!d.temPassagem?'—':(d.comprada?'Sim':'Não')]);
   const wb=X.utils.book_new();
   const mk=(h,rows,larg,nome)=>{
     const ws=X.utils.aoa_to_sheet([h,...rows]);
@@ -6586,7 +6592,17 @@ function adm15BotaoHtml(f,n){
 }
 
 // ── estado do formulário ──
+// A viagem é uma lista de TRECHOS. Cada trecho tem sentido (ida/volta), modalidade (avião / ônibus / sem passagem), data, rota e horários.
 let _a15=null;
+const A15_MODAIS={aereo:{t:'Avião',i:'ti-plane',doc:'aéreo'},terrestre:{t:'Ônibus',i:'ti-bus',doc:'terrestre'},isento:{t:'Sem passagem',i:'ti-route',doc:'sem passagem'}};
+const a15ModalDoc=m=>(A15_MODAIS[m]||{}).doc||m;
+function a15TrechoVazio(sent,modal){return{sent,modal,data:'',obs:'',bag:false,ate:'',paradas:[{local:'',dia:0,hora:''},{local:'',dia:0,hora:''}]};}
+// agrupa as linhas de rota (já ordenadas) em trechos: mesmo sentido + modalidade + nº do trecho (registros antigos não têm nº)
+function a15Grupos(par){
+  const m=new Map();
+  par.forEach(p=>{const k=p.sentido+'|'+p.modal+'|'+(p.trecho||0);if(!m.has(k))m.set(k,{sentido:p.sentido,modal:p.modal,trecho:p.trecho||0,rows:[]});m.get(k).rows.push(p);});
+  return[...m.values()];
+}
 function a15EstadoInicial(f,func,n,t){
   let cidadeEm='São Paulo';
   try{cidadeEm=localStorage.getItem('gtel_adm15_cidade')||cidadeEm;}catch(e){}
@@ -6594,32 +6610,29 @@ function a15EstadoInicial(f,func,n,t){
     folgaId:f.id,n,funcId:func.id,termoId:t?.id||null,status:t?.status||null,versao:t?.versao||1,
     cidadeEmissao:t?.cidade_emissao||cidadeEm,
     dataSolic:t?.data_solicitacao||a15Iso(new Date()),
-    aereo:t?!!t.aereo:!!f.tipo_passagem_aerea,
-    terrestre:t?!!t.terrestre:!!f.tipo_passagem_terrestre,
-    bagagem:!!t?.aereo_bagagem,aereoObs:t?.aereo_obs||'',terrObs:t?.terrestre_obs||'',
-    docs:{rg:'',cpf:'',pis:''},
-    ae:{idaOrig:'',idaDest:'',idaData:'',idaDe:'',idaAte:'',voltaOrig:'',voltaDest:'',voltaData:'',voltaDe:'',voltaAte:''},
-    te:{idaData:'',voltaData:'',ida:[{local:'',dia:0,hora:''},{local:'',dia:0,hora:''}],volta:[]},
-    modo:'form'
+    docs:{rg:'',cpf:'',pis:''},trechos:[],modo:'form'
   };
   if(t){
-    const par=adm15ParadasDe(t.id);
-    ['ida','volta'].forEach(sent=>{
-      const ae=par.filter(p=>p.modal==='aereo'&&p.sentido===sent);
-      if(ae.length){
-        const o=ae[0],d=ae[1];
-        s.ae[sent+'Orig']=o.local||'';s.ae[sent+'Dest']=d?.local||'';
-        s.ae[sent+'Data']=o.data||d?.data||'';
-        s.ae[sent+'De']=a15Hh(o.hora);s.ae[sent+'Ate']=a15Hh(o.hora_fim);
+    let aeObs=t.aereo_obs||'',teObs=t.terrestre_obs||'';
+    a15Grupos(adm15ParadasDe(t.id)).forEach(g=>{
+      const r=g.rows,tr=a15TrechoVazio(g.sentido,g.modal);
+      tr.obs=r[0].trecho_obs||'';
+      if(g.modal==='aereo'){
+        tr.paradas=[{local:r[0].local||'',dia:0,hora:a15Hh(r[0].hora)},{local:r[1]?.local||'',dia:0,hora:''}];
+        tr.data=r[0].data||r[1]?.data||'';tr.ate=a15Hh(r[0].hora_fim);tr.bag=!!t.aereo_bagagem;
+        if(!tr.obs&&aeObs){tr.obs=aeObs;aeObs='';}
+      }else{
+        const base=r[0].data||'';tr.data=base;
+        tr.paradas=r.map(p=>({local:p.local||'',dia:Math.max(0,a15DiffDias(p.data,base)),hora:a15Hh(p.hora)}));
+        while(tr.paradas.length<2)tr.paradas.push({local:'',dia:0,hora:''});
+        if(g.modal==='terrestre'&&!tr.obs&&teObs){tr.obs=teObs;teObs='';}
       }
-      const te=par.filter(p=>p.modal==='terrestre'&&p.sentido===sent);
-      if(te.length){
-        const base=te[0].data||'';
-        s.te[sent+'Data']=base;
-        s.te[sent]=te.map(p=>({local:p.local||'',dia:Math.max(0,a15DiffDias(p.data,base)),hora:a15Hh(p.hora)}));
-        while(sent==='ida'&&s.te.ida.length<2)s.te.ida.push({local:'',dia:0,hora:''});
-      }
+      s.trechos.push(tr);
     });
+    s.trechos.sort((a,b)=>(a.sent===b.sent?0:a.sent==='ida'?-1:1)||String(a.data||'9999').localeCompare(String(b.data||'9999')));
+  }else{
+    if(f.tipo_passagem_aerea)s.trechos.push(a15TrechoVazio('ida','aereo'));
+    if(f.tipo_passagem_terrestre||!f.tipo_passagem_aerea)s.trechos.push(a15TrechoVazio('ida','terrestre'));
   }
   s.modo=(t&&t.status!=='rascunho')?'previa':'form';
   return s;
@@ -6632,57 +6645,59 @@ function a15Coletar(){
   s.docs.rg=g('a15-rg',s.docs.rg);s.docs.cpf=g('a15-cpf',s.docs.cpf);s.docs.pis=g('a15-pis',s.docs.pis);
   s.cidadeEmissao=g('a15-cidade',s.cidadeEmissao);
   s.dataSolic=g('a15-dsolic',s.dataSolic);
-  const ckA=document.getElementById('a15-sw-ae'),ckT=document.getElementById('a15-sw-te');
-  if(ckA)s.aereo=ckA.checked;if(ckT)s.terrestre=ckT.checked;
-  const ckB=document.getElementById('a15-bag');if(ckB)s.bagagem=ckB.checked;
-  s.aereoObs=g('a15-ae-obs',s.aereoObs);s.terrObs=g('a15-te-obs',s.terrObs);
-  const mapa={idaOrig:'a15-ae-ida-orig',idaDest:'a15-ae-ida-dest',idaData:'a15-ae-ida-data',idaDe:'a15-ae-ida-de',idaAte:'a15-ae-ida-ate',
-    voltaOrig:'a15-ae-volta-orig',voltaDest:'a15-ae-volta-dest',voltaData:'a15-ae-volta-data',voltaDe:'a15-ae-volta-de',voltaAte:'a15-ae-volta-ate'};
-  Object.keys(mapa).forEach(k=>{s.ae[k]=g(mapa[k],s.ae[k]);});
-  s.te.idaData=g('a15-te-ida-data',s.te.idaData);s.te.voltaData=g('a15-te-volta-data',s.te.voltaData);
-  ['ida','volta'].forEach(sent=>{
-    s.te[sent].forEach((p,i)=>{
-      p.local=g(`a15-te-${sent}-local-${i}`,p.local);
-      p.dia=parseInt(g(`a15-te-${sent}-dia-${i}`,p.dia))||0;
-      p.hora=g(`a15-te-${sent}-hora-${i}`,p.hora);
+  s.trechos.forEach((tr,i)=>{
+    tr.data=g(`a15-t${i}-data`,tr.data);tr.obs=g(`a15-t${i}-obs`,tr.obs);tr.ate=g(`a15-t${i}-ate`,tr.ate);
+    const ck=document.getElementById(`a15-t${i}-bag`);if(ck)tr.bag=ck.checked;
+    tr.paradas.forEach((p,j)=>{
+      p.local=g(`a15-t${i}-p${j}-local`,p.local);
+      p.dia=parseInt(g(`a15-t${i}-p${j}-dia`,p.dia))||0;
+      p.hora=g(`a15-t${i}-p${j}-hora`,p.hora);
     });
   });
 }
 function a15Redesenhar(){a15Coletar();a15Render();}
-function a15AddParada(sent){
-  a15Coletar();const L=_a15.te[sent];
+function a15AddTrecho(sent){
+  a15Coletar();const L=_a15.trechos;
+  const ult=[...L].reverse().find(t=>t.sent===sent);
+  const tr=a15TrechoVazio(sent,ult?ult.modal:'terrestre');
+  let pos=L.length;if(sent==='ida')pos=L.map(t=>t.sent).lastIndexOf('ida')+1;
+  L.splice(pos,0,tr);a15Render();
+}
+function a15RemTrecho(i){a15Coletar();_a15.trechos.splice(i,1);a15Render();}
+function a15SetModal(i,m){
+  a15Coletar();const tr=_a15.trechos[i];if(!tr)return;
+  tr.modal=m;
+  if(m==='aereo'&&tr.paradas.length>2)tr.paradas=[tr.paradas[0],tr.paradas[tr.paradas.length-1]];
+  a15Render();
+}
+function a15AddParada(i){
+  a15Coletar();const L=_a15.trechos[i].paradas;
   const dia=L.length?L[L.length-1].dia:0;
   L.splice(Math.max(1,L.length-1),0,{local:'',dia,hora:''});a15Render();
 }
-function a15RemParada(sent,i){a15Coletar();const L=_a15.te[sent];if(L.length>2){L.splice(i,1);a15Render();}}
-function a15AddVolta(){a15Coletar();_a15.te.volta=[{local:'',dia:0,hora:''},{local:'',dia:0,hora:''}];a15Render();}
-function a15RemVolta(){a15Coletar();_a15.te.volta=[];_a15.te.voltaData='';a15Render();}
+function a15RemParada(i,j){a15Coletar();const L=_a15.trechos[i].paradas;if(L.length>2){L.splice(j,1);a15Render();}}
 
 // ── estado → linhas de rota (usado para salvar, prévia e PDF) ──
 function a15ParadasDoEstado(s){
-  const out=[];
-  if(s.aereo){
-    const a=s.ae,t=x=>String(x||'').trim();
-    if(t(a.idaOrig)||t(a.idaDest)||a.idaData){
-      out.push({sentido:'ida',modal:'aereo',ordem:1,local:t(a.idaOrig),data:a.idaData||null,hora:a.idaDe||null,hora_fim:a.idaAte||null});
-      out.push({sentido:'ida',modal:'aereo',ordem:2,local:t(a.idaDest),data:a.idaData||null,hora:null,hora_fim:null});
-    }
-    if(t(a.voltaOrig)||t(a.voltaDest)||a.voltaData){
-      out.push({sentido:'volta',modal:'aereo',ordem:1,local:t(a.voltaOrig),data:a.voltaData||null,hora:a.voltaDe||null,hora_fim:a.voltaAte||null});
-      out.push({sentido:'volta',modal:'aereo',ordem:2,local:t(a.voltaDest),data:a.voltaData||null,hora:null,hora_fim:null});
-    }
-  }
-  if(s.terrestre){
-    ['ida','volta'].forEach(sent=>{
-      const base=s.te[sent+'Data']||null;
-      s.te[sent].filter(p=>String(p.local||'').trim()).forEach((p,i)=>{
-        out.push({sentido:sent,modal:'terrestre',ordem:i+1,local:p.local.trim(),
-          data:base?a15SomaDias(base,p.dia):null,hora:p.hora||null,hora_fim:null});
+  const out=[],t=x=>String(x||'').trim();let ordem=0;
+  s.trechos.forEach((tr,i)=>{
+    const k=i+1,obs=t(tr.obs)||null;
+    if(tr.modal==='aereo'){
+      const o=tr.paradas[0]||{},d=tr.paradas[tr.paradas.length-1]||{};
+      if(t(o.local)||t(d.local)||tr.data){
+        out.push({sentido:tr.sent,modal:'aereo',trecho:k,ordem:++ordem,local:t(o.local),data:tr.data||null,hora:o.hora||null,hora_fim:tr.ate||null,trecho_obs:obs});
+        out.push({sentido:tr.sent,modal:'aereo',trecho:k,ordem:++ordem,local:t(d.local),data:tr.data||null,hora:null,hora_fim:null,trecho_obs:null});
+      }
+    }else{
+      const base=tr.data||null;
+      tr.paradas.filter(p=>t(p.local)).forEach((p,j)=>{
+        out.push({sentido:tr.sent,modal:tr.modal,trecho:k,ordem:++ordem,local:t(p.local),data:base?a15SomaDias(base,p.dia):null,hora:p.hora||null,hora_fim:null,trecho_obs:j===0?obs:null});
       });
-    });
-  }
+    }
+  });
   return out;
 }
+
 // Uma linha do quadro "DATAS E HORÁRIOS DE EMBARQUE" (paradas de um sentido+modal, já ordenadas)
 function a15Linha(par,modal){
   const locais=par.map(p=>p.local).filter(Boolean);
@@ -6706,22 +6721,22 @@ function a15Linha(par,modal){
 }
 function a15TermoDados(s,func){
   const par=a15ParadasDoEstado(s);
-  const linhas=sent=>['aereo','terrestre'].filter(m=>s[m]).map(m=>{
-    const l=a15Linha(par.filter(p=>p.sentido===sent&&p.modal===m),m);return l?{modal:m,txt:l}:null;
-  }).filter(Boolean);
+  const grupos=a15Grupos(par).map(g=>({g,txt:a15Linha(g.rows,g.modal),data:(g.rows.find(p=>p.data)||{}).data||'9999',hora:a15Hh(g.rows[0].hora)})).filter(x=>x.txt);
+  grupos.sort((a,b)=>String(a.data).localeCompare(String(b.data))||String(a.hora).localeCompare(String(b.hora)));
+  const linhas=sent=>grupos.filter(x=>x.g.sentido===sent).map(x=>({modal:x.g.modal,txt:x.txt}));
   const hoje=new Date();
   const cpf=func.cpf||(s.docs.cpf?mascaraCpf(s.docs.cpf):'');
   const rg=func.rg||(s.docs.rg||'').trim();
   return{
     nome:func.nome_completo||'—',rg:rg||'—',cpf:cpf||'—',cidade:(s.cidadeEmissao||'').trim(),
     data:`${hoje.getDate()} de ${ADM15_MESES[hoje.getMonth()]} de ${hoje.getFullYear()}`,
-    ida:linhas('ida'),volta:linhas('volta'),ambos:!!(s.aereo&&s.terrestre)
+    ida:linhas('ida'),volta:linhas('volta'),ambos:new Set(grupos.map(x=>x.g.modal)).size>1
   };
 }
 function a15PapelHtml(d){
   const sub=t=>escHtml(t).replace(/\{(\w+)\}/g,(m,k)=>`<strong>${escHtml(d[k]||'—')}</strong>`);
   const quadro=(rot,ls)=>ls.length
-    ?ls.map(l=>`<div><strong>${rot}${d.ambos?' ('+(l.modal==='aereo'?'aéreo':'terrestre')+')':''}:</strong> ${escHtml(l.txt)}</div>`).join('')
+    ?ls.map(l=>`<div><strong>${rot}${(d.ambos||l.modal==='isento')?' ('+a15ModalDoc(l.modal)+')':''}:</strong> ${escHtml(l.txt)}</div>`).join('')
     :`<div><strong>${rot}:</strong> a definir</div>`;
   return`<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:32px 44px;font-size:13px;line-height:1.6;color:#111">
     <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:18px">
@@ -6768,7 +6783,7 @@ function a15DocxBody(d){
   out.push(box('DATAS E HORÁRIOS DE EMBARQUE:'),box(null));
   const quadro=(rot,ls)=>{
     if(!ls.length){out.push(box(rot+': a definir'),box(null));return;}
-    ls.forEach(l=>{out.push(box(rot+(d.ambos?' ('+(l.modal==='aereo'?'aéreo':'terrestre')+')':'')+': '+l.txt),box(null));});
+    ls.forEach(l=>{out.push(box(rot+((d.ambos||l.modal==='isento')?' ('+a15ModalDoc(l.modal)+')':'')+': '+l.txt),box(null));});
   };
   quadro('IDA',d.ida);quadro('VOLTA',d.volta);
   out.push(vazio('<w:jc w:val="center"/>'),vazio('<w:jc w:val="center"/>'),vazio('<w:jc w:val="center"/>'));
@@ -6807,28 +6822,27 @@ async function a15GerarWord(){
 function a15Validar(estrito){
   const s=_a15,func=funcionarios.find(x=>String(x.id)===String(s.funcId))||{},p=[];
   const t=x=>String(x||'').trim();
-  if(!s.aereo&&!s.terrestre)p.push('Marque ao menos um tipo de passagem (aérea ou terrestre).');
+  if(!s.trechos.length)p.push('Adicione ao menos um trecho (ida ou volta).');
   if(s.docs.cpf&&!func.cpf&&!cpfValido(s.docs.cpf))p.push('CPF inválido — confira os dígitos.');
   if(s.docs.pis&&!func.pis&&!pisValido(s.docs.pis))p.push('PIS inválido — confira os dígitos.');
   if(!estrito)return p;
   if(!t(func.rg||s.docs.rg))p.push('RG do funcionário é obrigatório no termo.');
   if(!t(func.cpf||s.docs.cpf))p.push('CPF do funcionário é obrigatório no termo.');
   if(!t(s.cidadeEmissao))p.push('Informe a cidade de emissão do termo.');
-  if(s.aereo){
-    const a=s.ae;
-    if(!t(a.idaOrig)||!t(a.idaDest)||!a.idaData)p.push('Aéreo: informe origem, destino e data da ida.');
-    if([a.voltaOrig,a.voltaDest,a.voltaData].some(t)&&(!t(a.voltaOrig)||!t(a.voltaDest)||!a.voltaData))p.push('Aéreo: volta incompleta (origem, destino e data).');
-    if(a.idaDe&&a.idaAte&&a.idaAte<a.idaDe)p.push('Aéreo: faixa de horário da ida inválida.');
-    if(a.voltaDe&&a.voltaAte&&a.voltaAte<a.voltaDe)p.push('Aéreo: faixa de horário da volta inválida.');
-    if(a.idaData&&a.voltaData&&a.voltaData<a.idaData)p.push('Aéreo: a volta é anterior à ida.');
-  }
-  if(s.terrestre){
-    const L=s.te.ida.filter(x=>t(x.local));
-    if(!s.te.idaData||L.length<2||!t(s.te.ida[0].local)||!s.te.ida[0].hora)p.push('Terrestre: informe a data da ida, a origem com horário e o destino.');
-    const V=s.te.volta.filter(x=>t(x.local));
-    if(V.length&&(!s.te.voltaData||V.length<2||!s.te.volta[0].hora))p.push('Terrestre: volta incompleta (data, origem com horário e destino).');
-    if(s.te.idaData&&s.te.voltaData&&s.te.voltaData<s.te.idaData)p.push('Terrestre: a volta é anterior à ida.');
-  }
+  s.trechos.forEach((tr,i)=>{
+    const nome=`Trecho ${i+1} (${tr.sent==='ida'?'ida':'volta'}, ${A15_MODAIS[tr.modal].t.toLowerCase()})`;
+    if(tr.modal==='aereo'){
+      const o=tr.paradas[0]||{},d=tr.paradas[tr.paradas.length-1]||{};
+      if(!t(o.local)||!t(d.local)||!tr.data)p.push(`${nome}: informe origem, destino e data.`);
+      if(o.hora&&tr.ate&&tr.ate<o.hora)p.push(`${nome}: faixa de horário inválida.`);
+    }else{
+      const L=tr.paradas.filter(x=>t(x.local));
+      if(!tr.data||L.length<2||!t(tr.paradas[0].local))p.push(`${nome}: informe a data, a origem e o destino.`);
+      else if(tr.modal==='terrestre'&&!tr.paradas[0].hora)p.push(`${nome}: informe o horário de saída.`);
+    }
+  });
+  const dIda=s.trechos.filter(x=>x.sent==='ida'&&x.data).map(x=>x.data).sort()[0],dVol=s.trechos.filter(x=>x.sent==='volta'&&x.data).map(x=>x.data).sort()[0];
+  if(dIda&&dVol&&dVol<dIda)p.push('A volta é anterior à ida.');
   return p;
 }
 
@@ -6861,13 +6875,15 @@ async function a15Salvar(silencioso){
     func_nome:func.nome_completo,func_matricula:func.matricula||null,func_rg:func.rg||null,func_cpf:func.cpf||null,func_pis:func.pis||null,
     func_cidade:folga.cidade_origem||func.cidade||null,
     cidade_emissao:(s.cidadeEmissao||'').trim()||null,data_solicitacao:s.dataSolic||a15Iso(new Date()),
-    aereo:!!s.aereo,terrestre:!!s.terrestre,aereo_bagagem:!!(s.aereo&&s.bagagem),
-    aereo_obs:s.aereo?(s.aereoObs||'').trim()||null:null,terrestre_obs:s.terrestre?(s.terrObs||'').trim()||null:null,
+    aereo:s.trechos.some(x=>x.modal==='aereo'),terrestre:s.trechos.some(x=>x.modal==='terrestre'),aereo_bagagem:s.trechos.some(x=>x.modal==='aereo'&&x.bag),
+    aereo_obs:s.trechos.filter(x=>x.modal==='aereo'&&String(x.obs||'').trim()).map(x=>x.obs.trim()).join(' | ')||null,
+    terrestre_obs:s.trechos.filter(x=>x.modal==='terrestre'&&String(x.obs||'').trim()).map(x=>x.obs.trim()).join(' | ')||null,
     texto_versao:ADM15_TEXTO_VERSAO,updated_at:agora
   };
   const falhou=(err,etapa)=>{
     const m=String(err.message||'');
     if(/adm15/i.test(m)&&/(does not exist|schema cache|not find)/i.test(m))showToast('As tabelas do ADM 15 ainda não existem no Supabase. Rode o SQL da etapa 1.','error');
+    else if(/trecho|adm15_paradas_modal|check constraint|violates/i.test(m))showToast('Rode o SQL sql_adm15_trechos.sql no Supabase para liberar trechos sem passagem e vários trechos por sentido. ('+m+')','error');
     else showToast(`Erro ao salvar (${etapa}): ${m}`,'error');
     return false;
   };
@@ -6882,7 +6898,10 @@ async function a15Salvar(silencioso){
   }
   const{error:eDel}=await sb.from('adm15_paradas').delete().eq('termo_id',termoId);
   if(eDel)return falhou(eDel,'rota');
-  const par=a15ParadasDoEstado(s).map(p=>({...p,termo_id:termoId}));
+  // As colunas novas (trecho, trecho_obs) só são enviadas quando precisam: trecho sem passagem ou dois trechos do mesmo tipo no mesmo sentido.
+  const brutas=a15ParadasDoEstado(s);
+  const chaves=s.trechos.map(x=>x.sent+'|'+x.modal),precisaNovo=s.trechos.some(x=>x.modal==='isento')||new Set(chaves).size<chaves.length;
+  const par=brutas.map(p=>{const q={...p,termo_id:termoId};if(!precisaNovo){delete q.trecho;delete q.trecho_obs;}return q;});
   if(par.length){
     const{error:eIns}=await sb.from('adm15_paradas').insert(par);
     if(eIns)return falhou(eIns,'rota');
@@ -6927,53 +6946,45 @@ function a15DocHtml(label,id,valor,mask){
     ?a15Campo(label,`<input value="${escHtml(valor)}" disabled>`)
     :a15Campo(label+' <span style="color:#92400E;font-weight:600">· falta na ficha</span>',`<input id="${id}" value="${escHtml(_a15.docs[id.slice(4)]||'')}" ${mask?`oninput="this.value=${mask}(this.value)"`:''} placeholder="não cadastrado">`);
 }
-function a15ParadasHtml(sent){
-  const L=_a15.te[sent],n=L.length;
-  return L.map((p,i)=>{
-    const rotulo=i===0?'Origem':(i===n-1?'Destino final':'Parada / baldeação');
-    return`<div style="display:grid;grid-template-columns:26px 1fr 110px 110px 34px;gap:8px;align-items:end;margin-bottom:8px">
-      <div style="width:24px;height:24px;border-radius:50%;background:var(--primary);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-bottom:7px">${i+1}</div>
-      ${a15Campo(rotulo,a15Inp(`a15-te-${sent}-local-${i}`,p.local,'text','placeholder="Cidade / terminal"'))}
-      ${a15Campo('Dia',`<select id="a15-te-${sent}-dia-${i}">${[0,1,2,3].map(d=>`<option value="${d}" ${(+p.dia)===d?'selected':''}>${d?'+'+d+' dia'+(d>1?'s':''):'mesmo dia'}</option>`).join('')}</select>`)}
-      ${a15Campo('Hora',a15Inp(`a15-te-${sent}-hora-${i}`,p.hora,'time'))}
-      ${n>2?`<button type="button" class="btn btn-sm btn-danger" title="Remover" onclick="a15RemParada('${sent}',${i})" style="height:38px"><i class="ti ti-x"></i></button>`:'<div></div>'}
-    </div>`;
-  }).join('')+`<button type="button" class="btn btn-sm" onclick="a15AddParada('${sent}')"><i class="ti ti-plus"></i> Adicionar parada / baldeação</button>`;
+function a15TrechoHtml(tr,i){
+  const M=A15_MODAIS,iso=tr.modal==='isento',ida=tr.sent==='ida',n=tr.paradas.length;
+  const seg=Object.keys(M).map((k,x)=>`<button type="button" onclick="a15SetModal(${i},'${k}')" style="display:flex;align-items:center;gap:5px;border:0;${x?'border-left:1px solid var(--border);':''}padding:6px 12px;font-size:12.5px;cursor:pointer;background:${tr.modal===k?'var(--primary-light)':'#fff'};color:${tr.modal===k?'var(--primary-dark)':'var(--text)'};font-weight:${tr.modal===k?'700':'500'}"><i class="ti ${M[k].i}"></i>${M[k].t}</button>`).join('');
+  const cab=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+    <span style="font-size:12px;font-weight:700;padding:2px 10px;border-radius:20px;background:${ida?'var(--primary-light)':'var(--warning-light)'};color:${ida?'var(--primary-dark)':'var(--warning)'}">${ida?'Ida':'Volta'}</span>
+    <span style="font-size:12px;color:var(--text-muted)">Trecho ${i+1}</span>
+    <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden">${seg}</div>
+    <button type="button" class="btn btn-sm btn-danger" title="Remover trecho" onclick="a15RemTrecho(${i})" style="margin-left:auto"><i class="ti ti-trash"></i></button></div>`;
+  let corpo;
+  if(tr.modal==='aereo'){
+    const o=tr.paradas[0]||{},d=tr.paradas[n-1]||{};
+    corpo=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px">
+        ${a15Campo('Data',a15Inp(`a15-t${i}-data`,tr.data,'date'))}
+        ${a15Campo('Hora entre',a15Inp(`a15-t${i}-p0-hora`,o.hora,'time'))}${a15Campo('e',a15Inp(`a15-t${i}-ate`,tr.ate,'time'))}
+        <div class="form-group"><label>Bagagem</label><label style="display:flex;align-items:center;gap:6px;font-size:12px;height:38px;font-weight:500"><input type="checkbox" id="a15-t${i}-bag" ${tr.bag?'checked':''} style="width:auto;flex:none;margin:0"> Despachada</label></div></div>
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px">
+        ${a15Campo('Origem',a15Inp(`a15-t${i}-p0-local`,o.local,'text','placeholder="PE - Recife - REC"'),'grid-column:span 2')}
+        ${a15Campo('Destino',a15Inp(`a15-t${i}-p${n-1}-local`,d.local,'text','placeholder="SP - Campinas - VCP"'),'grid-column:span 2')}
+        ${a15Campo('Observações',a15Inp(`a15-t${i}-obs`,tr.obs),'grid-column:span 2')}</div>`;
+  }else{
+    const paradas=tr.paradas.map((p,j)=>{
+      const rotulo=j===0?'Origem':(j===n-1?'Destino final':'Parada / baldeação');
+      return`<div style="display:grid;grid-template-columns:26px 1fr 110px 110px 34px;gap:8px;align-items:end;margin-bottom:8px">
+        <div style="width:24px;height:24px;border-radius:50%;background:var(--primary);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-bottom:7px">${j+1}</div>
+        ${a15Campo(rotulo,a15Inp(`a15-t${i}-p${j}-local`,p.local,'text','placeholder="Cidade / terminal"'))}
+        ${a15Campo('Dia',`<select id="a15-t${i}-p${j}-dia">${[0,1,2,3].map(d=>`<option value="${d}" ${(+p.dia)===d?'selected':''}>${d?'+'+d+' dia'+(d>1?'s':''):'mesmo dia'}</option>`).join('')}</select>`)}
+        ${a15Campo('Hora',a15Inp(`a15-t${i}-p${j}-hora`,p.hora,'time'))}
+        ${n>2?`<button type="button" class="btn btn-sm btn-danger" title="Remover" onclick="a15RemParada(${i},${j})" style="height:38px"><i class="ti ti-x"></i></button>`:'<div></div>'}
+      </div>`;}).join('');
+    corpo=`<div style="display:grid;grid-template-columns:180px 1fr;gap:12px;margin-bottom:10px">
+        ${a15Campo('Data',a15Inp(`a15-t${i}-data`,tr.data,'date'))}${a15Campo(iso?'Observações (motivo, se quiser)':'Observações',a15Inp(`a15-t${i}-obs`,tr.obs))}</div>
+      ${paradas}<button type="button" class="btn btn-sm" onclick="a15AddParada(${i})"><i class="ti ti-plus"></i> Adicionar parada / baldeação</button>
+      ${iso?`<div style="margin-top:10px;font-size:12px;color:var(--text-muted);background:var(--bg);border-radius:8px;padding:8px 12px"><i class="ti ti-info-circle"></i> Sem passagem: não gera compra nem pendência. O trecho continua na programação de viagem, marcado como sem passagem, e aparece numa linha do termo.</div>`:''}`;
+  }
+  return`<div style="border:1px ${iso?'dashed':'solid'} var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px;background:#fff">${cab}${corpo}</div>`;
 }
 function a15FormHtml(s,func){
-  const A=s.ae,T=s.te;
-  const caixa=(corpoHtml,ligado,idSw,icone,titulo)=>`<div style="border:1px solid var(--border);border-radius:10px;margin-top:14px;overflow:hidden">
-    <label style="display:flex;align-items:center;gap:10px;padding:12px 16px;font-weight:700;cursor:pointer;background:var(--bg);${ligado?'border-bottom:1px solid var(--border)':''}">
-      <input type="checkbox" id="${idSw}" ${ligado?'checked':''} onchange="a15Redesenhar()" style="width:auto;flex:none;margin:0"><i class="ti ${icone}"></i> ${titulo}</label>
-    ${ligado?`<div style="padding:14px 16px">${corpoHtml}</div>`:''}</div>`;
-  const aereo=`
-    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:12px">
-      ${a15Campo('Data ida',a15Inp('a15-ae-ida-data',A.idaData,'date'))}
-      ${a15Campo('Hora ida entre',a15Inp('a15-ae-ida-de',A.idaDe,'time'))}${a15Campo('e',a15Inp('a15-ae-ida-ate',A.idaAte,'time'))}
-      ${a15Campo('Data volta',a15Inp('a15-ae-volta-data',A.voltaData,'date'))}
-      ${a15Campo('Hora volta entre',a15Inp('a15-ae-volta-de',A.voltaDe,'time'))}${a15Campo('e',a15Inp('a15-ae-volta-ate',A.voltaAte,'time'))}
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:12px">
-      ${a15Campo('Origem · ida',a15Inp('a15-ae-ida-orig',A.idaOrig,'text','placeholder="PE - Recife - REC"'),'grid-column:span 2')}
-      ${a15Campo('Destino · ida',a15Inp('a15-ae-ida-dest',A.idaDest,'text','placeholder="SP - Campinas - VCP"'),'grid-column:span 2')}
-      <div class="form-group" style="grid-column:span 2"><label>Bagagem</label><label style="display:flex;align-items:center;gap:6px;font-size:12px;height:38px;font-weight:500"><input type="checkbox" id="a15-bag" ${s.bagagem?'checked':''} style="width:auto;flex:none;margin:0"> Despachada</label></div>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px">
-      ${a15Campo('Origem · volta',a15Inp('a15-ae-volta-orig',A.voltaOrig),'grid-column:span 2')}
-      ${a15Campo('Destino · volta',a15Inp('a15-ae-volta-dest',A.voltaDest),'grid-column:span 2')}
-      ${a15Campo('Observações',a15Inp('a15-ae-obs',s.aereoObs),'grid-column:span 2')}
-    </div>`;
-  const volta=T.volta.length
-    ?`<div style="display:flex;justify-content:space-between;align-items:end;gap:12px;margin-bottom:8px">${a15Campo('Data volta',a15Inp('a15-te-volta-data',T.voltaData,'date'),'width:180px')}<button type="button" class="btn btn-sm" onclick="a15RemVolta()"><i class="ti ti-trash"></i> Remover volta</button></div>${a15ParadasHtml('volta')}`
-    :`<div style="padding:12px 14px;background:var(--bg);border:1px dashed var(--border);border-radius:10px;font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>Sem volta definida (só ida). O termo sai com <strong>VOLTA: a definir</strong>.</span><button type="button" class="btn btn-sm" onclick="a15AddVolta()"><i class="ti ti-plus"></i> Adicionar volta</button></div>`;
-  const terrestre=`
-    <div style="display:grid;grid-template-columns:180px 1fr;gap:12px;margin-bottom:10px">
-      ${a15Campo('Data ida',a15Inp('a15-te-ida-data',T.idaData,'date'))}${a15Campo('Observações',a15Inp('a15-te-obs',s.terrObs))}
-    </div>
-    <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin:4px 0 8px">Ida · rota completa</div>
-    ${a15ParadasHtml('ida')}
-    <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin:16px 0 8px">Volta · rota completa</div>
-    ${volta}`;
+  const resumo=s.trechos.map((tr,i)=>`${tr.sent==='ida'?'Ida':'Volta'}: ${A15_MODAIS[tr.modal].t}`).join(' · ');
+  const temIda=s.trechos.some(t=>t.sent==='ida'),temVolta=s.trechos.some(t=>t.sent==='volta');
   return`
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 16px">
       <div style="font-size:12px;font-weight:700;margin-bottom:8px">Dados do funcionário <span style="font-weight:500;color:var(--text-muted)">· vêm da ficha; o que faltar você preenche aqui e é gravado na ficha ao salvar</span></div>
@@ -6986,8 +6997,10 @@ function a15FormHtml(s,func){
       ${a15Campo('Cidade de emissão do termo',a15Inp('a15-cidade',s.cidadeEmissao,'text','placeholder="São Paulo"'))}
       ${a15Campo('Data da solicitação',a15Inp('a15-dsolic',s.dataSolic,'date'))}
     </div>
-    ${caixa(aereo,s.aereo,'a15-sw-ae','ti-plane','Passagens aéreas (avião)')}
-    ${caixa(terrestre,s.terrestre,'a15-sw-te','ti-bus','Passagens terrestres (ônibus)')}`;
+    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:18px 0 8px"><span style="font-size:13px;font-weight:700">Trechos da viagem</span><span style="font-size:12px;color:var(--text-muted)">${escHtml(resumo)||'nenhum trecho ainda'}</span></div>
+    ${s.trechos.map((tr,i)=>a15TrechoHtml(tr,i)).join('')}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button type="button" class="btn btn-sm" onclick="a15AddTrecho('ida')"><i class="ti ti-plus"></i> Ida</button><button type="button" class="btn btn-sm" onclick="a15AddTrecho('volta')"><i class="ti ti-plus"></i> Volta</button>
+      ${temIda&&!temVolta?'<span style="font-size:12px;color:var(--text-muted)">Sem volta definida: o termo sai com <strong>VOLTA: a definir</strong>.</span>':''}${temVolta&&!temIda?'<span style="font-size:12px;color:var(--text-muted)">Sem ida definida: o termo sai com <strong>IDA: a definir</strong>.</span>':''}</div>`;
 }
 function a15Render(){
   const s=_a15;if(!s)return;
