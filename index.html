@@ -6083,7 +6083,7 @@ function trChips(d){
 }
 function trHorario(d){return d.hora?(d.horaFim&&d.modal==='aereo'?`${d.hora}–${d.horaFim}`:d.hora):'—';}
 function trLinhaItem(d,comData){
-  return`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--border);font-size:12.5px">
+  return`<div onclick="transladoSelId='${d.termo.id}';transladoVisao='agenda';renderFolgasTranslados()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--border);font-size:12.5px">
     <div style="min-width:0"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${comData?`<span style="color:var(--text-muted);font-weight:500">${trDm(d.data)} ${trDow(d.data)} · </span>`:''}${trHorario(d)} · ${escHtml(d.nome)}</div>
     <div style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(d.origem)} → ${escHtml(d.destino)}</div></div>
     <div style="flex-shrink:0;display:flex;gap:4px">${trChips(d)}</div></div>`;
@@ -6101,6 +6101,114 @@ function trAlertas(lista,p){
     return{d,pend,dias};
   }).filter(Boolean).sort((a,b)=>a.dias-b.dias);
 }
+// ── Programação dia a dia: lista lateral por dia + painel do funcionário com os trechos (mesmo desenho dos Ativos GTEL) ──
+let transladoSelId=null,transladoDiasFechados={},transladoTrechosAbertos={};
+function trAeroporto(s){
+  s=String(s||'');
+  const m=s.match(/\b(CGH|GRU|VCP|CNF|GIG|SDU|BSB|SSA|REC|FOR|THE|CWB|POA)\b/);
+  if(m)return m[1];
+  if(/congonhas/i.test(s))return'CGH';
+  if(/guarulhos|cumbica/i.test(s))return'GRU';
+  if(/viracopos/i.test(s))return'VCP';
+  return'';
+}
+// Trechos de um sentido: o voo é 1 trecho; o ônibus vira 1 trecho entre cada par de paradas (origem → baldeação → destino)
+function trTrechos(t,sent){
+  const par=adm15ParadasDe(t.id).filter(p=>p.sentido===sent),legs=[];
+  const ae=par.filter(p=>p.modal==='aereo');
+  if(ae.length>=2)legs.push({modal:'aereo',de:ae[0].local,para:ae[ae.length-1].local,data:ae[0].data,hora:a15Hh(ae[0].hora),horaFim:a15Hh(ae[0].hora_fim),horaPara:'',dataPara:ae[ae.length-1].data});
+  const te=par.filter(p=>p.modal==='terrestre');
+  for(let i=0;i<te.length-1;i++)legs.push({modal:'terrestre',de:te[i].local,para:te[i+1].local,data:te[i].data,hora:a15Hh(te[i].hora),horaFim:'',horaPara:a15Hh(te[i+1].hora),dataPara:te[i+1].data});
+  return legs.sort((a,b)=>String(a.data||'').localeCompare(String(b.data||''))||String(a.hora).localeCompare(String(b.hora)));
+}
+function trPendencias(t,tr,p){
+  const out=[],ida=trTrechos(t,'ida'),volta=trTrechos(t,'volta');
+  const datas=[...ida,...volta].map(l=>l.data).filter(d=>d&&d>=p.hoje).sort();
+  const dias=datas.length?Math.round((new Date(datas[0]+'T12:00:00')-new Date(p.hoje+'T12:00:00'))/86400000):null;
+  const quando=dias==null?'':dias===0?' · viaja hoje':dias===1?' · viaja amanhã':` · viaja em ${dias} dias`;
+  if(tr.passagem_comprada!==true)out.push('Passagem não comprada'+quando);
+  if(!tr.termo_adm15_url)out.push('ADM 15 sem assinatura anexada');
+  const conexao=(a,b,txt)=>{ // a = trecho terrestre que chega; b = voo que sai
+    const ca=trAeroporto(a.para),cb=trAeroporto(b.de);
+    if(ca&&cb&&ca!==cb)out.push(`${txt}: o ônibus chega em ${ca}${a.horaPara?' às '+a.horaPara:''}, mas o voo sai de ${cb}${b.hora?' às '+b.hora:''}. Confira o aeroporto.`);
+  };
+  const vooI=ida.find(l=>l.modal==='aereo'),terI=ida.filter(l=>l.modal==='terrestre').pop();
+  if(vooI&&terI)conexao(terI,vooI,'Ida');
+  const vooV=volta.find(l=>l.modal==='aereo'),terV=volta.find(l=>l.modal==='terrestre');
+  if(vooV&&terV){const ca=trAeroporto(vooV.para),cb=trAeroporto(terV.de);if(ca&&cb&&ca!==cb)out.push(`Volta: o voo pousa em ${ca}, mas o ônibus sai de ${cb}. Confira o aeroporto.`);}
+  if(t.terrestre&&vooV&&!terV)out.push('Volta aérea sem trecho terrestre até a obra.');
+  if(t.aereo_obs)out.push('Obs. aéreo: '+t.aereo_obs);
+  if(t.terrestre_obs)out.push('Obs. terrestre: '+t.terrestre_obs);
+  return out;
+}
+function trItens(lista,p,per){
+  const g={};
+  lista.filter(d=>d.data&&d.data>=p.hoje&&(!per||trPeriodoDe(d.data,p)===per)).forEach(d=>{
+    const k=d.termo.id+'|'+d.sentido,x=g[k];
+    if(!x)g[k]={termo:d.termo,sentido:d.sentido,data:d.data,hora:d.hora||'99:99',nome:d.nome,pend:!d.comprada||!d.assinado};
+    else{if(d.data<x.data)x.data=d.data;if(d.hora&&d.hora<x.hora)x.hora=d.hora;}
+  });
+  return Object.values(g).sort((a,b)=>a.data.localeCompare(b.data)||a.hora.localeCompare(b.hora)||a.nome.localeCompare(b.nome));
+}
+function trAgendaHtml(lista,p){
+  const itens=trItens(lista,p,transladoPeriodo);
+  if(!itens.length)return'<div style="color:var(--text-muted);font-size:13px;padding:24px 0;text-align:center">Nenhuma viagem programada neste período. Gere o ADM 15 na aba Programação para criar a programação de viagem.</div>';
+  const sel=itens.find(i=>String(i.termo.id)===String(transladoSelId))||itens[0];
+  transladoSelId=sel.termo.id;
+  const dias=[...new Set(itens.map(i=>i.data))];
+  const listaHtml=dias.map(dt=>{
+    const l=itens.filter(i=>i.data===dt),aberto=!transladoDiasFechados[dt],al=l.filter(i=>i.pend).length;
+    const head=`<div class="aloj-secao-row" onclick="transladoDiasFechados['${dt}']=${aberto};renderFolgasTranslados()" style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:#fff;border:1px solid ${l.some(i=>String(i.termo.id)===String(sel.termo.id))?'#1F5FA6':'#D8DAE0'};border-radius:4px;padding:9px 12px;cursor:pointer;margin-bottom:6px">
+      <div style="display:flex;align-items:center;gap:8px"><i class="ti ti-chevron-down" style="font-size:12px;color:#8B95A5;transform:rotate(${aberto?'0deg':'-90deg'})"></i><span style="font-size:13px;font-weight:700;color:#1A1F29">${trDow(dt)} ${trDm(dt)}</span>${dt===p.hoje?'<span style="font-size:10px;font-weight:700;color:#166534;background:#DCFCE7;border-radius:20px;padding:1px 7px">hoje</span>':''}</div>
+      <div style="display:flex;align-items:center;gap:5px">${al?`<span title="${al} com pendência" style="font-size:10px;font-weight:700;color:#991B1B;background:#FEE2E2;border-radius:20px;padding:1px 7px">${al} !</span>`:''}<span style="font-size:10.5px;font-weight:700;color:#fff;background:var(--primary);border-radius:20px;padding:1px 8px">${l.length}</span></div></div>`;
+    const its=!aberto?'':`<div style="margin:0 0 8px 10px;padding-left:8px;border-left:2px solid #E0E2E7">`+l.map(i=>{
+      const s=String(i.termo.id)===String(sel.termo.id);
+      return`<div class="aloj-item" onclick="transladoSelId='${i.termo.id}';renderFolgasTranslados()" style="background:${s?'#1F5FA6':'#fff'};border:1px solid ${s?'#1F5FA6':'#D8DAE0'};border-radius:4px;padding:9px 12px;cursor:pointer;margin-bottom:6px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><span style="font-size:13px;font-weight:600;color:${s?'#fff':'#1A1F29'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(i.nome)}</span><div style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:${i.pend?'#DC2626':'#16A34A'}"></div></div>
+        <div style="font-size:10.5px;color:${s?'rgba(255,255,255,.85)':'#8B95A5'};margin-top:2px">${i.hora==='99:99'?'sem horário':i.hora} · ${i.sentido==='ida'?'Saída':'Retorno'}</div></div>`;}).join('')+'</div>';
+    return head+its;
+  }).join('');
+  // painel do funcionário
+  const t=sel.termo,func=funcionarios.find(x=>String(x.id)===String(t.funcionario_id))||{};
+  const obra=obras.find(o=>String(o.id)===String(t.obra_id||func.obra_id));
+  const tr=folgasTranslados.find(x=>String(x.folga_id)===String(t.folga_id)&&x.numero_ciclo===t.numero_ciclo)||{};
+  const st=ADM15_ST[t.status]||ADM15_ST.rascunho,pend=trPendencias(t,tr,p),comprada=tr.passagem_comprada===true;
+  const kv=(r,v)=>`<div><span style="display:block;font-size:10.5px;color:#8B95A5">${r}</span>${v?escHtml(v):'—'}</div>`;
+  const sentidoHtml=(sent,tit)=>{
+    const legs=trTrechos(t,sent);if(!legs.length)return'';
+    const dt=legs.find(l=>l.data)?.data;
+    return`<div style="background:#EEF2F8;padding:7px 18px;font-size:11.5px;font-weight:700;color:#243244;letter-spacing:.03em;border-bottom:1px solid #E0E2E7">${tit}${dt?` · ${trDow(dt)} ${formatDate(dt)}`:''}</div>`
+    +legs.map((l,i)=>{
+      const id=t.id+sent+i,ab=!!transladoTrechosAbertos[id],aereo=l.modal==='aereo';
+      const hor=aereo?(l.hora?(l.horaFim?`${l.hora}–${l.horaFim}`:l.hora):'—'):`${l.hora||'—'} → ${l.horaPara||'—'}`;
+      const det=aereo
+        ?[['Embarque',l.hora?(l.horaFim?`entre ${l.hora} e ${l.horaFim}`:l.hora):'—'],['Data',l.data?formatDate(l.data):'—'],['Bagagem',t.aereo_bagagem?'Despachada':'Sem bagagem despachada']]
+        :[['Saída',`${l.data?formatDate(l.data):'—'} às ${l.hora||'—'}`],['Chegada',`${l.dataPara?formatDate(l.dataPara):'—'} às ${l.horaPara||'—'}`]];
+      return`<div class="aloj-secao-row" onclick="transladoTrechosAbertos['${id}']=${!ab};renderFolgasTranslados()" style="display:grid;grid-template-columns:170px 1fr 120px;align-items:center;padding:12px 18px;border-bottom:1px solid #EEF0F2;cursor:pointer;background:${ab?'#FAFBFC':'#fff'}">
+        <span style="font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px"><i class="ti ti-chevron-down" style="font-size:12px;color:#8B95A5;transform:rotate(${ab?'0deg':'-90deg'})"></i><i class="ti ti-${aereo?'plane':'bus'}" style="font-size:15px;color:#4B5160"></i>${aereo?'Voo':'Ônibus'} · trecho ${i+1}</span>
+        <span style="font-size:12.5px;color:#4B5563"><span style="display:block">${escHtml(l.de)} → ${escHtml(l.para)}</span><span style="font-size:11.5px;color:#6B7280">${hor}</span></span>
+        <span style="font-size:11px;font-weight:700;color:${comprada?'#166534':'#92400E'};background:${comprada?'#DCFCE7':'#FFFBEB'};padding:3px 10px;border-radius:3px;width:fit-content">${comprada?'COMPRADA':'A COMPRAR'}</span></div>`
+        +(ab?`<div style="padding:10px 18px 12px 46px;background:#FAFBFC;border-bottom:1px solid #EEF0F2;font-size:12.5px;color:#4B5563">${det.map(x=>`<div style="display:flex;justify-content:space-between;gap:12px;padding:2px 0"><span>${x[0]}</span><strong>${escHtml(x[1])}</strong></div>`).join('')}</div>`:'');
+    }).join('');
+  };
+  const painel=`<div style="background:#243244;padding:13px 18px;display:flex;align-items:center;justify-content:space-between;border-radius:4px 4px 0 0;flex-wrap:wrap;gap:8px">
+      <div style="display:flex;align-items:center;gap:10px;min-width:0"><i class="ti ti-user" style="color:var(--primary);flex-shrink:0"></i><span style="color:#fff;font-size:14.5px;font-weight:700">${escHtml(sel.nome)}</span><span style="font-size:10px;font-weight:700;color:${st.c};background:${st.bg};padding:2px 8px;border-radius:20px">ADM 15 · v${t.versao} · ${st.t.toUpperCase()}</span></div>
+      <div style="display:flex;gap:6px">${t.folga_id?`<button class="btn btn-sm" onclick="abrirModalAdm15('${t.folga_id}',${t.numero_ciclo})" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2)"><i class="ti ti-file-text"></i> ADM 15</button>`:''}</div></div>
+    <div style="background:#fff;border:1px solid #E0E2E7;border-top:none;padding:12px 18px;font-size:12.5px"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 16px">
+      ${kv('Matrícula',t.func_matricula)}${kv('Função',func.funcao?.nome||func.funcao_manual)}${kv('Obra',obra?[obra.codigo,obra.nome].filter(Boolean).join(' — '):'')}${kv('Cidade',t.func_cidade)}
+      ${kv('Passagem',[t.aereo?'Aéreo':'',t.terrestre?'Terrestre':''].filter(Boolean).join(' + '))}${kv('RG / CPF',[t.func_rg,t.func_cpf].filter(Boolean).join(' · '))}</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid #EEF0F2">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600"><input type="checkbox" ${comprada?'checked':''} style="width:auto" ${t.folga_id?`onchange="togglePassagemComprada('${t.folga_id}',${t.numero_ciclo},this.checked?'sim':'nao')"`:'disabled'}> Passagem comprada</label>
+        ${t.folga_id?(tr.termo_adm15_url
+          ?`<a href="${tr.termo_adm15_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-file-text"></i> ADM 15 assinado</a><label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-upload"></i> Trocar<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${t.folga_id}',${t.numero_ciclo},this)"></label>`
+          :`<label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-upload"></i> Anexar ADM 15 assinado<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${t.folga_id}',${t.numero_ciclo},this)"></label>`):''}
+      </div></div>
+    ${pend.length?`<div style="background:#FEF3C7;border:1px solid #FCD34D;border-left:4px solid #D97706;padding:10px 14px;margin:10px 0;border-radius:4px"><div style="font-size:11px;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:.03em;margin-bottom:3px">Atenção</div>${pend.map(a=>`<div style="font-size:12.5px;color:#78350F;padding:1px 0">• ${escHtml(a)}</div>`).join('')}</div>`:'<div style="height:10px"></div>'}
+    <div style="background:#3A4658;display:grid;grid-template-columns:170px 1fr 120px;padding:9px 18px"><span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">TRECHO</span><span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">ROTA E HORÁRIO</span><span style="color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em">STATUS</span></div>
+    <div style="background:#fff;border:1px solid #E0E2E7;border-top:none;border-radius:0 0 4px 4px;overflow:hidden">${sentidoHtml('ida','SAÍDA')}${sentidoHtml('volta','RETORNO')}</div>`;
+  return`<div style="display:flex;gap:16px;align-items:flex-start"><div style="width:280px;flex-shrink:0">${listaHtml}</div><div style="flex:1;min-width:0">${painel}</div></div>`;
+}
+
 function renderFolgasTranslados(){
   const p=trPeriodos(),lista=trDeslocamentos();
   const futuros=lista.filter(d=>d.data&&d.data>=p.hoje);
@@ -6125,18 +6233,7 @@ function renderFolgasTranslados(){
           ${l.length?l.slice(0,max).map(d=>trLinhaItem(d,k!=='hoje')).join('')+(l.length>max?`<div style="font-size:11px;color:var(--primary);cursor:pointer;margin-top:6px" onclick="transladoPeriodo='${k}';transladoVisao='agenda';renderFolgasTranslados()">+ ${l.length-max} na programação</div>`:'')
           :'<div style="font-size:12px;color:var(--text-muted);padding-top:8px">Ninguém viajando.</div>'}</div>`;}).join('')+`</div>`;
   }else{
-    const vis=(transladoPeriodo?por[transladoPeriodo]:futuros);
-    const dias=[...new Set(vis.map(d=>d.data))];
-    corpo=dias.length?dias.map(dt=>{
-      const ev=vis.filter(d=>d.data===dt),g={};
-      ev.forEach(d=>{const k=[d.sentido,d.modal,d.hora,d.origem].join('|');(g[k]=g[k]||[]).push(d);});
-      return`<div style="display:flex;align-items:baseline;gap:8px;margin:18px 0 6px"><div style="font-size:14px;font-weight:600">${trDow(dt)} ${trDm(dt)}</div><div style="font-size:12px;color:var(--text-muted)">${ev.length} deslocamento${ev.length===1?'':'s'}${dt===p.hoje?' · hoje':''}</div></div>`
-        +Object.values(g).map(l=>{const d=l[0];return`<div style="display:grid;grid-template-columns:78px 1fr auto;gap:12px;align-items:start;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;margin-bottom:6px;font-size:13px">
-          <div style="font-weight:700">${trHorario(d)}</div>
-          <div><div>${l.map(x=>`<strong>${escHtml(x.nome)}</strong>${x.comprada?'':' <span style="font-size:11px;color:#92400E">⚠ passagem pendente</span>'}`).join(' · ')}</div>
-            <div style="font-size:11.5px;color:var(--text-muted);margin-top:3px">${escHtml(d.linha)}${l.length>1?` · ${l.length} pessoas`:''}</div></div>
-          <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">${trChips(d)}</div></div>`;}).join('');
-    }).join(''):'<div style="color:var(--text-muted);font-size:13px;padding:24px 0;text-align:center">Nenhuma viagem programada neste período. Gere o ADM 15 na aba Programação para criar a programação de viagem.</div>';
+    corpo=trAgendaHtml(lista,p);
   }
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
