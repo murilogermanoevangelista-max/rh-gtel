@@ -6022,11 +6022,6 @@ function renderFolgasLocal(){
     ${rows}`;
 }
 
-// ─── TRANSLADOS ────────────────────────────────────────────────────────────
-// Aba dedicada: para a saída pendente (venc.) de cada funcionário, controla se a
-// passagem já foi comprada, observações, e data/local/hora de ida e de retorno,
-// para organizar o transporte (translado) até o ponto de embarque. Essas
-// informações também aparecem na ficha do funcionário.
 function ctrCicloAtualFolga(f){
   return cicloAtualFolga(f);
 }
@@ -6034,76 +6029,120 @@ function projecaoOuData(f,n){
   const proj=n<=5?f['saida'+n+'_projecao']:calcVencimentoN(f,n);
   return getSaidaReal(f,n)||getSaidaProgramada(f,n)||proj;
 }
-function renderFolgasTranslados(){
-  let lista=folgas.filter(f=>{
-    const n=ctrCicloAtualFolga(f);
-    return !!projecaoOuData(f,n);
+// ─── TRANSLADOS (programação de viagem gerada a partir do ADM 15) ──────────
+// Cada ADM 15 vigente (rascunho/emitido/assinado) vira deslocamentos de ida (saída da obra) e de volta
+// (retorno), por modal (aéreo/terrestre), com data, horário e trajeto — tudo vindo do formulário do ADM 15.
+// A tela mostra alertas por período, a programação dia a dia (para organizar os deslocamentos) e exporta Excel.
+let transladoVisao='alertas',transladoPeriodo='';
+const TR_DIAS=['dom','seg','ter','qua','qui','sex','sáb'];
+const trDow=iso=>TR_DIAS[new Date(iso+'T12:00:00').getDay()];
+const trDm=iso=>formatDate(iso).slice(0,5);
+const trSoma=(iso,n)=>a15SomaDias(iso,n);
+function trPeriodos(){
+  const hoje=a15Iso(new Date());
+  const dow=(new Date(hoje+'T12:00:00').getDay()+6)%7;           // seg=0 … dom=6
+  const fimSemana=trSoma(hoje,6-dow),fimProx=trSoma(hoje,13-dow);
+  return{hoje,fimSemana,fimProx};
+}
+function trPeriodoDe(iso,p){
+  if(iso===p.hoje)return'hoje';
+  if(iso<=p.fimSemana)return'semana';
+  if(iso<=p.fimProx)return'proxima';
+  return'depois';
+}
+const TR_PER_ROT={hoje:'Hoje',semana:'Esta semana',proxima:'Próxima semana',depois:'Mais adiante'};
+function trDeslocamentos(){
+  const out=[];
+  adm15Termos.filter(t=>ADM15_VIVOS.includes(t.status)).forEach(t=>{
+    const func=funcionarios.find(x=>String(x.id)===String(t.funcionario_id))||{};
+    const obra=obras.find(o=>String(o.id)===String(t.obra_id||func.obra_id))||null;
+    const tr=folgasTranslados.find(x=>String(x.folga_id)===String(t.folga_id)&&x.numero_ciclo===t.numero_ciclo)||{};
+    const par=adm15ParadasDe(t.id);
+    ['ida','volta'].forEach(sent=>['aereo','terrestre'].forEach(modal=>{
+      const ps=par.filter(p=>p.sentido===sent&&p.modal===modal);
+      if(!ps.length)return;
+      const o=ps[0];
+      out.push({termo:t,func,obra,sentido:sent,modal,
+        data:o.data||(ps.find(p=>p.data)||{}).data||null,hora:a15Hh(o.hora),horaFim:a15Hh(o.hora_fim),
+        origem:o.local||'',destino:ps[ps.length-1].local||'',linha:a15Linha(ps,modal)||'',
+        comprada:tr.passagem_comprada===true,assinado:!!tr.termo_adm15_url,
+        nome:t.func_nome||func.nome_completo||'—'});
+    }));
   });
-  if(transladoObraFiltro)lista=lista.filter(f=>String(f.funcionario?.obra_id)===String(transladoObraFiltro));
+  let l=out;
+  if(transladoObraFiltro)l=l.filter(d=>String(d.obra?.id||'')===String(transladoObraFiltro));
   if(transladoBusca){
     const b=transladoBusca.toLowerCase();
-    lista=lista.filter(f=>f.funcionario?.nome_completo?.toLowerCase().includes(b)||f.funcionario?.matricula?.includes(b));
+    l=l.filter(d=>d.nome.toLowerCase().includes(b)||String(d.termo.func_matricula||'').includes(b));
   }
-  lista=lista.sort((a,b)=>{
-    const na=ctrCicloAtualFolga(a),nb=ctrCicloAtualFolga(b);
-    const da=projecaoOuData(a,na),db=projecaoOuData(b,nb);
-    return (parseDate(da)||new Date(9999,0))-(parseDate(db)||new Date(9999,0));
-  });
+  return l.sort((a,b)=>String(a.data||'9999').localeCompare(String(b.data||'9999'))||String(a.hora).localeCompare(String(b.hora))||a.nome.localeCompare(b.nome));
+}
+function trChips(d){
+  const sai=d.sentido==='ida';
+  return`<span class="badge" style="background:${sai?'#E0F2FE':'#F0FDF4'};color:${sai?'#075985':'var(--success)'}">${sai?'Saída':'Retorno'}</span> <span class="badge" style="background:#F3F4F6;color:#374151">${d.modal==='aereo'?'✈️ Aéreo':'🚌 Terrestre'}</span>`;
+}
+function trHorario(d){return d.hora?(d.horaFim&&d.modal==='aereo'?`${d.hora}–${d.horaFim}`:d.hora):'—';}
+function trLinhaItem(d,comData){
+  return`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--border);font-size:12.5px">
+    <div style="min-width:0"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${comData?`<span style="color:var(--text-muted);font-weight:500">${trDm(d.data)} ${trDow(d.data)} · </span>`:''}${trHorario(d)} · ${escHtml(d.nome)}</div>
+    <div style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(d.origem)} → ${escHtml(d.destino)}</div></div>
+    <div style="flex-shrink:0;display:flex;gap:4px">${trChips(d)}</div></div>`;
+}
+function trAlertas(lista,p){
+  // por ADM 15: a viagem mais próxima dentro de 7 dias que ainda tem pendência (passagem ou termo assinado)
+  const lim=trSoma(p.hoje,7),porTermo={};
+  lista.filter(d=>d.data&&d.data>=p.hoje&&d.data<=lim).forEach(d=>{if(!porTermo[d.termo.id])porTermo[d.termo.id]=d;});
+  return Object.values(porTermo).map(d=>{
+    const pend=[];
+    if(!d.comprada)pend.push('passagem não comprada');
+    if(!d.assinado)pend.push('ADM 15 sem assinatura anexada');
+    if(!pend.length)return null;
+    const dias=Math.round((new Date(d.data+'T12:00:00')-new Date(p.hoje+'T12:00:00'))/86400000);
+    return{d,pend,dias};
+  }).filter(Boolean).sort((a,b)=>a.dias-b.dias);
+}
+function renderFolgasTranslados(){
+  const p=trPeriodos(),lista=trDeslocamentos();
+  const futuros=lista.filter(d=>d.data&&d.data>=p.hoje);
+  const por={hoje:[],semana:[],proxima:[],depois:[]};
+  futuros.forEach(d=>por[trPeriodoDe(d.data,p)].push(d));
+  const alertas=trAlertas(lista,p);
   const obraOpts=obras.map(o=>`<option value="${o.id}" ${transladoObraFiltro===String(o.id)?'selected':''}>${o.codigo?o.codigo+' — ':''}${o.nome||''}</option>`).join('');
-  const rows=lista.map(f=>{
-    const n=ctrCicloAtualFolga(f);
-    const dataSaida=projecaoOuData(f,n);
-    const statusSaida=getSaidaReal(f,n)?'✅ Realizada':getSaidaProgramada(f,n)?'📅 Programada':'⏳ Projetada';
-    const t=folgasTranslados.find(x=>String(x.folga_id)===String(f.id)&&x.numero_ciclo===n)||{};
-    const nome=f.funcionario?.nome_completo||'—';
-    const obraNome=f.funcionario?.obra?.codigo||f.funcionario?.obra?.nome||'—';
-    const tipoPassagemStr=[f.tipo_passagem_aerea?'✈️ Aérea':'',f.tipo_passagem_terrestre?'🚌 Terrestre':''].filter(Boolean).join(' · ')||'—';
-    const comprada=t.passagem_comprada===true;
-    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:10px">
-        <div>
-          <div style="font-weight:600">${nome}</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${f.funcionario?.matricula||'—'} · ${obraNome} · Venc.${n}: <strong>${formatDate(dataSaida)}</strong> (${statusSaida}) · ${tipoPassagemStr}</div>
-        </div>
-        <span class="badge" style="background:${comprada?'#F0FDF4':'#FFFBEB'};color:${comprada?'var(--success)':'#92400E'}">🎫 ${comprada?'Comprada':'Não comprada'}</span>
-      </div>
-      <div class="form-grid" style="gap:8px">
-        <div class="form-group"><label>Passagem Comprada</label>
-          <select id="tr-comprada-${f.id}">
-            <option value="nao" ${!comprada?'selected':''}>Não</option>
-            <option value="sim" ${comprada?'selected':''}>Sim</option>
-          </select>
-        </div>
-        <div class="form-group full"><label>Observação</label>
-          <textarea id="tr-obs-${f.id}" rows="1" placeholder="Alguma particularidade sobre a passagem (trecho, data de compra, pendência...)">${t.passagem_observacao||''}</textarea>
-        </div>
-        <div class="form-group full"><label>Termo ADM 15 (ciência de desconto por extravio da passagem) <span style="color:var(--danger);font-weight:700">* obrigatório</span></label>
-          ${t.termo_adm15_url?'':`<div style="font-size:11px;color:#991B1B;background:#FEE2E2;border-radius:6px;padding:6px 10px;margin-bottom:6px">⚠ Termo ADM 15 pendente — anexe o termo assinado antes/na compra da passagem.</div>`}
-          ${t.termo_adm15_url
-            ?`<div style="display:flex;align-items:center;gap:8px"><a href="${t.termo_adm15_url}" target="_blank" class="btn btn-sm btn-info"><i class="ti ti-file-text"></i> Ver termo anexado</a><label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-upload"></i> Trocar<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${n},this)"></label><button class="btn btn-sm btn-danger" onclick="removerTermoAdm15('${f.id}',${n})"><i class="ti ti-trash"></i> Excluir</button></div>`
-            :`<label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-upload"></i> Anexar termo assinado<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${n},this)"></label>`}
-        </div>
-        <div class="form-section" style="margin:0">Ida (saída até o ponto de embarque)</div>
-        <div></div>
-        <div class="form-group"><label>Data</label><input type="date" id="tr-ida-data-${f.id}" value="${t.data_ida||''}"></div>
-        <div class="form-group"><label>Hora</label><input type="time" id="tr-ida-hora-${f.id}" value="${t.hora_ida||''}"></div>
-        <div class="form-group full"><label>Local</label><input type="text" id="tr-ida-local-${f.id}" placeholder="Ex: Rodoviária de..., Aeroporto de..." value="${t.local_ida||''}"></div>
-        <div class="form-section" style="margin:0">Retorno (chegada de volta à obra/alojamento)</div>
-        <div></div>
-        <div class="form-group"><label>Data</label><input type="date" id="tr-volta-data-${f.id}" value="${t.data_retorno||''}"></div>
-        <div class="form-group"><label>Hora</label><input type="time" id="tr-volta-hora-${f.id}" value="${t.hora_retorno||''}"></div>
-        <div class="form-group full"><label>Local</label><input type="text" id="tr-volta-local-${f.id}" placeholder="Ex: Rodoviária de..., Aeroporto de..." value="${t.local_retorno||''}"></div>
-      </div>
-      <div style="margin-top:10px;display:flex;justify-content:flex-end">
-        <button class="btn btn-primary btn-sm" onclick="salvarTranslado('${f.id}',${n})"><i class="ti ti-check"></i> Salvar</button>
-      </div>
-    </div>`;
-  }).join('')||'<div style="color:var(--text-muted);font-size:13px;padding:24px 0;text-align:center">Nenhum funcionário com saída pendente no momento.</div>';
+  const nPessoas=new Set(futuros.map(d=>d.termo.id)).size;
+  const card=(k,cor)=>`<div class="metric-card ${cor||''}" style="cursor:pointer;border-color:${transladoPeriodo===k?'var(--primary)':'var(--border)'}" onclick="transladoPeriodo=transladoPeriodo==='${k}'?'':'${k}';transladoVisao='agenda';renderFolgasTranslados()"><div class="metric-label">${TR_PER_ROT[k]}</div><div class="metric-value">${por[k].length}</div></div>`;
+  let corpo='';
+  if(transladoVisao==='alertas'){
+    corpo=`<div class="metric-label" style="font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin:4px 0 8px">Atenção · ${alertas.length}</div>`
+      +(alertas.length?alertas.map(a=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:${a.dias<=2?'#FEF2F2':'#FFFBEB'};border:1px solid ${a.dias<=2?'#FECACA':'#FDE68A'};border-radius:var(--radius);padding:9px 12px;margin-bottom:6px;font-size:12.5px">
+        <div><strong>${escHtml(a.d.nome)}</strong> · ${a.dias===0?'viaja hoje':a.dias===1?'viaja amanhã':`viaja em ${a.dias} dias (${trDm(a.d.data)} ${trDow(a.d.data)})`}<div style="font-size:11px;color:var(--text-muted);margin-top:2px">${a.pend.join(' · ')}</div></div>
+        ${a.d.termo.folga_id?`<button class="btn btn-sm" onclick="abrirModalAdm15('${a.d.termo.folga_id}',${a.d.termo.numero_ciclo})">ADM 15</button>`:''}</div>`).join('')
+        :'<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Nenhuma pendência nas viagens dos próximos 7 dias.</div>')
+      +`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-top:16px">`
+      +['hoje','semana','proxima','depois'].map(k=>{
+        const l=por[k],max=8;
+        return`<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline"><div style="font-weight:600">${TR_PER_ROT[k]}</div><div style="font-size:11px;color:var(--text-muted)">${l.length} deslocamento${l.length===1?'':'s'}</div></div>
+          ${l.length?l.slice(0,max).map(d=>trLinhaItem(d,k!=='hoje')).join('')+(l.length>max?`<div style="font-size:11px;color:var(--primary);cursor:pointer;margin-top:6px" onclick="transladoPeriodo='${k}';transladoVisao='agenda';renderFolgasTranslados()">+ ${l.length-max} na programação</div>`:'')
+          :'<div style="font-size:12px;color:var(--text-muted);padding-top:8px">Ninguém viajando.</div>'}</div>`;}).join('')+`</div>`;
+  }else{
+    const vis=(transladoPeriodo?por[transladoPeriodo]:futuros);
+    const dias=[...new Set(vis.map(d=>d.data))];
+    corpo=dias.length?dias.map(dt=>{
+      const ev=vis.filter(d=>d.data===dt),g={};
+      ev.forEach(d=>{const k=[d.sentido,d.modal,d.hora,d.origem].join('|');(g[k]=g[k]||[]).push(d);});
+      return`<div style="display:flex;align-items:baseline;gap:8px;margin:18px 0 6px"><div style="font-size:14px;font-weight:600">${trDow(dt)} ${trDm(dt)}</div><div style="font-size:12px;color:var(--text-muted)">${ev.length} deslocamento${ev.length===1?'':'s'}${dt===p.hoje?' · hoje':''}</div></div>`
+        +Object.values(g).map(l=>{const d=l[0];return`<div style="display:grid;grid-template-columns:78px 1fr auto;gap:12px;align-items:start;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;margin-bottom:6px;font-size:13px">
+          <div style="font-weight:700">${trHorario(d)}</div>
+          <div><div>${l.map(x=>`<strong>${escHtml(x.nome)}</strong>${x.comprada?'':' <span style="font-size:11px;color:#92400E">⚠ passagem pendente</span>'}`).join(' · ')}</div>
+            <div style="font-size:11.5px;color:var(--text-muted);margin-top:3px">${escHtml(d.linha)}${l.length>1?` · ${l.length} pessoas`:''}</div></div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">${trChips(d)}</div></div>`;}).join('');
+    }).join(''):'<div style="color:var(--text-muted);font-size:13px;padding:24px 0;text-align:center">Nenhuma viagem programada neste período. Gere o ADM 15 na aba Programação para criar a programação de viagem.</div>';
+  }
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
-      <div><div class="page-title">Folgas de Campo</div><div class="page-subtitle">${lista.length} translado(s) a organizar${(()=>{const pend=lista.filter(f=>!(folgasTranslados.find(x=>String(x.folga_id)===String(f.id)&&x.numero_ciclo===ctrCicloAtualFolga(f))||{}).termo_adm15_url).length;return pend?` · <span style="color:#991B1B;font-weight:700">⚠ ${pend} sem Termo ADM 15</span>`:''})()}</div></div>
+      <div><div class="page-title">Folgas de Campo</div><div class="page-subtitle">${nPessoas} pessoa(s) com viagem programada · gerado a partir dos ADM 15</div></div>
       <div style="display:flex;gap:8px">
-        <button class="btn btn-sm" onclick="exportFolgasExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
+        <button class="btn btn-sm" onclick="trExportarExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
         <button class="btn btn-primary" onclick="openModalFolga()"><i class="ti ti-plus"></i> Nova folga</button>
       </div>
     </div>
@@ -6111,17 +6150,56 @@ function renderFolgasTranslados(){
       <div class="exp-tab" onclick="folgasAba='programacao';renderFolgasLocal()">Programação</div>
       <div class="exp-tab active" onclick="folgasAba='translados';renderFolgasLocal()">Translados</div>
     </div>
-    <div style="background:var(--info-light);border-radius:var(--radius);padding:10px 14px;font-size:12px;color:var(--info);margin-bottom:16px">
-      <i class="ti ti-info-circle"></i> Para a saída pendente de cada funcionário, controle se a passagem foi comprada e organize data, local e horário de ida e de retorno. Essas informações aparecem também na ficha do funcionário.
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:16px">
+      ${card('hoje')}${card('semana')}${card('proxima')}${card('depois')}
+      <div class="metric-card ${alertas.length?'red':''}" style="cursor:pointer" onclick="transladoVisao='alertas';renderFolgasTranslados()"><div class="metric-label">Precisam de atenção</div><div class="metric-value">${alertas.length}</div></div>
     </div>
     <div class="filters">
-      <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar funcionário..." value="${transladoBusca}" oninput="transladoBusca=this.value;if(!_buscaHandlers.translados)_buscaHandlers.translados=makeBuscaHandler(v=>transladoBusca=v,renderFolgasTranslados,300);_buscaHandlers.translados(this.value);this.focus()"></div>
-      <select class="filter-select" onchange="transladoObraFiltro=this.value;renderFolgasTranslados()">
-        <option value="">Todas as obras</option>${obraOpts}
-      </select>
-      <button class="btn btn-sm" onclick="transladoObraFiltro='';transladoBusca='';renderFolgasTranslados()"><i class="ti ti-x"></i> Limpar</button>
+      <div class="exp-tabs" style="margin:0">
+        <div class="exp-tab ${transladoVisao==='alertas'?'active':''}" onclick="transladoVisao='alertas';renderFolgasTranslados()">Alertas</div>
+        <div class="exp-tab ${transladoVisao==='agenda'?'active':''}" onclick="transladoVisao='agenda';renderFolgasTranslados()">Programação dia a dia</div>
+      </div>
+      <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar funcionário..." value="${escHtml(transladoBusca)}" oninput="transladoBusca=this.value;if(!_buscaHandlers.translados)_buscaHandlers.translados=makeBuscaHandler(v=>transladoBusca=v,renderFolgasTranslados,300);_buscaHandlers.translados(this.value);this.focus()"></div>
+      <select class="filter-select" onchange="transladoObraFiltro=this.value;renderFolgasTranslados()"><option value="">Todas as obras</option>${obraOpts}</select>
+      ${transladoPeriodo?`<button class="btn btn-sm" onclick="transladoPeriodo='';renderFolgasTranslados()"><i class="ti ti-x"></i> ${TR_PER_ROT[transladoPeriodo]}</button>`:''}
+      <button class="btn btn-sm" onclick="transladoObraFiltro='';transladoBusca='';transladoPeriodo='';renderFolgasTranslados()"><i class="ti ti-x"></i> Limpar</button>
     </div>
-    ${rows}`;
+    ${corpo}`;
+}
+async function trExportarExcel(){
+  const lista=trDeslocamentos();
+  if(!lista.length){showToast('Nenhuma viagem para exportar.','error');return;}
+  try{await garantirXLSXStyle();}catch(e){showToast('Não foi possível carregar o gerador de Excel. Verifique a conexão.','error');return;}
+  const X=window.XLSXStyle;
+  const modalR=m=>m==='aereo'?'Aéreo':'Terrestre';
+  // Aba 1 — uma linha por ADM 15 (por pessoa)
+  const h1=['Matrícula','Nome','Obra','Cidade','Tipo','Saída — data','Saída — trajeto / horários','Retorno — data','Retorno — trajeto / horários','Bagagem','Passagem comprada','ADM 15 assinado','Observações'];
+  const porT={};lista.forEach(d=>{(porT[d.termo.id]=porT[d.termo.id]||[]).push(d);});
+  const r1=Object.values(porT).sort((a,b)=>String(a[0].data||'').localeCompare(String(b[0].data||''))).map(ds=>{
+    const t=ds[0].termo,ida=ds.filter(d=>d.sentido==='ida'),volta=ds.filter(d=>d.sentido==='volta');
+    const txt=l=>l.map(d=>(ds.some(x=>x!==d&&x.sentido===d.sentido)?modalR(d.modal)+': ':'')+d.linha).join('\n');
+    return[t.func_matricula||'',ds[0].nome,ds[0].obra?(ds[0].obra.codigo||ds[0].obra.nome):'',t.func_cidade||'',
+      [t.aereo?'Aéreo':'',t.terrestre?'Terrestre':''].filter(Boolean).join(' + '),
+      ida[0]?.data?formatDate(ida[0].data):'',txt(ida),volta[0]?.data?formatDate(volta[0].data):'',txt(volta),
+      t.aereo_bagagem?'Despachada':'',ds[0].comprada?'Sim':'Não',ds[0].assinado?'Sim':'Não',
+      [t.aereo_obs,t.terrestre_obs].filter(Boolean).join(' | ')];
+  });
+  // Aba 2 — programação dia a dia (um deslocamento por linha)
+  const h2=['Data','Dia','Horário','Movimento','Modal','Nome','Cidade','Obra','Trajeto','Passagem comprada'];
+  const r2=lista.filter(d=>d.data).map(d=>[formatDate(d.data),trDow(d.data),trHorario(d),d.sentido==='ida'?'Saída':'Retorno',modalR(d.modal),d.nome,d.termo.func_cidade||'',d.obra?(d.obra.codigo||d.obra.nome):'',d.linha,d.comprada?'Sim':'Não']);
+  const wb=X.utils.book_new();
+  const mk=(h,rows,larg,nome)=>{
+    const ws=X.utils.aoa_to_sheet([h,...rows]);
+    ws['!cols']=larg.map(w=>({wch:w}));
+    ws['!freeze']={xSplit:0,ySplit:1};ws['!autofilter']={ref:X.utils.encode_range({s:{r:0,c:0},e:{r:rows.length,c:h.length-1}})};
+    for(let c=0;c<h.length;c++){const a=X.utils.encode_cell({r:0,c});ws[a].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{patternType:'solid',fgColor:{rgb:'123F73'}},alignment:{vertical:'center',wrapText:true}};}
+    for(let r=1;r<=rows.length;r++)for(let c=0;c<h.length;c++){const a=X.utils.encode_cell({r,c});if(ws[a])ws[a].s={alignment:{vertical:'top',wrapText:true},border:{bottom:{style:'thin',color:{rgb:'DCE5F0'}}}};}
+    X.utils.book_append_sheet(wb,ws,nome);
+  };
+  mk(h1,r1,[10,32,12,20,18,12,58,12,58,12,12,12,36],'Viagens');
+  mk(h2,r2,[11,6,11,11,11,32,20,12,70,12],'Programação por dia');
+  X.writeFile(wb,`Translados_GTEL_${new Date().toLocaleDateString('pt-BR').replace(/\//g,'-')}.xlsx`);
+  showToast('Excel dos translados exportado!');
 }
 
 async function togglePassagemComprada(folgaId,numeroCiclo,valor){
