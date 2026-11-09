@@ -6555,10 +6555,20 @@ const ADM15_ST={
   assinado:{t:'Assinado',bg:'#DCFCE7',c:'#166534'}
 };
 const ADM15_TEXTO_VERSAO='v1';
-const ADM15_TITULO='TERMO DE CIÊNCIA E AUTORIZAÇÃO PARA DESCONTO EM FOLHA DE PAGAMENTO – FOLGA DE CAMPO';
+const ADM15_TITULO_BASE='TERMO DE CIÊNCIA E AUTORIZAÇÃO PARA DESCONTO EM FOLHA DE PAGAMENTO – ';
+// Motivo da viagem: troca o título e a palavra entre aspas do 2º parágrafo. 'legado' = ADM 15 criados antes desta opção (texto como era).
+const A15_MOTIVOS={
+  legado:{lbl:'Como estava (Transferência)',tit:'FOLGA DE CAMPO',pre:'gozar da minha ',nome:'Transferência'},
+  folga:{lbl:'Folga de Campo',tit:'FOLGA DE CAMPO',pre:'gozar da minha ',nome:'Folga de Campo'},
+  transferencia:{lbl:'Transferência',tit:'TRANSFERÊNCIA',pre:'gozar da minha ',nome:'Transferência'},
+  admissao:{lbl:'Admissão',tit:'ADMISSÃO',pre:'realizar a minha ',nome:'Admissão'},
+  demissao:{lbl:'Demissão',tit:'DEMISSÃO',pre:'realizar a minha ',nome:'Demissão'},
+  ferias:{lbl:'Férias',tit:'FÉRIAS',pre:'gozar das minhas ',nome:'Férias'},
+  afastamento:{lbl:'Afastamento',tit:'AFASTAMENTO',pre:'gozar do meu ',nome:'Afastamento'}
+};
 const ADM15_PARAGRAFOS=Object.freeze([
   'Eu, {nome}, portador(a) da cédula de identidade RG nº {rg}, inscrito(a) no CPF/MF sob o nº {cpf}, autorizo, para os devidos fins, o quanto segue:',
-  'Inicialmente através desse termo tomo ciência inequívoca que, por mera liberalidade, a empresa vai fornecer de maneira gratuita o meio de transporte necessário para que eu possa viajar do local da obra até minha residência e o respectivo retorno para o local da obra, para que possa gozar da minha “Transferência”.',
+  'Inicialmente através desse termo tomo ciência inequívoca que, por mera liberalidade, a empresa vai fornecer de maneira gratuita o meio de transporte necessário para que eu possa viajar do local da obra até minha residência e o respectivo retorno para o local da obra, para que possa {motivo_pre}“{motivo}”.',
   'Tenho ciência das datas de embarque de ida e volta, que constam no quadro abaixo, que foram regularmente ajustadas em comum acordo entre empregado e empregador.',
   'Desta forma, através do presente, nos termos descritos no art. 462 da CLT, autorizo expressamente o desconto em folha de pagamento do valor referente a quaisquer despesas que a empresa tenha no caso de ter que alterar as datas de embarque no caso do meu não comparecimento no local de embarque nos dias e horários descritos no quadro abaixo.'
 ]);
@@ -6610,6 +6620,7 @@ function a15EstadoInicial(f,func,n,t){
     folgaId:f.id,n,funcId:func.id,termoId:t?.id||null,status:t?.status||null,versao:t?.versao||1,
     cidadeEmissao:t?.cidade_emissao||cidadeEm,
     dataSolic:t?.data_solicitacao||a15Iso(new Date()),
+    motivo:t?(t.motivo&&A15_MOTIVOS[t.motivo]?t.motivo:'legado'):'folga',
     docs:{rg:'',cpf:'',pis:''},trechos:[],modo:'form'
   };
   if(t){
@@ -6645,6 +6656,7 @@ function a15Coletar(){
   s.docs.rg=g('a15-rg',s.docs.rg);s.docs.cpf=g('a15-cpf',s.docs.cpf);s.docs.pis=g('a15-pis',s.docs.pis);
   s.cidadeEmissao=g('a15-cidade',s.cidadeEmissao);
   s.dataSolic=g('a15-dsolic',s.dataSolic);
+  s.motivo=g('a15-motivo',s.motivo);
   s.trechos.forEach((tr,i)=>{
     tr.data=g(`a15-t${i}-data`,tr.data);tr.obs=g(`a15-t${i}-obs`,tr.obs);tr.ate=g(`a15-t${i}-ate`,tr.ate);
     const ck=document.getElementById(`a15-t${i}-bag`);if(ck)tr.bag=ck.checked;
@@ -6720,6 +6732,7 @@ function a15Linha(par,modal){
   return porParada+(datas.length===1?` – ${formatDate(datas[0])}`:'');
 }
 function a15TermoDados(s,func){
+  const mo=A15_MOTIVOS[s.motivo]||A15_MOTIVOS.folga;
   const par=a15ParadasDoEstado(s);
   const grupos=a15Grupos(par).map(g=>({g,txt:a15Linha(g.rows,g.modal),data:(g.rows.find(p=>p.data)||{}).data||'9999',hora:a15Hh(g.rows[0].hora)})).filter(x=>x.txt);
   grupos.sort((a,b)=>String(a.data).localeCompare(String(b.data))||String(a.hora).localeCompare(String(b.hora)));
@@ -6730,18 +6743,19 @@ function a15TermoDados(s,func){
   return{
     nome:func.nome_completo||'—',rg:rg||'—',cpf:cpf||'—',cidade:(s.cidadeEmissao||'').trim(),
     data:`${hoje.getDate()} de ${ADM15_MESES[hoje.getMonth()]} de ${hoje.getFullYear()}`,
-    ida:linhas('ida'),volta:linhas('volta'),ambos:new Set(grupos.map(x=>x.g.modal)).size>1
+    ida:linhas('ida'),volta:linhas('volta'),ambos:new Set(grupos.map(x=>x.g.modal)).size>1,
+    titulo:ADM15_TITULO_BASE+mo.tit,motivo_pre:mo.pre,motivo:mo.nome,versaoTexto:s.motivo==='legado'?'v1':'v2'
   };
 }
 function a15PapelHtml(d){
-  const sub=t=>escHtml(t).replace(/\{(\w+)\}/g,(m,k)=>`<strong>${escHtml(d[k]||'—')}</strong>`);
+  const sub=t=>escHtml(t).replace(/\{(\w+)\}/g,(m,k)=>/^motivo/.test(k)?escHtml(d[k]||''):`<strong>${escHtml(d[k]||'—')}</strong>`);
   const quadro=(rot,ls)=>ls.length
     ?ls.map(l=>`<div><strong>${rot}${(d.ambos||l.modal==='isento')?' ('+a15ModalDoc(l.modal)+')':''}:</strong> ${escHtml(l.txt)}</div>`).join('')
     :`<div><strong>${rot}:</strong> a definir</div>`;
   return`<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:32px 44px;font-size:13px;line-height:1.6;color:#111">
     <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:18px">
-      <div style="font-size:22px;font-weight:800">ADM 15</div><div style="font-size:11px;color:#555">texto ${ADM15_TEXTO_VERSAO}</div></div>
-    <div style="font-size:13.5px;font-weight:700;text-align:center;margin-bottom:16px">${ADM15_TITULO}</div>
+      <div style="font-size:22px;font-weight:800">ADM 15</div><div style="font-size:11px;color:#555">texto ${d.versaoTexto}</div></div>
+    <div style="font-size:13.5px;font-weight:700;text-align:center;margin-bottom:16px">${d.titulo}</div>
     ${ADM15_PARAGRAFOS.map(p=>`<p style="text-align:justify;margin:0 0 10px">${sub(p)}</p>`).join('')}
     <div style="font-weight:800;margin:16px 0 8px">DATAS E HORÁRIOS DE EMBARQUE:</div>
     <div style="border:1px solid #111;padding:12px 14px;display:flex;flex-direction:column;gap:8px">${quadro('IDA',d.ida)}${quadro('VOLTA',d.volta)}</div>
@@ -6768,12 +6782,12 @@ function a15DocxBody(d){
   const SZ='<w:sz w:val="24"/>';
   const bd='<w:pBdr><w:top w:val="single" w:sz="4" w:space="1" w:color="auto"/><w:left w:val="single" w:sz="4" w:space="4" w:color="auto"/><w:bottom w:val="single" w:sz="4" w:space="1" w:color="auto"/><w:right w:val="single" w:sz="4" w:space="4" w:color="auto"/></w:pBdr><w:jc w:val="both"/>';
   const box=t=>t==null?vazio(bd):par(run(t,'<w:b/>'),bd+'<w:rPr><w:b/></w:rPr>');
-  const sub=t=>t.replace(/\{(\w+)\}/g,(m,k)=>d[k]||'—');
+  const sub=t=>t.replace(/\{(\w+)\}/g,(m,k)=>/^motivo/.test(k)?(d[k]||''):(d[k]||'—'));
   const P=ADM15_PARAGRAFOS.map(sub);
   const out=[];
   out.push(vazio(),vazio());
   out.push(par(run('ADM 15','<w:b/><w:bCs/><w:sz w:val="44"/><w:szCs w:val="44"/>'),'<w:jc w:val="center"/>'));
-  out.push(par(run(ADM15_TITULO,'<w:rFonts w:asciiTheme="majorHAnsi" w:hAnsiTheme="majorHAnsi" w:cs="Arial"/><w:b/><w:bCs/><w:caps/><w:sz w:val="32"/>'),'<w:jc w:val="center"/>'));
+  out.push(par(run(d.titulo,'<w:rFonts w:asciiTheme="majorHAnsi" w:hAnsiTheme="majorHAnsi" w:cs="Arial"/><w:b/><w:bCs/><w:caps/><w:sz w:val="32"/>'),'<w:jc w:val="center"/>'));
   out.push(vazio());
   P.forEach((t,i)=>{
     out.push(par(run(t,SZ),i===0?'':'<w:jc w:val="both"/>'));
@@ -6878,11 +6892,12 @@ async function a15Salvar(silencioso){
     aereo:s.trechos.some(x=>x.modal==='aereo'),terrestre:s.trechos.some(x=>x.modal==='terrestre'),aereo_bagagem:s.trechos.some(x=>x.modal==='aereo'&&x.bag),
     aereo_obs:s.trechos.filter(x=>x.modal==='aereo'&&String(x.obs||'').trim()).map(x=>x.obs.trim()).join(' | ')||null,
     terrestre_obs:s.trechos.filter(x=>x.modal==='terrestre'&&String(x.obs||'').trim()).map(x=>x.obs.trim()).join(' | ')||null,
-    texto_versao:ADM15_TEXTO_VERSAO,updated_at:agora
+    motivo:s.motivo==='legado'?null:s.motivo,texto_versao:s.motivo==='legado'?'v1':'v2',updated_at:agora
   };
   const falhou=(err,etapa)=>{
     const m=String(err.message||'');
     if(/adm15/i.test(m)&&/(does not exist|schema cache|not find)/i.test(m))showToast('As tabelas do ADM 15 ainda não existem no Supabase. Rode o SQL da etapa 1.','error');
+    else if(/motivo/i.test(m))showToast('Rode o SQL sql_adm15_motivo.sql no Supabase para guardar o motivo da viagem. ('+m+')','error');
     else if(/trecho|adm15_paradas_modal|check constraint|violates/i.test(m))showToast('Rode o SQL sql_adm15_trechos.sql no Supabase para liberar trechos sem passagem e vários trechos por sentido. ('+m+')','error');
     else showToast(`Erro ao salvar (${etapa}): ${m}`,'error');
     return false;
@@ -6993,7 +7008,8 @@ function a15FormHtml(s,func){
         ${a15DocHtml('RG','a15-rg',func.rg,'')}${a15DocHtml('CPF','a15-cpf',func.cpf,'mascaraCpf')}${a15DocHtml('PIS','a15-pis',func.pis,'mascaraPis')}
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:14px">
+      ${a15Campo('Motivo da viagem',`<select id="a15-motivo" onchange="a15Redesenhar()">${Object.keys(A15_MOTIVOS).filter(k=>k!=='legado'||s.motivo==='legado').map(k=>`<option value="${k}" ${s.motivo===k?'selected':''}>${A15_MOTIVOS[k].lbl}</option>`).join('')}</select>`)}
       ${a15Campo('Cidade de emissão do termo',a15Inp('a15-cidade',s.cidadeEmissao,'text','placeholder="São Paulo"'))}
       ${a15Campo('Data da solicitação',a15Inp('a15-dsolic',s.dataSolic,'date'))}
     </div>
