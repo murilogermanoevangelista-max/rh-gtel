@@ -1134,6 +1134,7 @@ const MODULOS=[
   {page:'transferencias-pendentes',grupo:'obras',icone:'ti-transfer',nome:'Transferências Pendentes',desc:'Aprovações entre obras',badge:'transf'},
   {page:'matriz',grupo:'obras',icone:'ti-map-2',nome:'Matriz de Comunicação',desc:'Mapa de contatos'},
   {page:'fornecedores',grupo:'obras',icone:'ti-truck-delivery',nome:'Fornecedores',desc:'Cadastro e orçamentos'},
+  {page:'materiais',grupo:'obras',icone:'ti-packages',nome:'Catálogo de Materiais',desc:'Busca de código para pedido de compras'},
   {page:'grd',grupo:'obras',icone:'ti-file-invoice',nome:'G.R.D.',desc:'Guias, fornecedores e valores'},
   {page:'pcmso-pgr',grupo:'patrimonio',icone:'ti-stethoscope',nome:'PCMSO / PGR',desc:'Documentos por obra e datas de atualização'},
   {page:'ativos-imobilizados',grupo:'patrimonio',icone:'ti-package',nome:'Ativo GTEL',desc:'Ferramentas e equipamentos'},
@@ -1242,7 +1243,7 @@ async function showPage(page){
   currentPage=page;
   renderSidebar(page);
   document.getElementById('main-content').innerHTML='<div class="loading"><i class="ti ti-loader ti-spin"></i> Carregando...</div>';
-  try{if(!(page==='menu'&&window._dadosCarregados))await loadAll();}catch(e){
+  try{if(!((page==='menu'||page==='materiais')&&window._dadosCarregados))await loadAll();}catch(e){
     document.getElementById('main-content').innerHTML='<div style="padding:40px;color:var(--danger)"><strong>Erro no loadAll:</strong><br>'+e.message+'</div>';
     return;
   }
@@ -1272,6 +1273,7 @@ async function showPage(page){
     else if(page==='obras')renderObras();
     else if(page==='empresas')renderEmpresas();
     else if(page==='fornecedores'){await loadFornecedores();renderFornecedores();}
+    else if(page==='materiais'){await matCarregar();renderMateriais();}
     else if(page==='contratacoes'){await Promise.all([loadContratacoes(),loadContratacoesVagas(),loadContratacoesProspeccoes()]);renderContratacoes();}
     else if(page==='matriz'){await loadMatriz();renderMatriz();}
     else if(page==='mobilizacao'){mobSelId=mobPend||null;mobPend=null;mobSecao=null;mobFiltro='';await mobCarregarTudo();renderMobilizacao();}
@@ -1284,6 +1286,107 @@ async function showPage(page){
     console.error('showPage erro em '+page+':',e);
     document.getElementById('main-content').innerHTML='<div style="padding:40px;color:var(--danger)"><i class="ti ti-alert-circle" style="font-size:32px;display:block;margin-bottom:12px"></i><strong>Erro ao carregar página "'+page+'"</strong><br><br><code style="font-size:12px">'+e.message+'</code><br><br><button class="btn" onclick="showPage(\''+page+'\')" >Tentar novamente</button></div>';
   }
+}
+
+// ─── CATÁLOGO DE MATERIAIS ──────────────────────────────────────────────────
+// Consulta de códigos para o pedido de compras. Os dados vêm de materiais.json (arquivo estático ao lado do index.html),
+// baixado só na primeira vez que a tela é aberta. Nada é gravado no Supabase.
+// Formato do JSON: {g:[grupos], t:[tipos], u:[unidades], i:[[codigo, idxGrupo, descricao, idxTipo, idxUnidade, ncm, portal(1 sim,0 não,2 vazio)]]}
+const MAT_POR_PAG=100;
+let matDados=null,matNz=null,matCarregando=null;
+let matQ='',matG='',matT='',matU='',matP='',matPag=0,matLista=[];
+function _matNz(t){return String(t||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();}
+async function matCarregar(){
+  if(matDados)return;
+  if(!matCarregando){
+    matCarregando=fetch('materiais.json').then(r=>{if(!r.ok)throw new Error('materiais.json não encontrado (HTTP '+r.status+')');return r.json();}).then(d=>{
+      matDados=d;
+      matNz=new Array(d.i.length);
+      for(let k=0;k<d.i.length;k++){const x=d.i[k];matNz[k]=_matNz(x[0]+' '+x[2]+' '+x[5]);}
+    }).catch(e=>{matCarregando=null;throw e;});
+  }
+  await matCarregando;
+}
+function renderMateriais(){
+  const d=matDados;
+  const opts=(arr,sel)=>'<option value="">Todos</option>'+arr.map((v,i)=>`<option value="${i}" ${String(sel)===String(i)?'selected':''}>${escHtml(v||'(sem grupo)')}</option>`).join('');
+  document.getElementById('main-content').innerHTML=`
+    <div class="page-header">
+      <div><div class="page-title">Catálogo de Materiais</div><div class="page-subtitle">${d.i.length.toLocaleString('pt-BR')} itens do cadastro do Portal de Compras · pesquise e copie o código para o pedido</div></div>
+    </div>
+    <div class="filters">
+      <div class="search-box"><i class="ti ti-search"></i>
+        <input id="mat-q" placeholder="Código, descrição ou NCM (ex.: cabo cobre 4mm)" value="${escHtml(matQ)}" autocomplete="off"
+          oninput="if(!_buscaHandlers.mat)_buscaHandlers.mat=makeBuscaHandler(v=>matQ=v,matAtualizar,250);_buscaHandlers.mat(this.value)">
+      </div>
+      <select class="filter-select" title="Grupo" onchange="matG=this.value;matAtualizar()">${opts(d.g,matG).replace('<option value="">Todos','<option value="">Grupo: todos')}</select>
+      <select class="filter-select" title="Tipo" onchange="matT=this.value;matAtualizar()">${opts(d.t,matT).replace('<option value="">Todos','<option value="">Tipo: todos')}</select>
+      <select class="filter-select" title="Unidade" onchange="matU=this.value;matAtualizar()">${opts(d.u,matU).replace('<option value="">Todos','<option value="">Unidade: todas')}</select>
+      <select class="filter-select" title="Portal web" onchange="matP=this.value;matAtualizar()">
+        <option value="">Portal web: todos</option><option value="1" ${matP==='1'?'selected':''}>Portal web: Sim</option><option value="0" ${matP==='0'?'selected':''}>Portal web: Não</option>
+      </select>
+      <button class="btn btn-sm" onclick="matQ='';matG='';matT='';matU='';matP='';renderMateriais();document.getElementById('mat-q').focus()"><i class="ti ti-x"></i> Limpar</button>
+    </div>
+    <div id="mat-resultado"></div>`;
+  matAtualizar(true);
+}
+function matAtualizar(manter){
+  if(!manter)matPag=0;
+  const d=matDados,box=document.getElementById('mat-resultado');
+  if(!box)return;
+  const palavras=_matNz(matQ).split(/\s+/).filter(Boolean);
+  if(!palavras.length&&!matG&&!matT&&!matU&&!matP){
+    matLista=[];
+    box.innerHTML='<div class="empty-state"><i class="ti ti-search"></i><div>Digite o que procura ou use um filtro.</div></div>';
+    return;
+  }
+  const g=matG===''?-1:+matG,t=matT===''?-1:+matT,u=matU===''?-1:+matU,p=matP===''?-1:+matP;
+  const res=[];
+  for(let k=0;k<d.i.length;k++){
+    const x=d.i[k];
+    if(g>=0&&x[1]!==g)continue;
+    if(t>=0&&x[3]!==t)continue;
+    if(u>=0&&x[4]!==u)continue;
+    if(p>=0&&x[6]!==p)continue;
+    if(palavras.length){const s=matNz[k];let ok=true;for(let w=0;w<palavras.length;w++){if(s.indexOf(palavras[w])<0){ok=false;break;}}if(!ok)continue;}
+    res.push(k);
+  }
+  matLista=res;
+  const totalPag=Math.max(1,Math.ceil(res.length/MAT_POR_PAG));
+  if(matPag>=totalPag)matPag=totalPag-1;
+  const ini=matPag*MAT_POR_PAG,fatia=res.slice(ini,ini+MAT_POR_PAG);
+  const linhas=fatia.map(k=>{
+    const x=d.i[k];
+    const portal=x[6]===1?'<span class="badge badge-green">Sim</span>':x[6]===0?'<span class="badge badge-red">Não</span>':'<span style="color:var(--text-muted)">—</span>';
+    return `<tr>
+      <td style="white-space:nowrap"><strong>${escHtml(x[0])}</strong></td>
+      <td>${escHtml(x[2])}</td>
+      <td>${escHtml(d.u[x[4]])}</td>
+      <td>${escHtml(d.g[x[1]]||'—')}</td>
+      <td>${escHtml(d.t[x[3]])}</td>
+      <td style="white-space:nowrap">${escHtml(x[5])}</td>
+      <td>${portal}</td>
+      <td style="white-space:nowrap;text-align:right">
+        <button class="btn btn-sm" title="Copiar só o código" onclick="matCopiar(${k},0)"><i class="ti ti-copy"></i> Código</button>
+        <button class="btn btn-sm" title="Copiar código, descrição e unidade" onclick="matCopiar(${k},1)"><i class="ti ti-clipboard-text"></i></button>
+      </td></tr>`;
+  }).join('');
+  const nav=totalPag>1?`<div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:12px">
+      <button class="btn btn-sm" ${matPag===0?'disabled':''} onclick="matPag--;matAtualizar(true);window.scrollTo(0,0)"><i class="ti ti-chevron-left"></i> Anterior</button>
+      <span style="font-size:12.5px;color:var(--text-muted)">Página ${matPag+1} de ${totalPag}</span>
+      <button class="btn btn-sm" ${matPag>=totalPag-1?'disabled':''} onclick="matPag++;matAtualizar(true);window.scrollTo(0,0)">Próxima <i class="ti ti-chevron-right"></i></button>
+    </div>`:'';
+  box.innerHTML=res.length?`
+    <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:8px">${res.length.toLocaleString('pt-BR')} ${res.length===1?'item encontrado':'itens encontrados'}${res.length>MAT_POR_PAG?` · mostrando ${ini+1}–${ini+fatia.length}`:''}</div>
+    <div class="table-container" style="overflow-x:auto"><table>
+      <thead><tr><th>Código</th><th>Descrição</th><th>Un.</th><th>Grupo</th><th>Tipo</th><th>NCM</th><th>Portal web</th><th></th></tr></thead>
+      <tbody>${linhas}</tbody></table></div>${nav}`
+    :'<div class="empty-state"><i class="ti ti-mood-empty"></i><div>Nenhum item encontrado. Tente menos palavras ou limpe os filtros.</div></div>';
+}
+function matCopiar(k,completo){
+  const x=matDados.i[k];
+  const txt=completo?`${x[0]} - ${x[2]} - ${matDados.u[x[4]]}`:x[0];
+  navigator.clipboard.writeText(txt).then(()=>showToast(completo?'Item copiado':'Código '+x[0]+' copiado'),()=>showToast('Não foi possível copiar','error'));
 }
 
 // ─── Vagas de alojamento: ocupantes, livres e excedente (por alojamento) ──────────
