@@ -10504,8 +10504,20 @@ async function deleteOrcamento(id,fornecedorId){
 
 // ─── MATRIZ DE COMUNICAÇÃO ──────────────────────────────────────────────────
 let matrizData=[];
-let matrizFiltroObra='',matrizFiltroCargo='',matrizFiltroEstado='',matrizFiltroGestor='',matrizBusca='';
-
+// Filtros multi-seleção (cada chave guarda um array de valores marcados)
+let matrizSel={cidade:[],uf:[],obra:[],cargo:[],gestor:[]};
+let matrizBusca='';
+let matrizView='cards'; // 'cards' | 'tabela'
+let _mxOpen=null;       // dropdown aberto
+const _mxDDq={};        // texto de busca dentro de cada dropdown
+let _mxMarkers={};      // marcadores do mapa por cidade
+const MX_CAMPOS={
+  cidade:{rot:'Cidade',icone:'ti-map-pin',get:x=>x.cidade?(x.cidade+(x.estado?' — '+x.estado:'')):''},
+  uf:{rot:'Estado',icone:'ti-flag',get:x=>x.estado||''},
+  obra:{rot:'Obra',icone:'ti-building-factory-2',get:x=>x.obra||''},
+  cargo:{rot:'Cargo',icone:'ti-id-badge-2',get:x=>x.cargo||''},
+  gestor:{rot:'Gestor',icone:'ti-user-star',get:x=>x.gestor_obra||''},
+};
 const COORDS_CIDADES={
   'aliança|pe':[-7.62,-35.19],'amarante|pi':[-6.25,-42.85],'arujá|sp':[-23.40,-46.32],
   'barueri|sp':[-23.51,-46.88],'boa esperança do sul|sp':[-21.99,-48.39],'borda da mata|mg':[-22.26,-46.18],
@@ -10542,123 +10554,449 @@ async function loadMatriz(){
   matrizData=data||[];
 }
 
-function renderMatriz(){
-  let lista=matrizData;
-  if(matrizFiltroObra)lista=lista.filter(x=>x.obra===matrizFiltroObra);
-  if(matrizFiltroCargo)lista=lista.filter(x=>x.cargo===matrizFiltroCargo);
-  if(matrizFiltroEstado)lista=lista.filter(x=>x.estado===matrizFiltroEstado);
-  if(matrizFiltroGestor)lista=lista.filter(x=>x.gestor_obra===matrizFiltroGestor);
-  if(matrizBusca){
-    const b=matrizBusca.toLowerCase();
-    lista=lista.filter(x=>(x.nome||'').toLowerCase().includes(b)||(x.obra||'').toLowerCase().includes(b)||(x.cargo||'').toLowerCase().includes(b));
-  }
-
-  const obrasUnicas=[...new Set(matrizData.map(x=>x.obra).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
-  const cargosUnicos=[...new Set(matrizData.map(x=>x.cargo).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
-  const estadosUnicos=[...new Set(matrizData.map(x=>x.estado).filter(Boolean))].sort();
-  const gestoresUnicos=[...new Set(matrizData.map(x=>x.gestor_obra).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
-
-  const totalContatos=matrizData.length;
-  const totalObras=obrasUnicas.length;
-  const totalEstados=estadosUnicos.length;
-  const totalGestores=gestoresUnicos.length;
-
-  // Agrupar por obra para os pins do mapa (1 pin por obra)
-  const porObra={};
-  matrizData.forEach(x=>{
-    if(!x.obra)return;
-    if(!porObra[x.obra])porObra[x.obra]={obra:x.obra,cidade:x.cidade,estado:x.estado,contatos:[]};
-    porObra[x.obra].contatos.push(x);
+// ── Filtragem ────────────────────────────────────────────────────────────────
+// ignorar: chave de filtro a desconsiderar (usado nas listas em cascata e nos pins)
+// semBusca: ignora o texto da busca (usado ao limpar seleções que ficaram impossíveis)
+function mxFiltrar(ignorar,semBusca){
+  const b=semBusca?'':_semAcento(matrizBusca).trim();
+  return matrizData.filter(x=>{
+    for(const k in matrizSel){
+      if(k===ignorar)continue;
+      const s=matrizSel[k];
+      if(s.length&&!s.includes(MX_CAMPOS[k].get(x)))return false;
+    }
+    if(b){
+      const t=_semAcento([x.nome,x.obra,x.cargo,x.cidade,x.estado,x.email,x.crd,x.gestor_obra].join(' '));
+      if(!t.includes(b))return false;
+    }
+    return true;
   });
+}
+function mxPrune(){
+  for(let i=0;i<2;i++){
+    for(const k in matrizSel){
+      if(!matrizSel[k].length)continue;
+      const ok=new Set(mxFiltrar(k,true).map(x=>MX_CAMPOS[k].get(x)));
+      matrizSel[k]=matrizSel[k].filter(v=>ok.has(v));
+    }
+  }
+}
+function mxTotalFiltros(){return Object.values(matrizSel).reduce((a,s)=>a+s.length,0)+(matrizBusca?1:0);}
 
-  const rows=lista.map(x=>`
-    <tr>
-      <td><div style="font-weight:500">${x.nome||'—'}</div></td>
-      <td style="font-size:12px">${x.cargo||'—'}</td>
-      <td style="font-size:12px">${x.obra||'—'}</td>
-      <td style="font-size:12px;font-family:monospace">${x.crd||'—'}</td>
-      <td style="font-size:12px">${[x.cidade,x.estado].filter(Boolean).join(' — ')||'—'}</td>
-      <td style="font-size:12px">
-        ${x.email?`<div><i class="ti ti-mail" style="font-size:13px;margin-right:4px;color:var(--text-muted)"></i>${x.email}</div>`:''}
-        ${x.contato?`<div><i class="ti ti-phone" style="font-size:13px;margin-right:4px;color:var(--text-muted)"></i>${x.contato}</div>`:''}
-        ${!x.email&&!x.contato?'—':''}
-      </td>
-    </tr>`).join('')||'<tr><td colspan="6"><div class="empty-state"><i class="ti ti-map-2"></i><div>Nenhum contato encontrado — importe a planilha</div></div></td></tr>';
+// ── Ações ────────────────────────────────────────────────────────────────────
+function mxToggle(k,v){
+  const s=matrizSel[k];const i=s.indexOf(v);
+  if(i>=0)s.splice(i,1);else s.push(v);
+  mxAtualizar();
+}
+function mxRemover(k,v){
+  if(k==='busca'){matrizBusca='';const el=document.getElementById('mx-busca');if(el)el.value='';}
+  else matrizSel[k]=matrizSel[k].filter(x=>x!==v);
+  mxAtualizar();
+}
+function mxLimparTudo(){
+  for(const k in matrizSel)matrizSel[k]=[];
+  matrizBusca='';
+  const el=document.getElementById('mx-busca');if(el)el.value='';
+  mxAtualizar();
+}
+function mxLimparCampo(k){matrizSel[k]=[];mxAtualizar();}
+// Clique no pin do mapa ou na lista de cidades: mostra TODAS as obras/contatos daquela cidade.
+// Shift/Ctrl/⌘ + clique adiciona/remove a cidade da seleção (multi-seleção).
+function mxCidadeClick(chave,ev){
+  const multi=ev&&(ev.shiftKey||ev.ctrlKey||ev.metaKey);
+  const s=matrizSel.cidade;
+  if(multi){const i=s.indexOf(chave);if(i>=0)s.splice(i,1);else s.push(chave);}
+  else if(s.length===1&&s[0]===chave)matrizSel.cidade=[];
+  else matrizSel.cidade=[chave];
+  // seleção por cidade substitui filtros de obra, para realmente mostrar todas as obras dela
+  matrizSel.obra=[];
+  mxAtualizar();
+}
+function mxSetView(v){matrizView=v;mxAtualizar();}
 
+// ── Dropdowns multi-seleção ──────────────────────────────────────────────────
+function mxToggleDD(k,ev){
+  if(ev)ev.stopPropagation();
+  _mxOpen=_mxOpen===k?null:k;
+  mxAplicarDD();
+  if(_mxOpen){const i=document.getElementById('mx-ddq-'+k);if(i)i.focus();}
+}
+function mxAplicarDD(){
+  Object.keys(MX_CAMPOS).forEach(k=>{
+    const p=document.getElementById('mx-ddp-'+k);
+    if(p)p.hidden=_mxOpen!==k;
+    const d=document.getElementById('mx-dd-'+k);
+    if(d)d.classList.toggle('open',_mxOpen===k);
+  });
+}
+function mxDDBusca(k,v){_mxDDq[k]=v;mxRenderDDLista(k);}
+function mxRenderDDLista(k){
+  const el=document.getElementById('mx-ddl-'+k);if(!el)return;
+  const q=_semAcento(_mxDDq[k]||'').trim();
+  const cont={};
+  mxFiltrar(k).forEach(x=>{const v=MX_CAMPOS[k].get(x);if(v)cont[v]=(cont[v]||0)+1;});
+  matrizSel[k].forEach(v=>{if(!(v in cont))cont[v]=0;});
+  const vals=Object.keys(cont).filter(v=>!q||_semAcento(v).includes(q)).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  el.innerHTML=vals.map(v=>`
+    <label class="mx-opt">
+      <input type="checkbox" data-v="${escHtml(v)}" ${matrizSel[k].includes(v)?'checked':''} onchange="mxToggle('${k}',this.dataset.v)">
+      <span class="mx-opt-txt">${escHtml(v)}</span><span class="mx-opt-n">${cont[v]}</span>
+    </label>`).join('')||'<div class="mx-opt-vazio">Nada encontrado</div>';
+}
+function mxDDHTML(k){
+  const c=MX_CAMPOS[k];
+  return `<div class="mx-dd" id="mx-dd-${k}">
+    <button type="button" class="mx-dd-btn" onclick="mxToggleDD('${k}',event)">
+      <i class="ti ${c.icone}"></i><span class="mx-dd-lab">${c.rot}</span>
+      <span class="mx-dd-val" id="mx-ddv-${k}"></span><i class="ti ti-chevron-down mx-dd-seta"></i>
+    </button>
+    <div class="mx-dd-pop" id="mx-ddp-${k}" hidden onclick="event.stopPropagation()">
+      <input type="search" id="mx-ddq-${k}" class="mx-dd-q" placeholder="Buscar ${c.rot.toLowerCase()}…" oninput="mxDDBusca('${k}',this.value)" autocomplete="off">
+      <div class="mx-dd-list" id="mx-ddl-${k}"></div>
+      <div class="mx-dd-foot"><button type="button" class="mx-link" onclick="mxLimparCampo('${k}')">Limpar seleção</button></div>
+    </div>
+  </div>`;
+}
+
+// ── Estilos (injetados uma vez) ──────────────────────────────────────────────
+function mxInjetarCss(){
+  if(document.getElementById('mx-style'))return;
+  const s=document.createElement('style');s.id='mx-style';
+  s.textContent=`
+  .mx-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px}
+  .mx-kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px;display:flex;align-items:center;gap:12px}
+  .mx-kpi-ic{width:38px;height:38px;border-radius:10px;background:var(--primary-light);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:19px;flex:none}
+  .mx-kpi:nth-child(2) .mx-kpi-ic{background:var(--accent-light);color:var(--accent)}
+  .mx-kpi-v{font-family:Sora,sans-serif;font-size:22px;font-weight:700;line-height:1.1;color:var(--navy)}
+  .mx-kpi-v small{font-size:12px;font-weight:500;color:var(--text-muted);margin-left:3px}
+  .mx-kpi-l{font-size:12px;color:var(--text-muted)}
+  .mx-top{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(340px,1fr);gap:16px;margin-bottom:20px;height:600px}
+  .mx-mapbox{position:relative;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+  #matriz-map{position:absolute;inset:0;z-index:0}
+  .mx-maphint{position:absolute;left:12px;bottom:12px;z-index:500;background:rgba(255,255,255,.95);border:1px solid var(--border);border-radius:10px;padding:6px 10px;font-size:11.5px;color:var(--text-muted);max-width:calc(100% - 24px);box-shadow:0 2px 8px rgba(0,0,0,.08)}
+  .mx-panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .mx-panel-top{padding:14px 14px 10px;border-bottom:1px solid var(--border)}
+  .mx-busca{position:relative;margin-bottom:10px}
+  .mx-busca i{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--text-muted)}
+  .mx-busca input{width:100%;padding:9px 12px 9px 34px;border:1px solid var(--border);border-radius:10px;background:var(--bg);font:inherit;font-size:13px}
+  .mx-busca input:focus{outline:2px solid var(--primary-light);border-color:var(--primary);background:#fff}
+  .mx-filtros{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .mx-filtros .mx-dd:last-child{grid-column:1 / -1}
+  .mx-dd{position:relative}
+  .mx-dd-btn{width:100%;display:flex;align-items:center;gap:6px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:#fff;font:inherit;font-size:12.5px;cursor:pointer;text-align:left;color:var(--text)}
+  .mx-dd-btn:hover{border-color:var(--primary)}
+  .mx-dd.open .mx-dd-btn{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-light)}
+  .mx-dd-btn>i:first-child{color:var(--text-muted);font-size:15px}
+  .mx-dd-lab{font-weight:600;color:var(--text-muted);flex:none}
+  .mx-dd-val{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;color:var(--text)}
+  .mx-dd-val.on{color:var(--primary);font-weight:700}
+  .mx-dd-seta{font-size:14px;color:var(--text-muted);transition:transform .15s}
+  .mx-dd.open .mx-dd-seta{transform:rotate(180deg)}
+  .mx-dd-pop{position:absolute;z-index:1200;top:calc(100% + 6px);left:0;min-width:100%;width:290px;max-width:80vw;background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 32px rgba(15,47,87,.18);padding:8px}
+  .mx-filtros .mx-dd:nth-child(even) .mx-dd-pop{left:auto;right:0}
+  .mx-dd-pop[hidden]{display:none}
+  .mx-dd-q{width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font:inherit;font-size:12.5px;margin-bottom:6px}
+  .mx-dd-list{max-height:230px;overflow:auto}
+  .mx-opt{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;cursor:pointer;font-size:12.5px}
+  .mx-opt:hover{background:var(--bg)}
+  .mx-opt input{accent-color:var(--primary);width:15px;height:15px;flex:none}
+  .mx-opt-txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mx-opt-n{font-size:11px;color:var(--text-muted);background:var(--bg);border-radius:20px;padding:1px 8px}
+  .mx-opt-vazio{padding:12px;text-align:center;color:var(--text-muted);font-size:12.5px}
+  .mx-dd-foot{border-top:1px solid var(--border);margin-top:6px;padding-top:6px;text-align:right}
+  .mx-link{background:none;border:0;color:var(--primary);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+  .mx-link:hover{text-decoration:underline}
+  .mx-chips{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px 0;min-height:10px}
+  .mx-chip{display:inline-flex;align-items:center;gap:5px;background:var(--primary-light);color:var(--primary-dark);border:0;border-radius:20px;padding:4px 6px 4px 10px;font:inherit;font-size:11.5px;font-weight:600;cursor:pointer;max-width:100%}
+  .mx-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px}
+  .mx-chip i{font-size:13px}
+  .mx-chip:hover{background:#cfe0f7}
+  .mx-chip.limpar{background:transparent;color:var(--danger);padding-left:6px}
+  .mx-lista-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px 6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted)}
+  .mx-lista-head em{font-style:normal;text-transform:none;letter-spacing:0;font-weight:500}
+  .mx-cidades{flex:1;min-height:0;overflow:auto;padding:0 8px 10px}
+  .mx-city{width:100%;display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid transparent;border-radius:10px;background:none;font:inherit;text-align:left;cursor:pointer;margin-bottom:2px}
+  .mx-city:hover{background:var(--bg)}
+  .mx-city.on{background:var(--primary-light);border-color:#b9d3f2}
+  .mx-city.off{opacity:.4}
+  .mx-city-dot{width:10px;height:10px;border-radius:50%;background:var(--primary);flex:none}
+  .mx-city.on .mx-city-dot{background:var(--accent)}
+  .mx-city-info{flex:1;min-width:0}
+  .mx-city-nome{font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mx-city-sub{font-size:11.5px;color:var(--text-muted)}
+  .mx-city-n{font-family:Sora,sans-serif;font-weight:700;font-size:13px;color:var(--navy);background:#fff;border:1px solid var(--border);border-radius:8px;padding:2px 8px}
+  .mx-res-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:10px;flex-wrap:wrap}
+  .mx-res-tit{font-family:Sora,sans-serif;font-size:15px;font-weight:700;color:var(--navy)}
+  .mx-res-tit small{font-family:inherit;font-weight:500;color:var(--text-muted);font-size:12.5px;margin-left:6px}
+  .mx-seg{display:inline-flex;background:#fff;border:1px solid var(--border);border-radius:10px;padding:3px}
+  .mx-seg button{border:0;background:none;padding:5px 12px;border-radius:7px;font:inherit;font-size:12.5px;font-weight:600;color:var(--text-muted);cursor:pointer;display:flex;gap:5px;align-items:center}
+  .mx-seg button.on{background:var(--primary);color:#fff}
+  .mx-grupo{margin-bottom:18px}
+  .mx-grupo-h{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px;font-weight:700;color:var(--navy)}
+  .mx-grupo-h i{color:var(--accent)}
+  .mx-grupo-h span{font-weight:500;color:var(--text-muted);font-size:12px}
+  .mx-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px}
+  .mx-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px;display:flex;gap:12px;transition:box-shadow .15s,transform .15s}
+  .mx-card:hover{box-shadow:0 6px 18px rgba(15,47,87,.1);transform:translateY(-1px)}
+  .mx-av{width:42px;height:42px;border-radius:50%;background:var(--primary-light);color:var(--primary-dark);font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;flex:none}
+  .mx-card-b{min-width:0;flex:1}
+  .mx-nome{font-weight:700;font-size:14px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mx-cargo{font-size:12.5px;color:var(--text-muted);margin-bottom:6px}
+  .mx-obra{font-size:11.5px;color:var(--primary-dark);background:var(--bg);border-radius:8px;padding:4px 8px;display:flex;gap:5px;align-items:center;margin-bottom:8px}
+  .mx-obra b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;flex:1;min-width:0}
+  .mx-obra em{font-style:normal;font-family:monospace;color:var(--text-muted)}
+  .mx-contato{display:flex;flex-direction:column;gap:3px;font-size:12px}
+  .mx-contato a{color:var(--text);text-decoration:none;display:flex;gap:6px;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mx-contato a:hover{color:var(--primary);text-decoration:underline}
+  .mx-contato i{color:var(--text-muted);font-size:14px;flex:none}
+  .mx-contato .wa i{color:#25A244}
+  .mx-vazio{background:var(--surface);border:1px dashed var(--border);border-radius:var(--radius-lg);padding:36px;text-align:center;color:var(--text-muted)}
+  .mx-vazio i{font-size:32px;display:block;margin-bottom:6px}
+  .mx-pin{border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;color:#fff;font:700 11px Sora,sans-serif;transition:all .15s}
+  @media(max-width:1180px){.mx-kpis{grid-template-columns:repeat(3,1fr)}}
+  @media(max-width:1000px){.mx-top{grid-template-columns:1fr;height:auto}.mx-mapbox{height:380px}.mx-panel{height:520px}}
+  @media(max-width:600px){.mx-kpis{grid-template-columns:repeat(2,1fr)}.mx-filtros{grid-template-columns:1fr}}
+  `;
+  document.head.appendChild(s);
+}
+
+// ── Página ───────────────────────────────────────────────────────────────────
+function renderMatriz(){
+  mxInjetarCss();
+  _mxOpen=null;
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
-      <div><div class="page-title">Matriz de Comunicação</div><div class="page-subtitle">${totalContatos} contatos · ${totalObras} obras</div></div>
+      <div><div class="page-title">Matriz de Comunicação</div><div class="page-subtitle" id="mx-sub"></div></div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-sm" onclick="openImportMatriz()"><i class="ti ti-upload"></i> Importar planilha</button>
         <button class="btn btn-sm" onclick="exportMatrizExcel()"><i class="ti ti-file-type-xls"></i> Excel</button>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
-      <div class="metric-card"><div class="metric-value">${totalContatos}</div><div class="metric-label">Contatos</div></div>
-      <div class="metric-card"><div class="metric-value">${totalObras}</div><div class="metric-label">Obras</div></div>
-      <div class="metric-card"><div class="metric-value">${totalEstados}</div><div class="metric-label">Estados</div></div>
-      <div class="metric-card"><div class="metric-value">${totalGestores}</div><div class="metric-label">Gestores</div></div>
+    <div class="mx-kpis" id="mx-kpis"></div>
+    <div class="mx-top">
+      <div class="mx-mapbox">
+        <div id="matriz-map"></div>
+        <div class="mx-maphint" id="mx-maphint"></div>
+      </div>
+      <aside class="mx-panel">
+        <div class="mx-panel-top">
+          <div class="mx-busca"><i class="ti ti-search"></i>
+            <input id="mx-busca" type="search" placeholder="Buscar nome, obra, cargo, cidade, e-mail…" value="${escHtml(matrizBusca)}" autocomplete="off"
+              oninput="if(!_buscaHandlers.mx)_buscaHandlers.mx=makeBuscaHandler(v=>matrizBusca=v,mxAtualizar,200);_buscaHandlers.mx(this.value)">
+          </div>
+          <div class="mx-filtros">${['cidade','uf','obra','cargo','gestor'].map(mxDDHTML).join('')}</div>
+        </div>
+        <div class="mx-chips" id="mx-chips"></div>
+        <div class="mx-lista-head"><span>Cidades</span><em>clique = só essa cidade · Shift/Ctrl = várias</em></div>
+        <div class="mx-cidades" id="mx-cidades"></div>
+      </aside>
     </div>
-    <div class="filters" style="margin-bottom:16px">
-      <div class="search-box"><i class="ti ti-search"></i><input placeholder="Buscar por nome, obra ou cargo..." value="${matrizBusca}" oninput="matrizBusca=this.value;if(!_buscaHandlers.matriz)_buscaHandlers.matriz=makeBuscaHandler(v=>matrizBusca=v,renderMatriz,300);_buscaHandlers.matriz(this.value);this.focus()"></div>
-      <select class="filter-select" onchange="matrizFiltroObra=this.value;renderMatriz()">
-        <option value="">Todas as obras</option>${obrasUnicas.map(o=>`<option value="${o}" ${matrizFiltroObra===o?'selected':''}>${o}</option>`).join('')}
-      </select>
-      <select class="filter-select" onchange="matrizFiltroCargo=this.value;renderMatriz()">
-        <option value="">Todos os cargos</option>${cargosUnicos.map(c=>`<option value="${c}" ${matrizFiltroCargo===c?'selected':''}>${c}</option>`).join('')}
-      </select>
-      <select class="filter-select" onchange="matrizFiltroEstado=this.value;renderMatriz()">
-        <option value="">Todos os estados</option>${estadosUnicos.map(e=>`<option value="${e}" ${matrizFiltroEstado===e?'selected':''}>${e}</option>`).join('')}
-      </select>
-      <select class="filter-select" onchange="matrizFiltroGestor=this.value;renderMatriz()">
-        <option value="">Todos os gestores</option>${gestoresUnicos.map(g=>`<option value="${g}" ${matrizFiltroGestor===g?'selected':''}>${g}</option>`).join('')}
-      </select>
-      <button class="btn btn-sm" onclick="matrizFiltroObra='';matrizFiltroCargo='';matrizFiltroEstado='';matrizFiltroGestor='';matrizBusca='';renderMatriz()"><i class="ti ti-x"></i> Limpar</button>
+    <div class="mx-res-head">
+      <div class="mx-res-tit" id="mx-res-tit"></div>
+      <div class="mx-seg" id="mx-seg"></div>
     </div>
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px;margin-bottom:16px">
-      <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">Localização das obras — clique em um pin para filtrar a tabela (zoom e arraste para navegar)</div>
-      <div id="matriz-map" style="height:420px;border-radius:var(--radius);overflow:hidden"></div>
-    </div>
-    <div class="table-container"><table>
-      <thead><tr><th>Nome</th><th>Cargo</th><th>Obra</th><th>CRD</th><th>Cidade/UF</th><th>Contato</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>`;
+    <div id="mx-resultados"></div>`;
 
-  initMatrizMap(porObra);
+  if(!window._mxDocBound){
+    window._mxDocBound=true;
+    document.addEventListener('click',e=>{
+      if(_mxOpen&&!e.target.closest('.mx-dd')){_mxOpen=null;mxAplicarDD();}
+    });
+  }
+  initMatrizMap().then(()=>mxAtualizar());
+  mxAtualizar();
 }
 
-async function initMatrizMap(porObra){
+function mxCidadesAgrupadas(lista){
+  const g={};
+  lista.forEach(x=>{
+    const k=MX_CAMPOS.cidade.get(x);if(!k)return;
+    if(!g[k])g[k]={chave:k,cidade:x.cidade,estado:x.estado,obras:new Set(),contatos:0};
+    if(x.obra)g[k].obras.add(x.obra);
+    g[k].contatos++;
+  });
+  return g;
+}
+function mxIniciais(n){
+  const p=String(n||'?').trim().split(/\s+/).filter(Boolean);
+  return ((p[0]||'?')[0]+(p.length>1?p[p.length-1][0]:'')).toUpperCase();
+}
+function mxTel(c){
+  const d=String(c||'').replace(/\D/g,'');
+  return d;
+}
+
+function mxAtualizar(){
+  if(!document.getElementById('mx-kpis'))return;
+  mxPrune();
+  const lista=mxFiltrar();
+  const total=matrizData.length;
+  const cnt=f=>new Set(lista.map(f).filter(Boolean)).size;
+  const cntT=f=>new Set(matrizData.map(f).filter(Boolean)).size;
+  const filtrado=mxTotalFiltros()>0;
+
+  document.getElementById('mx-sub').textContent=filtrado?`${lista.length} de ${total} contatos`:`${total} contatos · ${cntT(x=>x.obra)} obras`;
+
+  // KPIs
+  const kpi=(ic,v,vt,l)=>`<div class="mx-kpi"><div class="mx-kpi-ic"><i class="ti ${ic}"></i></div><div><div class="mx-kpi-v">${v}${filtrado?`<small>/ ${vt}</small>`:''}</div><div class="mx-kpi-l">${l}</div></div></div>`;
+  document.getElementById('mx-kpis').innerHTML=
+    kpi('ti-users',lista.length,total,'Contatos')+
+    kpi('ti-building-factory-2',cnt(x=>x.obra),cntT(x=>x.obra),'Obras')+
+    kpi('ti-map-pin',cnt(MX_CAMPOS.cidade.get),cntT(MX_CAMPOS.cidade.get),'Cidades')+
+    kpi('ti-flag',cnt(x=>x.estado),cntT(x=>x.estado),'Estados')+
+    kpi('ti-user-star',cnt(x=>x.gestor_obra),cntT(x=>x.gestor_obra),'Gestores');
+
+  // Dropdowns
+  Object.keys(MX_CAMPOS).forEach(k=>{
+    const s=matrizSel[k],v=document.getElementById('mx-ddv-'+k);
+    if(v){v.textContent=!s.length?'Todos':s.length===1?s[0]:s.length+' selecionados';v.classList.toggle('on',s.length>0);}
+    mxRenderDDLista(k);
+  });
+  mxAplicarDD();
+
+  // Chips
+  const chips=[];
+  Object.keys(MX_CAMPOS).forEach(k=>matrizSel[k].forEach(v=>chips.push(`<button class="mx-chip" title="Remover filtro" data-k="${k}" data-v="${escHtml(v)}" onclick="mxRemover(this.dataset.k,this.dataset.v)"><span>${MX_CAMPOS[k].rot}: ${escHtml(v)}</span><i class="ti ti-x"></i></button>`)));
+  if(matrizBusca)chips.push(`<button class="mx-chip" data-k="busca" data-v="" onclick="mxRemover('busca')"><span>Busca: ${escHtml(matrizBusca)}</span><i class="ti ti-x"></i></button>`);
+  if(chips.length>1)chips.push(`<button class="mx-chip limpar" onclick="mxLimparTudo()"><i class="ti ti-trash"></i><span>Limpar tudo</span></button>`);
+  document.getElementById('mx-chips').innerHTML=chips.join('');
+  document.getElementById('mx-chips').style.paddingBottom=chips.length?'4px':'0';
+
+  // Lista de cidades (ignora o próprio filtro de cidade para permitir trocar de cidade)
+  const baseCid=mxFiltrar('cidade');
+  const gAll=mxCidadesAgrupadas(matrizData);
+  const gBase=mxCidadesAgrupadas(baseCid);
+  const cidades=Object.values(gAll).map(c=>({...c,vis:gBase[c.chave]||null}))
+    .sort((a,b)=>((b.vis?b.vis.contatos:0)-(a.vis?a.vis.contatos:0))||a.chave.localeCompare(b.chave,'pt-BR'));
+  document.getElementById('mx-cidades').innerHTML=cidades.map(c=>{
+    const on=matrizSel.cidade.includes(c.chave);
+    const nO=c.vis?c.vis.obras.size:0,nC=c.vis?c.vis.contatos:0;
+    return `<button class="mx-city${on?' on':''}${!c.vis&&!on?' off':''}" data-v="${escHtml(c.chave)}" onclick="mxCidadeClick(this.dataset.v,event)">
+      <span class="mx-city-dot"></span>
+      <span class="mx-city-info"><div class="mx-city-nome">${escHtml(c.cidade)} — ${escHtml(c.estado||'')}</div><div class="mx-city-sub">${nO} obra${nO===1?'':'s'}</div></span>
+      <span class="mx-city-n" title="contatos">${nC}</span></button>`;
+  }).join('')||'<div class="mx-opt-vazio">Sem cidades cadastradas</div>';
+
+  // Resultados
+  document.getElementById('mx-res-tit').innerHTML=`Contatos<small>${lista.length} resultado${lista.length===1?'':'s'}</small>`;
+  document.getElementById('mx-seg').innerHTML=
+    `<button class="${matrizView==='cards'?'on':''}" onclick="mxSetView('cards')"><i class="ti ti-layout-grid"></i> Cards</button>`+
+    `<button class="${matrizView==='tabela'?'on':''}" onclick="mxSetView('tabela')"><i class="ti ti-table"></i> Tabela</button>`;
+  document.getElementById('mx-resultados').innerHTML=lista.length?(matrizView==='cards'?mxCardsHTML(lista):mxTabelaHTML(lista)):
+    `<div class="mx-vazio"><i class="ti ti-map-search"></i>${total?'Nenhum contato com esses filtros.':'Nenhum contato — importe a planilha.'}${filtrado?'<div style="margin-top:10px"><button class="btn btn-sm" onclick="mxLimparTudo()">Limpar filtros</button></div>':''}</div>`;
+
+  mxMapaAtualizar(lista,gBase);
+}
+
+function mxContatoHTML(x){
+  const d=mxTel(x.contato);
+  return `<div class="mx-contato">
+    ${x.email?`<a href="mailto:${escHtml(x.email)}" title="${escHtml(x.email)}"><i class="ti ti-mail"></i>${escHtml(x.email)}</a>`:''}
+    ${x.contato?`<a href="tel:+${d.length>=12?d:'55'+d}"><i class="ti ti-phone"></i>${escHtml(x.contato)}</a>`:''}
+    ${(d.length===10||d.length===11)?`<a class="wa" href="https://wa.me/55${d}" target="_blank" rel="noopener"><i class="ti ti-brand-whatsapp"></i>WhatsApp</a>`:''}
+    ${!x.email&&!x.contato?'<span style="color:var(--text-muted)">Sem contato</span>':''}
+  </div>`;
+}
+function mxCardsHTML(lista){
+  // agrupa por cidade → obra, para o resultado refletir "todas as obras da cidade"
+  const grupos={};
+  lista.forEach(x=>{const k=MX_CAMPOS.cidade.get(x)||'Sem cidade';(grupos[k]=grupos[k]||[]).push(x);});
+  return Object.keys(grupos).sort((a,b)=>a.localeCompare(b,'pt-BR')).map(k=>{
+    const itens=grupos[k].slice().sort((a,b)=>(a.obra||'').localeCompare(b.obra||'','pt-BR')||(a.nome||'').localeCompare(b.nome||'','pt-BR'));
+    const nObras=new Set(itens.map(x=>x.obra).filter(Boolean)).size;
+    return `<section class="mx-grupo">
+      <div class="mx-grupo-h"><i class="ti ti-map-pin"></i>${escHtml(k)}<span>${nObras} obra${nObras===1?'':'s'} · ${itens.length} contato${itens.length===1?'':'s'}</span></div>
+      <div class="mx-cards">${itens.map(x=>`
+        <div class="mx-card">
+          <div class="mx-av">${escHtml(mxIniciais(x.nome))}</div>
+          <div class="mx-card-b">
+            <div class="mx-nome" title="${escHtml(x.nome)}">${escHtml(x.nome||'—')}</div>
+            <div class="mx-cargo">${escHtml(x.cargo||'—')}</div>
+            <div class="mx-obra"><i class="ti ti-building-factory-2"></i><b title="${escHtml(x.obra)}">${escHtml(x.obra||'—')}</b>${x.crd?`<em>${escHtml(x.crd)}</em>`:''}</div>
+            ${mxContatoHTML(x)}
+          </div>
+        </div>`).join('')}</div>
+    </section>`;
+  }).join('');
+}
+function mxTabelaHTML(lista){
+  return `<div class="table-container"><table>
+    <thead><tr><th>Nome</th><th>Cargo</th><th>Obra</th><th>CRD</th><th>Cidade/UF</th><th>Contato</th></tr></thead>
+    <tbody>${lista.map(x=>`<tr>
+      <td><div style="font-weight:500">${escHtml(x.nome||'—')}</div></td>
+      <td style="font-size:12px">${escHtml(x.cargo||'—')}</td>
+      <td style="font-size:12px">${escHtml(x.obra||'—')}</td>
+      <td style="font-size:12px;font-family:monospace">${escHtml(x.crd||'—')}</td>
+      <td style="font-size:12px">${escHtml([x.cidade,x.estado].filter(Boolean).join(' — ')||'—')}</td>
+      <td style="font-size:12px">${mxContatoHTML(x)}</td></tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+// ── Mapa ─────────────────────────────────────────────────────────────────────
+function mxCoordCidade(c){
+  const exata=COORDS_CIDADES[(c.cidade||'').trim().toLowerCase()+'|'+(c.estado||'').trim().toLowerCase()];
+  if(exata)return{coord:exata,exata:true};
+  const g=geocodeCidade(c.cidade,c.estado);
+  if(!g)return null;
+  // cidade sem coordenada própria: usa a capital do estado com pequeno deslocamento fixo para não sobrepor pins
+  let h=0;const s=(c.cidade||'')+(c.estado||'');for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;
+  return{coord:[g[0]+((h%100)/100-.5)*.5,g[1]+(((h>>7)%100)/100-.5)*.5],exata:false};
+}
+
+async function initMatrizMap(){
   const el=document.getElementById('matriz-map');
   if(!el)return;
   try{await garantirLeaflet();}catch(e){console.warn('Leaflet indisponível:',e);return;}
   if(typeof L==='undefined'||!document.getElementById('matriz-map'))return;
   if(_matrizMapInstance){_matrizMapInstance.remove();_matrizMapInstance=null;}
-  const map=L.map('matriz-map',{scrollWheelZoom:true}).setView([-15,-50],4);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    maxZoom:18,
+  const map=L.map('matriz-map',{scrollWheelZoom:true,zoomControl:true}).setView([-15,-50],4);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
+    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    maxZoom:18,subdomains:'abcd',
   }).addTo(map);
-  const bounds=[];
-  Object.values(porObra).forEach(o=>{
-    const coord=geocodeCidade(o.cidade,o.estado);
-    if(!coord)return;
-    bounds.push(coord);
-    const ativo=matrizFiltroObra===o.obra;
-    const icon=L.divIcon({
-      className:'',
-      html:`<div style="width:16px;height:16px;border-radius:50%;background:${ativo?'#123F73':'#1F5FA6'};border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></div>`,
-      iconSize:[16,16],iconAnchor:[8,8],
-    });
-    const marker=L.marker(coord,{icon}).addTo(map);
-    marker.bindPopup(`<strong>${o.obra}</strong><br>${[o.cidade,o.estado].filter(Boolean).join(' — ')}<br>${o.contatos.length} contato(s)`);
-    marker.on('click',()=>{
-      matrizFiltroObra=ativo?'':o.obra;
-      renderMatriz();
-    });
+  _mxMarkers={};
+  let semExata=0;
+  Object.values(mxCidadesAgrupadas(matrizData)).forEach(c=>{
+    const r=mxCoordCidade(c);
+    if(!r)return;
+    if(!r.exata)semExata++;
+    const m=L.marker(r.coord,{icon:L.divIcon({className:'',html:'',iconSize:[10,10]})}).addTo(map);
+    m.on('click',e=>mxCidadeClick(c.chave,e.originalEvent));
+    _mxMarkers[c.chave]={marker:m,coord:r.coord,cidade:c};
   });
-  if(bounds.length)map.fitBounds(bounds,{padding:[30,30],maxZoom:6});
   _matrizMapInstance=map;
+  const hint=document.getElementById('mx-maphint');
+  if(hint)hint.innerHTML=`<i class="ti ti-click"></i> Clique num pin para ver todas as obras da cidade${semExata?` · ${semExata} cidade(s) posicionada(s) aproximadamente`:''}`;
+  setTimeout(()=>{if(_matrizMapInstance===map)map.invalidateSize();},120);
 }
+
+function mxMapaAtualizar(lista,gBase){
+  const map=_matrizMapInstance;
+  if(!map||!Object.keys(_mxMarkers).length)return;
+  Object.entries(_mxMarkers).forEach(([chave,o])=>{
+    const on=matrizSel.cidade.includes(chave);
+    const vis=gBase[chave];
+    const n=vis?vis.contatos:0;
+    const tam=on?34:(n?Math.min(32,18+Math.round(Math.sqrt(n)*3)):12);
+    const cor=on?'#E56F00':(n?'#1F5FA6':'#9AA9BD');
+    o.marker.setIcon(L.divIcon({className:'',iconSize:[tam,tam],iconAnchor:[tam/2,tam/2],
+      html:`<div class="mx-pin" style="width:${tam}px;height:${tam}px;background:${cor};opacity:${n||on?1:.55}">${n&&tam>=22?n:''}</div>`}));
+    o.marker.setZIndexOffset(on?1000:(n?100:0));
+    o.marker.unbindTooltip();
+    o.marker.bindTooltip(`<strong>${escHtml(o.cidade.cidade)} — ${escHtml(o.cidade.estado||'')}</strong><br>${vis?vis.obras.size:0} obra(s) · ${n} contato(s)`,{direction:'top',offset:[0,-tam/2]});
+  });
+  // enquadra: cidades selecionadas, ou cidades dos resultados atuais
+  const chaves=matrizSel.cidade.length?matrizSel.cidade:[...new Set(lista.map(MX_CAMPOS.cidade.get).filter(Boolean))];
+  const pts=chaves.map(c=>_mxMarkers[c]&&_mxMarkers[c].coord).filter(Boolean);
+  if(!pts.length)return;
+  const assinatura=pts.map(p=>p.join(',')).join(';');
+  if(map._mxAssin===assinatura)return;
+  map._mxAssin=assinatura;
+  if(pts.length===1)map.flyTo(pts[0],9,{duration:.6});
+  else map.flyToBounds(pts,{padding:[50,50],maxZoom:8,duration:.6});
+}
+
 
 function openImportMatriz(){
   document.body.insertAdjacentHTML('beforeend',`
