@@ -10509,6 +10509,7 @@ let matrizSel={cidade:[],uf:[],obra:[],cargo:[],gestor:[]};
 let matrizBusca='';
 let matrizView='cards'; // 'cards' | 'tabela'
 let _mxOpen=null;       // dropdown aberto
+let mxCidQ='';
 const _mxDDq={};        // texto de busca dentro de cada dropdown
 let _mxMarkers={};      // marcadores do mapa por cidade
 const MX_CAMPOS={
@@ -10764,7 +10765,7 @@ function mxInjetarCss(){
 // ── Página ───────────────────────────────────────────────────────────────────
 function renderMatriz(){
   mxInjetarCss();
-  _mxOpen=null;
+  _mxOpen=null;mxCidQ='';
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div><div class="page-title">Matriz de Comunicação</div><div class="page-subtitle" id="mx-sub"></div></div>
@@ -10789,6 +10790,7 @@ function renderMatriz(){
         </div>
         <div class="mx-chips" id="mx-chips"></div>
         <div class="mx-lista-head"><span>Cidades</span><em>clique = só essa cidade · Shift/Ctrl = várias</em></div>
+        <div class="mx-busca" style="margin:0 14px 8px"><i class="ti ti-search"></i><input id="mx-cid-q" type="search" placeholder="Pesquisar cidade…" autocomplete="off" oninput="mxCidQ=this.value;mxAtualizar()"></div>
         <div class="mx-cidades" id="mx-cidades"></div>
       </aside>
     </div>
@@ -10867,7 +10869,8 @@ function mxAtualizar(){
   const baseCid=mxFiltrar('cidade');
   const gAll=mxCidadesAgrupadas(matrizData);
   const gBase=mxCidadesAgrupadas(baseCid);
-  const cidades=Object.values(gAll).map(c=>({...c,vis:gBase[c.chave]||null}))
+  const qc=_semAcento(mxCidQ).trim();
+  const cidades=Object.values(gAll).filter(c=>!qc||_semAcento(c.chave).includes(qc)).map(c=>({...c,vis:gBase[c.chave]||null}))
     .sort((a,b)=>((b.vis?b.vis.contatos:0)-(a.vis?a.vis.contatos:0))||a.chave.localeCompare(b.chave,'pt-BR'));
   document.getElementById('mx-cidades').innerHTML=cidades.map(c=>{
     const on=matrizSel.cidade.includes(c.chave);
@@ -10951,9 +10954,9 @@ async function initMatrizMap(){
   if(typeof L==='undefined'||!document.getElementById('matriz-map'))return;
   if(_matrizMapInstance){_matrizMapInstance.remove();_matrizMapInstance=null;}
   const map=L.map('matriz-map',{scrollWheelZoom:true,zoomControl:true}).setView([-15,-50],4);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
-    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-    maxZoom:18,subdomains:'abcd',
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom:18,
   }).addTo(map);
   _mxMarkers={};
   let semExata=0;
