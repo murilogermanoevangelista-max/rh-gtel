@@ -590,7 +590,7 @@ function setGlobalObraFiltro(obraId){
   prestadoresFiltroObra=obraId||''; // prestadores
   prestadoresFiltroObraTocado=false; // troca no menu lateral sempre prevalece sobre escolha local antiga
   // re-renderizar a aba atual
-  const pageMap={funcionarios:renderFuncionarios,experiencia:renderExperiencia,folgas:renderFolgas,ferias:renderFerias,alojamentos:renderAlojamentos,efetivo:renderEfetivo,dashboard:renderDashboard,prestadores:renderPrestadores,contratacoes:renderContratacoes};
+  const pageMap={funcionarios:renderFuncionarios,experiencia:renderExperiencia,folgas:renderFolgas,ferias:renderFerias,alojamentos:renderAlojamentos,efetivo:renderEfetivo,dashboard:renderDashboard,prestadores:renderPrestadores,contratacoes:renderContratacoes,'notas-remessa':renderRemessas};
   if(pageMap[currentPage]) pageMap[currentPage]();
 }
 
@@ -1677,9 +1677,10 @@ function remTextoBusca(it){
   const n=remNotaDe(it)||{};
   return _semAcento([it.codigo,it.descricao,it.patrimonio,it.serie_equip,n.numero,n.chave_acesso,n.natureza,remOrigemTxt(n)].join(' '));
 }
+function remItensVis(){return globalObraFiltro?remItens.filter(i=>String(i.obra_atual_id)===String(globalObraFiltro)):remItens;}
 function remItensFiltrados(extra){
   const f=remFiltro,q=_semAcento(f.q).trim();
-  return remItens.filter(it=>{
+  return remItensVis().filter(it=>{
     if(f.obra&&String(it.obra_atual_id)!==String(f.obra))return false;
     if(f.tipo&&it.tipo!==f.tipo)return false;
     const s=remSaldo(it);
@@ -1759,11 +1760,11 @@ function remBadgeTipo(t){return t==='retornavel'
 function remNotasHTML(){
   const itens=remItensFiltrados();
   const porNota={};itens.forEach(i=>{(porNota[i.remessa_id]=porNota[i.remessa_id]||[]).push(i);});
-  const semFiltroItem=!remFiltro.q&&!remFiltro.tipo&&!remFiltro.obra&&remFiltro.saldo==='';
-  const notas=remRemessas.filter(n=>porNota[n.id]||(semFiltroItem&&!remItens.some(i=>i.remessa_id===n.id)));
+  const semFiltroItem=!remFiltro.q&&!remFiltro.tipo&&!remFiltro.obra&&!globalObraFiltro&&remFiltro.saldo==='';
+  const notas=remRemessas.filter(n=>porNota[n.id]||(semFiltroItem&&!remItensVis().some(i=>i.remessa_id===n.id)));
   if(!notas.length)return '<div class="empty-state"><i class="ti ti-file-invoice"></i>Nenhuma nota encontrada com esses filtros.<br><span style="font-size:12px">Use “Ler nota (PDF)” para lançar a primeira.</span></div>';
   const linhas=notas.map(n=>{
-    const its=remItens.filter(i=>i.remessa_id===n.id);
+    const its=remItensVis().filter(i=>i.remessa_id===n.id);
     const comSaldo=its.filter(i=>remSaldo(i)>0);
     const retorn=comSaldo.filter(i=>i.tipo==='retornavel').length;
     return `<tr style="cursor:pointer" onclick="remAbrirNota('${n.id}')">
@@ -1846,7 +1847,7 @@ function remAtivoBlocoHTML(sit,emUso){
 }
 function remEquipResultado(){
   const q=_semAcento(remBuscaAtivo).trim();
-  const comPat=remItens.filter(i=>i.patrimonio||i.serie_equip);
+  const comPat=remItensVis().filter(i=>i.patrimonio||i.serie_equip);
   const lista=comPat.filter(i=>!q||_semAcento([i.patrimonio,i.serie_equip,i.descricao].join(' ')).includes(q));
   if(!lista.length)return `<div class="empty-state"><i class="ti ti-barcode"></i>${comPat.length?'Nenhum equipamento encontrado.':'Nenhum item com patrimônio ou série lançado ainda.'}</div>`;
   const grupos={};
@@ -1879,7 +1880,7 @@ function remEquipResultado(){
 
 // ─── SALDO POR OBRA ──────────────────────────────────────────────────────────
 function remObraHTML(){
-  const ativos=remItens.filter(i=>remSaldo(i)>0);
+  const ativos=remItensVis().filter(i=>remSaldo(i)>0);
   const por={};ativos.forEach(i=>{(por[i.obra_atual_id]=por[i.obra_atual_id]||[]).push(i);});
   const ids=Object.keys(por).sort((a,b)=>remObraNome(a).localeCompare(remObraNome(b),'pt-BR'));
   if(!ids.length)return '<div class="empty-state"><i class="ti ti-building"></i>Nenhuma obra com saldo de remessa.</div>';
@@ -1906,7 +1907,7 @@ function remPendencias(){
   const p=[];
   const hoje=Date.now();
   // 1) equipamentos (devem voltar) com saldo há mais de 90 dias
-  remItens.filter(i=>i.tipo==='retornavel'&&remSaldo(i)>0).forEach(i=>{
+  remItensVis().filter(i=>i.tipo==='retornavel'&&remSaldo(i)>0).forEach(i=>{
     const n=remNotaDe(i);if(!n||!n.data_emissao)return;
     const dias=Math.floor((hoje-new Date(n.data_emissao+'T12:00:00').getTime())/86400000);
     if(dias>90)p.push({grupo:'nao_voltou',item:i.id,
@@ -1915,7 +1916,7 @@ function remPendencias(){
       acao:'Quando o equipamento voltar ou seguir para outra obra, dê baixa informando a NF.'});
   });
   // 1b) equipamento com saldo que não está no Ativo GTEL, ou está sem responsável / sem termo
-  remItens.filter(i=>i.tipo==='retornavel'&&i.patrimonio&&remSaldo(i)>0).forEach(i=>{
+  remItensVis().filter(i=>i.tipo==='retornavel'&&i.patrimonio&&remSaldo(i)>0).forEach(i=>{
     const s=remSituacaoAtivo(i);
     const nome=i.descricao+' · Pat. '+i.patrimonio;
     if(!s.ativo)p.push({grupo:'ativo_pend',ativo:null,item:i.id,titulo:nome,detalhe:'Está em '+remObraNome(i.obra_atual_id)+' mas não está cadastrado no Ativo GTEL.',acao:'Cadastre no Ativo GTEL, indique o responsável e anexe o termo.'});
@@ -1923,7 +1924,7 @@ function remPendencias(){
   });
   // 2) notas citadas por transferências e que não foram lançadas
   const citadas={};
-  remRemessas.filter(n=>n.tipo_nota==='transferencia'&&n.nota_referenciada).forEach(n=>{
+  remRemessas.filter(n=>n.tipo_nota==='transferencia'&&n.nota_referenciada&&(!globalObraFiltro||String(n.obra_id)===String(globalObraFiltro))).forEach(n=>{
     if(!remRemessas.some(x=>String(x.numero)===String(n.nota_referenciada)))
       p.push({grupo:'nf_citada',nota:n.id,
         titulo:'NF '+n.nota_referenciada+' ainda não foi lançada',
@@ -1932,7 +1933,7 @@ function remPendencias(){
   });
   // 3) mesmo patrimônio com saldo em mais de um lugar
   const vistos={};
-  remItens.filter(i=>i.patrimonio&&remSaldo(i)>0).forEach(i=>{(vistos[normMatricula(i.patrimonio)]=vistos[normMatricula(i.patrimonio)]||[]).push(i);});
+  remItensVis().filter(i=>i.patrimonio&&remSaldo(i)>0).forEach(i=>{(vistos[normMatricula(i.patrimonio)]=vistos[normMatricula(i.patrimonio)]||[]).push(i);});
   Object.values(vistos).filter(g=>g.length>1).forEach(g=>
     p.push({grupo:'duplicado',item:g[0].id,
       titulo:'Patrimônio '+g[0].patrimonio+' aparece em '+g.length+' lugares ao mesmo tempo',
