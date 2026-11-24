@@ -590,7 +590,7 @@ function setGlobalObraFiltro(obraId){
   prestadoresFiltroObra=obraId||''; // prestadores
   prestadoresFiltroObraTocado=false; // troca no menu lateral sempre prevalece sobre escolha local antiga
   // re-renderizar a aba atual
-  const pageMap={funcionarios:renderFuncionarios,experiencia:renderExperiencia,folgas:renderFolgas,ferias:renderFerias,alojamentos:renderAlojamentos,efetivo:renderEfetivo,dashboard:renderDashboard,prestadores:renderPrestadores,contratacoes:renderContratacoes,'notas-remessa':renderRemessas};
+  const pageMap={funcionarios:renderFuncionarios,experiencia:renderExperiencia,folgas:renderFolgas,ferias:renderFerias,alojamentos:renderAlojamentos,efetivo:renderEfetivo,dashboard:renderDashboard,pendencias:renderPendenciasCentral,prestadores:renderPrestadores,contratacoes:renderContratacoes,'notas-remessa':renderRemessas};
   if(pageMap[currentPage]) pageMap[currentPage]();
 }
 
@@ -1140,6 +1140,7 @@ const MODULOS=[
   {page:'ativos-imobilizados',grupo:'patrimonio',icone:'ti-package',nome:'Ativo GTEL',desc:'Ferramentas e equipamentos'},
   {page:'notas-remessa',grupo:'patrimonio',icone:'ti-file-export',nome:'Notas de Remessa',desc:'Materiais e equipamentos enviados às obras'},
   {page:'procedimentos',grupo:'patrimonio',icone:'ti-file-text',nome:'Procedimentos',desc:'Procedimentos e formulários'},
+  {page:'pendencias',grupo:'admin',icone:'ti-bell-ringing',nome:'Central de Pendências',desc:'Tudo que precisa de ação, por obra'},
   {page:'salarios',grupo:'admin',icone:'ti-coin',nome:'Salários',desc:'Tabela salarial por obra (admin e gerente)',somenteGestao:true},
   {page:'cronograma',grupo:'admin',icone:'ti-calendar-check',nome:'Cronograma ADM',desc:'Prazos e cobranças das obras'},
   {page:'empresas',grupo:'admin',icone:'ti-briefcase',nome:'Empresas',desc:'Cadastro de empresas'},
@@ -1228,6 +1229,8 @@ function filtrarMenu(q){
 let currentPage='dashboard';
 let dashPendNivelFiltro=null; // null|'danger'|'warning'|'info' — filtro de nível de pendência no Dashboard (clique nos cards Crítico/Atenção/Informativo)
 let dashPendDropdownAberto=null; // null|'danger'|'warning'|'info' — qual dropdown de opções (por tipo) está aberto no card do nível
+let dashModo='dashboard'; // 'dashboard' | 'pendencias' — renderDashboard() também alimenta a Central de Pendências
+let pendTab='all'; // aba da Central de Pendências: all|danger|warning|info
 
 async function showPage(page){
   const _vindoDeAlerta=window._filtroViaAlerta;
@@ -1252,6 +1255,7 @@ async function showPage(page){
   try{
     if(page==='menu')renderMenu();
     else if(page==='dashboard')await renderDashboard();
+    else if(page==='pendencias')await renderPendenciasCentral();
     else if(page==='funcionarios')renderFuncionarios();
     else if(page==='transferencias-pendentes')renderTransferenciasPendentesPage();
     else if(page==='experiencia')renderExperiencia();
@@ -3544,6 +3548,59 @@ async function renderDashboard(){
       </div>`}).join('')}
     </div>`;
 
+  // ── Central de Pendências: usa exatamente o mesmo cálculo do Dashboard, só muda o que é desenhado ──
+  if(dashModo==='pendencias'){
+    const rowsC=[];
+    obrasComPendencia.forEach(o=>o.itensArr.forEach(it=>rowsC.push({tipo:it.tipo,obra:o.obraKey,obraId:o.obraId||'',icon:it.icon,msg:it.msg,qtd:it.qtd,link:it.link||'',fv:it.filtroVar||'',fval:it.filtroVal||''})));
+    alertas.filter(a=>a.tipo==='info').forEach(a=>rowsC.push({tipo:'info',obra:'Todas as obras',obraId:'',icon:a.icon,msg:`${a.modulo} — ${a.msg}`,qtd:a.qtd,link:a.link||'',fv:a.filtroVar||'',fval:a.filtroVal||''}));
+    const ordemT={danger:0,warning:1,info:2};
+    rowsC.sort((a,b)=>ordemT[a.tipo]-ordemT[b.tipo]||b.qtd-a.qtd);
+    const visC=pendTab==='all'?rowsC:rowsC.filter(r=>r.tipo===pendTab);
+    const ocorr=t=>rowsC.filter(r=>r.tipo===t).reduce((s,r)=>s+r.qtd,0);
+    const corN={danger:'var(--danger)',warning:'var(--warning)',info:'var(--info)'};
+    const resumoC=[['danger','Crítico','Já venceu — ação imediata',qtdCriticos],['warning','Atenção','Vencendo em breve — planeje agora',qtdAvisos],['info','Informativo','Programado — de olho no horizonte',qtdInfo]].map(([t,l,d,n])=>{
+      const c=corAlerta(t);
+      return`<div class="table-container" onclick="pendSetTab('${t}')" style="padding:12px 14px;cursor:pointer;${pendTab===t?'border-color:'+corN[t]:''}">
+        <span style="font-size:11.5px;font-weight:700;color:${c.text};background:${c.bg};padding:2px 10px;border-radius:20px">${l}</span>
+        <div style="font-size:26px;font-weight:700;margin-top:6px;color:${corN[t]}">${n}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${d}</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${ocorr(t)} ocorrência${ocorr(t)===1?'':'s'} no total</div>
+      </div>`;}).join('');
+    const tabsC=[['all','Todas'],['danger','Críticas'],['warning','Atenção'],['info','Informativas']].map(([k,l])=>`<button type="button" class="btn${pendTab===k?' btn-primary':''}" onclick="pendSetTab('${k}')">${l}</button>`).join('');
+    const linhasC=visC.map(r=>{const c=corAlerta(r.tipo);return`
+      <div onclick="irParaPendObra('${r.obraId}','${r.link}','${r.fv}','${r.fval}')" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--border);cursor:pointer" title="Clique para abrir o módulo já filtrado">
+        <span style="min-width:74px;text-align:center;font-size:11px;font-weight:700;color:${c.text};background:${c.bg};padding:3px 10px;border-radius:20px">${nivelLabel(r.tipo)}</span>
+        <i class="ti ${r.icon}" style="font-size:16px;color:${c.text}"></i>
+        <div style="flex:1 1 240px;min-width:0"><div style="font-size:13.5px;font-weight:600">${r.msg}</div><div style="font-size:12px;color:var(--text-muted)">${escHtml(r.obra)}</div></div>
+        <div style="font-size:18px;font-weight:700;color:${corN[r.tipo]};min-width:32px;text-align:right">${r.qtd}</div>
+        <i class="ti ti-chevron-right" style="color:var(--text-muted);font-size:14px"></i>
+      </div>`;}).join('');
+    const maxTot=Math.max(...obrasComPendencia.map(o=>o.total),1);
+    const porObraC=obrasComPendencia.map(o=>`
+      <div onclick="irParaPendObra('${o.obraId||''}','dashboard')" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''" style="padding:8px 6px;border-radius:6px;cursor:pointer" title="Ver o Dashboard desta obra">
+        <div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;font-weight:600"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(o.obraKey)}</span><span style="flex-shrink:0">${o.total}${o.danger?` <span style="font-weight:500;color:var(--danger)">· ${o.danger} crítica${o.danger>1?'s':''}</span>`:''}</span></div>
+        <div style="background:var(--border);border-radius:4px;height:6px;margin-top:6px"><div style="background:var(--primary);border-radius:4px;height:6px;width:${Math.round(o.total/maxTot*100)}%"></div></div>
+      </div>`).join('');
+    document.getElementById('main-content').innerHTML=`
+      <div class="page-header"><div><div class="page-title">Central de Pendências</div><div class="page-subtitle">Tudo que precisa de ação, por obra, num só lugar. Cada item vem dos módulos que já existem.</div></div>
+        <button class="btn" onclick="showPage('dashboard')"><i class="ti ti-dashboard"></i> Dashboard</button></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px">${resumoC}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
+        <div style="flex:3 1 520px;min-width:0">
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">${tabsC}</div>
+          <div class="table-container" style="padding:0;overflow:hidden">${linhasC||'<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">Nenhuma pendência neste filtro.</div>'}</div>
+        </div>
+        <div style="flex:1 1 260px;min-width:0">
+          <div class="table-container" style="padding:16px">
+            <div style="font-weight:600;font-size:14px">Pendências por obra</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Total de ocorrências, com as críticas ao lado.</div>
+            ${porObraC||'<div style="color:var(--text-muted);font-size:13px;padding:8px 0">Nenhuma obra com pendência.</div>'}
+          </div>
+        </div>
+      </div>`;
+    return;
+  }
+
   const obraRows=Object.entries(byObra).sort((a,b)=>b[1]-a[1]).map(([obra,qtd])=>{
     const obraObj=obras.find(o=>`${o.codigo} — ${o.nome}`===obra||o.codigo===obra.split(' — ')[0]);
     const obraId=obraObj?.id||'';
@@ -3691,28 +3748,65 @@ async function renderDashboard(){
   const ultimoAcessoTxt=ultimoAcessoDate&&!isNaN(ultimoAcessoDate)
     ?ultimoAcessoDate.toLocaleDateString('pt-BR')+' às '+ultimoAcessoDate.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})
     :null;
+  // ── Vencimentos que se aproximam (cards) e lista "Precisa de ação hoje" ──
+  const _conv=(()=>{try{const l=convErro?[]:convVisiveis();return{aV:l.filter(c=>convSituacao(c).k==='alerta').length,v:l.filter(c=>convSituacao(c).k==='venc').length};}catch(e){return{aV:0,v:0};}})();
+  const _pgr=(()=>{try{const l=pgrErro?[]:pgrStatusLista();return{aV:l.filter(x=>x.st.k==='alerta').length,v:l.filter(x=>x.st.k==='venc').length};}catch(e){return{aV:0,v:0};}})();
+  const vencDefs=[
+    {ico:'ti-certificate',nome:'Experiências',aV:expVencendo,v:expVencidas,desc:'vencem em 15 dias',link:'experiencia',fvA:'expFiltro',faA:'vencendo',fvV:'expFiltro',faV:'vencida'},
+    {ico:'ti-palm-tree',nome:'Férias',aV:feriasVencendo60,v:feriasVencidas,desc:'vencem em 60 dias',link:'ferias',fvA:'feriasFiltro',faA:'vencendo60',fvV:'feriasFiltro',faV:'vencidas'},
+    {ico:'ti-beach',nome:'Folgas de campo',aV:folgasVencendo,v:folgasVencidas,desc:'vencimento próximo',link:'folgas',fvA:'folgasFiltro',faA:'warn',fvV:'folgasFiltro',faV:'danger'},
+    {ico:'ti-home-clock',nome:'Contratos de alojamento',aV:alojContratosVencendo.length,v:alojContratosVencidos.length,desc:'vencem em 60 dias',link:'alojamentos',fvA:'alojFiltroAtivo',faA:'contratos_vencendo',fvV:'alojFiltroAtivo',faV:'contratos_vencidos'},
+    {ico:'ti-gavel',nome:'Convenções coletivas',aV:_conv.aV,v:_conv.v,desc:'na janela de atenção',link:'convencoes',fvA:'',faA:'',fvV:'',faV:''},
+    {ico:'ti-stethoscope',nome:'PCMSO / PGR',aV:_pgr.aV,v:_pgr.v,desc:'a vencer',link:'pcmso-pgr',fvA:'',faA:'',fvV:'',faV:''}
+  ];
+  const vencHtml=`
+    <div style="font-weight:600;font-size:14px;margin:4px 0 10px;color:var(--navy)">Vencimentos que se aproximam</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:20px">
+      ${vencDefs.map(d=>{
+        const usaV=d.aV===0&&d.v>0;
+        const fv=usaV?d.fvV:d.fvA,fa=usaV?d.faV:d.faA;
+        return`
+      <div class="table-container" style="padding:14px 16px;cursor:pointer" onclick="irParaAlertaDashboard('${d.link}','${fv}','${fa}')" title="Abrir ${d.nome}">
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--text-muted)"><i class="ti ${d.ico}" style="font-size:15px"></i> ${d.nome}</div>
+        <div style="font-size:28px;font-weight:700;color:var(--navy);line-height:1.15;margin-top:4px">${d.aV}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${d.desc}</div>
+        ${d.v>0?`<div style="display:inline-block;margin-top:6px;font-size:11px;font-weight:700;color:var(--danger);background:var(--danger-light);padding:2px 8px;border-radius:20px">${d.v} já vencido${d.v>1?'s':''}</div>`:`<div style="display:inline-block;margin-top:6px;font-size:11px;font-weight:700;color:var(--success);background:var(--success-light);padding:2px 8px;border-radius:20px">nenhum vencido</div>`}
+      </div>`;}).join('')}
+    </div>`;
+  const acaoLista=alertas.filter(a=>a.tipo==='danger').slice(0,6);
+  const acaoHtml=`
+    <div class="table-container" style="padding:0;overflow:hidden;margin-bottom:20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 16px">
+        <div><div style="font-weight:600;font-size:14px;color:var(--navy)">Precisa de ação hoje</div><div style="font-size:12px;color:var(--text-muted)">Pendências críticas, em ordem de urgência. Clique para abrir já filtrado.</div></div>
+        <button type="button" class="btn btn-sm" onclick="showPage('pendencias')">Ver Central de Pendências</button>
+      </div>
+      ${acaoLista.length?acaoLista.map(a=>`
+      <div onclick="irParaAlertaDashboard('${a.link}','${a.filtroVar||''}','${a.filtroVal||''}')" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''" style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-top:1px solid var(--border);cursor:pointer">
+        <span style="min-width:62px;text-align:center;font-size:11px;font-weight:700;color:#991B1B;background:var(--danger-light);padding:3px 10px;border-radius:20px">Crítico</span>
+        <i class="ti ${a.icon}" style="font-size:16px;color:var(--danger)"></i>
+        <div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">${a.msg}</div><div style="font-size:12px;color:var(--text-muted)">${a.modulo}</div></div>
+        <div style="font-size:18px;font-weight:700;color:var(--danger)">${a.qtd}</div>
+        <i class="ti ti-chevron-right" style="color:var(--text-muted);font-size:14px"></i>
+      </div>`).join(''):`<div style="padding:14px 16px;border-top:1px solid var(--border);font-size:13px;color:var(--success);font-weight:600">Nenhuma pendência crítica hoje.</div>`}
+    </div>`;
+
   document.getElementById('main-content').innerHTML=`
     <div style="background:linear-gradient(100deg,#0F2F57 0%,#123F73 55%,var(--primary) 145%);border-radius:var(--radius-lg);padding:20px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px">
       <div>
         <div style="font-size:18px;font-weight:700;color:#fff">Bem-vindo${primeiroNome?', '+primeiroNome.toUpperCase():''}!</div>
-        <div style="font-size:12.5px;color:#CBD5E1;margin-top:4px">GTEL Obras${obraFiltroLabel?` · obra <strong style="color:#fff">${obraFiltroLabel}</strong>`:''}</div>
+        <div style="font-size:12.5px;color:#CBD5E1;margin-top:4px">GTEL Obras · ${ativos} ativo${ativos===1?'':'s'} · ${obras.length} obra${obras.length===1?'':'s'}${obraFiltroLabel?` · obra <strong style="color:#fff">${obraFiltroLabel}</strong>`:''}</div>
         <div style="font-size:12px;color:#9CA8B8;margin-top:2px">${agora.toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'})}</div>
         ${ultimoAcessoTxt?`<div style="font-size:12px;color:#9CA8B8;margin-top:2px">Último acesso: <strong style="color:#D8DEE8">${ultimoAcessoTxt}</strong></div>`:''}
       </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button style="background:var(--accent);color:#fff;border:1px solid var(--accent);border-radius:9px;padding:10px 16px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px" onclick="showPage('pendencias')">
+        <i class="ti ti-bell-ringing"></i> Central de Pendências
+      </button>
       <button style="background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.28);border-radius:9px;padding:10px 16px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px" onclick="showPage('funcionarios')">
         <i class="ti ti-users"></i> Ver funcionários
       </button>
+      </div>
     </div>
-    <!-- Totais — cards separados (mais limpo que uma faixa única) -->
-    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:16px">
-      <div class="metric-card" style="cursor:pointer;padding:12px 14px" onclick="dashMesIdsFiltro=null;funcTab='ativos';showPage('funcionarios')"><div class="metric-label">Total</div><div class="metric-value" style="font-size:19px">${ativos+inativos}</div></div>
-      <div class="metric-card" style="cursor:pointer;padding:12px 14px" onclick="dashMesIdsFiltro=null;funcTab='ativos';showPage('funcionarios')"><div class="metric-label">Ativos</div><div class="metric-value" style="font-size:19px;color:var(--success)">${ativos}</div></div>
-      <div class="metric-card" style="cursor:pointer;padding:12px 14px" onclick="dashMesIdsFiltro=null;funcTab='demitidos';showPage('funcionarios')"><div class="metric-label">Inativos</div><div class="metric-value" style="font-size:19px;color:var(--danger)">${inativos}</div></div>
-      <div class="metric-card" style="cursor:pointer;padding:12px 14px" onclick="dashMesIdsFiltro=null;funcTab='transferidos';showPage('funcionarios')"><div class="metric-label">Transferidos</div><div class="metric-value" style="font-size:19px;color:var(--warning)">${transferidos}</div></div>
-      <div class="metric-card" style="cursor:pointer;padding:12px 14px" onclick="irParaFuncionariosPorMes(${JSON.stringify(movMeses[movMeses.length-1].admIds)},'Admissões em ${movMeses[movMeses.length-1].label}','ativos')"><div class="metric-label">Adm. no mês</div><div class="metric-value" style="font-size:19px">${admMes}</div></div>
-      <div class="metric-card" style="cursor:pointer;padding:12px 14px" onclick="showPage('obras')"><div class="metric-label">Obras</div><div class="metric-value" style="font-size:19px">${obras.length}</div></div>
-    </div>
-    ${(()=>{try{return mobHtmlDashboard(globalObraFiltro||null);}catch(e){console.warn(e);return'';}})()}
     <!-- 3 níveis de pendências — para o administrador se antecipar antes de virar crítico.
          Cada card, ao clicar, abre um menu com as opções específicas daquele nível pra ir direto nelas. -->
     ${(()=>{
@@ -3746,6 +3840,8 @@ async function renderDashboard(){
       </div>`;}).join('');
       return `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">${cards}</div>`;
     })()}
+    ${vencHtml}
+    ${acaoHtml}
     <div id="dash-pendencias"></div>
     ${pendObraHtml?`<div style="margin-bottom:20px">${pendObraHtml}</div>`:''}
     <!-- LINHA 3 -->
@@ -3796,6 +3892,13 @@ async function renderDashboard(){
     </div>
   `;
 }
+
+// Central de Pendências: mesma base de cálculo do Dashboard, desenhada em modo "pendencias"
+async function renderPendenciasCentral(){
+  dashModo='pendencias';
+  try{await renderDashboard();}finally{dashModo='dashboard';}
+}
+function pendSetTab(k){pendTab=k;renderPendenciasCentral();}
 
 function calcFeriasStats(data,hoje){
   let feriasVencidas=0,feriasVencendo60=0,feriasProgTotal=0;
