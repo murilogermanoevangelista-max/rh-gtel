@@ -453,7 +453,7 @@ function atualizarSidebarUsuario(){
   const perfilEl=document.getElementById('sidebar-user-perfil');
   const avatarEl=document.getElementById('sidebar-user-avatar');
   if(nomeEl)nomeEl.textContent=currentUser.nome||currentUser.usuario||'—';
-  if(perfilEl)perfilEl.textContent={admin:'Admin',gerente:'Gerente'}[currentUser.perfil]||'Usuário';
+  if(perfilEl)perfilEl.textContent=PERFIL_NOME[currentUser.perfil]||'Usuário';
   if(avatarEl)avatarEl.textContent=initials(currentUser.nome||currentUser.usuario||'?');
 }
 
@@ -590,7 +590,7 @@ function setGlobalObraFiltro(obraId){
   prestadoresFiltroObra=obraId||''; // prestadores
   prestadoresFiltroObraTocado=false; // troca no menu lateral sempre prevalece sobre escolha local antiga
   // re-renderizar a aba atual
-  const pageMap={funcionarios:renderFuncionarios,experiencia:renderExperiencia,folgas:renderFolgas,ferias:renderFerias,alojamentos:renderAlojamentos,efetivo:renderEfetivo,dashboard:renderDashboard,pendencias:renderPendenciasCentral,prestadores:renderPrestadores,contratacoes:renderContratacoes,'notas-remessa':renderRemessas};
+  const pageMap={funcionarios:renderFuncionarios,experiencia:renderExperiencia,folgas:renderFolgas,ferias:renderFerias,alojamentos:renderAlojamentos,efetivo:renderEfetivo,dashboard:renderDashboard,pendencias:renderPendenciasCentral,'relatorio-adm':renderRelatorioADM,prestadores:renderPrestadores,contratacoes:renderContratacoes,'notas-remessa':renderRemessas};
   if(pageMap[currentPage]) pageMap[currentPage]();
 }
 
@@ -1141,13 +1141,19 @@ const MODULOS=[
   {page:'notas-remessa',grupo:'patrimonio',icone:'ti-file-export',nome:'Notas de Remessa',desc:'Materiais e equipamentos enviados às obras'},
   {page:'procedimentos',grupo:'patrimonio',icone:'ti-file-text',nome:'Procedimentos',desc:'Procedimentos e formulários'},
   {page:'pendencias',grupo:'admin',icone:'ti-bell-ringing',nome:'Central de Pendências',desc:'Tudo que precisa de ação, por obra'},
+  {page:'relatorio-adm',grupo:'admin',icone:'ti-report-analytics',nome:'Relatório mensal ADM',desc:'Indicadores por obra para a gestão',somenteRelatorio:true},
   {page:'salarios',grupo:'admin',icone:'ti-coin',nome:'Salários',desc:'Tabela salarial por obra (admin e gerente)',somenteGestao:true},
   {page:'cronograma',grupo:'admin',icone:'ti-calendar-check',nome:'Cronograma ADM',desc:'Prazos e cobranças das obras'},
   {page:'empresas',grupo:'admin',icone:'ti-briefcase',nome:'Empresas',desc:'Cadastro de empresas'},
   {page:'usuarios',grupo:'admin',icone:'ti-shield-lock',nome:'Usuários',desc:'Acessos por obra',somenteAdmin:true},
   {page:'backup',grupo:'admin',icone:'ti-database-export',nome:'Backup',desc:'Cópia semanal dos dados',somenteAdmin:true},
 ];
-function modulosVisiveis(){return MODULOS.filter(m=>(!m.somenteAdmin||currentUser?.perfil==='admin')&&(!m.somenteGestao||['admin','gerente'].includes(currentUser?.perfil)));}
+// Níveis de acesso. 'usuario' = administrativos (encarregado, assistente, auxiliar, analista, supervisor, aux. de escritório).
+// Gestão = quem pode ver relatórios comparativos entre obras. Diretoria/Coordenador exigem que o banco aceite esses valores (ver script SQL).
+const PERFIS_GESTAO=['admin','coordenador','gerente','diretoria'];
+const PERFIL_NOME={admin:'Admin',coordenador:'Coordenador',gerente:'Gerente',diretoria:'Diretoria',usuario:'Usuário'};
+function perfilGestao(){return PERFIS_GESTAO.includes(currentUser?.perfil);}
+function modulosVisiveis(){return MODULOS.filter(m=>(!m.somenteAdmin||currentUser?.perfil==='admin')&&(!m.somenteGestao||['admin','gerente'].includes(currentUser?.perfil))&&(!m.somenteRelatorio||perfilGestao()));}
 function qtdTransferenciasPendentes(){
   return (funcionarios||[]).filter(f=>f.transf_pendente&&usuarioPodeAprovarObra(f.transf_pendente_obra_id)).length;
 }
@@ -1229,7 +1235,7 @@ function filtrarMenu(q){
 let currentPage='dashboard';
 let dashPendNivelFiltro=null; // null|'danger'|'warning'|'info' — filtro de nível de pendência no Dashboard (clique nos cards Crítico/Atenção/Informativo)
 let dashPendDropdownAberto=null; // null|'danger'|'warning'|'info' — qual dropdown de opções (por tipo) está aberto no card do nível
-let dashModo='dashboard'; // 'dashboard' | 'pendencias' — renderDashboard() também alimenta a Central de Pendências
+let dashModo='dashboard'; // 'dashboard' | 'pendencias' | 'snapshot' — renderDashboard() também alimenta a Central de Pendências
 let pendTab='all'; // aba da Central de Pendências: all|danger|warning|info
 
 async function showPage(page){
@@ -1237,6 +1243,10 @@ async function showPage(page){
   window._filtroViaAlerta=false;
   if((page==='usuarios'||page==='backup')&&currentUser?.perfil!=='admin'){
     showToast('Acesso restrito a administradores','error');
+    page='dashboard';
+  }
+  if(page==='relatorio-adm'&&!perfilGestao()){
+    showToast('Acesso restrito à gestão','error');
     page='dashboard';
   }
   if(page==='salarios'&&!['admin','gerente'].includes(currentUser?.perfil)){
@@ -1256,6 +1266,7 @@ async function showPage(page){
     if(page==='menu')renderMenu();
     else if(page==='dashboard')await renderDashboard();
     else if(page==='pendencias')await renderPendenciasCentral();
+    else if(page==='relatorio-adm')await renderRelatorioADM();
     else if(page==='funcionarios')renderFuncionarios();
     else if(page==='transferencias-pendentes')renderTransferenciasPendentesPage();
     else if(page==='experiencia')renderExperiencia();
@@ -3506,6 +3517,8 @@ async function renderDashboard(){
     .map(([key,v])=>({obraKey:key,...v,total:v.danger+v.warning,itensArr:Object.values(v.itens).sort((a,b)=>(a.tipo==='danger'?0:1)-(b.tipo==='danger'?0:1))}))
     .sort((a,b)=>b.danger-a.danger||b.total-a.total);
 
+  // Modo 'snapshot': o Relatório mensal ADM só quer os números, sem desenhar o Dashboard.
+  if(dashModo==='snapshot'){window._dashSnap={obrasComPendencia,alertas};return;}
   const qtdCriticos=alertas.filter(a=>a.tipo==='danger').length;
   const qtdAvisos=alertas.filter(a=>a.tipo==='warning').length;
   const qtdInfo=alertas.filter(a=>a.tipo==='info').length;
@@ -3899,6 +3912,241 @@ async function renderPendenciasCentral(){
   try{await renderDashboard();}finally{dashModo='dashboard';}
 }
 function pendSetTab(k){pendTab=k;renderPendenciasCentral();}
+
+// ═══ RELATÓRIO MENSAL ADM — somente gestão (admin, coordenador, gerente, diretoria) ═══
+// Os números saem dos mesmos dados do resto do sistema; nada é gravado no banco.
+// Admissões/desligamentos por obra usam a obra ATUAL de cada funcionário (quem foi transferido
+// aparece na obra de hoje, também nos meses anteriores).
+let relObra='all',relMes='';
+const REL_META_CRONO=80;
+function relSel(id){relObra=String(id);renderRelatorioADM();}
+function relSetMes(v){relMes=v||'';renderRelatorioADM();}
+function _relBr(n,d){return Number(n).toFixed(d||0).replace('.',',');}
+function _relIso(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function _relDelta(cur,prev,menorMelhor,un,dec){
+  if(prev==null||isNaN(prev)||cur==null||isNaN(cur))return{txt:'sem mês anterior para comparar',cor:'var(--text-muted)'};
+  const diff=Number((cur-prev).toFixed(dec||0));
+  if(diff===0)return{txt:'= igual ao mês anterior',cor:'var(--text-muted)'};
+  const bom=menorMelhor?diff<0:diff>0;
+  return{txt:(diff>0?'▲ +':'▼ −')+_relBr(Math.abs(diff),dec||0)+un+' vs. mês anterior',cor:bom?'var(--success)':'var(--danger)'};
+}
+function _relTurn(ad,de,ef0,ef1){const m=(ef0+ef1)/2;return m>0?((ad+de)/2)/m*100:0;}
+const _REL_CATS=[
+  {k:'exp',nome:'Experiências',icones:['ti-certificate']},
+  {k:'fer',nome:'Férias',icones:['ti-palm-tree']},
+  {k:'fol',nome:'Folgas',icones:['ti-beach']},
+  {k:'alo',nome:'Alojamentos',icones:['ti-home-off','ti-home-clock','ti-home-exclamation']},
+  {k:'cro',nome:'Cronograma',icones:['ti-calendar-x','ti-calendar-time']}
+];
+function relCalc(snap){
+  const hoje=new Date();hoje.setHours(12,0,0,0);
+  const hojeISO=_relIso(hoje);
+  const cur=hojeISO.slice(0,7);
+  let ref=relMes||cur;if(ref>cur)ref=cur;
+  const [ry,rm]=ref.split('-').map(Number);
+  const meses=[];
+  for(let i=11;i>=0;i--){const d=new Date(ry,rm-1-i,1);meses.push({y:d.getFullYear(),m:d.getMonth()+1,key:d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'),lab:d.toLocaleDateString('pt-BR',{month:'short'}).replace('.','')});}
+  const ends=[];
+  for(let k=0;k<=12;k++){const iso=_relIso(new Date(ry,rm-1-12+k+1,0));ends.push(iso>hojeISO?hojeISO:iso);}
+  const idxMes={};meses.forEach((x,i)=>{idxMes[x.key]=i;});
+  const pres=(f,fim)=>{
+    if(f.situacao==='transferido')return false;
+    const a=(f.data_admissao||'').slice(0,10);
+    if(a&&a>fim)return false;
+    if(f.situacao==='inativo'){const d=(f.data_demissao||'').slice(0,10);return !!d&&d>fim;}
+    return true;
+  };
+  const lista=(obras||[]).slice().sort((a,b)=>String(a.codigo||'').localeCompare(String(b.codigo||''),'pt-BR',{numeric:true}));
+  const por={};
+  lista.forEach(o=>{por[String(o.id)]={id:String(o.id),cod:o.codigo||'?',nome:o.nome||'',adm:new Array(12).fill(0),desl:new Array(12).fill(0),ef:new Array(13).fill(0)};});
+  (funcionarios||[]).forEach(f=>{
+    const P=por[String(f.obra_id)];if(!P)return;
+    for(let k=0;k<=12;k++)if(pres(f,ends[k]))P.ef[k]++;
+    if(f.situacao!=='transferido'){const i=idxMes[(f.data_admissao||'').slice(0,7)];if(i!=null)P.adm[i]++;}
+    if(f.situacao==='inativo'){const i=idxMes[(f.data_demissao||'').slice(0,7)];if(i!=null)P.desl[i]++;}
+  });
+  // cronograma ADM — pontualidade do mês escolhido e do anterior
+  const cronoMes=(y,m)=>{const o={};try{cronoOcorrenciasMes(y,m).forEach(r=>{
+    const id=String(r.obra.id);const s=o[id]||(o[id]={ok:0,tot:0});
+    if(r.status==='ok'){s.ok++;s.tot++;}
+    else if(r.status==='atraso'||r.status==='nao_entregue'||(r.status==='parcial'&&r.atrasado))s.tot++;
+  });}catch(e){}return o;};
+  const cM=cronoMes(meses[11].y,meses[11].m),cP=cronoMes(meses[10].y,meses[10].m);
+  // pendências de hoje (vêm do mesmo cálculo do Dashboard)
+  const pend={};(snap.obrasComPendencia||[]).forEach(o=>{pend[String(o.obraId)]=o;});
+  const catDe=icon=>(_REL_CATS.find(c=>c.icones.includes(icon))||{}).k;
+  Object.values(por).forEach(P=>{
+    const pd=pend[P.id];
+    P.cr=pd?pd.danger:0;P.at=pd?pd.warning:0;P.itens=pd?pd.itensArr:[];
+    P.cat={};_REL_CATS.forEach(c=>{P.cat[c.k]={v:0,s:0};});
+    P.itens.forEach(it=>{const k=catDe(it.icon);if(!k)return;P.cat[k][it.tipo==='danger'?'v':'s']+=it.qtd;});
+    const cm=cM[P.id]||{ok:0,tot:0},cp=cP[P.id]||{ok:0,tot:0};
+    P.cron={ok:cm.ok,tot:cm.tot};P.cronP={ok:cp.ok,tot:cp.tot};
+    const al=(alojamentos||[]).filter(a=>String(a.obra_id)===P.id&&a.tipo_alojamento!=='hotel');
+    P.aloj={vagas:al.reduce((s,a)=>s+(a.vagas_total||0),0),ocup:al.reduce((s,a)=>s+alojOcupantes(a),0)};
+    P.sa=sum12(P.adm);P.sd=sum12(P.desl);
+  });
+  function sum12(a){return a.reduce((t,v)=>t+v,0);}
+  const todas=Object.values(por);
+  const escopo=relObra==='all'?todas:todas.filter(p=>p.id===relObra);
+  const somaArr=(k,n)=>{const r=new Array(n).fill(0);escopo.forEach(p=>p[k].forEach((v,i)=>{r[i]+=v;}));return r;};
+  const A=somaArr('adm',12),D=somaArr('desl',12),E=somaArr('ef',13);
+  const soma=(f)=>escopo.reduce((t,p)=>t+f(p),0);
+  const empresaE=new Array(13).fill(0);todas.forEach(p=>p.ef.forEach((v,i)=>{empresaE[i]+=v;}));
+  const mediaE=arr=>arr.length?arr.reduce((t,v)=>t+v,0)/arr.length:0;
+  const acum=(p)=>{const m=mediaE(p.ef.slice(1));return m>0?((p.sa+p.sd)/2)/m*100:0;};
+  const empAcum=(()=>{const sa=todas.reduce((t,p)=>t+p.sa,0),sd=todas.reduce((t,p)=>t+p.sd,0),m=mediaE(empresaE.slice(1));return m>0?((sa+sd)/2)/m*100:0;})();
+  todas.forEach(p=>{p.turnM=_relTurn(p.adm[11],p.desl[11],p.ef[11],p.ef[12]);p.turnA=acum(p);});
+  return{meses,hojeISO,ref,cur,por,todas,escopo,A,D,E,soma,empAcum,
+    turnM:_relTurn(A[11],D[11],E[11],E[12]),turnP:_relTurn(A[10],D[10],E[10],E[11]),
+    cronoPct:(()=>{const ok=soma(p=>p.cron.ok),t=soma(p=>p.cron.tot);return t?ok/t*100:null;})(),
+    cronoPctP:(()=>{const ok=soma(p=>p.cronP.ok),t=soma(p=>p.cronP.tot);return t?ok/t*100:null;})()};
+}
+function _relCell(v){return v===0?['var(--success-light,#E3F4E8)','#17653A']:v===1?['var(--warning-light,#FFF0DC)','#8A4B00']:['var(--danger-light,#FBE3E0)','#9B1C12'];}
+async function renderRelatorioADM(){
+  if(!perfilGestao()){showToast('Acesso restrito à gestão','error');currentPage='dashboard';await showPage('dashboard');return;}
+  const mc=document.getElementById('main-content');
+  mc.innerHTML='<div class="loading"><i class="ti ti-loader ti-spin"></i> Montando o relatório...</div>';
+  const _g=globalObraFiltro;globalObraFiltro='';dashModo='snapshot';window._dashSnap=null;
+  try{await renderDashboard();}catch(e){console.warn('[Relatório] dados do dashboard:',e);}
+  finally{dashModo='dashboard';globalObraFiltro=_g;}
+  let M;
+  try{M=relCalc(window._dashSnap||{obrasComPendencia:[]});}
+  catch(e){console.error(e);mc.innerHTML='<div style="padding:30px;color:var(--danger)">Erro ao montar o relatório: '+escHtml(e.message)+'</div>';return;}
+  window._relModelo=M;
+  const all=relObra==='all'||!M.por[relObra];
+  if(!M.por[relObra])relObra='all';
+  const L=M.escopo,A=M.A,D=M.D,E=M.E;
+  const ef=E[12],efP=E[11];
+  const crit=L.reduce((t,p)=>t+p.cr,0),aten=L.reduce((t,p)=>t+p.at,0);
+  const mesNome=new Date(M.meses[11].y,M.meses[11].m-1,1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  const escTxt=all?'Todas as obras':(M.por[relObra].cod+' — '+M.por[relObra].nome);
+  const mk=(l,v,d)=>({l,v,d});
+  const kpis=[
+    mk('Efetivo ativo',_relBr(ef),_relDelta(ef,efP,false,'')),
+    mk('Admissões no mês',_relBr(A[11]),_relDelta(A[11],A[10],false,'')),
+    mk('Desligamentos no mês',_relBr(D[11]),_relDelta(D[11],D[10],true,'')),
+    mk('Rotatividade mensal',_relBr(M.turnM,1)+'%',_relDelta(M.turnM,M.turnP,true,' p.p.',1)),
+    mk('Entregas do cronograma no prazo',M.cronoPct==null?'—':_relBr(M.cronoPct)+'%',M.cronoPct==null?{txt:'nenhum prazo vencido no mês',cor:'var(--text-muted)'}:_relDelta(Math.round(M.cronoPct),M.cronoPctP==null?null:Math.round(M.cronoPctP),false,' p.p.')),
+    mk('Pendências críticas hoje',_relBr(crit),{txt:aten+' de atenção',cor:'var(--text-muted)'})
+  ];
+  const kpiHtml=kpis.map(k=>`<div class="table-container" style="padding:14px 16px;min-width:0"><div style="font-size:12px;font-weight:700;color:var(--text-muted)">${k.l}</div><div style="font-size:28px;font-weight:700;color:var(--navy);margin:4px 0 2px">${k.v}</div><div style="font-size:12px;font-weight:700;color:${k.d.cor}">${k.d.txt}</div></div>`).join('');
+  // gráfico de barras: admissões x desligamentos
+  const maxB=Math.max(1,...A,...D)*1.1;
+  const barras=M.meses.map((m,i)=>`<div style="flex:1;display:flex;align-items:flex-end;justify-content:center;gap:3px;height:100%">
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end"><span style="font-size:10px;color:var(--text-muted)">${A[i]}</span><div style="width:13px;height:${Math.max(2,Math.round(A[i]/maxB*150))}px;background:var(--primary);border-radius:3px 3px 0 0"></div></div>
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end"><span style="font-size:10px;color:var(--text-muted)">${D[i]}</span><div style="width:13px;height:${Math.max(2,Math.round(D[i]/maxB*150))}px;background:var(--accent,#E56F00);border-radius:3px 3px 0 0"></div></div></div>`).join('');
+  const labMeses=M.meses.map(m=>`<div style="flex:1;text-align:center;font-size:11px;color:var(--text-muted)">${m.lab}</div>`).join('');
+  // gráfico de linha: efetivo
+  const E12=E.slice(1);const mn=Math.min(...E12),mx=Math.max(...E12),rg=(mx-mn)||1;
+  const xs=i=>(i+0.5)/12*100,ys=v=>78-(v-mn)/rg*50;
+  const linha=E12.map((v,i)=>xs(i).toFixed(2)+','+ys(v).toFixed(2)).join(' ');
+  const area=xs(0).toFixed(2)+',100 '+linha+' '+xs(11).toFixed(2)+',100';
+  const pontos=E12.map((v,i)=>`<div style="position:absolute;left:${xs(i)}%;top:${ys(v)}%;transform:translate(-50%,-50%)" title="${M.meses[i].lab}: ${v}"><div style="width:9px;height:9px;border-radius:50%;background:#fff;border:2.5px solid var(--primary)"></div><div style="position:absolute;left:50%;bottom:12px;transform:translateX(-50%);font-size:10.5px;font-weight:600;color:var(--navy);white-space:nowrap">${v}</div></div>`).join('');
+  // efetivo por obra
+  const totEf=M.todas.reduce((t,p)=>t+p.ef[12],0)||1,maxEf=Math.max(1,...M.todas.map(p=>p.ef[12]));
+  const bgSel=id=>(!all&&relObra===id)?'var(--info-light,#EAF2FC)':'transparent';
+  const efObras=M.todas.filter(p=>p.ef[12]>0||p.ef[11]>0).map(p=>`<button type="button" onclick="relSel('${p.id}')" style="all:unset;box-sizing:border-box;cursor:pointer;width:100%;padding:6px 8px;border-radius:8px;background:${bgSel(p.id)};display:flex;flex-direction:column;gap:4px">
+    <span style="display:flex;justify-content:space-between;font-size:13px"><span style="font-weight:700;color:var(--navy)">${escHtml(p.cod)}</span><span>${p.ef[12]} <span style="color:var(--text-muted)">(${Math.round(p.ef[12]/totEf*100)}%)</span></span></span>
+    <span style="display:block;height:8px;border-radius:4px;background:#E3EEFB"><span style="display:block;height:8px;border-radius:4px;background:var(--navy);width:${Math.round(p.ef[12]/maxEf*100)}%"></span></span></button>`).join('')||'<div style="color:var(--text-muted);font-size:13px">Sem funcionários nas obras.</div>';
+  // rotatividade por obra
+  const rotLista=M.todas.filter(p=>p.ef[12]>0||p.sa+p.sd>0).sort((a,b)=>b.turnA-a.turnA);
+  const maxRot=Math.max(1,M.empAcum,...rotLista.map(p=>p.turnA))*1.1;
+  const rotHtml=rotLista.map(p=>{
+    const acima=p.turnA>M.empAcum&&rotLista.length>1;
+    return`<button type="button" onclick="relSel('${p.id}')" style="all:unset;box-sizing:border-box;cursor:pointer;width:100%;padding:6px 8px;border-radius:8px;background:${bgSel(p.id)};display:flex;flex-direction:column;gap:4px">
+    <span style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px"><span style="font-weight:700;color:var(--navy)">${escHtml(p.cod)}</span><span>${_relBr(p.turnA,1)}% <span style="color:var(--text-muted)">em 12 meses · ${_relBr(p.turnM,1)}% no mês</span> ${acima?'<span class="badge badge-amber">acima da média</span>':''}</span></span>
+    <span style="position:relative;display:block;height:8px;border-radius:4px;background:#E3EEFB"><span style="display:block;height:8px;border-radius:4px;background:${acima?'var(--accent,#E56F00)':'var(--primary)'};width:${Math.min(100,Math.round(p.turnA/maxRot*100))}%"></span><span style="position:absolute;left:${Math.min(100,Math.round(M.empAcum/maxRot*100))}%;top:-3px;width:2px;height:14px;background:#1a1a1a" title="Média da empresa"></span></span></button>`;
+  }).join('');
+  // conformidade por obra
+  const cols=_REL_CATS;
+  const heatRows=M.todas.filter(p=>p.cr+p.at>0||p.ef[12]>0).map(p=>{
+    const cel=cols.map(c=>{const x=p.cat[c.k],cc=_relCell(x.v);return`<span style="text-align:center;border-radius:8px;padding:4px 0;background:${cc[0]};color:${cc[1]}"><b>${x.v}</b><br><span style="font-size:10.5px">+${x.s}</span></span>`;}).join('');
+    return`<button type="button" onclick="relSel('${p.id}')" style="all:unset;box-sizing:border-box;cursor:pointer;display:grid;width:100%;grid-template-columns:1fr repeat(5,1fr) 1.1fr;gap:10px;align-items:center;min-height:52px;padding:4px 8px;border-top:1px solid var(--border);font-size:13px;border-radius:6px;background:${bgSel(p.id)}"><span style="font-weight:700;color:var(--navy)">${escHtml(p.cod)}</span>${cel}<span style="text-align:center;font-weight:700">${p.cr} <span style="font-weight:500;color:var(--text-muted);font-size:12px">/ ${p.at} atenção</span></span></button>`;
+  }).join('');
+  // cronograma e alojamentos
+  const cronoRows=M.todas.filter(p=>p.cron.tot>0).map(p=>{const pc=Math.round(p.cron.ok/p.cron.tot*100),ok=pc>=REL_META_CRONO;
+    return`<div style="padding:6px 8px;border-radius:8px;background:${bgSel(p.id)};display:flex;flex-direction:column;gap:4px"><span style="display:flex;justify-content:space-between;font-size:13px"><span style="font-weight:700;color:var(--navy)">${escHtml(p.cod)}</span><span>${pc}% <span style="color:var(--text-muted)">(${p.cron.ok} de ${p.cron.tot})</span> <span class="badge ${ok?'badge-green':'badge-amber'}">${ok?'na meta':'abaixo da meta'}</span></span></span>
+    <span style="position:relative;display:block;height:8px;border-radius:4px;background:#E3EEFB"><span style="display:block;height:8px;border-radius:4px;background:${ok?'var(--navy)':'var(--accent,#E56F00)'};width:${pc}%"></span><span style="position:absolute;left:${REL_META_CRONO}%;top:-3px;width:2px;height:14px;background:#1a1a1a"></span></span></div>`;}).join('')||'<div style="color:var(--text-muted);font-size:13px">Nenhum prazo do cronograma venceu neste mês.</div>';
+  const alojRows=M.todas.filter(p=>p.aloj.vagas>0).map(p=>{const pc=Math.round(p.aloj.ocup/p.aloj.vagas*100);
+    return`<div style="padding:6px 8px;border-radius:8px;background:${bgSel(p.id)};display:flex;flex-direction:column;gap:4px"><span style="display:flex;justify-content:space-between;font-size:13px"><span style="font-weight:700;color:var(--navy)">${escHtml(p.cod)}</span><span>${pc}% <span style="color:var(--text-muted)">(${p.aloj.ocup} de ${p.aloj.vagas} vagas)</span></span></span>
+    <span style="display:block;height:8px;border-radius:4px;background:#E3EEFB"><span style="display:block;height:8px;border-radius:4px;background:${pc>100?'var(--danger)':'var(--primary)'};width:${Math.min(100,pc)}%"></span></span></div>`;}).join('')||'<div style="color:var(--text-muted);font-size:13px">Nenhum alojamento com vagas cadastradas.</div>';
+  // pendências críticas abertas
+  const critRows=[];
+  L.forEach(p=>p.itens.filter(it=>it.tipo==='danger').forEach(it=>critRows.push({p,it})));
+  critRows.sort((a,b)=>b.it.qtd-a.it.qtd);
+  const critHtml=critRows.slice(0,8).map(({p,it})=>`<div onclick="irParaPendObra('${p.id}','${it.link||''}','${it.filtroVar||''}','${it.filtroVal||''}')" style="cursor:pointer;display:grid;grid-template-columns:.7fr 3fr .6fr;gap:10px;align-items:center;min-height:44px;padding:2px 8px;border-top:1px solid var(--border);font-size:13px"><span style="font-weight:700;color:var(--navy)">${escHtml(p.cod)}</span><span><i class="ti ${it.icon}" style="margin-right:6px;color:var(--danger)"></i>${escHtml(it.msg)}</span><span style="text-align:right"><span class="badge badge-red">${it.qtd}</span></span></div>`).join('')||'<div style="padding:14px 8px;color:var(--text-muted);font-size:13px">Nenhuma pendência crítica aberta. 👏</div>';
+  // destaques
+  const dEf=ef-efP;const dest=[];
+  dest.push('Efetivo de '+_relBr(ef)+' pessoas, '+(dEf>=0?'+':'−')+Math.abs(dEf)+' em relação ao mês anterior, com '+A[11]+' admissões e '+D[11]+' desligamentos.');
+  if(all){const pior=M.todas.slice().sort((a,b)=>b.cr-a.cr)[0];if(pior&&pior.cr>0)dest.push(pior.cod+' concentra o maior número de pendências críticas ('+pior.cr+' de '+crit+').');}
+  else dest.push(crit+' pendência(s) crítica(s) e '+aten+' de atenção em '+M.por[relObra].cod+'.');
+  if(M.cronoPct!=null){const ab=L.filter(p=>p.cron.tot>0&&p.cron.ok/p.cron.tot*100<REL_META_CRONO).map(p=>p.cod);dest.push('Cronograma ADM com '+_relBr(M.cronoPct)+'% das entregas no prazo'+(ab.length?'; abaixo da meta de '+REL_META_CRONO+'%: '+ab.join(', ')+'.':', dentro da meta em todas as obras.'));}
+  const oc=L.reduce((t,p)=>t+p.aloj.ocup,0),vg=L.reduce((t,p)=>t+p.aloj.vagas,0);
+  if(vg)dest.push('Alojamentos com '+Math.round(oc/vg*100)+'% de ocupação ('+oc+' de '+vg+' vagas).');
+  if(all){
+    const conv=(()=>{try{const l=convErro?[]:convVisiveis();return{aV:l.filter(c=>convSituacao(c).k==='alerta').length,v:l.filter(c=>convSituacao(c).k==='venc').length};}catch(e){return null;}})();
+    const pgr=(()=>{try{const l=pgrErro?[]:pgrStatusLista();return{aV:l.filter(x=>x.st.k==='alerta').length,v:l.filter(x=>x.st.k==='venc').length};}catch(e){return null;}})();
+    if(conv)dest.push('Convenções coletivas: '+conv.v+' vencida(s) e '+conv.aV+' na janela de atenção.');
+    if(pgr)dest.push('PCMSO/PGR: '+pgr.v+' vencido(s) e '+pgr.aV+' a vencer.');
+  }
+  const rotDest=rotLista[0];
+  if(all&&rotDest&&rotLista.length>1&&rotDest.turnA>M.empAcum)dest.push('Maior rotatividade em 12 meses: '+rotDest.cod+' ('+_relBr(rotDest.turnA,1)+'%), contra '+_relBr(M.empAcum,1)+'% da empresa.');
+  // seletores
+  const optsMes=[];for(let i=0;i<12;i++){const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-i);const k=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');optsMes.push(`<option value="${k}" ${k===M.ref?'selected':''}>${d.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</option>`);}
+  const chips=[['all','Todas as obras']].concat(M.todas.filter(p=>p.ef[12]>0||p.cr+p.at>0).map(p=>[p.id,p.cod])).map(([id,n])=>{const on=(id==='all'&&all)||(!all&&relObra===id);return`<button type="button" onclick="relSel('${id}')" style="min-height:40px;padding:0 16px;border-radius:999px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;border:1px solid ${on?'var(--navy)':'var(--border)'};background:${on?'var(--navy)':'#fff'};color:${on?'#fff':'var(--navy)'}">${escHtml(n)}</button>`;}).join('');
+  const card=(titulo,sub,corpo,extra)=>`<div class="table-container" style="padding:16px 18px;min-width:0;${extra||''}"><div style="font-weight:700;font-size:14px;color:var(--navy)">${titulo}</div>${sub?`<div style="font-size:12px;color:var(--text-muted);margin-top:2px">${sub}</div>`:''}<div style="margin-top:10px">${corpo}</div></div>`;
+  mc.innerHTML=`
+  <style>@media print{.sidebar,.rel-no-print{display:none!important}.main{margin-left:0!important;padding:0!important}}</style>
+  <div class="page-header">
+    <div><div class="page-title"><i class="ti ti-report-analytics"></i> Relatório mensal ADM</div>
+      <div class="page-subtitle">${escHtml(escTxt)} · ${mesNome} · comparado com o mês anterior</div></div>
+    <div class="rel-no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select onchange="relSetMes(this.value)" aria-label="Mês do relatório" style="padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);font-family:inherit">${optsMes.join('')}</select>
+      <button class="btn" onclick="relExportarExcel()"><i class="ti ti-file-spreadsheet"></i> Excel</button>
+      <button class="btn btn-primary" onclick="window.print()"><i class="ti ti-printer"></i> Imprimir / PDF</button>
+    </div>
+  </div>
+  <div class="rel-no-print" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px" role="group" aria-label="Escolher obra">${chips}</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px">${kpiHtml}</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px;margin-bottom:16px">
+    ${card('Admissões e desligamentos','Últimos 12 meses · <span style="color:var(--primary)">■</span> admissões <span style="color:var(--accent,#E56F00)">■</span> desligamentos',`<div style="display:flex;align-items:flex-end;height:210px;border-bottom:1px solid var(--border)">${barras}</div><div style="display:flex;margin-top:6px">${labMeses}</div>`)}
+    ${card('Evolução do efetivo','Efetivo ativo no fim de cada mês',`<div style="position:relative;height:210px;border-bottom:1px solid var(--border)"><svg viewBox="0 0 100 100" preserveAspectRatio="none" width="100%" height="100%" aria-hidden="true" style="position:absolute;inset:0"><line x1="0" y1="25" x2="100" y2="25" stroke="#E8EEF6" vector-effect="non-scaling-stroke"/><line x1="0" y1="50" x2="100" y2="50" stroke="#E8EEF6" vector-effect="non-scaling-stroke"/><line x1="0" y1="75" x2="100" y2="75" stroke="#E8EEF6" vector-effect="non-scaling-stroke"/><polygon points="${area}" fill="#1F5FA6" fill-opacity="0.12"/><polyline points="${linha}" fill="none" stroke="#1F5FA6" stroke-width="2.5" vector-effect="non-scaling-stroke"/></svg>${pontos}</div><div style="display:flex;margin-top:6px">${labMeses}</div>`)}
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin-bottom:16px">
+    ${card('Efetivo por obra','Clique numa obra para filtrar o relatório',`<div style="display:flex;flex-direction:column;gap:4px">${efObras}</div>`)}
+    ${card('Rotatividade por obra','(admissões + desligamentos) ÷ 2 ÷ efetivo médio · a linha preta é a média da empresa em 12 meses ('+_relBr(M.empAcum,1)+'%)',`<div style="display:flex;flex-direction:column;gap:4px">${rotHtml||'<div style="color:var(--text-muted);font-size:13px">Sem movimentação para calcular.</div>'}</div>`)}
+  </div>
+  ${card('Pendências por obra (posição de hoje)','Vencidos em destaque; abaixo, quantos estão na janela de atenção',`<div style="overflow-x:auto"><div style="min-width:640px"><div style="display:grid;grid-template-columns:1fr repeat(5,1fr) 1.1fr;gap:10px;padding:0 8px 6px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px"><span>Obra</span>${cols.map(c=>`<span style="text-align:center">${c.nome}</span>`).join('')}<span style="text-align:center">Críticas</span></div>${heatRows||'<div style="color:var(--text-muted);font-size:13px;padding:8px">Nenhuma pendência.</div>'}</div></div>`,'margin-bottom:16px')}
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-bottom:16px">
+    ${card('Cronograma ADM','Entregas no prazo no mês · meta de '+REL_META_CRONO+'%',`<div style="display:flex;flex-direction:column;gap:6px">${cronoRows}</div>`)}
+    ${card('Alojamentos','Ocupação das vagas hoje',`<div style="display:flex;flex-direction:column;gap:6px">${alojRows}</div>`)}
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px">
+    ${card('Pendências críticas abertas','As maiores primeiro · clique para abrir',critHtml)}
+    <div style="display:flex;flex-direction:column;gap:12px">
+      ${card('Destaques do mês','Gerados automaticamente a partir dos dados',`<ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:13.5px;line-height:1.45">${dest.map(d=>'<li>'+escHtml(d)+'</li>').join('')}</ul>`)}
+      ${card('Decisões e responsáveis','',`<textarea rows="5" aria-label="Decisões e responsáveis" placeholder="Anote o que ficou decidido na reunião e quem fica responsável." style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:8px;padding:10px;font-family:inherit;font-size:13.5px;resize:vertical"></textarea>`)}
+    </div>
+  </div>
+  <div style="font-size:11.5px;color:var(--text-muted);margin-top:14px">Admissões, desligamentos e efetivo usam a obra atual de cada funcionário. Pendências, conformidade e alojamentos mostram a posição de hoje. Rotatividade = (admissões + desligamentos) ÷ 2 ÷ efetivo médio.</div>`;
+}
+function relExportarExcel(){
+  try{
+    const M=window._relModelo;if(!M){showToast('Abra o relatório primeiro','error');return;}
+    const mes=M.meses[11].key;
+    const rows=[['RELATÓRIO MENSAL ADM — '+mes],['Emitido em '+new Date().toLocaleDateString('pt-BR')],[],
+      ['OBRA','EFETIVO','ADMISSÕES NO MÊS','DESLIGAMENTOS NO MÊS','ROTATIVIDADE NO MÊS (%)','ROTATIVIDADE 12 MESES (%)','PENDÊNCIAS CRÍTICAS','ATENÇÃO','CRONOGRAMA NO PRAZO (%)','VAGAS OCUPADAS','VAGAS TOTAIS']];
+    M.todas.forEach(p=>rows.push([p.cod+' — '+p.nome,p.ef[12],p.adm[11],p.desl[11],Number(p.turnM.toFixed(1)),Number(p.turnA.toFixed(1)),p.cr,p.at,p.cron.tot?Math.round(p.cron.ok/p.cron.tot*100):'',p.aloj.ocup,p.aloj.vagas]));
+    rows.push([]);rows.push(['SÉRIE DE 12 MESES (todas as obras)']);rows.push(['MÊS','ADMISSÕES','DESLIGAMENTOS','EFETIVO']);
+    M.meses.forEach((m,i)=>rows.push([m.key,M.todas.reduce((t,p)=>t+p.adm[i],0),M.todas.reduce((t,p)=>t+p.desl[i],0),M.todas.reduce((t,p)=>t+p.ef[i+1],0)]));
+    const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:34},{wch:10},{wch:16},{wch:18},{wch:20},{wch:22},{wch:18},{wch:9},{wch:22},{wch:14},{wch:12}];
+    const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Relatório');
+    XLSX.writeFile(wb,'Relatorio_mensal_ADM_'+mes+'.xlsx');
+    showToast('Relatório exportado');
+  }catch(e){console.error(e);showToast('Erro ao exportar: '+e.message,'error');}
+}
+
 
 function calcFeriasStats(data,hoje){
   let feriasVencidas=0,feriasVencendo60=0,feriasProgTotal=0;
@@ -9864,7 +10112,7 @@ function usrHistorico(login){
 function usrExportar(){
   const L=_usrFiltrados(),pad=n=>String(n).padStart(2,'0');
   const fmt=v=>{if(!v)return'Nunca acessou';const d=new Date(v);return pad(d.getDate())+'/'+pad(d.getMonth()+1)+'/'+d.getFullYear()+' '+pad(d.getHours())+':'+pad(d.getMinutes());};
-  const nv=n=>n==='admin'?'Admin':n==='gerente'?'Gerente':'Usuário';
+  const nv=n=>PERFIL_NOME[n]||'Usuário';
   const a=[['Nome','Usuário','Nível','Status','Último acesso','Nº de obras','Obras com acesso']];
   const b=[['Nome','Usuário','Nível','Status','Último acesso','Código da obra','Obra']];
   L.forEach(u=>{const ids=(u.obras_acesso||[]).map(String),st=u.ativo===false?'Bloqueado':'Ativo';
@@ -9884,7 +10132,7 @@ function usrDesenha(){
   const card=(t,v,c)=>`<div class="metric-card"><div class="metric-label">${t}</div><div class="metric-value" style="${c?'color:'+c:''}">${v}</div></div>`;
   document.getElementById('usr-cards').innerHTML=card('Usuários',L0.length)+card('Ativos',ativos.length,'var(--success)')+card('Bloqueados',L0.length-ativos.length,L0.length-ativos.length?'var(--danger)':'')+card('Nunca acessaram',L0.filter(u=>!u.ultimo_acesso).length,'var(--warning)')+card('Obras sem nenhum usuário',semUsuario.length,semUsuario.length?'var(--danger)':'');
   document.querySelectorAll('.usr-modo').forEach(b=>b.classList.toggle('btn-primary',b.dataset.m===E.modo));
-  const nivelBadge=n=>n==='admin'?'<span class="badge badge-red">Admin</span>':n==='gerente'?'<span class="badge badge-amber">Gerente</span>':'<span class="badge badge-blue">Usuário</span>';
+  const nivelBadge=n=>n==='admin'?'<span class="badge badge-red">Admin</span>':n==='diretoria'?'<span class="badge badge-red">Diretoria</span>':n==='coordenador'?'<span class="badge badge-amber">Coordenador</span>':n==='gerente'?'<span class="badge badge-amber">Gerente</span>':'<span class="badge badge-blue">Usuário</span>';
   if(E.modo==='u'){
     const L=_usrFiltrados(),th=(c,t)=>`<th style="cursor:pointer;white-space:nowrap" onclick="usrOrdenar('${c}')">${t} ${E.ord===c?(E.dir>0?'▲':'▼'):'<span style="opacity:.35">↕</span>'}</th>`;
     const ultimoLog=(login,acoes)=>E.log.find(x=>x.usuario_login===login&&acoes.includes(x.acao));
@@ -9929,7 +10177,7 @@ async function renderUsuarios(){
     <div class="metrics" id="usr-cards" style="margin-bottom:12px"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
       <input id="usr-q" placeholder="Buscar usuário ou obra (número ou nome)…" value="${escHtml(E.q)}" oninput="usrFiltro('q',this.value)" style="max-width:320px">
-      <select onchange="usrFiltro('nivel',this.value)" style="max-width:150px"><option value="">Nível: todos</option>${['admin','gerente','usuario'].map(n=>`<option value="${n}" ${E.nivel===n?'selected':''}>${n==='admin'?'Admin':n==='gerente'?'Gerente':'Usuário'}</option>`).join('')}</select>
+      <select onchange="usrFiltro('nivel',this.value)" style="max-width:150px"><option value="">Nível: todos</option>${['admin','diretoria','coordenador','gerente','usuario'].map(n=>`<option value="${n}" ${E.nivel===n?'selected':''}>${PERFIL_NOME[n]}</option>`).join('')}</select>
       <select onchange="usrFiltro('status',this.value)" style="max-width:150px"><option value="">Status: todos</option><option value="ativo" ${E.status==='ativo'?'selected':''}>Ativo</option><option value="bloq" ${E.status==='bloq'?'selected':''}>Bloqueado</option></select>
       <select onchange="usrFiltro('acesso',this.value)" style="max-width:190px"><option value="">Último acesso: todos</option><option value="hoje" ${E.acesso==='hoje'?'selected':''}>Hoje</option><option value="7" ${E.acesso==='7'?'selected':''}>Há mais de 7 dias</option><option value="30" ${E.acesso==='30'?'selected':''}>Há mais de 30 dias</option><option value="nunca" ${E.acesso==='nunca'?'selected':''}>Nunca acessou</option></select>
       <span style="flex:1"></span>
@@ -9979,8 +10227,10 @@ function openModalUsuario(id,focarSenha){
               <div class="form-group">
                 <label>Nível de acesso *</label>
                 <select id="u-nivel">
-                  <option value="usuario" ${u?.perfil==='usuario'?'selected':''}>Usuário</option>
+                  <option value="usuario" ${u?.perfil==='usuario'?'selected':''}>Usuário (administrativo)</option>
+                  <option value="coordenador" ${u?.perfil==='coordenador'?'selected':''}>Coordenador</option>
                   <option value="gerente" ${u?.perfil==='gerente'?'selected':''}>Gerente</option>
+                  <option value="diretoria" ${u?.perfil==='diretoria'?'selected':''}>Diretoria</option>
                   <option value="admin" ${u?.perfil==='admin'?'selected':''}>Admin</option>
                 </select>
               </div>
