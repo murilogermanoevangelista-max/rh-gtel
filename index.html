@@ -267,7 +267,7 @@ input:focus,select:focus{border-color:var(--primary)}
 .obs-modal{max-width:480px}
 /* FOLGAS */
 .folga-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:12px}
-.folga-row{display:grid;grid-template-columns:260px 100px 120px 100px repeat(6,1fr);gap:0;align-items:stretch;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px;overflow:hidden}
+.folga-row{display:grid;grid-template-columns:240px 80px 100px 90px minmax(0,.8fr) minmax(330px,2.4fr) repeat(4,minmax(0,.75fr));gap:0;align-items:stretch;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px;overflow:hidden}
 .folga-cell{padding:10px 12px;border-right:1px solid var(--border);display:flex;flex-direction:column;justify-content:center;font-size:13px}
 .folga-cell:last-child{border-right:none}
 .folga-cell-header{font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
@@ -279,7 +279,7 @@ input:focus,select:focus{border-color:var(--primary)}
 .folga-venc.future{background:var(--bg);color:var(--text-muted)}
 .folga-saida-real{font-size:11px;color:var(--primary);cursor:pointer;text-decoration:underline}
 .folga-saida-proj{font-size:11px;color:var(--text-muted)}
-.folga-header-row{display:grid;grid-template-columns:260px 100px 120px 100px repeat(6,1fr);gap:0;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0;margin-bottom:0;overflow:hidden}
+.folga-header-row{display:grid;grid-template-columns:240px 80px 100px 90px minmax(0,.8fr) minmax(330px,2.4fr) repeat(4,minmax(0,.75fr));gap:0;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0;margin-bottom:0;overflow:hidden}
 .folga-header-cell{padding:8px 12px;font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;border-right:1px solid var(--border)}
 .folga-header-cell:last-child{border-right:none}
 .folga-func-name{font-weight:600;font-size:13px}
@@ -1150,6 +1150,9 @@ const MODULOS=[
 ];
 // Níveis de acesso. 'usuario' = administrativos (encarregado, assistente, auxiliar, analista, supervisor, aux. de escritório).
 // Gestão = quem pode ver relatórios comparativos entre obras. Diretoria/Coordenador exigem que o banco aceite esses valores (ver script SQL).
+// Regra: conta e relatório ADM 31 só valem como lançados quando têm o PDF anexado.
+function contaCompleta(c){return !!(c&&c.anexo_url);}
+function relCompleto(r){return !!(r&&r.anexo_url);}
 const PERFIS_GESTAO=['admin','coordenador','gerente','diretoria'];
 const PERFIL_NOME={admin:'Admin',coordenador:'Coordenador',gerente:'Gerente',diretoria:'Diretoria',usuario:'Usuário'};
 function perfilGestao(){return PERFIS_GESTAO.includes(currentUser?.perfil);}
@@ -3440,7 +3443,7 @@ async function renderDashboard(){
   const mesAtual=hoje.getMonth()+1;const anoAtual=hoje.getFullYear();
   const alojSemContas=alojDash.filter(a=>{
     const contasMesAloj=alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===mesAtual&&c.ano===anoAtual);
-    const tiposLancados=new Set(contasMesAloj.map(c=>c.tipo));
+    const tiposLancados=new Set(contasMesAloj.filter(contaCompleta).map(c=>c.tipo));
     return contasObrigatorias.some(t=>!tiposLancados.has(t)&&!a['isenta_'+t]);
   });
   const qtdAlojSemContas=alojSemContas.length;
@@ -3450,7 +3453,7 @@ async function renderDashboard(){
   const alertas=[];
   if(expVenceHoje>0)alertas.push({tipo:'danger',icon:'ti-certificate',modulo:'Experiência',destino:'Ver funcionários',msg:`Experiência vence HOJE — decisão necessária`,qtd:expVenceHoje,link:'experiencia',filtroVar:'expFiltro',filtroVal:'vencehoje'});
   if(alojContratosVencidos.length>0)alertas.push({tipo:'danger',icon:'ti-home-off',modulo:'Alojamentos',destino:'Ver alojamentos',msg:`Contrato de alojamento vencido`,qtd:alojContratosVencidos.length,link:'alojamentos',filtroVar:'alojFiltroAtivo',filtroVal:'contratos_vencidos'});
-  if(qtdAlojSemContas>0)alertas.push({tipo:'warning',icon:'ti-home-exclamation',modulo:'Alojamentos',destino:'Ver alojamentos',msg:`Contas não lançadas este mês`,qtd:qtdAlojSemContas,link:'alojamentos',filtroVar:'alojFiltroAtivo',filtroVal:'nao_lancadas'});
+  if(qtdAlojSemContas>0)alertas.push({tipo:'warning',icon:'ti-home-exclamation',modulo:'Alojamentos',destino:'Ver alojamentos',msg:`Contas sem lançamento ou sem PDF este mês`,qtd:qtdAlojSemContas,link:'alojamentos',filtroVar:'alojFiltroAtivo',filtroVal:'nao_lancadas'});
   if(alojContratosVencendo.length>0)alertas.push({tipo:'warning',icon:'ti-home-clock',modulo:'Alojamentos',destino:'Ver alojamentos',msg:`Contrato vencendo em 60 dias`,qtd:alojContratosVencendo.length,link:'alojamentos',filtroVar:'alojFiltroAtivo',filtroVal:'contratos_vencendo'});
   if(expVencidas>0)alertas.push({tipo:'danger',icon:'ti-certificate',modulo:'Experiência',destino:'Ver funcionários',msg:`Experiência(s) vencida(s)`,qtd:expVencidas,link:'experiencia',filtroVar:'expFiltro',filtroVal:'vencida'});
   if(folgasVencidas>0)alertas.push({tipo:'danger',icon:'ti-beach',modulo:'Folgas de campo',destino:'Ver funcionários',msg:`Folga(s) vencida(s)`,qtd:folgasVencidas,link:'folgas',filtroVar:'folgasFiltro',filtroVal:'danger'});
@@ -3484,7 +3487,7 @@ async function renderDashboard(){
   // Alojamentos — contrato vencido / vencendo / contas não lançadas
   alojContratosVencidos.forEach(a=>addPend(obraKeyDe(a.obra),'danger','ti-home-off','Contrato de alojamento vencido',a.obra_id,'alojamentos','alojFiltroAtivo','contratos_vencidos'));
   alojContratosVencendo.forEach(a=>addPend(obraKeyDe(a.obra),'warning','ti-home-clock','Contrato vencendo em 60 dias',a.obra_id,'alojamentos','alojFiltroAtivo','contratos_vencendo'));
-  alojSemContas.forEach(a=>addPend(obraKeyDe(a.obra),'warning','ti-home-exclamation','Conta(s) não lançada(s) este mês',a.obra_id,'alojamentos','alojFiltroAtivo','nao_lancadas'));
+  alojSemContas.forEach(a=>addPend(obraKeyDe(a.obra),'warning','ti-home-exclamation','Conta(s) sem lançamento ou sem PDF este mês',a.obra_id,'alojamentos','alojFiltroAtivo','nao_lancadas'));
   // Cronograma ADM — por obra
   _cronoAlertas.forEach(a=>addPend(obraKeyDe(a.r.obra),a.tipo,a.tipo==='danger'?'ti-calendar-x':'ti-calendar-time',a.tipo==='danger'?'Tarefa do cronograma em atraso':'Prazo do cronograma chegando',a.r.obra.id,'cronograma'));
   // Experiência — vencida / vencendo
@@ -3917,10 +3920,12 @@ function pendSetTab(k){pendTab=k;renderPendenciasCentral();}
 // Os números saem dos mesmos dados do resto do sistema; nada é gravado no banco.
 // Admissões/desligamentos por obra usam a obra ATUAL de cada funcionário (quem foi transferido
 // aparece na obra de hoje, também nos meses anteriores).
-let relObra='all',relMes='';
+// Fluxo: renderRelatorioADM() carrega os dados UMA vez (usa o cálculo do Dashboard); trocar de obra
+// só redesenha (relDesenhar), e trocar de mês recalcula em memória (relCalc) sem recarregar nada.
+let relObra='all',relMes='',relGlobalVisto='__x',relSnap=null,relModelo=null;
 const REL_META_CRONO=80;
-function relSel(id){relObra=String(id);renderRelatorioADM();}
-function relSetMes(v){relMes=v||'';renderRelatorioADM();}
+function relSel(id){relObra=String(id);relDesenhar();}
+function relSetMes(v){relMes=v||'';try{relModelo=relCalc(relSnap||{obrasComPendencia:[]});}catch(e){console.error(e);}relDesenhar();}
 function _relBr(n,d){return Number(n).toFixed(d||0).replace('.',',');}
 function _relIso(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function _relDelta(cur,prev,menorMelhor,un,dec){
@@ -3936,7 +3941,8 @@ const _REL_CATS=[
   {k:'fer',nome:'Férias',icones:['ti-palm-tree']},
   {k:'fol',nome:'Folgas',icones:['ti-beach']},
   {k:'alo',nome:'Alojamentos',icones:['ti-home-off','ti-home-clock','ti-home-exclamation']},
-  {k:'cro',nome:'Cronograma',icones:['ti-calendar-x','ti-calendar-time']}
+  {k:'cro',nome:'Cronograma',icones:['ti-calendar-x','ti-calendar-time']},
+  {k:'out',nome:'Outros',icones:[]}
 ];
 function relCalc(snap){
   const hoje=new Date();hoje.setHours(12,0,0,0);
@@ -3956,79 +3962,89 @@ function relCalc(snap){
     if(f.situacao==='inativo'){const d=(f.data_demissao||'').slice(0,10);return !!d&&d>fim;}
     return true;
   };
-  const lista=(obras||[]).slice().sort((a,b)=>String(a.codigo||'').localeCompare(String(b.codigo||''),'pt-BR',{numeric:true}));
+  const lista=(obras||[]).slice().sort((a,b)=>String(a.nome||a.codigo||'').localeCompare(String(b.nome||b.codigo||''),'pt-BR',{numeric:true}));
   const por={};
-  lista.forEach(o=>{por[String(o.id)]={id:String(o.id),cod:o.codigo||'?',nome:o.nome||'',adm:new Array(12).fill(0),desl:new Array(12).fill(0),ef:new Array(13).fill(0)};});
+  lista.forEach(o=>{por[String(o.id)]={id:String(o.id),cod:o.codigo||'?',nome:o.nome||'',lab:o.nome||o.codigo||'?',adm:new Array(12).fill(0),desl:new Array(12).fill(0),ef:new Array(13).fill(0)};});
   (funcionarios||[]).forEach(f=>{
     const P=por[String(f.obra_id)];if(!P)return;
     for(let k=0;k<=12;k++)if(pres(f,ends[k]))P.ef[k]++;
     if(f.situacao!=='transferido'){const i=idxMes[(f.data_admissao||'').slice(0,7)];if(i!=null)P.adm[i]++;}
     if(f.situacao==='inativo'){const i=idxMes[(f.data_demissao||'').slice(0,7)];if(i!=null)P.desl[i]++;}
   });
-  // cronograma ADM — pontualidade do mês escolhido e do anterior
-  const cronoMes=(y,m)=>{const o={};try{cronoOcorrenciasMes(y,m).forEach(r=>{
-    const id=String(r.obra.id);const s=o[id]||(o[id]={ok:0,tot:0});
+  // cronograma ADM — pontualidade do mês escolhido e do anterior (e as tarefas de cada obra)
+  const cronoMes=(y,m,comItens)=>{const o={};try{cronoOcorrenciasMes(y,m).forEach(r=>{
+    const id=String(r.obra.id);const s=o[id]||(o[id]={ok:0,tot:0,itens:[]});
     if(r.status==='ok'){s.ok++;s.tot++;}
     else if(r.status==='atraso'||r.status==='nao_entregue'||(r.status==='parcial'&&r.atrasado))s.tot++;
+    if(comItens&&r.status!=='na'){const st=(typeof CRONO_STATUS!=='undefined'&&CRONO_STATUS[r.status])||{cor:'var(--text-muted)',icon:'ti-point'};
+      s.itens.push({titulo:(r.t&&r.t.titulo)||'Tarefa',desc:cronoDescStatus(r),cor:st.cor,icon:st.icon,prazo:r.ymd||''});}
   });}catch(e){}return o;};
-  const cM=cronoMes(meses[11].y,meses[11].m),cP=cronoMes(meses[10].y,meses[10].m);
+  const cM=cronoMes(meses[11].y,meses[11].m,true),cP=cronoMes(meses[10].y,meses[10].m,false);
   // pendências de hoje (vêm do mesmo cálculo do Dashboard)
   const pend={};(snap.obrasComPendencia||[]).forEach(o=>{pend[String(o.obraId)]=o;});
   const catDe=icon=>(_REL_CATS.find(c=>c.icones.includes(icon))||{}).k;
+  const sum12=a=>a.reduce((t,v)=>t+v,0);
   Object.values(por).forEach(P=>{
     const pd=pend[P.id];
     P.cr=pd?pd.danger:0;P.at=pd?pd.warning:0;P.itens=pd?pd.itensArr:[];
     P.cat={};_REL_CATS.forEach(c=>{P.cat[c.k]={v:0,s:0};});
-    P.itens.forEach(it=>{const k=catDe(it.icon);if(!k)return;P.cat[k][it.tipo==='danger'?'v':'s']+=it.qtd;});
-    const cm=cM[P.id]||{ok:0,tot:0},cp=cP[P.id]||{ok:0,tot:0};
-    P.cron={ok:cm.ok,tot:cm.tot};P.cronP={ok:cp.ok,tot:cp.tot};
+    P.itens.forEach(it=>{const k=catDe(it.icon)||'out';P.cat[k][it.tipo==='danger'?'v':'s']+=it.qtd;});
+    const cm=cM[P.id]||{ok:0,tot:0,itens:[]},cp=cP[P.id]||{ok:0,tot:0};
+    P.cron={ok:cm.ok,tot:cm.tot};P.cronP={ok:cp.ok,tot:cp.tot};P.cronItens=cm.itens;
     const al=(alojamentos||[]).filter(a=>String(a.obra_id)===P.id&&a.tipo_alojamento!=='hotel');
-    P.aloj={vagas:al.reduce((s,a)=>s+(a.vagas_total||0),0),ocup:al.reduce((s,a)=>s+alojOcupantes(a),0)};
+    P.alojLista=al.map(a=>({nome:a.nome||'Sem nome',oc:alojOcupantes(a),v:a.vagas_total||0})).sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR'));
+    P.aloj={vagas:P.alojLista.reduce((s,a)=>s+a.v,0),ocup:P.alojLista.reduce((s,a)=>s+a.oc,0)};
     P.sa=sum12(P.adm);P.sd=sum12(P.desl);
   });
-  function sum12(a){return a.reduce((t,v)=>t+v,0);}
   const todas=Object.values(por);
-  const escopo=relObra==='all'?todas:todas.filter(p=>p.id===relObra);
-  const somaArr=(k,n)=>{const r=new Array(n).fill(0);escopo.forEach(p=>p[k].forEach((v,i)=>{r[i]+=v;}));return r;};
-  const A=somaArr('adm',12),D=somaArr('desl',12),E=somaArr('ef',13);
-  const soma=(f)=>escopo.reduce((t,p)=>t+f(p),0);
   const empresaE=new Array(13).fill(0);todas.forEach(p=>p.ef.forEach((v,i)=>{empresaE[i]+=v;}));
   const mediaE=arr=>arr.length?arr.reduce((t,v)=>t+v,0)/arr.length:0;
   const acum=(p)=>{const m=mediaE(p.ef.slice(1));return m>0?((p.sa+p.sd)/2)/m*100:0;};
   const empAcum=(()=>{const sa=todas.reduce((t,p)=>t+p.sa,0),sd=todas.reduce((t,p)=>t+p.sd,0),m=mediaE(empresaE.slice(1));return m>0?((sa+sd)/2)/m*100:0;})();
   todas.forEach(p=>{p.turnM=_relTurn(p.adm[11],p.desl[11],p.ef[11],p.ef[12]);p.turnA=acum(p);});
-  return{meses,hojeISO,ref,cur,por,todas,escopo,A,D,E,soma,empAcum,
-    turnM:_relTurn(A[11],D[11],E[11],E[12]),turnP:_relTurn(A[10],D[10],E[10],E[11]),
-    cronoPct:(()=>{const ok=soma(p=>p.cron.ok),t=soma(p=>p.cron.tot);return t?ok/t*100:null;})(),
-    cronoPctP:(()=>{const ok=soma(p=>p.cronP.ok),t=soma(p=>p.cronP.tot);return t?ok/t*100:null;})()};
+  return{meses,hojeISO,ref,cur,por,todas,empAcum};
 }
 function _relCell(v){return v===0?['var(--success-light,#E3F4E8)','#17653A']:v===1?['var(--warning-light,#FFF0DC)','#8A4B00']:['var(--danger-light,#FBE3E0)','#9B1C12'];}
 async function renderRelatorioADM(){
   if(!perfilGestao()){showToast('Acesso restrito à gestão','error');currentPage='dashboard';await showPage('dashboard');return;}
   const mc=document.getElementById('main-content');
-  mc.innerHTML='<div class="loading"><i class="ti ti-loader ti-spin"></i> Montando o relatório...</div>';
+  mc.innerHTML='<div class="loading"><i class="ti ti-loader ti-spin"></i> Carregando os dados do relatório...</div>';
   const _g=globalObraFiltro;globalObraFiltro='';dashModo='snapshot';window._dashSnap=null;
   try{await renderDashboard();}catch(e){console.warn('[Relatório] dados do dashboard:',e);}
   finally{dashModo='dashboard';globalObraFiltro=_g;}
-  let M;
-  try{M=relCalc(window._dashSnap||{obrasComPendencia:[]});}
+  relSnap=window._dashSnap||{obrasComPendencia:[]};
+  try{relModelo=relCalc(relSnap);}
   catch(e){console.error(e);mc.innerHTML='<div style="padding:30px;color:var(--danger)">Erro ao montar o relatório: '+escHtml(e.message)+'</div>';return;}
-  window._relModelo=M;
-  const all=relObra==='all'||!M.por[relObra];
+  // o filtro "Filtrar por obra" do menu lateral manda no relatório quando ele muda
+  const gAtual=String(globalObraFiltro||'');
+  if(relGlobalVisto!==gAtual){relGlobalVisto=gAtual;relObra=gAtual||'all';}
+  relDesenhar(true);
+}
+function relDesenhar(primeira){
+  const M=relModelo;if(!M)return;
+  const mc=document.getElementById('main-content');
+  const y0=window.scrollY||0;
   if(!M.por[relObra])relObra='all';
-  const L=M.escopo,A=M.A,D=M.D,E=M.E;
+  const all=relObra==='all';
+  const escopo=all?M.todas:[M.por[relObra]];
+  const somaArr=(k,n)=>{const r=new Array(n).fill(0);escopo.forEach(p=>p[k].forEach((v,i)=>{r[i]+=v;}));return r;};
+  const A=somaArr('adm',12),D=somaArr('desl',12),E=somaArr('ef',13);
+  const L=escopo;
+  const turnM=_relTurn(A[11],D[11],E[11],E[12]),turnP=_relTurn(A[10],D[10],E[10],E[11]);
+  const okC=L.reduce((t,p)=>t+p.cron.ok,0),totC=L.reduce((t,p)=>t+p.cron.tot,0),okP=L.reduce((t,p)=>t+p.cronP.ok,0),totP=L.reduce((t,p)=>t+p.cronP.tot,0);
+  const cronoPct=totC?okC/totC*100:null,cronoPctP=totP?okP/totP*100:null;
   const ef=E[12],efP=E[11];
   const crit=L.reduce((t,p)=>t+p.cr,0),aten=L.reduce((t,p)=>t+p.at,0);
   const mesNome=new Date(M.meses[11].y,M.meses[11].m-1,1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
-  const escTxt=all?'Todas as obras':(M.por[relObra].cod+' — '+M.por[relObra].nome);
+  const escTxt=all?'Todas as obras':M.por[relObra].lab;
   const mk=(l,v,d)=>({l,v,d});
   const kpis=[
     mk('Efetivo ativo',_relBr(ef),_relDelta(ef,efP,false,'')),
     mk('Admissões no mês',_relBr(A[11]),_relDelta(A[11],A[10],false,'')),
     mk('Desligamentos no mês',_relBr(D[11]),_relDelta(D[11],D[10],true,'')),
-    mk('Rotatividade mensal',_relBr(M.turnM,1)+'%',_relDelta(M.turnM,M.turnP,true,' p.p.',1)),
-    mk('Entregas do cronograma no prazo',M.cronoPct==null?'—':_relBr(M.cronoPct)+'%',M.cronoPct==null?{txt:'nenhum prazo vencido no mês',cor:'var(--text-muted)'}:_relDelta(Math.round(M.cronoPct),M.cronoPctP==null?null:Math.round(M.cronoPctP),false,' p.p.')),
-    mk('Pendências críticas hoje',_relBr(crit),{txt:aten+' de atenção',cor:'var(--text-muted)'})
+    mk('Rotatividade mensal',_relBr(turnM,1)+'%',_relDelta(turnM,turnP,true,' p.p.',1)),
+    mk('Entregas do cronograma no prazo',cronoPct==null?'—':_relBr(cronoPct)+'%',cronoPct==null?{txt:'nenhum prazo vencido no mês',cor:'var(--text-muted)'}:_relDelta(Math.round(cronoPct),cronoPctP==null?null:Math.round(cronoPctP),false,' p.p.')),
+    mk('Pendências críticas hoje',_relBr(crit),{txt:aten+' em atenção',cor:'var(--text-muted)'})
   ];
   const kpiHtml=kpis.map(k=>`<div class="table-container" style="padding:14px 16px;min-width:0"><div style="font-size:12px;font-weight:700;color:var(--text-muted)">${k.l}</div><div style="font-size:28px;font-weight:700;color:var(--navy);margin:4px 0 2px">${k.v}</div><div style="font-size:12px;font-weight:700;color:${k.d.cor}">${k.d.txt}</div></div>`).join('');
   // gráfico de barras: admissões x desligamentos
@@ -4046,42 +4062,54 @@ async function renderRelatorioADM(){
   // efetivo por obra
   const totEf=M.todas.reduce((t,p)=>t+p.ef[12],0)||1,maxEf=Math.max(1,...M.todas.map(p=>p.ef[12]));
   const bgSel=id=>(!all&&relObra===id)?'var(--info-light,#EAF2FC)':'transparent';
-  const efObras=M.todas.filter(p=>p.ef[12]>0||p.ef[11]>0).map(p=>`<button type="button" onclick="relSel('${p.id}')" style="all:unset;box-sizing:border-box;cursor:pointer;width:100%;padding:6px 8px;border-radius:8px;background:${bgSel(p.id)};display:flex;flex-direction:column;gap:4px">
-    <span style="display:flex;justify-content:space-between;font-size:13px"><span style="font-weight:700;color:var(--navy)">${escHtml(p.cod)}</span><span>${p.ef[12]} <span style="color:var(--text-muted)">(${Math.round(p.ef[12]/totEf*100)}%)</span></span></span>
+  const efObras=M.todas.filter(p=>p.ef[12]>0||p.ef[11]>0).map(p=>`<button type="button" onclick="relSel('${p.id}')" title="${escHtml(p.cod)}" style="all:unset;box-sizing:border-box;cursor:pointer;width:100%;padding:6px 8px;border-radius:8px;background:${bgSel(p.id)};display:flex;flex-direction:column;gap:4px">
+    <span style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><span style="font-weight:700;color:var(--navy)">${escHtml(p.lab)}</span><span style="white-space:nowrap">${p.ef[12]} <span style="color:var(--text-muted)">(${Math.round(p.ef[12]/totEf*100)}%)</span></span></span>
     <span style="display:block;height:8px;border-radius:4px;background:#E3EEFB"><span style="display:block;height:8px;border-radius:4px;background:var(--navy);width:${Math.round(p.ef[12]/maxEf*100)}%"></span></span></button>`).join('')||'<div style="color:var(--text-muted);font-size:13px">Sem funcionários nas obras.</div>';
   // rotatividade por obra
   const rotLista=M.todas.filter(p=>p.ef[12]>0||p.sa+p.sd>0).sort((a,b)=>b.turnA-a.turnA);
   const maxRot=Math.max(1,M.empAcum,...rotLista.map(p=>p.turnA))*1.1;
   const rotHtml=rotLista.map(p=>{
     const acima=p.turnA>M.empAcum&&rotLista.length>1;
-    return`<button type="button" onclick="relSel('${p.id}')" style="all:unset;box-sizing:border-box;cursor:pointer;width:100%;padding:6px 8px;border-radius:8px;background:${bgSel(p.id)};display:flex;flex-direction:column;gap:4px">
-    <span style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px"><span style="font-weight:700;color:var(--navy)">${escHtml(p.cod)}</span><span>${_relBr(p.turnA,1)}% <span style="color:var(--text-muted)">em 12 meses · ${_relBr(p.turnM,1)}% no mês</span> ${acima?'<span class="badge badge-amber">acima da média</span>':''}</span></span>
+    return`<button type="button" onclick="relSel('${p.id}')" title="${escHtml(p.cod)}" style="all:unset;box-sizing:border-box;cursor:pointer;width:100%;padding:6px 8px;border-radius:8px;background:${bgSel(p.id)};display:flex;flex-direction:column;gap:4px">
+    <span style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px"><span style="font-weight:700;color:var(--navy)">${escHtml(p.lab)}</span><span style="text-align:right">${_relBr(p.turnA,1)}% <span style="color:var(--text-muted)">em 12 meses · ${_relBr(p.turnM,1)}% no mês</span> ${acima?'<span class="badge badge-amber">acima da média</span>':''}</span></span>
     <span style="position:relative;display:block;height:8px;border-radius:4px;background:#E3EEFB"><span style="display:block;height:8px;border-radius:4px;background:${acima?'var(--accent,#E56F00)':'var(--primary)'};width:${Math.min(100,Math.round(p.turnA/maxRot*100))}%"></span><span style="position:absolute;left:${Math.min(100,Math.round(M.empAcum/maxRot*100))}%;top:-3px;width:2px;height:14px;background:#1a1a1a" title="Média da empresa"></span></span></button>`;
   }).join('');
-  // conformidade por obra
+  // pendências por obra: cada quadrado diz "N vencidos" e "+N a vencer"
   const cols=_REL_CATS;
-  const heatRows=M.todas.filter(p=>p.cr+p.at>0||p.ef[12]>0).map(p=>{
-    const cel=cols.map(c=>{const x=p.cat[c.k],cc=_relCell(x.v);return`<span style="text-align:center;border-radius:8px;padding:4px 0;background:${cc[0]};color:${cc[1]}"><b>${x.v}</b><br><span style="font-size:10.5px">+${x.s}</span></span>`;}).join('');
-    return`<button type="button" onclick="relSel('${p.id}')" style="all:unset;box-sizing:border-box;cursor:pointer;display:grid;width:100%;grid-template-columns:1fr repeat(5,1fr) 1.1fr;gap:10px;align-items:center;min-height:52px;padding:4px 8px;border-top:1px solid var(--border);font-size:13px;border-radius:6px;background:${bgSel(p.id)}"><span style="font-weight:700;color:var(--navy)">${escHtml(p.cod)}</span>${cel}<span style="text-align:center;font-weight:700">${p.cr} <span style="font-weight:500;color:var(--text-muted);font-size:12px">/ ${p.at} atenção</span></span></button>`;
+  const heatRows=escopo.filter(p=>p.cr+p.at>0||p.ef[12]>0).map(p=>{
+    const cel=cols.map(c=>{const x=p.cat[c.k],cc=_relCell(x.v);return`<span style="text-align:center;border-radius:8px;padding:6px 2px;background:${cc[0]};color:${cc[1]};line-height:1.25"><b style="font-size:16px">${x.v}</b> <span style="font-size:11px">vencido${x.v===1?'':'s'}</span><br><span style="font-size:11px">+${x.s} a vencer</span></span>`;}).join('');
+    return`<button type="button" onclick="relSel('${p.id}')" style="all:unset;box-sizing:border-box;cursor:pointer;display:grid;width:100%;grid-template-columns:1.3fr repeat(6,1fr) 1fr;gap:8px;align-items:center;min-height:56px;padding:4px 8px;border-top:1px solid var(--border);font-size:13px;border-radius:6px;background:${bgSel(p.id)}"><span style="font-weight:700;color:var(--navy)" title="${escHtml(p.cod)}">${escHtml(p.lab)}</span>${cel}<span style="text-align:center;line-height:1.3"><b>${p.cr}</b> críticas<br><span style="color:var(--text-muted);font-size:12px">${p.at} em atenção</span></span></button>`;
   }).join('');
-  // cronograma e alojamentos
-  const cronoRows=M.todas.filter(p=>p.cron.tot>0).map(p=>{const pc=Math.round(p.cron.ok/p.cron.tot*100),ok=pc>=REL_META_CRONO;
-    return`<div style="padding:6px 8px;border-radius:8px;background:${bgSel(p.id)};display:flex;flex-direction:column;gap:4px"><span style="display:flex;justify-content:space-between;font-size:13px"><span style="font-weight:700;color:var(--navy)">${escHtml(p.cod)}</span><span>${pc}% <span style="color:var(--text-muted)">(${p.cron.ok} de ${p.cron.tot})</span> <span class="badge ${ok?'badge-green':'badge-amber'}">${ok?'na meta':'abaixo da meta'}</span></span></span>
-    <span style="position:relative;display:block;height:8px;border-radius:4px;background:#E3EEFB"><span style="display:block;height:8px;border-radius:4px;background:${ok?'var(--navy)':'var(--accent,#E56F00)'};width:${pc}%"></span><span style="position:absolute;left:${REL_META_CRONO}%;top:-3px;width:2px;height:14px;background:#1a1a1a"></span></span></div>`;}).join('')||'<div style="color:var(--text-muted);font-size:13px">Nenhum prazo do cronograma venceu neste mês.</div>';
-  const alojRows=M.todas.filter(p=>p.aloj.vagas>0).map(p=>{const pc=Math.round(p.aloj.ocup/p.aloj.vagas*100);
-    return`<div style="padding:6px 8px;border-radius:8px;background:${bgSel(p.id)};display:flex;flex-direction:column;gap:4px"><span style="display:flex;justify-content:space-between;font-size:13px"><span style="font-weight:700;color:var(--navy)">${escHtml(p.cod)}</span><span>${pc}% <span style="color:var(--text-muted)">(${p.aloj.ocup} de ${p.aloj.vagas} vagas)</span></span></span>
-    <span style="display:block;height:8px;border-radius:4px;background:#E3EEFB"><span style="display:block;height:8px;border-radius:4px;background:${pc>100?'var(--danger)':'var(--primary)'};width:${Math.min(100,pc)}%"></span></span></div>`;}).join('')||'<div style="color:var(--text-muted);font-size:13px">Nenhum alojamento com vagas cadastradas.</div>';
+  const legenda=`<div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;font-size:12px;color:var(--text-muted);margin:6px 0 10px"><span style="display:inline-flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:3px;background:var(--success-light,#E3F4E8);border:1px solid #17653A"></span>nenhum vencido</span><span style="display:inline-flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:3px;background:var(--warning-light,#FFF0DC);border:1px solid #8A4B00"></span>1 vencido</span><span style="display:inline-flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:3px;background:var(--danger-light,#FBE3E0);border:1px solid #9B1C12"></span>2 ou mais vencidos</span><span><b>vencido</b> = já passou do prazo e precisa de ação · <b>a vencer</b> = está na janela de atenção</span></div>`;
+  // cronograma e alojamentos (uma obra: detalhe; todas: uma linha por obra)
+  let cronoRows,alojRows,cronoTitulo='Cronograma ADM',cronoSub='Entregas no prazo no mês · meta de '+REL_META_CRONO+'%',alojTitulo='Alojamentos',alojSub='Ocupação das vagas hoje';
+  if(all){
+    cronoRows=M.todas.filter(p=>p.cron.tot>0).map(p=>{const pc=Math.round(p.cron.ok/p.cron.tot*100),ok=pc>=REL_META_CRONO;
+      return`<div onclick="relSel('${p.id}')" style="cursor:pointer;padding:6px 8px;border-radius:8px;display:flex;flex-direction:column;gap:4px"><span style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><span style="font-weight:700;color:var(--navy)">${escHtml(p.lab)}</span><span style="text-align:right">${pc}% <span style="color:var(--text-muted)">(${p.cron.ok} de ${p.cron.tot})</span> <span class="badge ${ok?'badge-green':'badge-amber'}">${ok?'na meta':'abaixo da meta'}</span></span></span>
+      <span style="position:relative;display:block;height:8px;border-radius:4px;background:#E3EEFB"><span style="display:block;height:8px;border-radius:4px;background:${ok?'var(--navy)':'var(--accent,#E56F00)'};width:${pc}%"></span><span style="position:absolute;left:${REL_META_CRONO}%;top:-3px;width:2px;height:14px;background:#1a1a1a"></span></span></div>`;}).join('')||'<div style="color:var(--text-muted);font-size:13px">Nenhum prazo do cronograma venceu neste mês.</div>';
+    alojRows=M.todas.filter(p=>p.aloj.vagas>0).map(p=>{const pc=Math.round(p.aloj.ocup/p.aloj.vagas*100);
+      return`<div onclick="relSel('${p.id}')" style="cursor:pointer;padding:6px 8px;border-radius:8px;display:flex;flex-direction:column;gap:4px"><span style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><span style="font-weight:700;color:var(--navy)">${escHtml(p.lab)}</span><span style="text-align:right">${pc}% <span style="color:var(--text-muted)">(${p.aloj.ocup} de ${p.aloj.vagas} vagas)</span></span></span>
+      <span style="display:block;height:8px;border-radius:4px;background:#E3EEFB"><span style="display:block;height:8px;border-radius:4px;background:${pc>100?'var(--danger)':'var(--primary)'};width:${Math.min(100,pc)}%"></span></span></div>`;}).join('')||'<div style="color:var(--text-muted);font-size:13px">Nenhum alojamento com vagas cadastradas.</div>';
+  }else{
+    const P=M.por[relObra];
+    cronoTitulo='Cronograma ADM · '+escHtml(P.lab);cronoSub='Tarefas do mês e como cada uma está';
+    cronoRows=P.cronItens.length?P.cronItens.map(t=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-top:1px solid var(--border);font-size:13px"><i class="ti ${t.icon}" style="font-size:17px;color:${t.cor}"></i><span style="flex:1;min-width:0">${escHtml(t.titulo)}</span><span style="color:var(--text-muted);font-size:12px;text-align:right">${escHtml(t.desc)}</span></div>`).join(''):'<div style="color:var(--text-muted);font-size:13px">Nenhuma tarefa do cronograma neste mês para esta obra.</div>';
+    alojTitulo='Casas · '+escHtml(P.lab);alojSub='Cada alojamento da obra: moradores, vagas e livres';
+    alojRows=P.alojLista.length?P.alojLista.map(a=>{const livres=Math.max(0,a.v-a.oc),exc=Math.max(0,a.oc-a.v),pc=a.v?Math.round(a.oc/a.v*100):0;
+      return`<div style="padding:6px 8px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:4px"><span style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><span style="font-weight:700;color:var(--navy)">${escHtml(a.nome)}</span><span style="text-align:right;white-space:nowrap">${a.oc} de ${a.v} vagas · ${exc?'<span style="color:var(--danger);font-weight:700">excedido +'+exc+'</span>':(livres?'<span style="color:var(--success);font-weight:700">'+livres+' livre'+(livres>1?'s':'')+'</span>':'<span style="font-weight:700">lotado</span>')}</span></span>
+      <span style="display:block;height:8px;border-radius:4px;background:#E3EEFB"><span style="display:block;height:8px;border-radius:4px;background:${exc?'var(--danger)':'var(--primary)'};width:${Math.min(100,pc)}%"></span></span></div>`;}).join(''):'<div style="color:var(--text-muted);font-size:13px">Nenhum alojamento cadastrado nesta obra.</div>';
+  }
   // pendências críticas abertas
   const critRows=[];
   L.forEach(p=>p.itens.filter(it=>it.tipo==='danger').forEach(it=>critRows.push({p,it})));
   critRows.sort((a,b)=>b.it.qtd-a.it.qtd);
-  const critHtml=critRows.slice(0,8).map(({p,it})=>`<div onclick="irParaPendObra('${p.id}','${it.link||''}','${it.filtroVar||''}','${it.filtroVal||''}')" style="cursor:pointer;display:grid;grid-template-columns:.7fr 3fr .6fr;gap:10px;align-items:center;min-height:44px;padding:2px 8px;border-top:1px solid var(--border);font-size:13px"><span style="font-weight:700;color:var(--navy)">${escHtml(p.cod)}</span><span><i class="ti ${it.icon}" style="margin-right:6px;color:var(--danger)"></i>${escHtml(it.msg)}</span><span style="text-align:right"><span class="badge badge-red">${it.qtd}</span></span></div>`).join('')||'<div style="padding:14px 8px;color:var(--text-muted);font-size:13px">Nenhuma pendência crítica aberta. 👏</div>';
+  const critHtml=critRows.slice(0,8).map(({p,it})=>`<div onclick="irParaPendObra('${p.id}','${it.link||''}','${it.filtroVar||''}','${it.filtroVal||''}')" style="cursor:pointer;display:grid;grid-template-columns:1.1fr 3fr .6fr;gap:10px;align-items:center;min-height:44px;padding:2px 8px;border-top:1px solid var(--border);font-size:13px"><span style="font-weight:700;color:var(--navy)">${escHtml(p.lab)}</span><span><i class="ti ${it.icon}" style="margin-right:6px;color:var(--danger)"></i>${escHtml(it.msg)}</span><span style="text-align:right"><span class="badge badge-red">${it.qtd}</span></span></div>`).join('')||'<div style="padding:14px 8px;color:var(--text-muted);font-size:13px">Nenhuma pendência crítica aberta. 👏</div>';
   // destaques
   const dEf=ef-efP;const dest=[];
   dest.push('Efetivo de '+_relBr(ef)+' pessoas, '+(dEf>=0?'+':'−')+Math.abs(dEf)+' em relação ao mês anterior, com '+A[11]+' admissões e '+D[11]+' desligamentos.');
-  if(all){const pior=M.todas.slice().sort((a,b)=>b.cr-a.cr)[0];if(pior&&pior.cr>0)dest.push(pior.cod+' concentra o maior número de pendências críticas ('+pior.cr+' de '+crit+').');}
-  else dest.push(crit+' pendência(s) crítica(s) e '+aten+' de atenção em '+M.por[relObra].cod+'.');
-  if(M.cronoPct!=null){const ab=L.filter(p=>p.cron.tot>0&&p.cron.ok/p.cron.tot*100<REL_META_CRONO).map(p=>p.cod);dest.push('Cronograma ADM com '+_relBr(M.cronoPct)+'% das entregas no prazo'+(ab.length?'; abaixo da meta de '+REL_META_CRONO+'%: '+ab.join(', ')+'.':', dentro da meta em todas as obras.'));}
+  if(all){const pior=M.todas.slice().sort((a,b)=>b.cr-a.cr)[0];if(pior&&pior.cr>0)dest.push(pior.lab+' concentra o maior número de pendências críticas ('+pior.cr+' de '+crit+').');}
+  else dest.push(crit+' pendência(s) crítica(s) e '+aten+' em atenção em '+M.por[relObra].lab+'.');
+  if(cronoPct!=null){const ab=L.filter(p=>p.cron.tot>0&&p.cron.ok/p.cron.tot*100<REL_META_CRONO).map(p=>p.lab);dest.push('Cronograma ADM com '+_relBr(cronoPct)+'% das entregas no prazo'+(ab.length?'; abaixo da meta de '+REL_META_CRONO+'%: '+ab.join(', ')+'.':', dentro da meta em todas as obras.'));}
   const oc=L.reduce((t,p)=>t+p.aloj.ocup,0),vg=L.reduce((t,p)=>t+p.aloj.vagas,0);
   if(vg)dest.push('Alojamentos com '+Math.round(oc/vg*100)+'% de ocupação ('+oc+' de '+vg+' vagas).');
   if(all){
@@ -4091,10 +4119,10 @@ async function renderRelatorioADM(){
     if(pgr)dest.push('PCMSO/PGR: '+pgr.v+' vencido(s) e '+pgr.aV+' a vencer.');
   }
   const rotDest=rotLista[0];
-  if(all&&rotDest&&rotLista.length>1&&rotDest.turnA>M.empAcum)dest.push('Maior rotatividade em 12 meses: '+rotDest.cod+' ('+_relBr(rotDest.turnA,1)+'%), contra '+_relBr(M.empAcum,1)+'% da empresa.');
+  if(all&&rotDest&&rotLista.length>1&&rotDest.turnA>M.empAcum)dest.push('Maior rotatividade em 12 meses: '+rotDest.lab+' ('+_relBr(rotDest.turnA,1)+'%), contra '+_relBr(M.empAcum,1)+'% da empresa.');
   // seletores
   const optsMes=[];for(let i=0;i<12;i++){const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-i);const k=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');optsMes.push(`<option value="${k}" ${k===M.ref?'selected':''}>${d.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</option>`);}
-  const chips=[['all','Todas as obras']].concat(M.todas.filter(p=>p.ef[12]>0||p.cr+p.at>0).map(p=>[p.id,p.cod])).map(([id,n])=>{const on=(id==='all'&&all)||(!all&&relObra===id);return`<button type="button" onclick="relSel('${id}')" style="min-height:40px;padding:0 16px;border-radius:999px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;border:1px solid ${on?'var(--navy)':'var(--border)'};background:${on?'var(--navy)':'#fff'};color:${on?'#fff':'var(--navy)'}">${escHtml(n)}</button>`;}).join('');
+  const chips=[['all','Todas as obras']].concat(M.todas.filter(p=>p.ef[12]>0||p.cr+p.at>0).map(p=>[p.id,p.lab])).map(([id,n])=>{const on=(id==='all'&&all)||(!all&&relObra===id);return`<button type="button" onclick="relSel('${id}')" style="min-height:40px;padding:0 16px;border-radius:999px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;border:1px solid ${on?'var(--navy)':'var(--border)'};background:${on?'var(--navy)':'#fff'};color:${on?'#fff':'var(--navy)'}">${escHtml(n)}</button>`;}).join('');
   const card=(titulo,sub,corpo,extra)=>`<div class="table-container" style="padding:16px 18px;min-width:0;${extra||''}"><div style="font-weight:700;font-size:14px;color:var(--navy)">${titulo}</div>${sub?`<div style="font-size:12px;color:var(--text-muted);margin-top:2px">${sub}</div>`:''}<div style="margin-top:10px">${corpo}</div></div>`;
   mc.innerHTML=`
   <style>@media print{.sidebar,.rel-no-print{display:none!important}.main{margin-left:0!important;padding:0!important}}</style>
@@ -4117,10 +4145,10 @@ async function renderRelatorioADM(){
     ${card('Efetivo por obra','Clique numa obra para filtrar o relatório',`<div style="display:flex;flex-direction:column;gap:4px">${efObras}</div>`)}
     ${card('Rotatividade por obra','(admissões + desligamentos) ÷ 2 ÷ efetivo médio · a linha preta é a média da empresa em 12 meses ('+_relBr(M.empAcum,1)+'%)',`<div style="display:flex;flex-direction:column;gap:4px">${rotHtml||'<div style="color:var(--text-muted);font-size:13px">Sem movimentação para calcular.</div>'}</div>`)}
   </div>
-  ${card('Pendências por obra (posição de hoje)','Vencidos em destaque; abaixo, quantos estão na janela de atenção',`<div style="overflow-x:auto"><div style="min-width:640px"><div style="display:grid;grid-template-columns:1fr repeat(5,1fr) 1.1fr;gap:10px;padding:0 8px 6px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px"><span>Obra</span>${cols.map(c=>`<span style="text-align:center">${c.nome}</span>`).join('')}<span style="text-align:center">Críticas</span></div>${heatRows||'<div style="color:var(--text-muted);font-size:13px;padding:8px">Nenhuma pendência.</div>'}</div></div>`,'margin-bottom:16px')}
+  ${card('Pendências por obra (posição de hoje)','Em cada quadrado: quantos já venceram e quantos vão vencer',legenda+`<div style="overflow-x:auto"><div style="min-width:860px"><div style="display:grid;grid-template-columns:1.3fr repeat(6,1fr) 1fr;gap:8px;padding:0 8px 6px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px"><span>Obra</span>${cols.map(c=>`<span style="text-align:center">${c.nome}</span>`).join('')}<span style="text-align:center">Total da obra</span></div>${heatRows||'<div style="color:var(--text-muted);font-size:13px;padding:8px">Nenhuma pendência.</div>'}</div></div>`,'margin-bottom:16px')}
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-bottom:16px">
-    ${card('Cronograma ADM','Entregas no prazo no mês · meta de '+REL_META_CRONO+'%',`<div style="display:flex;flex-direction:column;gap:6px">${cronoRows}</div>`)}
-    ${card('Alojamentos','Ocupação das vagas hoje',`<div style="display:flex;flex-direction:column;gap:6px">${alojRows}</div>`)}
+    ${card(cronoTitulo,cronoSub,`<div style="display:flex;flex-direction:column;gap:6px">${cronoRows}</div>`)}
+    ${card(alojTitulo,alojSub,`<div style="display:flex;flex-direction:column;gap:6px">${alojRows}</div>`)}
   </div>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px">
     ${card('Pendências críticas abertas','As maiores primeiro · clique para abrir',critHtml)}
@@ -4129,18 +4157,19 @@ async function renderRelatorioADM(){
       ${card('Decisões e responsáveis','',`<textarea rows="5" aria-label="Decisões e responsáveis" placeholder="Anote o que ficou decidido na reunião e quem fica responsável." style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:8px;padding:10px;font-family:inherit;font-size:13.5px;resize:vertical"></textarea>`)}
     </div>
   </div>
-  <div style="font-size:11.5px;color:var(--text-muted);margin-top:14px">Admissões, desligamentos e efetivo usam a obra atual de cada funcionário. Pendências, conformidade e alojamentos mostram a posição de hoje. Rotatividade = (admissões + desligamentos) ÷ 2 ÷ efetivo médio.</div>`;
+  <div style="font-size:11.5px;color:var(--text-muted);margin-top:14px">Admissões, desligamentos e efetivo usam a obra atual de cada funcionário. Pendências, conformidade e alojamentos mostram a posição de hoje. Rotatividade = (admissões + desligamentos) ÷ 2 ÷ efetivo médio. "Outros" reúne as pendências que não são de nenhuma das cinco colunas.</div>`;
+  if(!primeira)window.scrollTo(0,y0);
 }
 function relExportarExcel(){
   try{
-    const M=window._relModelo;if(!M){showToast('Abra o relatório primeiro','error');return;}
+    const M=relModelo;if(!M){showToast('Abra o relatório primeiro','error');return;}
     const mes=M.meses[11].key;
     const rows=[['RELATÓRIO MENSAL ADM — '+mes],['Emitido em '+new Date().toLocaleDateString('pt-BR')],[],
-      ['OBRA','EFETIVO','ADMISSÕES NO MÊS','DESLIGAMENTOS NO MÊS','ROTATIVIDADE NO MÊS (%)','ROTATIVIDADE 12 MESES (%)','PENDÊNCIAS CRÍTICAS','ATENÇÃO','CRONOGRAMA NO PRAZO (%)','VAGAS OCUPADAS','VAGAS TOTAIS']];
-    M.todas.forEach(p=>rows.push([p.cod+' — '+p.nome,p.ef[12],p.adm[11],p.desl[11],Number(p.turnM.toFixed(1)),Number(p.turnA.toFixed(1)),p.cr,p.at,p.cron.tot?Math.round(p.cron.ok/p.cron.tot*100):'',p.aloj.ocup,p.aloj.vagas]));
+      ['OBRA','CÓDIGO','EFETIVO','ADMISSÕES NO MÊS','DESLIGAMENTOS NO MÊS','ROTATIVIDADE NO MÊS (%)','ROTATIVIDADE 12 MESES (%)','PENDÊNCIAS CRÍTICAS','EM ATENÇÃO','CRONOGRAMA NO PRAZO (%)','VAGAS OCUPADAS','VAGAS TOTAIS']];
+    M.todas.forEach(p=>rows.push([p.lab,p.cod,p.ef[12],p.adm[11],p.desl[11],Number(p.turnM.toFixed(1)),Number(p.turnA.toFixed(1)),p.cr,p.at,p.cron.tot?Math.round(p.cron.ok/p.cron.tot*100):'',p.aloj.ocup,p.aloj.vagas]));
     rows.push([]);rows.push(['SÉRIE DE 12 MESES (todas as obras)']);rows.push(['MÊS','ADMISSÕES','DESLIGAMENTOS','EFETIVO']);
     M.meses.forEach((m,i)=>rows.push([m.key,M.todas.reduce((t,p)=>t+p.adm[i],0),M.todas.reduce((t,p)=>t+p.desl[i],0),M.todas.reduce((t,p)=>t+p.ef[i+1],0)]));
-    const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:34},{wch:10},{wch:16},{wch:18},{wch:20},{wch:22},{wch:18},{wch:9},{wch:22},{wch:14},{wch:12}];
+    const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:34},{wch:12},{wch:10},{wch:16},{wch:18},{wch:20},{wch:22},{wch:18},{wch:11},{wch:22},{wch:14},{wch:12}];
     const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Relatório');
     XLSX.writeFile(wb,'Relatorio_mensal_ADM_'+mes+'.xlsx');
     showToast('Relatório exportado');
@@ -6217,24 +6246,40 @@ function renderFolgasLocal(){
     for(let n=1;n<currentN;n++)historicoNs.push(n);
     const trAtual=folgasTranslados.find(x=>String(x.folga_id)===String(f.id)&&x.numero_ciclo===currentN);
     const compradaAtual=trAtual?.passagem_comprada===true;
-    const passagemAtualBadge=`<div style="margin-top:4px;display:flex;align-items:center;gap:6px">
-      <span style="font-size:10px;color:var(--text-muted);font-weight:600">🎫 Passagem:</span>
-      <select onchange="togglePassagemComprada('${f.id}',${currentN},this.value)" onclick="event.stopPropagation()" style="font-size:11px;padding:2px 6px;border-radius:6px;border:1px solid ${compradaAtual?'#BBF7D0':'#FCD34D'};background:${compradaAtual?'#F0FDF4':'#FFFBEB'};color:${compradaAtual?'var(--success)':'#92400E'};font-weight:600;cursor:pointer">
-        <option value="nao" ${!compradaAtual?'selected':''}>Não comprada</option>
-        <option value="sim" ${compradaAtual?'selected':''}>Comprada</option>
-      </select>
-    </div>${trAtual?.passagem_observacao
-      ?`<div onclick="event.stopPropagation()" style="font-size:10px;color:var(--text-muted);margin-top:2px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-style:italic">💬 ${escHtml(trAtual.passagem_observacao)}</span>
-          <a style="color:var(--primary);cursor:pointer;font-weight:600" onclick="editarObservacaoPassagem('${f.id}',${currentN},${escHtml(JSON.stringify(trAtual.passagem_observacao))})">✎ editar</a>
-          <a style="color:var(--danger);cursor:pointer;font-weight:600" onclick="excluirObservacaoPassagem('${f.id}',${currentN})">🗑 excluir</a></div>`
-      :`<div onclick="event.stopPropagation();editarObservacaoPassagem('${f.id}',${currentN},'')" style="font-size:10px;color:var(--primary);margin-top:2px;cursor:pointer">+ observação</div>`}
-    ${trAtual?.termo_adm15_url
-      ?`<div style="margin-top:4px;display:flex;align-items:center;gap:6px" onclick="event.stopPropagation()">
-          <a href="${trAtual.termo_adm15_url}" target="_blank" style="font-size:10px;color:var(--success);font-weight:600;text-decoration:underline">✅ ADM 15 anexado</a>
-          <label style="font-size:10px;color:var(--primary);cursor:pointer">trocar<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${currentN},this)"></label>
-          <a style="font-size:10px;color:var(--danger);cursor:pointer;font-weight:600" onclick="removerTermoAdm15('${f.id}',${currentN})">🗑 excluir</a>
+    const _bt='display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:6px;border:1px solid var(--border);background:#fff;cursor:pointer;color:var(--text);text-decoration:none;white-space:nowrap';
+    const _blk='margin-top:8px;padding:7px 9px;border-radius:8px;border:1px solid var(--border);background:#FAFBFC';
+    const _tit='font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px';
+    const obsPass=trAtual?.passagem_observacao
+      ?`<div style="font-size:11px;color:var(--text-muted);margin-top:5px;font-style:italic">💬 ${escHtml(trAtual.passagem_observacao)}</div>
+        <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">
+          <span style="${_bt}" onclick="editarObservacaoPassagem('${f.id}',${currentN},${escHtml(JSON.stringify(trAtual.passagem_observacao))})"><i class="ti ti-pencil"></i> Editar obs.</span>
+          <span style="${_bt};color:var(--danger)" onclick="excluirObservacaoPassagem('${f.id}',${currentN})"><i class="ti ti-trash"></i> Excluir obs.</span>
         </div>`
-      :`<label onclick="event.stopPropagation()" title="O Termo ADM 15 assinado é obrigatório para a compra da passagem" style="margin-top:4px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;border:1px solid ${compradaAtual?'#DC2626':'#FCA5A5'};background:${compradaAtual?'#DC2626':'#FEE2E2'};color:${compradaAtual?'#fff':'#991B1B'}">⚠ ADM 15 OBRIGATÓRIO${compradaAtual?' — passagem comprada sem termo!':' — pendente'} · anexar<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${currentN},this)"></label>`}`;
+      :`<div style="margin-top:5px"><span style="${_bt}" onclick="editarObservacaoPassagem('${f.id}',${currentN},'')"><i class="ti ti-message-plus"></i> Observação</span></div>`;
+    const passagemAtualBadge=`<div onclick="event.stopPropagation()" style="${_blk}">
+      <div style="${_tit}">🎫 Passagem</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;background:${compradaAtual?'#DCFCE7':'#FEF3C7'};color:${compradaAtual?'#166534':'#92400E'}">${compradaAtual?'✔ Comprada':'⏳ Pendente de compra'}</span>
+        <select onchange="togglePassagemComprada('${f.id}',${currentN},this.value)" title="Alterar situação da passagem" style="font-size:11px;padding:3px 6px;border-radius:6px;border:1px solid var(--border);background:#fff;cursor:pointer">
+          <option value="nao" ${!compradaAtual?'selected':''}>Não comprada</option>
+          <option value="sim" ${compradaAtual?'selected':''}>Comprada</option>
+        </select>
+      </div>${obsPass}
+    </div>
+    <div onclick="event.stopPropagation()" style="${_blk}">
+      <div style="${_tit}">📄 Termo ADM 15</div>
+      ${trAtual?.termo_adm15_url
+        ?`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;background:#DCFCE7;color:#166534">✔ Anexado</span>
+            <a href="${trAtual.termo_adm15_url}" target="_blank" style="${_bt}"><i class="ti ti-external-link"></i> Abrir</a>
+            <label style="${_bt}"><i class="ti ti-replace"></i> Trocar<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${currentN},this)"></label>
+            <span style="${_bt};color:var(--danger)" onclick="removerTermoAdm15('${f.id}',${currentN})"><i class="ti ti-trash"></i> Excluir</span>
+          </div>`
+        :`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;background:${compradaAtual?'#DC2626':'#FEE2E2'};color:${compradaAtual?'#fff':'#991B1B'}">${compradaAtual?'⚠ Passagem comprada sem termo!':'❗ Pendente'}</span>
+            <label title="O Termo ADM 15 assinado é obrigatório para a compra da passagem" style="${_bt};border-color:#FCA5A5;color:#991B1B"><i class="ti ti-paperclip"></i> Anexar<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadTermoAdm15('${f.id}',${currentN},this)"></label>
+          </div>`}
+    </div>`;
 
     // ── Histórico (colapsado) ──
     // Pra quem já tem muitos ciclos (funcionários antigos), mostra só os últimos inline e
@@ -6281,27 +6326,33 @@ function renderFolgasLocal(){
       const aindaNaoChegou=realDateObj&&realDateObj>=hoje;
       const diffSaida=realDateObj?Math.floor((realDateObj-hoje)/86400000):null;
       const diffTxt=realDate?(aindaNaoChegou?`em ${diffSaida}d`:'✓'):(diff<0?`${Math.abs(diff)}d atrás`:`${diff}d`);
+      const _bt2='display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:6px;border:1px solid var(--border);background:#fff;cursor:pointer;white-space:nowrap';
+      const linhaData=(rot,val,cor)=>`<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0"><span style="color:var(--text-muted)">${rot}</span><b style="color:${cor||'var(--text)'}">${val}</b></div>`;
       let acoesHtml;
-      if(realDate&&aindaNaoChegou){
-        acoesHtml=`<div style="font-size:11px;color:var(--info);font-weight:600">📌 Confirmado: ${formatDate(realDate)} <span style="cursor:pointer;color:var(--danger);margin-left:4px" onclick="removeSaidaReal('${f.id}',${currentN})">✕</span></div>`;
-      } else if(realDate){
-        acoesHtml=`<div style="font-size:11px;color:var(--success)">✓ Saiu: ${formatDate(realDate)} <span style="cursor:pointer;color:var(--danger);margin-left:4px" onclick="removeSaidaReal('${f.id}',${currentN})">✕</span></div>`;
+      if(realDate){
+        acoesHtml=`<div onclick="event.stopPropagation()" style="margin-top:6px">
+          ${linhaData('Prevista',formatDate(projDate)||'—')}
+          ${linhaData(aindaNaoChegou?'Confirmada (ainda vai sair)':'Saiu em',formatDate(realDate),aindaNaoChegou?'var(--info)':'var(--success)')}
+          <div style="margin-top:4px"><span style="${_bt2};color:var(--danger)" onclick="removeSaidaReal('${f.id}',${currentN})"><i class="ti ti-x"></i> Desfazer</span></div></div>`;
       } else if(progDate){
-        acoesHtml=`<div style="font-size:11px;color:var(--info);font-weight:600">📅 Programado: ${formatDate(progDate)}</div>
-        <div style="display:flex;gap:6px;margin-top:2px">
-          <span style="font-size:11px;color:var(--info);cursor:pointer" onclick="programarSaida('${f.id}',${currentN})">✎ Editar</span>
-          <span style="font-size:11px;color:var(--success);cursor:pointer" onclick="lancarSaidaReal('${f.id}',${currentN})">✓ Confirmar</span>
-          <span style="font-size:11px;color:var(--danger);cursor:pointer" onclick="removeSaidaProgramada('${f.id}',${currentN})">✕</span>
-        </div>`;
+        acoesHtml=`<div onclick="event.stopPropagation()" style="margin-top:6px">
+          ${linhaData('Prevista',formatDate(projDate)||'—')}
+          ${linhaData('Programada',formatDate(progDate),'var(--info)')}
+          <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">
+            <span style="${_bt2};color:var(--success)" onclick="lancarSaidaReal('${f.id}',${currentN})"><i class="ti ti-check"></i> Confirmar</span>
+            <span style="${_bt2}" onclick="programarSaida('${f.id}',${currentN})"><i class="ti ti-pencil"></i> Editar</span>
+            <span style="${_bt2};color:var(--danger)" onclick="removeSaidaProgramada('${f.id}',${currentN})"><i class="ti ti-trash"></i> Excluir</span>
+          </div></div>`;
       } else {
-        acoesHtml=`<div class="folga-saida-proj">Proj: ${formatDate(projDate)||'—'}</div>
-        <div style="display:flex;gap:6px">
-          <span class="folga-saida-real" style="color:var(--info)" onclick="programarSaida('${f.id}',${currentN})">+ Programar</span>
-          <span class="folga-saida-real" onclick="lancarSaidaReal('${f.id}',${currentN})">+ Confirmar saída</span>
-        </div>`;
+        acoesHtml=`<div onclick="event.stopPropagation()" style="margin-top:6px">
+          ${linhaData('Prevista',formatDate(projDate)||'—')}
+          <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">
+            <span style="${_bt2};color:var(--info)" onclick="programarSaida('${f.id}',${currentN})"><i class="ti ti-calendar-plus"></i> Programar</span>
+            <span style="${_bt2};color:var(--success)" onclick="lancarSaidaReal('${f.id}',${currentN})"><i class="ti ti-check"></i> Confirmar saída</span>
+          </div></div>`;
       }
       currentCell=`<div class="folga-cell">
-        <div class="folga-cell-header">Venc.${currentN}</div>
+        <div class="folga-cell-header">Venc.${currentN} · Próxima saída</div>
         <div class="folga-venc ${realDate?(aindaNaoChegou?'prog':'ok'):(progDate?'prog':st)}">${formatDate(v)}<br><small>${diffTxt}</small></div>
         ${acoesHtml}
         ${passagemAtualBadge}
@@ -11536,8 +11587,8 @@ function alojPendCalcular(){
   const meses=alojPendMeses();
   const lista=(globalObraFiltro?alojamentos.filter(a=>a.obra_id===globalObraFiltro):alojamentos).filter(a=>a.tipo_alojamento!=='hotel');
   const contasPorChave={};
-  alojamentosContas.forEach(c=>{const k=c.alojamento_id+'|'+c.ano+'|'+c.mes;(contasPorChave[k]=contasPorChave[k]||new Set()).add(c.tipo);});
-  const relPorChave=new Set(alojamentosRelatorios.map(r=>r.alojamento_id+'|'+r.ano+'|'+r.mes));
+  alojamentosContas.forEach(c=>{if(!contaCompleta(c))return;const k=c.alojamento_id+'|'+c.ano+'|'+c.mes;(contasPorChave[k]=contasPorChave[k]||new Set()).add(c.tipo);});
+  const relPorChave=new Set(alojamentosRelatorios.filter(relCompleto).map(r=>r.alojamento_id+'|'+r.ano+'|'+r.mes));
   return lista.map(a=>{
     const ini=parseDate(a.data_inicio);
     const iniYM=ini?ini.getFullYear()*12+ini.getMonth()+1:0;
@@ -11635,7 +11686,7 @@ function renderAlojamentos(){
       const _obrig=['agua','energia','gas','condominio'];
       lista=lista.filter(a=>{
         if(a.tipo_alojamento==='hotel')return false; // hotéis não têm contas a lançar
-        const tiposLanc=new Set(alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===_mes&&c.ano===_ano).map(c=>c.tipo));
+        const tiposLanc=new Set(alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===_mes&&c.ano===_ano&&contaCompleta(c)).map(c=>c.tipo));
         return _obrig.some(t=>!tiposLanc.has(t)&&!a['isenta_'+t]);
       });
     }
@@ -11692,10 +11743,10 @@ function renderAlojamentos(){
         return termino&&termino<hoje;
       }
       const contasMes=alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===_mesTabela&&c.ano===_anoTabela);
-      const tiposLanc=new Set(contasMes.map(c=>c.tipo));
+      const tiposLanc=new Set(contasMes.filter(contaCompleta).map(c=>c.tipo));
       const isentas=new Set(_contasObrigTab.filter(t=>a['isenta_'+t]));
       const faltando=_contasObrigTab.filter(t=>!tiposLanc.has(t)&&!isentas.has(t));
-      const relMes=alojamentosRelatorios.find(r=>String(r.alojamento_id)===String(a.id)&&r.mes===_mesTabela&&r.ano===_anoTabela);
+      const relMes=alojamentosRelatorios.find(r=>String(r.alojamento_id)===String(a.id)&&r.mes===_mesTabela&&r.ano===_anoTabela&&relCompleto(r));
       const titularDivergente=contasMes.some(c=>c.titular_ok===false);
       const termino=parseDate(a.data_termino);
       return faltando.length>0||!relMes||titularDivergente||(termino&&termino<hoje);
@@ -11735,11 +11786,13 @@ function renderAlojamentos(){
     const diasTerm=termino?Math.floor((termino-hoje)/86400000):null;
     const contasMes=isHotel?[]:alojamentosContas.filter(c=>String(c.alojamento_id)===String(sel.id)&&c.mes===_mesTabela&&c.ano===_anoTabela);
     const custoMes=isHotel?0:contasMes.reduce((s,c)=>s+Number(c.valor||0),0)+Number(sel.custo_mensal||0)+Number(sel.condominio||0)+Number(sel.iptu||0)+Number(sel.seguro||0);
-    const tiposLanc=new Set(contasMes.map(c=>c.tipo));
+    const tiposLanc=new Set(contasMes.filter(contaCompleta).map(c=>c.tipo));
+    const semComp=isHotel?[]:contasMes.filter(c=>!contaCompleta(c)&&!sel['isenta_'+c.tipo]&&_contasObrigTab.includes(c.tipo)).map(c=>c.tipo);
     const isentas=new Set(_contasObrigTab.filter(t=>sel['isenta_'+t]));
     const faltando=isHotel?[]:_contasObrigTab.filter(t=>!tiposLanc.has(t)&&!isentas.has(t));
     const titularDivergenteMes=contasMes.filter(c=>c.titular_ok===false);
-    const relMes=isHotel?null:alojamentosRelatorios.find(r=>String(r.alojamento_id)===String(sel.id)&&r.mes===_mesTabela&&r.ano===_anoTabela);
+    const relMesAny=isHotel?null:alojamentosRelatorios.find(r=>String(r.alojamento_id)===String(sel.id)&&r.mes===_mesTabela&&r.ano===_anoTabela);
+    const relMes=relCompleto(relMesAny)?relMesAny:null;
     const documentos=[
       ...(sel.contrato_url?[{nome:'Contrato de locação',url:sel.contrato_url}]:[]),
       ...contasMes.filter(c=>c.anexo_url).map(c=>({nome:'Comprovante — '+(_nomesTab[c.tipo]||c.tipo)+' '+_mesLabel,url:c.anexo_url})),
@@ -11766,12 +11819,12 @@ function renderAlojamentos(){
         :[secao('custo','currency-real','Custo do mês','R$ '+custoMes.toLocaleString('pt-BR',{minimumFractionDigits:2})+' em '+_mesLabel,
           'R$ '+custoMes.toLocaleString('pt-BR',{minimumFractionDigits:2}),'#374151','#F3F4F6',
           "abrirDetalheCusto('"+sel.id+"',"+_mesTabela+","+_anoTabela+")")]),
-      ...(isHotel?[]:[secao('contas','receipt','Contas do mês',(_contasObrigTab.length-faltando.length)+' de '+_contasObrigTab.length+' lançadas'+(titularDivergenteMes.length?' · '+titularDivergenteMes.length+' com titular divergente':''),
+      ...(isHotel?[]:[secao('contas','receipt','Contas do mês',(_contasObrigTab.length-faltando.length)+' de '+_contasObrigTab.length+' completas (valor + PDF)'+(semComp.length?' · '+semComp.length+' sem PDF':'')+(titularDivergenteMes.length?' · '+titularDivergenteMes.length+' com titular divergente':''),
         faltando.length>0?faltando.length+' PENDENTE(S)':(titularDivergenteMes.length?'CONFERIR TITULAR':'COMPLETO'),
         faltando.length>0||titularDivergenteMes.length?'#991B1B':'#166534', faltando.length>0||titularDivergenteMes.length?'#FEE2E2':'#DCFCE7',
         "openModalContas('"+sel.id+"',"+_mesTabela+","+_anoTabela+")")]),
-      ...(isHotel?[]:[secao('adm31','clipboard-check','Relatório ADM 31',relMes?'Recebido em '+(relMes.data_recebimento?formatDate(relMes.data_recebimento):'—'):'Checklist ainda não recebido',
-        relMes?'RECEBIDO':'PENDENTE', relMes?'#166534':'#991B1B', relMes?'#DCFCE7':'#FEE2E2',
+      ...(isHotel?[]:[secao('adm31','clipboard-check','Relatório ADM 31',relMes?'Recebido em '+(relMes.data_recebimento?formatDate(relMes.data_recebimento):'—')+' · PDF anexado':(relMesAny?'Lançado em '+(relMesAny.data_recebimento?formatDate(relMesAny.data_recebimento):'—')+', mas falta anexar o PDF':'Checklist ainda não recebido'),
+        relMes?'RECEBIDO':(relMesAny?'FALTA ANEXO':'PENDENTE'), relMes?'#166534':(relMesAny?'#92400E':'#991B1B'), relMes?'#DCFCE7':(relMesAny?'#FEF3C7':'#FEE2E2'),
         "openModalRelatorios('"+sel.id+"',"+_mesTabela+","+_anoTabela+")")]),
       secao('documentos','paperclip','Documentos',documentos.length+' arquivo(s) anexado(s)',
         documentos.length+' ARQUIVO(S)','#1D4ED8','#DBEAFE', null),
@@ -11852,7 +11905,7 @@ function renderAlojamentos(){
   const _mesAtual=hoje.getMonth()+1;const _anoAtual=hoje.getFullYear();
   const _alojSemContas=alojsFiltrados.filter(a=>a.tipo_alojamento!=='hotel').map(a=>{
     const contasMesAloj=alojamentosContas.filter(c=>String(c.alojamento_id)===String(a.id)&&c.mes===_mesAtual&&c.ano===_anoAtual);
-    const tiposLancados=new Set(contasMesAloj.map(c=>c.tipo));
+    const tiposLancados=new Set(contasMesAloj.filter(contaCompleta).map(c=>c.tipo));
     const faltando=_contasObrig.filter(t=>!tiposLancados.has(t)&&!a['isenta_'+t]);
     return{...a,faltando};
   }).filter(a=>a.faltando.length>0);
@@ -11887,7 +11940,7 @@ function renderAlojamentos(){
   })();
 
   // Calcular alojamentos sem Relatório ADM 31 enviado no mês para o banner
-  const _alojSemRelatorio=alojsFiltrados.filter(a=>a.tipo_alojamento!=='hotel'&&!alojamentosRelatorios.some(r=>String(r.alojamento_id)===String(a.id)&&r.mes===_mesAtual&&r.ano===_anoAtual));
+  const _alojSemRelatorio=alojsFiltrados.filter(a=>a.tipo_alojamento!=='hotel'&&!alojamentosRelatorios.some(r=>String(r.alojamento_id)===String(a.id)&&r.mes===_mesAtual&&r.ano===_anoAtual&&relCompleto(r)));
   const _obrasSemRelatorio=[...new Set(_alojSemRelatorio.map(a=>a.obra?.codigo?(a.obra.codigo+' — '+a.obra.nome):'Sem obra'))];
   const _listaFiltradaRel=bannerRelatoriosFiltroObra?_alojSemRelatorio.filter(a=>(a.obra?.codigo?(a.obra.codigo+' — '+a.obra.nome):'Sem obra')===bannerRelatoriosFiltroObra):_alojSemRelatorio;
 
@@ -15269,14 +15322,16 @@ function openModalContas(alojId,filtroMes,filtroAno,tipoPresel){
   mesesDisp.sort((a,b)=>b.ano-a.ano||b.mes-a.mes);
 
   const contasMesSel=contasAloj.filter(c=>c.mes===mesAtualN&&c.ano===anoAtualN);
-  const tiposLancadosSel=new Set(contasMesSel.map(c=>c.tipo));
+  const tiposLancadosSel=new Set(contasMesSel.filter(contaCompleta).map(c=>c.tipo));
+  const tiposSemCompSel=new Set(contasMesSel.filter(c=>!contaCompleta(c)).map(c=>c.tipo));
 
   const statusItems=['agua','energia','gas','condominio'].map(t=>{
     const lanc=tiposLancadosSel.has(t);
+    const semPdf=!lanc&&tiposSemCompSel.has(t);
     const isento=isentas.has(t);
-    const bg=isento?'#F3F4F6':lanc?'var(--success-light)':'#FFF7ED';
-    const cor=isento?'var(--text-muted)':lanc?'var(--success)':'#B45309';
-    const lbl=(isento?'– ':lanc?'✓ ':'! ')+tiposLabel[t]+(isento?' (isento)':'');
+    const bg=isento?'#F3F4F6':lanc?'var(--success-light)':semPdf?'#FEF3C7':'#FFF7ED';
+    const cor=isento?'var(--text-muted)':lanc?'var(--success)':semPdf?'#92400E':'#B45309';
+    const lbl=(isento?'– ':lanc?'✓ ':semPdf?'📎 ':'! ')+tiposLabel[t]+(isento?' (isento)':semPdf?' (falta o PDF)':'');
     return '<span style="padding:3px 8px;border-radius:20px;font-size:12px;font-weight:500;background:'+bg+';color:'+cor+'">'+lbl+'</span>';
   }).join('');
 
@@ -15289,7 +15344,7 @@ function openModalContas(alojId,filtroMes,filtroAno,tipoPresel){
     const admBadge=enviado
       ?'<span style="font-size:11px;background:var(--success-light);color:var(--success);padding:2px 8px;border-radius:20px;font-weight:500">✓ ADM 35 nº '+c.adm35_numero+' · '+dataEnvioFmt+'</span>'
       :'<span style="font-size:11px;background:var(--danger-light);color:var(--danger);padding:2px 8px;border-radius:20px;font-weight:500">❗ Não enviado p/ pagamento</span>';
-    return '<div class="conta-row"><div style="display:flex;flex-direction:column;gap:1px"><span>'+tl+'</span><span style="font-size:11px;color:var(--text-muted)">'+mesLabel+'/'+c.ano+'</span></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:500">'+vl+'</span>'+admBadge+(c.titular_ok===false?'<span onclick="confirmarTitularConta(\''+c.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')" title="Não encontramos &quot;GTEL&quot; no texto do PDF anexado — clique aqui se já conferiu e está correto" style="font-size:11px;font-weight:700;color:#991B1B;background:#FEE2E2;padding:2px 8px;border-radius:20px;cursor:pointer;white-space:nowrap">⚠ Não está no nome da GTEL?</span>':'')+(c.anexo_url?'<a href="'+c.anexo_url+'" target="_blank" class="btn btn-sm btn-info" title="Ver anexo"><i class="ti ti-paperclip"></i></a>':'')+'<button class="btn btn-sm" onclick="openModalEditarConta(this)" data-id="'+c.id+'" data-alojid="'+alojId+'" data-mes="'+mesAtualN+'" data-ano="'+anoAtualN+'" data-cmes="'+c.mes+'" data-cano="'+c.ano+'" data-tipo="'+c.tipo+'" data-valor="'+(c.valor||0)+'" title="Editar conta"><i class="ti ti-pencil"></i></button><button class="btn btn-sm" onclick="editarAdm35Click(this)" data-id="'+c.id+'" data-alojid="'+alojId+'" data-mes="'+mesAtualN+'" data-ano="'+anoAtualN+'" data-num="'+(c.adm35_numero||'')+'" data-data="'+(c.adm35_envio||'')+'" title="Lançar/editar envio ADM 35"><i class="ti ti-send"></i></button><button class="btn btn-sm btn-danger" onclick="deleteConta(\''+c.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-trash"></i></button></div></div>';
+    return '<div class="conta-row"><div style="display:flex;flex-direction:column;gap:1px"><span>'+tl+'</span><span style="font-size:11px;color:var(--text-muted)">'+mesLabel+'/'+c.ano+'</span></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:500">'+vl+'</span>'+admBadge+(c.titular_ok===false?'<span onclick="confirmarTitularConta(\''+c.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')" title="Não encontramos &quot;GTEL&quot; no texto do PDF anexado — clique aqui se já conferiu e está correto" style="font-size:11px;font-weight:700;color:#991B1B;background:#FEE2E2;padding:2px 8px;border-radius:20px;cursor:pointer;white-space:nowrap">⚠ Não está no nome da GTEL?</span>':'')+(c.anexo_url?'<a href="'+c.anexo_url+'" target="_blank" class="btn btn-sm btn-info" title="Ver anexo"><i class="ti ti-paperclip"></i> PDF</a>':'<button class="btn btn-sm" style="background:#FEF3C7;color:#92400E;border-color:#F59E0B;font-weight:600" onclick="anexarArquivoAloj(\'conta\',\''+c.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')" title="Sem o PDF a conta continua pendente"><i class="ti ti-paperclip"></i> Falta anexar PDF</button>')+'<button class="btn btn-sm" onclick="openModalEditarConta(this)" data-id="'+c.id+'" data-alojid="'+alojId+'" data-mes="'+mesAtualN+'" data-ano="'+anoAtualN+'" data-cmes="'+c.mes+'" data-cano="'+c.ano+'" data-tipo="'+c.tipo+'" data-valor="'+(c.valor||0)+'" title="Editar conta"><i class="ti ti-pencil"></i></button><button class="btn btn-sm" onclick="editarAdm35Click(this)" data-id="'+c.id+'" data-alojid="'+alojId+'" data-mes="'+mesAtualN+'" data-ano="'+anoAtualN+'" data-num="'+(c.adm35_numero||'')+'" data-data="'+(c.adm35_envio||'')+'" title="Lançar/editar envio ADM 35"><i class="ti ti-send"></i></button><button class="btn btn-sm btn-danger" onclick="deleteConta(\''+c.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-trash"></i></button></div></div>';
   }).join(''):'<div style="text-align:center;padding:16px;color:var(--text-muted);font-size:13px">Nenhuma conta lançada neste mês</div>';
 
   const filtroMesOpts=mesesDisp.map(m=>'<option value="'+m.mes+'" '+(m.mes===mesAtualN&&m.ano===anoAtualN?'selected':'')+'>'+meses[m.mes-1]+'/'+m.ano+'</option>').join('');
@@ -15347,7 +15402,7 @@ function openModalContas(alojId,filtroMes,filtroAno,tipoPresel){
           <div class="form-group" style="margin:8px 0 0"><label>📎 Anexar conta (PDF)</label>
             <input type="file" id="c-anexo-file" accept=".pdf" style="width:100%;padding:6px 0;font-size:12px">
           </div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Pode deixar em branco e lançar depois, clicando em <i class="ti ti-send"></i> na conta já lançada.</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Sem o PDF a conta fica como <b>pendente</b> (falta anexar). Dá para anexar depois, na linha da conta lançada.</div>
           <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="saveConta('${alojId}')"><i class="ti ti-plus"></i> Lançar</button>
         </div>
         <div id="contas-historico">
@@ -15392,6 +15447,8 @@ async function saveConta(alojId){
   }
   if(titularOk===false){
     showToast('Conta lançada — mas não encontramos "GTEL" no PDF anexado. Confira o titular! ⚠','error');
+  } else if(!anexoUrl){
+    showToast('Conta lançada, mas continua PENDENTE até anexar o PDF','error');
   } else {
     showToast('Conta lançada! ✓');
   }
@@ -15527,13 +15584,15 @@ function openModalRelatorios(alojId,filtroMes,filtroAno){
   mesesDisp.sort((a,b)=>b.ano-a.ano||b.mes-a.mes);
 
   const relMesSel=relAloj.find(r=>r.mes===mesAtualN&&r.ano===anoAtualN);
-  const statusHtml=relMesSel
+  const statusHtml=(relMesSel&&!relCompleto(relMesSel))
+    ?'<span style="padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;background:#FEF3C7;color:#92400E">📎 Lançado, falta anexar o PDF</span>'
+    :relMesSel
     ?'<span style="padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;background:var(--success-light);color:var(--success)">✓ Recebido em '+formatDate(relMesSel.data_recebimento)+'</span>'
     :'<span style="padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;background:var(--danger-light);color:var(--danger)">❗ Não recebido este mês</span>';
 
   const historicoHtml=relAloj.length?relAloj.map(r=>{
     const mesLabel=meses[r.mes-1]||'';
-    return '<div class="conta-row"><div style="display:flex;flex-direction:column;gap:1px"><span>Relatório ADM 31</span><span style="font-size:11px;color:var(--text-muted)">'+mesLabel+'/'+r.ano+'</span></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:12px;color:var(--text-muted)">Avaliador: '+(r.avaliador||'—')+'</span><span style="font-size:11px;background:var(--success-light);color:var(--success);padding:2px 8px;border-radius:20px;font-weight:500">✓ Recebido '+(r.data_recebimento?formatDate(r.data_recebimento):'—')+'</span>'+(r.anexo_url?'<a href="'+r.anexo_url+'" target="_blank" class="btn btn-sm btn-info" title="Ver anexo"><i class="ti ti-paperclip"></i></a>':'')+'<button class="btn btn-sm btn-danger" onclick="deleteRelatorio(\''+r.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-trash"></i></button></div></div>';
+    return '<div class="conta-row"><div style="display:flex;flex-direction:column;gap:1px"><span>Relatório ADM 31</span><span style="font-size:11px;color:var(--text-muted)">'+mesLabel+'/'+r.ano+'</span></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:12px;color:var(--text-muted)">Avaliador: '+(r.avaliador||'—')+'</span>'+(r.anexo_url?'<span style="font-size:11px;background:var(--success-light);color:var(--success);padding:2px 8px;border-radius:20px;font-weight:500">✓ Recebido '+(r.data_recebimento?formatDate(r.data_recebimento):'—')+'</span><a href="'+r.anexo_url+'" target="_blank" class="btn btn-sm btn-info" title="Abrir o relatório fotográfico (PDF)"><i class="ti ti-file-type-pdf"></i> Ver PDF</a>':'<span style="font-size:11px;background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:20px;font-weight:600">⚠ Falta anexar o PDF</span><button class="btn btn-sm" style="background:#FEF3C7;color:#92400E;border-color:#F59E0B;font-weight:600" onclick="anexarArquivoAloj(\'relatorio\',\''+r.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-paperclip"></i> Anexar PDF</button>')+'<button class="btn btn-sm btn-danger" onclick="deleteRelatorio(\''+r.id+'\',\''+alojId+'\','+mesAtualN+','+anoAtualN+')"><i class="ti ti-trash"></i></button></div></div>';
   }).join(''):'<div style="text-align:center;padding:16px;color:var(--text-muted);font-size:13px">Nenhum relatório recebido ainda</div>';
 
   const filtroMesOpts=mesesDisp.map(m=>'<option value="'+m.mes+'" '+(m.mes===mesAtualN&&m.ano===anoAtualN?'selected':'')+'>'+meses[m.mes-1]+'/'+m.ano+'</option>').join('');
@@ -15580,7 +15639,7 @@ function openModalRelatorios(alojId,filtroMes,filtroAno){
           <div class="form-group" style="margin:8px 0 0"><label>Observações (opcional)</label>
             <textarea id="r-obs" rows="2" placeholder="Pendências encontradas no check list, etc." style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);resize:vertical"></textarea>
           </div>
-          <div class="form-group" style="margin:8px 0 0"><label>📎 Anexar relatório (PDF)</label>
+          <div class="form-group" style="margin:8px 0 0"><label>📎 Anexar relatório (PDF) — obrigatório</label>
             <input type="file" id="r-anexo-file" accept=".pdf" style="width:100%;padding:6px 0;font-size:12px">
           </div>
           <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="saveRelatorio('${alojId}')"><i class="ti ti-plus"></i> Lançar recebimento</button>
@@ -15591,6 +15650,30 @@ function openModalRelatorios(alojId,filtroMes,filtroAno){
       </div>
       <div class="modal-footer"><button class="btn" onclick="closeModal('modal-relatorios')">Fechar</button></div>
     </div>`);
+}
+
+async function anexarArquivoAloj(kind,id,alojId,mes,ano){
+  const inp=document.createElement('input');inp.type='file';inp.accept='.pdf,application/pdf';
+  inp.onchange=async()=>{
+    const f=inp.files&&inp.files[0];if(!f)return;
+    if(!/\.pdf$/i.test(f.name)){showToast('O arquivo precisa ser PDF','error');return;}
+    showToast('Enviando PDF...');
+    const pasta=kind==='conta'?'contas/':'relatorios/';
+    const path=pasta+Date.now()+'_'+f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+    const up=await sb.storage.from('alojamentos').upload(path,f,{contentType:'application/pdf',upsert:true});
+    if(up.error){showToast('Erro ao enviar: '+up.error.message,'error');return;}
+    const url=sb.storage.from('alojamentos').getPublicUrl(path).data.publicUrl;
+    const upd={anexo_url:url};
+    if(kind==='conta'){try{upd.titular_ok=await checarTitularConta(f);}catch(e){}}
+    const r=await sb.from(kind==='conta'?'alojamentos_contas':'alojamentos_relatorios').update(upd).eq('id',id);
+    if(r.error){showToast('Erro: '+r.error.message,'error');return;}
+    showToast('PDF anexado ✓');
+    await loadAlojamentos();
+    if(kind==='conta'){closeModal('modal-contas');openModalContas(alojId,mes,ano);}
+    else{closeModal('modal-relatorios');openModalRelatorios(alojId,mes,ano);}
+    renderAlojamentos();
+  };
+  inp.click();
 }
 
 async function saveRelatorio(alojId){
@@ -15604,6 +15687,7 @@ async function saveRelatorio(alojId){
   if(!mes||!ano){showToast('Mês/ano inválido: mes='+mes+' ano='+ano,'error');return;}
   let anexoUrl=null;
   const anexoFile=document.getElementById('r-anexo-file')?.files?.[0];
+  if(!anexoFile){showToast('Anexe o PDF do relatório ADM 31: sem o arquivo ele não conta como recebido','error');return;}
   if(anexoFile){
     showToast('Enviando anexo...');
     const path='relatorios/'+Date.now()+'_'+anexoFile.name.replace(/[^a-zA-Z0-9._-]/g,'_');
@@ -15642,7 +15726,7 @@ function exportAlojamentosExcel(){
     const ocup=funcionarios.filter(f=>String(f.alojamento_id)===String(a.id)&&f.situacao!=='inativo').length
       +prestadores.filter(p=>String(p.alojamento_id)===String(a.id)&&p.situacao==='ativo').length;
     const relMesAtual=alojamentosRelatorios.find(r=>String(r.alojamento_id)===String(a.id)&&r.mes===hoje.getMonth()+1&&r.ano===hoje.getFullYear());
-    const admStatus=relMesAtual?('Recebido '+formatDate(relMesAtual.data_recebimento)):'Pendente';
+    const admStatus=relMesAtual?(relCompleto(relMesAtual)?('Recebido '+formatDate(relMesAtual.data_recebimento)):'Lançado, falta anexo'):'Pendente';
     rows.push([a.nome||'—',a.endereco||'—',a.obra?.codigo||'—',a.vagas_total||0,ocup,Math.max(0,(a.vagas_total||0)-ocup),a.custo_mensal||0,formatDate(a.data_inicio),formatDate(a.data_termino),a.imobiliaria||'—',admStatus]);
   });
   rows.push([]);
