@@ -3382,14 +3382,15 @@ async function grdImpMapear(i,obraId){
   const I=window._grdImp;
   if(obraId==='__novo__'){
     const nomePl=String(I.contagem[i].nome||'').trim();
-    const m=nomePl.match(/^(\S+)\s*[-–—]\s*(.+)$/);
-    const codigo=m?m[1].trim():'',nome=(m?m[2]:nomePl).trim();
+    const m=nomePl.match(/^([A-Za-z0-9._\/]+)\s*[-–—]\s*(.+)$/);
+    let codigo=m?m[1].trim():'';const nome=(m?m[2]:nomePl).trim();
+    if(!codigo)codigo=nomePl.replace(/[^A-Za-z0-9]/g,'').toUpperCase().slice(0,12)||'GRD';
     if(!nome){showToast('Planilha sem nome de obra.','error');grdImpRender();return;}
     const ja=(typeof obrasTodas!=='undefined'?obrasTodas:obras).find(o=>codigo&&String(o.codigo||'').trim().toUpperCase()===codigo.toUpperCase());
     if(ja){I.mapa[I.contagem[i].key]=String(ja.id);showToast('Já existia a obra '+codigo+' — ligada a ela.');grdImpRender();return;}
     if(!confirm('Cadastrar a obra "'+(codigo?codigo+' — ':'')+nome+'"?\n\nEla entra como ENCERRADA (só aparece em Obras Encerradas e nas GRDs), sem poluir as listas das obras ativas. Dá para reativar depois.'))
       {grdImpRender();return;}
-    const r=await sb.from('obras').insert({codigo:codigo||null,nome,centro_custo:codigo||null,status_obra:'encerrada'}).select('*').single();
+    const r=await sb.from('obras').insert({codigo,nome,centro_custo:codigo,status_obra:'encerrada'}).select('*').single();
     if(r.error){showToast('Erro ao cadastrar obra: '+r.error.message,'error');grdImpRender();return;}
     obrasTodas.push(r.data);_obrasEncSet.add(String(r.data.id));
     if(obrasPermitidasIds)obrasPermitidasIds.add(String(r.data.id));
