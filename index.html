@@ -23474,7 +23474,45 @@ if(checkSessao()){
 }
 
 // ─── BUSCA GLOBAL (Ctrl+K) ───────────────────────────────────────────────────
-let _bgItens=[],_bgSel=0;
+let _bgItens=[],_bgSel=0,_bgCarga=null,_bgCarregando=false;
+const _bgSkip=/(^id$|_id$|url|created|updated|senha|salar|foto|anexo|token|hash|^obs)/i;
+const _bgTxt=new WeakMap();
+function _bgCampos(r){
+  let c=_bgTxt.get(r);if(c)return c;
+  c=[];
+  Object.keys(r).forEach(k=>{
+    if(_bgSkip.test(k))return;const v=r[k];
+    if(v==null||typeof v==='object'||typeof v==='boolean')return;
+    const s=String(v).trim();if(!s||s.length>160||/^https?:/i.test(s)||/^\d{4}-\d{2}-\d{2}T/.test(s))return;
+    c.push([k,s,_semAcento(s).toLowerCase()]);
+  });
+  _bgTxt.set(r,c);return c;
+}
+function _bgFontes(){
+  const ids=(r)=>r.id;
+  return[
+    {g:'Alojamentos',ic:'ti-bed',l:()=>(alojamentosTodos&&alojamentosTodos.length?alojamentosTodos:alojamentos),t:['nome','descricao'],ac:r=>{alojSelecionadoId=r.id;alojBusca='';alojFiltroAtivo=null;showPage('alojamentos');}},
+    {g:'Veículos',ic:'ti-car',l:()=>veiculos,t:['placa','modelo','descricao'],ac:r=>{veiculoSelecionadoId=r.id;veiculoBusca='';veiculoFiltroAtivo=null;veiculoVerHistorico=false;showPage('veiculos');}},
+    {g:'Ativo GTEL (notebook, equipamentos…)',ic:'ti-device-laptop',l:()=>ativosImob,t:['descricao','patrimonio','nome'],ac:r=>{ativoImobSelecionadoId=r.id;ativoImobBusca='';ativoImobFiltroAtivo=null;ativoImobAba='todos';showPage('ativos-imobilizados');}},
+    {g:'Procedimentos',ic:'ti-list-check',l:()=>procedimentos,t:['titulo','nome'],ac:r=>{procSelecionadoId=r.id;showPage('procedimentos');}},
+    {g:'Treinamentos',ic:'ti-school',l:()=>treinamentos,t:['nome','treinamento','tipo','descricao'],ac:r=>{treinamentosBusca=r.nome||r.treinamento||'';treinamentosFiltroTipo='';treinamentosFiltroStatus='';treinamentosFiltroObra='';showPage('treinamentos');}},
+    {g:'Contratações',ic:'ti-user-plus',l:()=>[...(contratacoes||[]),...(contratacoesVagas||[]),...(contratacoesProspeccoes||[])],t:['nome','nome_completo','cargo','funcao','titulo'],ac:r=>showPage('contratacoes')},
+    {g:'Matriz de comunicação',ic:'ti-address-book',l:()=>matrizData,t:['nome','contato','cargo','obra'],ac:r=>{matrizBusca=r.nome||r.obra||'';showPage('matriz');}},
+    {g:'G.R.D.',ic:'ti-file-invoice',l:()=>grdLista,t:['numero','fornecedor','nf'],ac:r=>{grdFiltro.q=String(r.numero||'');grdFiltro.obras=[];grdFiltro.sit='';grdPagina=0;showPage('grd');}},
+    {g:'Prestadores',ic:'ti-id-badge',l:()=>prestadores,t:['nome_completo','razao_social'],ac:r=>{prestadoresBusca=r.nome_completo||r.razao_social||'';prestadoresFiltroSit='';prestadoresFiltroObra='';prestadoresFiltroObraTocado=true;showPage('prestadores');}},
+    {g:'Fornecedores',ic:'ti-truck-delivery',l:()=>fornecedores,t:['nome_fantasia','razao_social'],ac:r=>{fornecedoresBusca=r.razao_social||'';fornecedoresFiltroSit='';fornecedoresFiltroObra='';showPage('fornecedores');}},
+    {g:'Folgas de campo',ic:'ti-beach',l:()=>folgas,t:['nome','observacao'],ac:r=>showPage('folgas')},
+    {g:'Convenção coletiva',ic:'ti-gavel',l:()=>convencoes,t:['nome','sindicato','titulo','categoria'],ac:r=>{convSelId=r.id;showPage('convencoes');}},
+    {g:'Obras encerradas',ic:'ti-archive',l:()=>(obrasTodas||[]).filter(o=>o.status_obra==='encerrada'),t:['nome','codigo'],ac:r=>showPage('obras-encerradas')},
+  ];
+}
+async function bgCarregarTudo(){
+  if(_bgCarga)return _bgCarga;
+  _bgCarregando=true;
+  const L=[loadAlojamentos,loadVeiculos,loadAtivosImobilizados,loadProcedimentos,loadTreinamentos,loadContratacoes,loadContratacoesVagas,loadContratacoesProspeccoes,loadMatriz,loadGRD,loadFolgas,loadConvencoes,loadPrestadores,loadFornecedores];
+  _bgCarga=Promise.allSettled(L.map(f=>{try{return Promise.resolve(f());}catch(e){return Promise.reject(e);}})).then(()=>{_bgCarregando=false;const i=document.getElementById('bg-input');if(i)bgBuscar(i.value);});
+  return _bgCarga;
+}
 function bgAbrir(){
   if(!currentUser||document.getElementById('app-shell')?.style.display==='none')return;
   if(document.getElementById('modal-busca-global')){document.getElementById('bg-input').focus();return;}
@@ -23482,13 +23520,13 @@ function bgAbrir(){
     <div style="width:100%;max-width:580px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.25)">
       <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border)">
         <i class="ti ti-search" style="font-size:18px;color:var(--text-muted)"></i>
-        <input id="bg-input" autocomplete="off" placeholder="Buscar funcionário, obra, fornecedor ou tela…" style="flex:1;border:none;outline:none;font-size:15px;background:transparent" oninput="bgBuscar(this.value)" onkeydown="bgTecla(event)">
+        <input id="bg-input" autocomplete="off" placeholder="Buscar em tudo: pessoa, obra, alojamento, notebook, rua, fornecedor…" style="flex:1;border:none;outline:none;font-size:15px;background:transparent" oninput="bgBuscar(this.value)" onkeydown="bgTecla(event)">
         <span style="font-size:11px;color:var(--text-muted);border:1px solid var(--border);border-radius:6px;padding:2px 6px">Esc</span>
       </div>
       <div id="bg-res" style="max-height:56vh;overflow:auto;padding:6px 0"></div>
-      <div style="display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--border);font-size:11px;color:var(--text-muted)"><span>↑↓ navegar</span><span>↵ abrir</span><span>Ctrl+K em qualquer tela</span></div>
+      <div style="display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--border);font-size:11px;color:var(--text-muted)"><span>↑↓ navegar</span><span>↵ abrir</span><span>Ctrl+K em qualquer tela</span><span id="bg-load" style="margin-left:auto"></span></div>
     </div></div>`);
-  document.getElementById('bg-input').focus();bgBuscar('');
+  document.getElementById('bg-input').focus();bgBuscar('');bgCarregarTudo();
 }
 function bgFechar(){document.getElementById('modal-busca-global')?.remove();}
 function bgTecla(e){
@@ -23511,8 +23549,20 @@ function bgBuscar(q){
   }else{
     add('Obras',obras.filter(o=>ok(o.codigo,o.nome,o.cidade,o.centro_custo)).slice(0,5).map(o=>({icone:'ti-building-factory-2',t:(o.codigo?o.codigo+' · ':'')+o.nome,s:[o.cidade,o.uf].filter(Boolean).join(' · ')+' · '+funcionarios.filter(f=>f.obra_id===o.id&&f.situacao==='ativo').length+' ativos',acao:()=>irParaPendObra(o.id,'dashboard')})));
     add('Funcionários',funcionarios.filter(f=>ok(f.nome_completo,f.matricula,f.funcao?.nome,f.funcao_manual)||(dq.length>=4&&String(f.cpf||'').replace(/\D/g,'').includes(dq))).slice(0,8).map(f=>({icone:'ti-user',t:f.nome_completo||'—',s:['Mat. '+(f.matricula||'—'),f.funcao?.nome||f.funcao_manual,obraTxt(f.obra_id),f.situacao!=='ativo'?f.situacao:''].filter(Boolean).join(' · '),acao:()=>{busca=f.nome_completo||'';filtroSituacao='';filtroObra='';filtroObraTocado=true;funcTab=f.situacao==='inativo'?'demitidos':f.situacao==='transferido'?'transferidos':'ativos';showPage('funcionarios');}})));
-    add('Prestadores',(prestadores||[]).filter(p=>ok(p.nome_completo,p.razao_social,p.nome_fantasia,p.cnpj)).slice(0,5).map(p=>({icone:'ti-id-badge',t:p.nome_completo||p.razao_social||'—',s:[p.razao_social,obraTxt(p.obra_id)].filter(Boolean).join(' · '),acao:()=>{prestadoresBusca=p.nome_completo||p.razao_social||'';prestadoresFiltroSit='';prestadoresFiltroObra='';prestadoresFiltroObraTocado=true;showPage('prestadores');}})));
-    add('Fornecedores',(fornecedores||[]).filter(f=>ok(f.razao_social,f.nome_fantasia,f.cnpj,f.tipo_fornecimento)).slice(0,5).map(f=>({icone:'ti-truck-delivery',t:f.nome_fantasia||f.razao_social,s:f.tipo_fornecimento||'',acao:()=>{fornecedoresBusca=f.razao_social||'';fornecedoresFiltroSit='';fornecedoresFiltroObra='';showPage('fornecedores');}})));
+    _bgFontes().forEach(F=>{
+      let lista=[];try{lista=F.l()||[];}catch(e){}
+      const ach=[];
+      for(const r of lista){
+        if(!r||typeof r!=='object')continue;
+        const cs=_bgCampos(r);const todo=cs.map(c=>c[2]).join(' | ');
+        if(!toks.every(x=>todo.includes(x)))continue;
+        const tit=F.t.map(k=>r[k]).find(v=>v!=null&&String(v).trim())||cs[0]?.[1]||'—';
+        const hit=cs.find(c=>toks.some(x=>c[2].includes(x)&&String(tit)!==c[1]));
+        ach.push({icone:F.ic,t:String(tit),s:hit?hit[0].replace(/_/g,' ')+': '+hit[1]:'',acao:()=>F.ac(r)});
+        if(ach.length>=5)break;
+      }
+      add(F.g,ach);
+    });
     add('Ir para',modulosVisiveis().filter(m=>ok(m.nome,m.desc)).slice(0,6).map(m=>({icone:m.icone,t:m.nome,s:m.desc||'',acao:()=>showPage(m.page)})));
   }
   _bgItens=[];G.forEach(g=>g.lista.forEach(it=>_bgItens.push(it)));
@@ -23520,6 +23570,7 @@ function bgBuscar(q){
 }
 function bgPintar(){
   const box=document.getElementById('bg-res');if(!box)return;
+  const ld=document.getElementById('bg-load');if(ld)ld.textContent=_bgCarregando?'carregando todos os módulos…':'';
   if(!_bgItens.length){box.innerHTML='<div style="padding:18px 16px;color:var(--text-muted);font-size:13px">'+(document.getElementById('bg-input').value.trim()?'Nada encontrado.':'Digite para buscar.')+'</div>';return;}
   let k=0;
   box.innerHTML=(window._bgGrupos||[]).map(g=>`<div style="font-size:11px;color:var(--text-muted);padding:8px 14px 4px">${g.grupo}</div>`+g.lista.map(it=>{const i=k++;return`<div onclick="bgAbrirItem(${i})" onmousemove="if(_bgSel!==${i}){_bgSel=${i};bgPintar();}" style="display:flex;align-items:center;gap:10px;padding:8px 14px;cursor:pointer;${i===_bgSel?'background:var(--primary-light)':''}"><i class="ti ${it.icone}" style="font-size:18px;color:var(--text-muted)"></i><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(it.t)}</div>${it.s?`<div style="font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(it.s)}</div>`:''}</div>${i===_bgSel?'<span style="font-size:11px;color:var(--primary)">Enter ↵</span>':''}</div>`;}).join('')).join('');
