@@ -512,7 +512,53 @@ function atualizarSidebarUsuario(){
   if(avatarEl)avatarEl.textContent=initials(currentUser.nome||currentUser.usuario||'?');
 }
 
+// ===== Troca de senha obrigatória (usuário marcado com trocar_senha=true) =====
+function trocaSenhaMostrar(){
+  let el=document.getElementById('troca-senha-overlay');
+  if(el)el.remove();
+  el=document.createElement('div');
+  el.id='troca-senha-overlay';
+  el.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(15,23,42,.88);display:flex;align-items:center;justify-content:center;padding:16px';
+  el.innerHTML='<div style="background:#fff;border-radius:14px;max-width:400px;width:100%;padding:26px;box-shadow:0 20px 60px rgba(0,0,0,.4)">'
+    +'<div style="font-size:18px;font-weight:700;margin-bottom:4px">Defina uma nova senha</div>'
+    +'<div style="font-size:13px;color:#64748B;margin-bottom:16px">Por segurança, você precisa trocar sua senha antes de continuar. Use no mínimo 8 caracteres.</div>'
+    +'<div class="form-group"><label>Senha atual</label><input type="password" id="ts-atual" autocomplete="current-password"></div>'
+    +'<div class="form-group"><label>Nova senha</label><input type="password" id="ts-nova" autocomplete="new-password"></div>'
+    +'<div class="form-group"><label>Repita a nova senha</label><input type="password" id="ts-conf" autocomplete="new-password"></div>'
+    +'<div id="ts-erro" style="display:none;color:#B91C1C;font-size:12.5px;margin-bottom:10px"></div>'
+    +'<div style="display:flex;gap:8px;justify-content:space-between">'
+    +'<button class="btn" id="ts-sair" type="button">Sair</button>'
+    +'<button class="btn btn-primary" id="ts-ok" type="button">Salvar nova senha</button></div></div>';
+  document.body.appendChild(el);
+  const err=m=>{const e=document.getElementById('ts-erro');e.textContent=m;e.style.display='block';};
+  document.getElementById('ts-sair').onclick=()=>{sessionStorage.removeItem(SESSION_KEY);if(window.__gtelToken){sb.rpc('logout_gtel').then(()=>location.reload(),()=>location.reload());}else location.reload();};
+  const enviar=async()=>{
+    const a=document.getElementById('ts-atual').value,n=document.getElementById('ts-nova').value,c=document.getElementById('ts-conf').value;
+    if(!a)return err('Informe a senha atual.');
+    if(n.length<8)return err('A senha nova deve ter pelo menos 8 caracteres.');
+    if(n!==c)return err('A confirmação não confere com a nova senha.');
+    if(n===a)return err('A senha nova deve ser diferente da atual.');
+    const b=document.getElementById('ts-ok');b.disabled=true;b.textContent='Salvando...';
+    const{error}=await sb.rpc('trocar_minha_senha',{p_atual:a,p_nova:n});
+    b.disabled=false;b.textContent='Salvar nova senha';
+    if(error){return err(error.message||'Não foi possível trocar a senha.');}
+    currentUser.trocar_senha=false;
+    try{sessionStorage.setItem(SESSION_KEY,JSON.stringify(currentUser));}catch(e){}
+    el.remove();
+    showToast('Senha alterada com sucesso.','success');
+    entrarNoApp();
+  };
+  document.getElementById('ts-ok').onclick=enviar;
+  el.addEventListener('keydown',ev=>{if(ev.key==='Enter')enviar();});
+  setTimeout(()=>document.getElementById('ts-atual')?.focus(),50);
+}
+
 function entrarNoApp(){
+  if(currentUser&&currentUser.trocar_senha===true&&currentUser.token){
+    document.getElementById('login-screen').style.display='none';
+    trocaSenhaMostrar();
+    return;
+  }
   computeObrasPermitidas();
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app-shell').style.display='';
