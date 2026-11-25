@@ -339,7 +339,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <div class="login-screen" id="login-screen">
   <div class="login-card">
     <div class="login-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 14/10/2026-e</span></div>
+    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 25/11/2026-a</span></div>
     <div class="login-error" id="login-erro"></div>
     <div class="login-field">
       <label>Usuário</label>
@@ -356,7 +356,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <aside class="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 14/10/2026-e</div>
+    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 25/11/2026-a</div>
   </div>
   <div style="padding:10px 12px 0"><button onclick="bgAbrir()" style="width:100%;display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:7px 10px;font-size:12.5px;cursor:pointer"><i class="ti ti-search"></i><span style="flex:1;text-align:left;opacity:.85">Buscar…</span><span style="opacity:.6;font-size:11px">Ctrl+K</span></button></div>
   <div class="sidebar-obra-filter">
@@ -5399,8 +5399,8 @@ function openModalFuncionario(func=null){
           <div class="form-group"><label>RG</label><input id="f-rg" value="${escHtml(func?.rg||'')}" placeholder="00.000.000-0" maxlength="20"></div>
           <div class="form-group"><label>CPF</label><input id="f-cpf" value="${escHtml(func?.cpf||'')}" placeholder="000.000.000-00" inputmode="numeric" maxlength="14" oninput="this.value=mascaraCpf(this.value)"></div>
           <div class="form-group"><label>PIS</label><input id="f-pis" value="${escHtml(func?.pis||'')}" placeholder="000.00000.00-0" inputmode="numeric" maxlength="14" oninput="this.value=mascaraPis(this.value)"></div>
-          <div class="form-group"><label>Data de Admissão *</label><input type="date" id="f-admissao" value="${func?.data_admissao||''}"></div>
-          <div class="form-group"><label>Data de Integração</label><input type="date" id="f-integracao" value="${func?.data_mobilizacao||''}"><div id="f-integracao-hint" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div></div>
+          <div class="form-group"><label>Data de Admissão *</label><input type="date" id="f-admissao" value="${func?.data_admissao||''}" onchange="nfAtualizarExp()"></div>
+          <div class="form-group"><label>Data de Integração</label><input type="date" id="f-integracao" value="${func?.data_mobilizacao||''}" onchange="nfIntegracaoMudou()"><div id="f-integracao-hint" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div></div>
           <div class="form-group">
             <label>Situação</label>
             <select id="f-situacao" onchange="onSituacaoChange()">
@@ -5410,7 +5410,7 @@ function openModalFuncionario(func=null){
             </select>
           </div>          <div class="form-group">
             <label>Tipo</label>
-            <select id="f-tipo">
+            <select id="f-tipo" onchange="nfTipoMudou()">
               <option value="nova_admissao" ${(func?.tipo||'nova_admissao')==='nova_admissao'?'selected':''}>Nova Admissão</option>
               <option value="transferencia" ${func?.tipo==='transferencia'?'selected':''}>Transferência</option>
               <option value="efetivo" ${func?.tipo==='efetivo'?'selected':''}>Efetivo</option>
@@ -5418,7 +5418,7 @@ function openModalFuncionario(func=null){
           </div>
           <div class="form-group">
             <label>Período de Experiência</label>
-            <select id="f-periodo-exp">
+            <select id="f-periodo-exp" onchange="nfAtualizarExp()">
               <option value="45" ${(func?.periodo_experiencia||45)==45?'selected':''}>45 + 45 dias (padrão)</option>
               <option value="30" ${func?.periodo_experiencia==30?'selected':''}>30 + 30 dias</option>
               <option value="30s" ${func?.periodo_experiencia=='30s'?'selected':''}>30 dias (único)</option>
@@ -5524,6 +5524,28 @@ function openModalFuncionario(func=null){
               ${func?.demissao_termo_url?`<div style="font-size:12px;margin-top:6px">Anexo atual: <a href="${func.demissao_termo_url}" target="_blank">ver ${escHtml(func.demissao_termo_tipo||'termo')}</a> (envie outro arquivo para substituir)</div>`:''}
             </div>
           </div>
+          ${isEdit?'':`
+          <div class="form-section" style="margin-top:8px">Experiência <span style="font-weight:400;text-transform:none;letter-spacing:0">· calculada pela admissão</span></div>
+          <div class="form-group full"><div id="nf-exp-prev" style="font-size:12.5px;color:var(--text-muted);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px">Informe a data de admissão para ver o fim da experiência.</div></div>
+          <div class="form-section" style="margin-top:8px">Folga de Campo</div>
+          <div class="form-group full"><label style="display:flex;align-items:center;gap:8px;margin:0"><input type="checkbox" id="nf-folga-on" style="width:auto" onchange="nfToggle('nf-folga-box',this.checked)"> Cadastrar folga de campo agora</label></div>
+          <div id="nf-folga-box" class="form-group full" style="display:none;grid-column:1/-1">
+            <div class="form-grid">
+              <div class="form-group"><label>Início do período *</label><input type="date" id="nf-folga-inicio"><div style="font-size:11px;color:var(--text-muted);margin-top:3px">Normalmente a data de mobilização/integração.</div></div>
+              <div class="form-group"><label>Período trabalhado</label><select id="nf-folga-periodo">${[30,45,60,90,180].map(p=>`<option value="${p}" ${p===90?'selected':''}>${p} dias → ${diasFolga(p)} dia(s) útil folga</option>`).join('')}</select></div>
+              <div class="form-group"><label>Cidade de origem</label><input id="nf-folga-cidade" placeholder="Cidade"></div>
+              <div class="form-group" style="display:flex;gap:16px;align-items:flex-end"><label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" id="nf-folga-aerea" style="width:auto"> ✈️ Aérea</label><label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" id="nf-folga-terrestre" style="width:auto"> 🚌 Terrestre</label></div>
+            </div>
+          </div>
+          <div class="form-section" style="margin-top:8px">Treinamentos e ASO</div>
+          <div class="form-group full">
+            <div id="nf-trein-list"></div>
+            <button type="button" class="btn btn-sm" onclick="nfAddTrein()"><i class="ti ti-plus"></i> Adicionar treinamento / ASO</button>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Cada linha vira um lançamento na aba Treinamentos. Só adicione o que a pessoa já tem.</div>
+          </div>
+          <div class="form-section" style="margin-top:8px">Férias</div>
+          <div class="form-group full"><label style="display:flex;align-items:center;gap:8px;margin:0"><input type="checkbox" id="nf-ferias-on" style="width:auto" ${(func?.tipo||'nova_admissao')==='nova_admissao'?'checked':''}> Criar o 1º período aquisitivo (a partir da admissão)</label><div style="font-size:11px;color:var(--text-muted);margin-top:3px">Marcado só para Nova Admissão. Para antigos, deixe a planilha de férias gerar.</div></div>
+          `}
           <div class="form-section" style="margin-top:8px">Observações</div>
           <div class="form-group full">
             <label>Observação Interna</label>
@@ -5537,6 +5559,7 @@ function openModalFuncionario(func=null){
       </div>
     </div>`);
   atualizarAlojamentoPorObra(true);
+  nfAtualizarExp();
 }
 
 // Preenche o select de Alojamento apenas com os alojamentos da obra selecionada.
@@ -5589,6 +5612,83 @@ function pisValido(v){
   let dv=11-(s%11);if(dv>=10)dv=0;
   return dv===parseInt(d[10]);
 }
+// ─── Ficha única (cadastro novo): experiência, folga, treinamentos/ASO e férias ───
+function nfToggle(id,on){const el=document.getElementById(id);if(el)el.style.display=on?'':'none';}
+function nfAtualizarExp(){
+  const el=document.getElementById('nf-exp-prev');if(!el)return;
+  const adm=document.getElementById('f-admissao').value;
+  if(!adm){el.textContent='Informe a data de admissão para ver o fim da experiência.';return;}
+  const e=calcExp({data_admissao:adm,periodo_experiencia:(()=>{const v=document.getElementById('f-periodo-exp').value;return v==='30s'?'30s':parseInt(v);})()});
+  if(!e){el.textContent='—';return;}
+  el.innerHTML='Início <b>'+formatDate(adm)+'</b> · fim do 1º período <b>'+formatDate(toISO(e.fim1))+'</b>'+(e.fim2?' · fim do 2º período <b>'+formatDate(toISO(e.fim2))+'</b>':'');
+}
+function nfTipoMudou(){const c=document.getElementById('nf-ferias-on');if(c)c.checked=document.getElementById('f-tipo').value==='nova_admissao';}
+function nfIntegracaoMudou(){
+  const fi=document.getElementById('nf-folga-inicio');const v=document.getElementById('f-integracao').value;
+  if(fi&&v&&!fi.value)fi.value=v;
+}
+let _nfTreinSeq=0;
+function nfAddTrein(){
+  const id=++_nfTreinSeq;
+  const nrOpts=NR_LISTA.map(n=>`<option value="${n.codigo}">${n.codigo} — ${n.nome}</option>`).join('');
+  const asoOpts=ASO_TIPOS.map(a=>`<option value="${a}">${a}</option>`).join('');
+  const cnhOpts='<option value="">Categoria...</option>'+CNH_CATEGORIAS.map(c=>`<option value="${c}">${c}</option>`).join('');
+  document.getElementById('nf-trein-list').insertAdjacentHTML('beforeend',`
+    <div class="nf-tr" id="nf-tr-${id}" style="display:grid;grid-template-columns:100px 1fr 130px 130px 32px;gap:8px;align-items:end;margin-bottom:8px">
+      <div><label style="font-size:11px">Tipo</label><select class="nf-tipo" onchange="nfTreinMudou(${id})"><option value="ASO">ASO</option><option value="NR">NR</option><option value="CNH">CNH</option><option value="OUTRO">Outro</option></select></div>
+      <div><label style="font-size:11px">Qual</label>
+        <select class="nf-aso">${asoOpts}</select>
+        <select class="nf-nr" style="display:none">${nrOpts}</select>
+        <select class="nf-cnh" style="display:none">${cnhOpts}</select>
+        <input class="nf-nome" style="display:none" placeholder="Nome do treinamento">
+      </div>
+      <div><label style="font-size:11px">Realização</label><input type="date" class="nf-real" onchange="nfTreinMudou(${id})"></div>
+      <div><label style="font-size:11px">Vencimento *</label><input type="date" class="nf-venc"></div>
+      <button type="button" class="btn btn-sm" title="Remover" onclick="document.getElementById('nf-tr-${id}').remove()"><i class="ti ti-x"></i></button>
+    </div>`);
+  nfTreinMudou(id,true);
+}
+function nfTreinMudou(id,soTipo){
+  const r=document.getElementById('nf-tr-'+id);if(!r)return;
+  const tipo=r.querySelector('.nf-tipo').value;
+  r.querySelector('.nf-aso').style.display=tipo==='ASO'?'':'none';
+  r.querySelector('.nf-nr').style.display=tipo==='NR'?'':'none';
+  r.querySelector('.nf-cnh').style.display=tipo==='CNH'?'':'none';
+  r.querySelector('.nf-nome').style.display=tipo==='OUTRO'?'':'none';
+  const real=r.querySelector('.nf-real').value;
+  const meses=nfPeriodicidade(r);
+  if(real&&meses){const d=new Date(real+'T12:00:00');d.setMonth(d.getMonth()+meses);r.querySelector('.nf-venc').value=toISO(d);}
+}
+function nfPeriodicidade(r){
+  const tipo=r.querySelector('.nf-tipo').value;
+  if(tipo==='ASO')return 12;
+  if(tipo==='NR')return nrInfo(r.querySelector('.nf-nr').value)?.meses||null;
+  return null;
+}
+// Lê as linhas de treinamento do formulário; devolve {erro} ou {linhas}
+function nfLerTreinamentos(){
+  const rows=[...document.querySelectorAll('#nf-trein-list .nf-tr')];
+  const linhas=[];
+  for(const r of rows){
+    const tipo=r.querySelector('.nf-tipo').value;
+    const venc=r.querySelector('.nf-venc').value||null;
+    const real=r.querySelector('.nf-real').value||null;
+    const nome=r.querySelector('.nf-nome').value.trim()||null;
+    if(!venc)return{erro:'Treinamentos: informe a data de vencimento de cada linha (ou remova a linha em branco)'};
+    if(tipo==='OUTRO'&&!nome)return{erro:'Treinamentos: informe o nome do treinamento na linha "Outro"'};
+    const meses=nfPeriodicidade(r);
+    linhas.push({tipo,
+      nr_codigo:tipo==='NR'?r.querySelector('.nf-nr').value:null,
+      categoria_cnh:tipo==='CNH'?(r.querySelector('.nf-cnh').value||null):null,
+      nome_treinamento:tipo==='ASO'?r.querySelector('.nf-aso').value:tipo==='OUTRO'?nome:null,
+      data_realizacao:real,
+      periodicidade_meses:tipo==='NR'?meses:tipo==='ASO'?12:null,
+      vencimento_manual:!(meses&&real),
+      data_vencimento:venc,observacao:null});
+  }
+  return{linhas};
+}
+
 async function saveFuncionario(id){
   const mat=document.getElementById('f-matricula').value.trim();
   const nome=document.getElementById('f-nome').value.trim();
@@ -5608,6 +5708,22 @@ async function saveFuncionario(id){
   if(!admissaoVal){showToast('Data de Admissão é obrigatória','error');return;}
   const obraVal=document.getElementById('f-obra').value;
   if(!obraVal){showToast('Obra / Contrato é obrigatória','error');return;}
+  // ── Ficha única (só cadastro novo): valida folga e treinamentos antes de gravar o funcionário ──
+  let _nf=null;
+  if(!id&&document.getElementById('nf-trein-list')){
+    const folgaOn=document.getElementById('nf-folga-on').checked;
+    const folgaInicio=document.getElementById('nf-folga-inicio').value;
+    if(folgaOn&&!folgaInicio){showToast('Folga de campo: informe a data de início do período','error');return;}
+    const tr=nfLerTreinamentos();
+    if(tr.erro){showToast(tr.erro,'error');return;}
+    _nf={folgaOn,folgaInicio,
+      folgaPeriodo:parseInt(document.getElementById('nf-folga-periodo').value),
+      folgaCidade:document.getElementById('nf-folga-cidade').value.trim()||document.getElementById('f-cidade').value.trim()||null,
+      aerea:document.getElementById('nf-folga-aerea').checked,
+      terrestre:document.getElementById('nf-folga-terrestre').checked,
+      treinos:tr.linhas,
+      feriasOn:document.getElementById('nf-ferias-on').checked};
+  }
   const funcaoOk=funcaoModoManual
     ?!!document.getElementById('f-funcao-input').value.trim()
     :!!document.getElementById('f-funcao-select').value;
@@ -5882,6 +5998,28 @@ async function saveFuncionario(id){
     const{error:errLink}=await sb.from('contratacoes').update({funcionario_id:idFinal}).eq('id',origemId);
     if(errLink)showToast('Funcionário cadastrado, mas houve erro ao vincular ao candidato: '+errLink.message,'error');
     else await loadContratacoes();
+  }
+  // ── Ficha única: cria folga, treinamentos/ASO e 1º período de férias do novo funcionário ──
+  if(_nf&&idFinal&&!id){
+    const avisos=[];
+    if(_nf.folgaOn){
+      const proj={};
+      calcVencimentos({data_inicio:_nf.folgaInicio,periodo_trabalhado:_nf.folgaPeriodo}).forEach((d,i)=>{proj['saida'+(i+1)+'_projecao']=toISO(d);});
+      const{error:eF}=await sb.from('folgas').insert({funcionario_id:idFinal,data_inicio:_nf.folgaInicio,periodo_trabalhado:_nf.folgaPeriodo,cidade_origem:_nf.folgaCidade,tipo_passagem_aerea:_nf.aerea,tipo_passagem_terrestre:_nf.terrestre,...proj});
+      if(eF)avisos.push('folga ('+eF.message+')');else{try{await loadFolgas();}catch(e){}}
+    }
+    if(_nf.treinos.length){
+      const{error:eT}=await sb.from('treinamentos').insert(_nf.treinos.map(t=>({funcionario_id:idFinal,...t})));
+      if(eT)avisos.push('treinamentos ('+eT.message+')');else{try{await loadTreinamentos();}catch(e){}}
+    }
+    if(_nf.feriasOn&&payload.data_admissao){
+      const ini=parseDate(payload.data_admissao);
+      const fim=new Date(ini);fim.setFullYear(fim.getFullYear()+1);fim.setDate(fim.getDate()-1);
+      const lim=new Date(fim);lim.setFullYear(lim.getFullYear()+1);
+      const{error:eV}=await sb.from('ferias').insert({funcionario_id:idFinal,matricula:payload.matricula,periodo_aquisitivo_inicio:toISO(ini),periodo_aquisitivo_fim:toISO(fim),dt_limite_ideal:toISO(fim),dt_limite_maxima:toISO(lim),dias_direito:30,dias_vencidos:0,importado_em:new Date().toISOString(),programado:false,dias_programados:null,data_inicio_programada:null,data_fim_programada:null,validado_dp:false});
+      if(eV)avisos.push('férias ('+eV.message+')');else{try{await loadFerias();}catch(e){}}
+    }
+    if(avisos.length)showToast('Funcionário cadastrado, mas faltou lançar: '+avisos.join('; ')+'. Lance manualmente na aba correspondente.','error');
   }
   showToast(isEnvio?'Transferência registrada! Aguardando aprovação da obra de destino.':(id?'Funcionário atualizado!':'Funcionário cadastrado!'));
   closeModal('modal-func');showPage('funcionarios');
