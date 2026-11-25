@@ -398,6 +398,60 @@ const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY,{global:{fetch:(url,opt
   h.set('x-session-token',window.__gtelToken);
   return fetch(url,{...opts,headers:h});
 }}});
+
+// ===== Arquivos (Storage): abrir por link temporário =====
+// Os endereços salvos no banco continuam os mesmos; ao abrir, trocamos por um link assinado (1h).
+// Se não for possível assinar, usa o endereço original (continua funcionando enquanto a pasta for pública).
+const _STG_MARCA='/storage/v1/object/public/';
+const _stgCache={};
+function _stgParse(url){
+  if(typeof url!=='string')return null;
+  const i=url.indexOf(_STG_MARCA);if(i<0)return null;
+  const resto=url.slice(i+_STG_MARCA.length).split('?')[0];
+  const b=resto.indexOf('/');if(b<1)return null;
+  let path=resto.slice(b+1);try{path=decodeURIComponent(path);}catch(e){}
+  return {bucket:resto.slice(0,b),path};
+}
+async function urlArquivo(url){
+  const r=_stgParse(url);if(!r)return url;
+  const c=_stgCache[url];if(c&&c.ate>Date.now())return c.url;
+  try{
+    const {data,error}=await sb.storage.from(r.bucket).createSignedUrl(r.path,3600);
+    if(error||!data?.signedUrl)return url;
+    _stgCache[url]={url:data.signedUrl,ate:Date.now()+50*60*1000};
+    return data.signedUrl;
+  }catch(e){return url;}
+}
+document.addEventListener('click',function(ev){
+  const a=ev.target&&ev.target.closest?ev.target.closest('a[href]'):null;
+  if(!a||ev.defaultPrevented||ev.button>0||ev.ctrlKey||ev.metaKey||ev.shiftKey)return;
+  const href=a.getAttribute('href');
+  if(!_stgParse(href))return;
+  ev.preventDefault();
+  const nova=(a.target==='_blank');
+  const w=nova?window.open('about:blank','_blank'):null;
+  urlArquivo(href).then(u=>{
+    if(w&&!w.closed){w.location.href=u;}
+    else if(nova){window.open(u,'_blank');}
+    else{location.href=u;}
+  });
+},true);
+function _stgImg(img){
+  const src=img.getAttribute('src');
+  if(!_stgParse(src))return;
+  urlArquivo(src).then(u=>{if(u!==src&&img.getAttribute('src')===src)img.setAttribute('src',u);});
+}
+(function(){
+  const varrer=n=>{if(n.nodeType!==1)return;if(n.tagName==='IMG')_stgImg(n);n.querySelectorAll&&n.querySelectorAll('img').forEach(_stgImg);};
+  const iniciar=()=>{
+    varrer(document.body);
+    new MutationObserver(ms=>{for(const m of ms){
+      if(m.type==='attributes'){if(m.target.tagName==='IMG')_stgImg(m.target);}
+      else m.addedNodes.forEach(varrer);
+    }}).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['src']});
+  };
+  if(document.body)iniciar();else document.addEventListener('DOMContentLoaded',iniciar);
+})();
 // função ainda não criada no banco (script 01 não rodou)?
 function rpcAusente(error){return !!error&&(error.code==='PGRST202'||/could not find the function|Could not find the .* function/i.test(error.message||''));}
 
