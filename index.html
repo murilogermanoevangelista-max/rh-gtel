@@ -358,6 +358,7 @@ input:focus,select:focus{border-color:var(--primary)}
     <div class="sidebar-logo"><span class="logo-gtel">GTEL</span> Obras</div>
     <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 14/10/2026-e</div>
   </div>
+  <div style="padding:10px 12px 0"><button onclick="bgAbrir()" style="width:100%;display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:7px 10px;font-size:12.5px;cursor:pointer"><i class="ti ti-search"></i><span style="flex:1;text-align:left;opacity:.85">Buscar…</span><span style="opacity:.6;font-size:11px">Ctrl+K</span></button></div>
   <div class="sidebar-obra-filter">
     <label><i class="ti ti-building-skyscraper"></i> Filtrar por Obra</label>
     <select id="global-obra-select" onchange="setGlobalObraFiltro(this.value)">
@@ -526,6 +527,12 @@ async function fazerLogin(){
       }
     }
     sessionStorage.setItem(SESSION_KEY,JSON.stringify(currentUser));
+    try{ // histórico de acesso: registra cada entrada no sistema (melhor esforço)
+      const ua=navigator.userAgent||'';
+      const nav=/Edg\//.test(ua)?'Edge':/Chrome\//.test(ua)?'Chrome':/Firefox\//.test(ua)?'Firefox':/Safari\//.test(ua)?'Safari':'navegador';
+      const so=/Android/.test(ua)?'Android':/iPhone|iPad/.test(ua)?'iOS':/Windows/.test(ua)?'Windows':/Mac/.test(ua)?'Mac':/Linux/.test(ua)?'Linux':'';
+      _usrLogar([{usuario_login:currentUser.usuario,acao:'Entrou no sistema',detalhe:nav+(so?' · '+so:'')+(/Mobi/.test(ua)?' · celular':'')}]);
+    }catch(e){}
     entrarNoApp();
   }catch(e){
     erroEl.textContent='Erro ao conectar: '+e.message;
@@ -1374,7 +1381,7 @@ async function showPage(page){
     else if(page==='backup')renderBackup();
     else if(page==='salarios'){salVersaoId='';await salCarregar();renderSalarios();}
     else if(page==='obras')renderObras();
-    else if(page==='empresas')renderEmpresas();
+    else if(page==='empresas'){try{await loadPrestadores();}catch(e){}renderEmpresas();}
     else if(page==='fornecedores'){await loadFornecedores();renderFornecedores();}
     else if(page==='materiais'){await matCarregar();renderMateriais();}
     else if(page==='contratacoes'){await Promise.all([loadContratacoes(),loadContratacoesVagas(),loadContratacoesProspeccoes()]);renderContratacoes();}
@@ -5253,7 +5260,7 @@ function openModalFuncionario(func=null){
   const isEdit=!!(func&&func.id);
   const obraOptions=obrasParaCadastro(func?.obra_id).map(o=>`<option value="${o.id}" ${func?.obra_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
   const obraTransfOptions=obrasTodas.map(o=>`<option value="${o.id}" ${func?.obra_transferencia_id===o.id?'selected':''}>${o.codigo} — ${o.nome}</option>`).join('');
-  const empresaOptions=empresas.map(e=>`<option value="${e.id}" ${func?.empresa_id===e.id?'selected':''}>${e.nome}</option>`).join('');
+  const empresaOptions=(()=>{const e=empresaPrincipal();return e?`<option value="${e.id}" selected>${e.nome}</option>`:'';})();
   const funcoesUnicas=[...new Map(funcoes.map(f=>[f.nome?.trim().toUpperCase(),f])).values()].sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt-BR'));
   const funcaoOptions=funcoesUnicas.map(f=>`<option value="${f.id}" ${func?.funcao_id===f.id?'selected':''}>${f.nome}</option>`).join('');
   const isTransf=func?.situacao==='transferido';
@@ -5334,7 +5341,7 @@ function openModalFuncionario(func=null){
             <input id="f-funcao-input" value="${func?.funcao_manual||''}" placeholder="Digite a função..." style="display:${funcaoModoManual?'block':'none'}">
             <span class="funcao-toggle" id="f-funcao-toggle" onclick="toggleFuncaoModo()">${funcaoModoManual?'← Escolher da lista':'✏️ Digitar manualmente'}</span>
           </div>
-          <div class="form-group"><label>Empresa</label><select id="f-empresa"><option value="">Selecione...</option>${empresaOptions}</select></div>
+          <div class="form-group"><label>Empresa</label><select id="f-empresa" disabled style="background:#F3F5F9">${empresaOptions||'<option value="">—</option>'}</select><div style="font-size:11px;color:var(--text-muted);margin-top:3px">Subcontratados são cadastrados em <b>Prestadores</b>.</div></div>
           <div class="form-group"><label>Obra / Contrato *</label><select id="f-obra" onchange="atualizarAlojamentoPorObra()"><option value="">Selecione...</option>${obraOptions}</select></div>
           <div class="form-group"><label>Alojamento</label>
             <select id="f-alojamento"></select>
@@ -9544,7 +9551,7 @@ function openModalPrestador(id){
           <div class="form-grid">
             <div class="form-group" style="grid-column:1/-1">
               <label>Razão Social</label>
-              <input id="prest-razao" value="${p?.razao_social||''}" placeholder="Ex: Engenharia ABC Ltda">
+              <input id="prest-razao" list="prest-razoes" oninput="prestRazaoEscolhida(this.value)" value="${p?.razao_social||''}" placeholder="Escolha uma subcontratada já cadastrada ou digite uma nova"><datalist id="prest-razoes">${[...new Set((prestadores||[]).map(x=>x.razao_social).filter(Boolean))].sort().map(r=>`<option value="${String(r).replace(/"/g,'&quot;')}">`).join('')}</datalist>
             </div>
             <div class="form-group">
               <label>Nome Fantasia</label>
@@ -10311,7 +10318,7 @@ function usrHistorico(login){
   closeModal('modal-usr-hist');
   document.body.insertAdjacentHTML('beforeend',`<div class="modal-overlay" id="modal-usr-hist" onclick="if(event.target===this)closeModal('modal-usr-hist')"><div class="modal" style="max-width:620px"><div class="modal-header"><span class="modal-title">Histórico de acesso — ${escHtml(login)}</span><button class="btn btn-sm" onclick="closeModal('modal-usr-hist')"><i class="ti ti-x"></i></button></div>
    <div class="modal-body" style="max-height:60vh;overflow:auto">${!_usrEst.logOk?'<div style="color:var(--text-muted)">O histórico ainda não está ativado. Rode o SQL <b>sql_usuarios_historico.sql</b> no Supabase; a partir daí cada alteração fica registrada.</div>'
-   :l.length?l.map(x=>`<div style="padding:8px 2px;border-bottom:1px solid var(--border)"><div style="font-size:12px;color:var(--text-muted)">${new Date(x.created_at).toLocaleString('pt-BR')} · por ${escHtml(x.feito_por||'—')}</div><div><b>${escHtml(x.acao)}</b> — ${escHtml(x.detalhe||'')}</div></div>`).join(''):'<div style="color:var(--text-muted)">Nenhuma alteração registrada para este usuário ainda.</div>'}</div>
+   :l.length?l.map(x=>`<div style="padding:8px 2px;border-bottom:1px solid var(--border)"><div style="font-size:12px;color:var(--text-muted)">${new Date(x.created_at).toLocaleString('pt-BR')} · por ${escHtml(x.feito_por||'—')}</div><div><b>${escHtml(x.acao)}</b> — ${escHtml(x.detalhe||'')}</div></div>`).join(''):'<div style="color:var(--text-muted)">Nenhum registro para este usuário ainda. A partir de agora cada entrada no sistema e cada mudança de acesso aparece aqui.</div>'}</div>
    <div class="modal-footer"><button class="btn" onclick="closeModal('modal-usr-hist')">Fechar</button></div></div></div>`);
 }
 function usrExportar(){
@@ -10372,7 +10379,7 @@ async function renderUsuarios(){
   const{data:usuarios,error}=await sb.rpc('listar_usuarios');
   if(error){showToast(rpcAusente(error)?'Rode o script de segurança 01 no Supabase para usar esta tela.':'Erro ao carregar usuários: '+error.message,'error');return;}
   window._usuariosLista=usuarios||[];
-  try{const r=await sb.from('usuarios_acesso_log').select('*').order('created_at',{ascending:false}).limit(2000);_usrEst.logOk=!r.error;_usrEst.log=r.error?[]:(r.data||[]);}catch(e){_usrEst.logOk=false;_usrEst.log=[];}
+  try{const r=await sb.from('usuarios_acesso_log').select('*').order('created_at',{ascending:false}).limit(6000);_usrEst.logOk=!r.error;_usrEst.log=r.error?[]:(r.data||[]);}catch(e){_usrEst.logOk=false;_usrEst.log=[];}
   const E=_usrEst;
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
@@ -10595,7 +10602,7 @@ function renderObras(){
 
 function openModalObra(obra=null){
   const isEdit=!!obra;
-  const empresaOptions=empresas.map(e=>`<option value="${e.id}" ${obra?.empresa_id===e.id?'selected':''}>${e.nome}</option>`).join('');
+  const empresaOptions=(()=>{const e=empresaPrincipal();return e?`<option value="${e.id}" selected>${e.nome}</option>`:'';})();
   document.body.insertAdjacentHTML('beforeend',`
     <div class="modal-overlay" id="modal-obra" onclick="if(event.target===this)closeModal('modal-obra')">
       <div class="modal" style="max-width:500px">
@@ -10606,7 +10613,7 @@ function openModalObra(obra=null){
           <div class="form-group full"><label>Centro de Custo</label><input id="o-cc" value="${obra?.centro_custo||''}" placeholder="Ex: 100 SEDE · 1940501E"></div>
           <div class="form-group"><label>Cidade</label><input id="o-cidade" value="${obra?.cidade||''}" placeholder="Cidade"></div>
           <div class="form-group"><label>UF</label><select id="o-uf"><option value="">—</option>${UFS.map(u=>`<option value="${u}" ${obra?.uf===u?'selected':''}>${u}</option>`).join('')}</select></div>
-          <div class="form-group full"><label>Empresa</label><select id="o-empresa"><option value="">Selecione...</option>${empresaOptions}</select></div>
+          <div class="form-group full"><label>Empresa</label><select id="o-empresa" disabled style="background:#F3F5F9">${empresaOptions||'<option value="">—</option>'}</select></div>
           <div class="form-group full"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:500"><input type="checkbox" id="o-bloqueada" ${obra?.bloqueada_cadastro?'checked':''}> Bloquear novos cadastros nesta obra</label><div style="font-size:11px;color:var(--text-muted);margin-top:2px">Funcionários, candidatos, vagas e prestadores novos não poderão ser vinculados a esta obra.</div></div>
         </div></div>
         <div class="modal-footer">
@@ -10644,25 +10651,74 @@ async function deleteObra(id,nome){
 }
 
 // ─── EMPRESAS ─────────────────────────────────────────────────────────────────
+function empresaPrincipal(){
+  const g=(empresas||[]).filter(e=>/gtel/i.test(e.nome||''));
+  return g[0]||(empresas||[])[0]||null;
+}
+function empresasDuplicadasGtel(){
+  const pr=empresaPrincipal();if(!pr)return[];
+  const dig=s=>String(s||'').replace(/\D/g,'');
+  return empresas.filter(e=>e.id!==pr.id&&(dig(e.cnpj)&&dig(e.cnpj)===dig(pr.cnpj)||String(e.nome||'').trim().toLowerCase()===String(pr.nome||'').trim().toLowerCase()));
+}
+function empSubcontratadas(){
+  const G={};
+  const dig=s=>String(s||'').replace(/\D/g,'');
+  (prestadores||[]).forEach(p=>{
+    const nome=(p.razao_social||'').trim();if(!nome)return;
+    const k=dig(p.cnpj)||nome.toLowerCase().replace(/\s+/g,' ');
+    const g=G[k]||(G[k]={nome,fantasia:p.nome_fantasia||'',cnpj:p.cnpj||'',obras:new Set(),ativos:0,total:0});
+    g.total++;if(p.situacao==='ativo')g.ativos++;if(p.obra_id)g.obras.add(String(p.obra_id));
+    if(!g.cnpj&&p.cnpj)g.cnpj=p.cnpj;if(!g.fantasia&&p.nome_fantasia)g.fantasia=p.nome_fantasia;
+  });
+  return Object.values(G).sort((a,b)=>b.ativos-a.ativos||a.nome.localeCompare(b.nome,'pt-BR'));
+}
+function prestRazaoEscolhida(v){
+  const x=(prestadores||[]).find(p=>p.razao_social===v);if(!x)return;
+  const c=document.getElementById('prest-cnpj'),f=document.getElementById('prest-fantasia');
+  if(c&&!c.value&&x.cnpj)c.value=x.cnpj;if(f&&!f.value&&x.nome_fantasia)f.value=x.nome_fantasia;
+}
+function empVerPrestadores(nome){prestadoresFiltroEmpresa=nome;prestadoresFiltroSit='';showPage('prestadores');}
+async function empJuntarGtel(){
+  const pr=empresaPrincipal(),dups=empresasDuplicadasGtel();if(!pr||!dups.length)return;
+  if(!confirm('Juntar '+dups.length+' cadastro(s) repetido(s) da GTEL em um só?\n\nFuncionários e obras ligados aos repetidos passam para o cadastro principal; depois os repetidos são removidos.'))return;
+  const ids=dups.map(d=>d.id);
+  try{
+    for(const t of ['funcionarios','obras']){const r=await sb.from(t).update({empresa_id:pr.id}).in('empresa_id',ids);if(r.error)throw r.error;}
+    const r=await sb.from('empresas').delete().in('id',ids);if(r.error)throw r.error;
+    showToast('Cadastros repetidos juntados.');await loadAll();renderEmpresas();
+  }catch(e){showToast('Erro ao juntar: '+(e.message||e),'error');}
+}
 function renderEmpresas(){
-  const rows=empresas.length?empresas.map(e=>`<tr>
-    <td><div style="font-weight:500">${e.nome}</div></td>
-    <td style="font-family:monospace">${e.cnpj||'—'}</td>
-    <td><div class="action-btns">
-      <button class="btn btn-sm" onclick="editEmpresa('${e.id}')"><i class="ti ti-edit"></i></button>
-      <button class="btn btn-sm btn-danger" onclick="deleteEmpresa('${e.id}','${(e.nome||'').replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i></button>
-    </div></td>
-  </tr>`).join('')
-  :`<tr><td colspan="3"><div class="empty-state"><i class="ti ti-briefcase"></i><div>Nenhuma empresa cadastrada</div></div></td></tr>`;
+  const pr=empresaPrincipal(),dups=empresasDuplicadasGtel();
+  const outras=(empresas||[]).filter(e=>pr&&e.id!==pr.id&&!dups.some(d=>d.id===e.id));
+  const obraNome=id=>{const o=(obrasTodas&&obrasTodas.length?obrasTodas:obras).find(x=>String(x.id)===String(id));return o?(o.codigo||o.nome):'—';};
+  const subs=empSubcontratadas();
+  const nFunc=pr?funcionarios.filter(f=>f.situacao==='ativo').length:0;
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
-      <div><div class="page-title">Empresas</div><div class="page-subtitle">${empresas.length} registros</div></div>
-      <button class="btn btn-primary" onclick="openModalEmpresa()"><i class="ti ti-plus"></i> Nova empresa</button>
+      <div><div class="page-title">Empresas</div><div class="page-subtitle">GTEL e subcontratadas</div></div>
+      <button class="btn btn-primary" onclick="showPage('prestadores')"><i class="ti ti-users-group"></i> Prestadores / subcontratadas</button>
     </div>
-    <div class="table-container"><table>
-      <thead><tr><th>Nome</th><th>CNPJ</th><th></th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>`;
+    ${pr?`<div style="border:1px solid var(--border);border-left:4px solid var(--primary);border-radius:12px;padding:16px 18px;margin-bottom:18px;background:#fff;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+      <i class="ti ti-building-skyscraper" style="font-size:30px;color:var(--primary)"></i>
+      <div style="flex:1;min-width:240px"><div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.5px">EMPRESA PRINCIPAL</div>
+        <div style="font-size:17px;font-weight:700;color:var(--primary-dark)">${escHtml(pr.nome)}</div>
+        <div style="font-family:monospace;font-size:12.5px;color:var(--text-muted)">${escHtml(pr.cnpj||'—')}</div></div>
+      <div style="text-align:center"><div style="font-size:22px;font-weight:700;color:var(--primary-dark)">${nFunc}</div><div style="font-size:11.5px;color:var(--text-muted)">colaboradores ativos</div></div>
+      <button class="btn btn-sm" onclick="editEmpresa('${pr.id}')"><i class="ti ti-edit"></i> Editar</button>
+      ${dups.length?`<div style="flex-basis:100%;background:var(--warning-light);border-radius:8px;padding:8px 12px;font-size:12.5px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap"><span><i class="ti ti-alert-triangle"></i> Há <b>${dups.length}</b> cadastro(s) repetido(s) da GTEL.</span><button class="btn btn-sm btn-primary" onclick="empJuntarGtel()">Juntar em um só</button></div>`:''}
+    </div>`:'<div class="empty-state"><div>Nenhuma empresa cadastrada</div><button class="btn btn-primary" onclick="openModalEmpresa()">Cadastrar a GTEL</button></div>'}
+    <div style="font-weight:700;color:var(--primary-dark);margin:6px 0 4px">Subcontratadas <span style="font-weight:400;color:var(--text-muted);font-size:12.5px">· ${subs.length} empresa(s), vindas do cadastro de Prestadores de serviço</span></div>
+    <div class="table-container" style="margin-bottom:18px"><table><thead><tr><th>Empresa</th><th>CNPJ</th><th>Obras</th><th style="text-align:right">Pessoas (ativas / total)</th><th></th></tr></thead><tbody>
+    ${subs.map(s=>`<tr><td><div style="font-weight:500">${escHtml(s.nome)}</div>${s.fantasia?`<div style="font-size:11px;color:var(--text-muted)">${escHtml(s.fantasia)}</div>`:''}</td>
+      <td style="font-family:monospace;font-size:12px">${escHtml(s.cnpj||'—')}</td>
+      <td style="font-size:12px">${[...s.obras].map(id=>`<span class="badge">${escHtml(obraNome(id))}</span>`).join(' ')||'—'}</td>
+      <td style="text-align:right">${s.ativos} / ${s.total}</td>
+      <td><button class="btn btn-sm" onclick="empVerPrestadores(${JSON.stringify(s.nome).replace(/"/g,'&quot;')})"><i class="ti ti-eye"></i> Ver pessoas</button></td></tr>`).join('')
+      ||'<tr><td colspan="5"><div class="empty-state"><i class="ti ti-building-community"></i><div>Nenhuma subcontratada ainda. Ela aparece aqui quando você cadastra um prestador de serviço informando a razão social.</div></div></td></tr>'}
+    </tbody></table></div>
+    ${outras.length?`<div style="font-weight:700;color:var(--primary-dark);margin:6px 0 4px">Outros cadastros antigos de empresa</div>
+    <div class="table-container"><table><thead><tr><th>Nome</th><th>CNPJ</th><th></th></tr></thead><tbody>${outras.map(e=>`<tr><td>${escHtml(e.nome)}</td><td style="font-family:monospace">${escHtml(e.cnpj||'—')}</td><td><div class="action-btns"><button class="btn btn-sm" onclick="editEmpresa('${e.id}')"><i class="ti ti-edit"></i></button><button class="btn btn-sm btn-danger" onclick="deleteEmpresa('${e.id}','${(e.nome||'').replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i></button></div></td></tr>`).join('')}</tbody></table></div>`:''}`;
 }
 
 function openModalEmpresa(emp=null){
@@ -23416,6 +23472,60 @@ if(checkSessao()){
 } else {
   document.getElementById('login-screen').style.display='flex';
 }
+
+// ─── BUSCA GLOBAL (Ctrl+K) ───────────────────────────────────────────────────
+let _bgItens=[],_bgSel=0;
+function bgAbrir(){
+  if(!currentUser||document.getElementById('app-shell')?.style.display==='none')return;
+  if(document.getElementById('modal-busca-global')){document.getElementById('bg-input').focus();return;}
+  document.body.insertAdjacentHTML('beforeend',`<div id="modal-busca-global" style="position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:9vh 14px 0" onclick="if(event.target===this)bgFechar()">
+    <div style="width:100%;max-width:580px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.25)">
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border)">
+        <i class="ti ti-search" style="font-size:18px;color:var(--text-muted)"></i>
+        <input id="bg-input" autocomplete="off" placeholder="Buscar funcionário, obra, fornecedor ou tela…" style="flex:1;border:none;outline:none;font-size:15px;background:transparent" oninput="bgBuscar(this.value)" onkeydown="bgTecla(event)">
+        <span style="font-size:11px;color:var(--text-muted);border:1px solid var(--border);border-radius:6px;padding:2px 6px">Esc</span>
+      </div>
+      <div id="bg-res" style="max-height:56vh;overflow:auto;padding:6px 0"></div>
+      <div style="display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--border);font-size:11px;color:var(--text-muted)"><span>↑↓ navegar</span><span>↵ abrir</span><span>Ctrl+K em qualquer tela</span></div>
+    </div></div>`);
+  document.getElementById('bg-input').focus();bgBuscar('');
+}
+function bgFechar(){document.getElementById('modal-busca-global')?.remove();}
+function bgTecla(e){
+  if(e.key==='Escape'){bgFechar();return;}
+  if(e.key==='ArrowDown'){e.preventDefault();_bgSel=Math.min(_bgSel+1,_bgItens.length-1);bgPintar();}
+  else if(e.key==='ArrowUp'){e.preventDefault();_bgSel=Math.max(_bgSel-1,0);bgPintar();}
+  else if(e.key==='Enter'){e.preventDefault();bgAbrirItem(_bgSel);}
+}
+function bgAbrirItem(i){const it=_bgItens[i];if(!it)return;bgFechar();try{it.acao();}catch(e){console.error('[Busca]',e);}}
+function bgBuscar(q){
+  const n=s=>_semAcento(String(s||'')).toLowerCase();
+  const toks=n(q).split(/\s+/).filter(Boolean);
+  const dq=String(q||'').replace(/\D/g,'');
+  const ok=(...campos)=>{if(!toks.length)return false;const t=n(campos.join(' '));return toks.every(x=>t.includes(x));};
+  const G=[];
+  const add=(grupo,lista)=>{if(lista.length)G.push({grupo,lista});};
+  const obraTxt=id=>{const o=(obrasTodas&&obrasTodas.length?obrasTodas:obras).find(x=>String(x.id)===String(id));return o?(o.codigo||o.nome):'';};
+  if(!toks.length){
+    add('Telas',modulosVisiveis().slice(0,8).map(m=>({icone:m.icone,t:m.nome,s:m.desc||'',acao:()=>showPage(m.page)})));
+  }else{
+    add('Obras',obras.filter(o=>ok(o.codigo,o.nome,o.cidade,o.centro_custo)).slice(0,5).map(o=>({icone:'ti-building-factory-2',t:(o.codigo?o.codigo+' · ':'')+o.nome,s:[o.cidade,o.uf].filter(Boolean).join(' · ')+' · '+funcionarios.filter(f=>f.obra_id===o.id&&f.situacao==='ativo').length+' ativos',acao:()=>irParaPendObra(o.id,'dashboard')})));
+    add('Funcionários',funcionarios.filter(f=>ok(f.nome_completo,f.matricula,f.funcao?.nome,f.funcao_manual)||(dq.length>=4&&String(f.cpf||'').replace(/\D/g,'').includes(dq))).slice(0,8).map(f=>({icone:'ti-user',t:f.nome_completo||'—',s:['Mat. '+(f.matricula||'—'),f.funcao?.nome||f.funcao_manual,obraTxt(f.obra_id),f.situacao!=='ativo'?f.situacao:''].filter(Boolean).join(' · '),acao:()=>{busca=f.nome_completo||'';filtroSituacao='';filtroObra='';filtroObraTocado=true;funcTab=f.situacao==='inativo'?'demitidos':f.situacao==='transferido'?'transferidos':'ativos';showPage('funcionarios');}})));
+    add('Prestadores',(prestadores||[]).filter(p=>ok(p.nome_completo,p.razao_social,p.nome_fantasia,p.cnpj)).slice(0,5).map(p=>({icone:'ti-id-badge',t:p.nome_completo||p.razao_social||'—',s:[p.razao_social,obraTxt(p.obra_id)].filter(Boolean).join(' · '),acao:()=>{prestadoresBusca=p.nome_completo||p.razao_social||'';prestadoresFiltroSit='';prestadoresFiltroObra='';prestadoresFiltroObraTocado=true;showPage('prestadores');}})));
+    add('Fornecedores',(fornecedores||[]).filter(f=>ok(f.razao_social,f.nome_fantasia,f.cnpj,f.tipo_fornecimento)).slice(0,5).map(f=>({icone:'ti-truck-delivery',t:f.nome_fantasia||f.razao_social,s:f.tipo_fornecimento||'',acao:()=>{fornecedoresBusca=f.razao_social||'';fornecedoresFiltroSit='';fornecedoresFiltroObra='';showPage('fornecedores');}})));
+    add('Ir para',modulosVisiveis().filter(m=>ok(m.nome,m.desc)).slice(0,6).map(m=>({icone:m.icone,t:m.nome,s:m.desc||'',acao:()=>showPage(m.page)})));
+  }
+  _bgItens=[];G.forEach(g=>g.lista.forEach(it=>_bgItens.push(it)));
+  _bgSel=0;window._bgGrupos=G;bgPintar();
+}
+function bgPintar(){
+  const box=document.getElementById('bg-res');if(!box)return;
+  if(!_bgItens.length){box.innerHTML='<div style="padding:18px 16px;color:var(--text-muted);font-size:13px">'+(document.getElementById('bg-input').value.trim()?'Nada encontrado.':'Digite para buscar.')+'</div>';return;}
+  let k=0;
+  box.innerHTML=(window._bgGrupos||[]).map(g=>`<div style="font-size:11px;color:var(--text-muted);padding:8px 14px 4px">${g.grupo}</div>`+g.lista.map(it=>{const i=k++;return`<div onclick="bgAbrirItem(${i})" onmousemove="if(_bgSel!==${i}){_bgSel=${i};bgPintar();}" style="display:flex;align-items:center;gap:10px;padding:8px 14px;cursor:pointer;${i===_bgSel?'background:var(--primary-light)':''}"><i class="ti ${it.icone}" style="font-size:18px;color:var(--text-muted)"></i><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(it.t)}</div>${it.s?`<div style="font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(it.s)}</div>`:''}</div>${i===_bgSel?'<span style="font-size:11px;color:var(--primary)">Enter ↵</span>':''}</div>`;}).join('')).join('');
+  box.querySelector('[style*="primary-light"]')?.scrollIntoView?.({block:'nearest'});
+}
+document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&String(e.key).toLowerCase()==='k'){e.preventDefault();bgAbrir();}});
 </script>
 </body>
 </html>
