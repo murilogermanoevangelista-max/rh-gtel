@@ -339,7 +339,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <div class="login-screen" id="login-screen">
   <div class="login-card">
     <div class="login-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 25/11/2026-a</span></div>
+    <div class="login-sub">Gestão de Obras e Colaboradores <span style="opacity:.6;font-size:11px">· versão 25/11/2026-b</span></div>
     <div class="login-error" id="login-erro"></div>
     <div class="login-field">
       <label>Usuário</label>
@@ -356,7 +356,7 @@ input:focus,select:focus{border-color:var(--primary)}
 <aside class="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-logo"><span class="logo-gtel">GTEL</span> Obras</div>
-    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 25/11/2026-a</div>
+    <div class="sidebar-sub">Gestão de Obras e Colaboradores</div><div class="sidebar-sub" style="opacity:.55;font-size:10px;margin-top:2px">versão 25/11/2026-b</div>
   </div>
   <div style="padding:10px 12px 0"><button onclick="bgAbrir()" style="width:100%;display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:7px 10px;font-size:12.5px;cursor:pointer"><i class="ti ti-search"></i><span style="flex:1;text-align:left;opacity:.85">Buscar…</span><span style="opacity:.6;font-size:11px">Ctrl+K</span></button></div>
   <div class="sidebar-obra-filter">
@@ -5524,28 +5524,28 @@ function openModalFuncionario(func=null){
               ${func?.demissao_termo_url?`<div style="font-size:12px;margin-top:6px">Anexo atual: <a href="${func.demissao_termo_url}" target="_blank">ver ${escHtml(func.demissao_termo_tipo||'termo')}</a> (envie outro arquivo para substituir)</div>`:''}
             </div>
           </div>
-          ${isEdit?'':`
+          ${(()=>{const _jaFolga=isEdit&&(folgas||[]).some(x=>String(x.funcionario_id)===String(func.id));const _jaFerias=isEdit&&(feriasData||[]).some(x=>String(x.funcionario_id)===String(func.id)||(x.matricula&&x.matricula===func.matricula));const _nTrein=isEdit?(treinamentos||[]).filter(x=>String(x.funcionario_id)===String(func.id)).length:0;return `
           <div class="form-section" style="margin-top:8px">Experiência <span style="font-weight:400;text-transform:none;letter-spacing:0">· calculada pela admissão</span></div>
           <div class="form-group full"><div id="nf-exp-prev" style="font-size:12.5px;color:var(--text-muted);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px">Informe a data de admissão para ver o fim da experiência.</div></div>
           <div class="form-section" style="margin-top:8px">Folga de Campo</div>
-          <div class="form-group full"><label style="display:flex;align-items:center;gap:8px;margin:0"><input type="checkbox" id="nf-folga-on" style="width:auto" onchange="nfToggle('nf-folga-box',this.checked)"> Cadastrar folga de campo agora</label></div>
+          ${_jaFolga?'<div class="form-group full" style="font-size:12.5px;color:var(--text-muted)"><i class="ti ti-info-circle"></i> Este funcionário já tem folga de campo cadastrada (edite na aba Folgas de Campo).</div><div id="nf-folga-box" style="display:none"></div>':`<div class="form-group full"><label style="display:flex;align-items:center;gap:8px;margin:0"><input type="checkbox" id="nf-folga-on" style="width:auto" onchange="nfToggle('nf-folga-box',this.checked)"> Cadastrar folga de campo agora</label></div>
           <div id="nf-folga-box" class="form-group full" style="display:none;grid-column:1/-1">
             <div class="form-grid">
-              <div class="form-group"><label>Início do período *</label><input type="date" id="nf-folga-inicio"><div style="font-size:11px;color:var(--text-muted);margin-top:3px">Normalmente a data de mobilização/integração.</div></div>
+              <div class="form-group"><label>Início do período *</label><input type="date" id="nf-folga-inicio" value="${func?.data_mobilizacao||''}"><div style="font-size:11px;color:var(--text-muted);margin-top:3px">Normalmente a data de mobilização/integração.</div></div>
               <div class="form-group"><label>Período trabalhado</label><select id="nf-folga-periodo">${[30,45,60,90,180].map(p=>`<option value="${p}" ${p===90?'selected':''}>${p} dias → ${diasFolga(p)} dia(s) útil folga</option>`).join('')}</select></div>
-              <div class="form-group"><label>Cidade de origem</label><input id="nf-folga-cidade" placeholder="Cidade"></div>
+              <div class="form-group"><label>Cidade de origem</label><input id="nf-folga-cidade" placeholder="Cidade" value="${func?.cidade||''}"></div>
               <div class="form-group" style="display:flex;gap:16px;align-items:flex-end"><label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" id="nf-folga-aerea" style="width:auto"> ✈️ Aérea</label><label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" id="nf-folga-terrestre" style="width:auto"> 🚌 Terrestre</label></div>
             </div>
-          </div>
+          </div>`}
           <div class="form-section" style="margin-top:8px">Treinamentos e ASO</div>
           <div class="form-group full">
             <div id="nf-trein-list"></div>
             <button type="button" class="btn btn-sm" onclick="nfAddTrein()"><i class="ti ti-plus"></i> Adicionar treinamento / ASO</button>
-            <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Cada linha vira um lançamento na aba Treinamentos. Só adicione o que a pessoa já tem.</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Cada linha vira um lançamento na aba Treinamentos. Só adicione o que a pessoa já tem.${_nTrein?` Já existem ${_nTrein} lançamento(s) dele na aba Treinamentos, que não serão alterados.`:''}</div>
           </div>
           <div class="form-section" style="margin-top:8px">Férias</div>
-          <div class="form-group full"><label style="display:flex;align-items:center;gap:8px;margin:0"><input type="checkbox" id="nf-ferias-on" style="width:auto" ${(func?.tipo||'nova_admissao')==='nova_admissao'?'checked':''}> Criar o 1º período aquisitivo (a partir da admissão)</label><div style="font-size:11px;color:var(--text-muted);margin-top:3px">Marcado só para Nova Admissão. Para antigos, deixe a planilha de férias gerar.</div></div>
-          `}
+          ${_jaFerias?'<div class="form-group full" style="font-size:12.5px;color:var(--text-muted)"><i class="ti ti-info-circle"></i> Este funcionário já tem período de férias lançado (veja na aba Férias).</div>':`<div class="form-group full"><label style="display:flex;align-items:center;gap:8px;margin:0"><input type="checkbox" id="nf-ferias-on" style="width:auto" ${!isEdit&&(func?.tipo||'nova_admissao')==='nova_admissao'?'checked':''}> Criar o 1º período aquisitivo (a partir da admissão)</label><div style="font-size:11px;color:var(--text-muted);margin-top:3px">Marcado só para Nova Admissão. Para antigos, deixe a planilha de férias gerar, ou marque aqui para lançar só este.</div></div>`}
+          `;})()}
           <div class="form-section" style="margin-top:8px">Observações</div>
           <div class="form-group full">
             <label>Observação Interna</label>
@@ -5710,19 +5710,19 @@ async function saveFuncionario(id){
   if(!obraVal){showToast('Obra / Contrato é obrigatória','error');return;}
   // ── Ficha única (só cadastro novo): valida folga e treinamentos antes de gravar o funcionário ──
   let _nf=null;
-  if(!id&&document.getElementById('nf-trein-list')){
-    const folgaOn=document.getElementById('nf-folga-on').checked;
-    const folgaInicio=document.getElementById('nf-folga-inicio').value;
+  if(document.getElementById('nf-trein-list')){
+    const folgaOn=!!document.getElementById('nf-folga-on')?.checked;
+    const folgaInicio=document.getElementById('nf-folga-inicio')?.value||'';
     if(folgaOn&&!folgaInicio){showToast('Folga de campo: informe a data de início do período','error');return;}
     const tr=nfLerTreinamentos();
     if(tr.erro){showToast(tr.erro,'error');return;}
     _nf={folgaOn,folgaInicio,
-      folgaPeriodo:parseInt(document.getElementById('nf-folga-periodo').value),
-      folgaCidade:document.getElementById('nf-folga-cidade').value.trim()||document.getElementById('f-cidade').value.trim()||null,
-      aerea:document.getElementById('nf-folga-aerea').checked,
-      terrestre:document.getElementById('nf-folga-terrestre').checked,
+      folgaPeriodo:parseInt(document.getElementById('nf-folga-periodo')?.value)||90,
+      folgaCidade:(document.getElementById('nf-folga-cidade')?.value||'').trim()||document.getElementById('f-cidade').value.trim()||null,
+      aerea:!!document.getElementById('nf-folga-aerea')?.checked,
+      terrestre:!!document.getElementById('nf-folga-terrestre')?.checked,
       treinos:tr.linhas,
-      feriasOn:document.getElementById('nf-ferias-on').checked};
+      feriasOn:!!document.getElementById('nf-ferias-on')?.checked};
   }
   const funcaoOk=funcaoModoManual
     ?!!document.getElementById('f-funcao-input').value.trim()
@@ -6000,7 +6000,7 @@ async function saveFuncionario(id){
     else await loadContratacoes();
   }
   // ── Ficha única: cria folga, treinamentos/ASO e 1º período de férias do novo funcionário ──
-  if(_nf&&idFinal&&!id){
+  if(_nf&&idFinal){
     const avisos=[];
     if(_nf.folgaOn){
       const proj={};
@@ -6016,10 +6016,11 @@ async function saveFuncionario(id){
       const ini=parseDate(payload.data_admissao);
       const fim=new Date(ini);fim.setFullYear(fim.getFullYear()+1);fim.setDate(fim.getDate()-1);
       const lim=new Date(fim);lim.setFullYear(lim.getFullYear()+1);
-      const{error:eV}=await sb.from('ferias').insert({funcionario_id:idFinal,matricula:payload.matricula,periodo_aquisitivo_inicio:toISO(ini),periodo_aquisitivo_fim:toISO(fim),dt_limite_ideal:toISO(fim),dt_limite_maxima:toISO(lim),dias_direito:30,dias_vencidos:0,importado_em:new Date().toISOString(),programado:false,dias_programados:null,data_inicio_programada:null,data_fim_programada:null,validado_dp:false});
+      const _jaTem=(feriasData||[]).some(x=>(x.matricula===payload.matricula)&&(x.periodo_aquisitivo_inicio||'').substring(0,10)===toISO(ini));
+      const{error:eV}=_jaTem?{error:{message:'já existe período com esse início'}}:await sb.from('ferias').insert({funcionario_id:idFinal,matricula:payload.matricula,periodo_aquisitivo_inicio:toISO(ini),periodo_aquisitivo_fim:toISO(fim),dt_limite_ideal:toISO(fim),dt_limite_maxima:toISO(lim),dias_direito:30,dias_vencidos:0,importado_em:new Date().toISOString(),programado:false,dias_programados:null,data_inicio_programada:null,data_fim_programada:null,validado_dp:false});
       if(eV)avisos.push('férias ('+eV.message+')');else{try{await loadFerias();}catch(e){}}
     }
-    if(avisos.length)showToast('Funcionário cadastrado, mas faltou lançar: '+avisos.join('; ')+'. Lance manualmente na aba correspondente.','error');
+    if(avisos.length)showToast('Funcionário salvo, mas faltou lançar: '+avisos.join('; ')+'. Lance manualmente na aba correspondente.','error');
   }
   showToast(isEnvio?'Transferência registrada! Aguardando aprovação da obra de destino.':(id?'Funcionário atualizado!':'Funcionário cadastrado!'));
   closeModal('modal-func');showPage('funcionarios');
