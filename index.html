@@ -1075,6 +1075,7 @@ async function loadTreinamentos(){
   treinamentos=lista;
 }
 
+let fornObras=[],_fornObrasOk=false,fornecedoresFiltroFalta=false;
 async function loadFornecedores(){
   const[f,o]=await Promise.all([
     pagAll(()=>sb.from('fornecedores').select('*,obra:obras(nome,codigo)').order('razao_social')),
@@ -1085,6 +1086,7 @@ async function loadFornecedores(){
   fornecedores=f.data||[];
   try{const mf=await pagAll(()=>sb.from('mobilizacao_fornecedores').select('*'));mobForn=mf.error?[]:(mf.data||[]);const mm=await pagAll(()=>sb.from('mobilizacoes').select('id,obra_id'));if(!mm.error&&!(mobilizacoes&&mobilizacoes.length))mobilizacoes=mm.data||[];}catch(e){}
   fornecedorOrcamentos=o.data||[];
+  try{const fo=await pagAll(()=>sb.from('fornecedor_obras').select('*'));_fornObrasOk=!fo.error;fornObras=fo.error?[]:(fo.data||[]);}catch(e){_fornObrasOk=false;fornObras=[];}
 }
 
 async function loadContratacoes(){
@@ -10705,15 +10707,99 @@ let fornecedoresBusca='',fornecedoresFiltroSit='ativo',fornecedoresFiltroTipo=''
 // Qualquer usuário VÊ todos os fornecedores; só edita/exclui os das suas obras (ou os gerais, sem obra)
 // obras onde o fornecedor também foi vinculado pela Mobilização Obra (além da obra do cadastro)
 function fornecedorObrasExtra(f){
-  if(typeof mobForn==='undefined'||!mobForn.length)return[];
   const ids=new Set();
-  mobForn.filter(l=>String(l.fornecedor_id)===String(f.id)).forEach(l=>{const m=(mobilizacoes||[]).find(x=>x.id===l.mobilizacao_id);if(m&&String(m.obra_id)!==String(f.obra_id))ids.add(String(m.obra_id));});
+  (fornObras||[]).filter(l=>String(l.fornecedor_id)===String(f.id)&&String(l.obra_id)!==String(f.obra_id)).forEach(l=>ids.add(String(l.obra_id)));
+  if(typeof mobForn!=='undefined'&&mobForn.length)mobForn.filter(l=>String(l.fornecedor_id)===String(f.id)).forEach(l=>{const m=(mobilizacoes||[]).find(x=>x.id===l.mobilizacao_id);if(m&&String(m.obra_id)!==String(f.obra_id))ids.add(String(m.obra_id));});
   return[...ids].map(id=>(obrasTodas&&obrasTodas.length?obrasTodas:obras).find(o=>String(o.id)===id)).filter(Boolean);
+}
+function fornFalta(f){return !!f.completar_cadastro&&!(f.telefone||f.cnpj||f.email);}
+function fornKey(n){
+  let s=(typeof _semAcento==='function'?_semAcento(String(n||'')):String(n||'')).toLowerCase().replace(/[.,\/\-–()&]/g,' ');
+  const k=s.replace(/\b(ltda|eireli|epp|me|sa|s a|cia|comercio|comercial|servicos|servico|industria|e|de|do|da|dos|das)\b/g,' ').replace(/\s+/g,' ').trim();
+  return k||s.replace(/\s+/g,' ').trim();
+}
+function fornMesmo(a,b){return a===b||(a.length>=5&&b.startsWith(a+' '))||(b.length>=5&&a.startsWith(b+' '));}
+async function fornGrdAbrir(){
+  if(!_fornObrasOk){showToast('Falta rodar o SQL criar_fornecedor_obras.sql no Supabase (uma vez).','error');return;}
+  if(!grdLista||!grdLista.length){try{await loadGRD();}catch(e){}}
+  if(!grdLista||!grdLista.length){showToast('Nenhuma GRD importada ainda.','error');return;}
+  const G={};
+  grdLista.forEach(x=>{
+    const nome=String(x.fornecedor||'').replace(/\s+/g,' ').trim();if(!nome)return;
+    const k=fornKey(nome);
+    let chave=Object.keys(G).find(c=>fornMesmo(c,k));
+    if(!chave){chave=k;G[chave]={vars:{},obras:new Set(),qtd:0,valor:0};}
+    const g=G[chave];g.vars[nome]=(g.vars[nome]||0)+1;g.qtd++;g.valor+=Number(x.valor)||0;if(x.obra_id)g.obras.add(String(x.obra_id));
+    // se um nome mais curto chegou depois, a chave passa a ser a mais curta
+    if(k.length<chave.length&&fornMesmo(chave,k)){G[k]=g;delete G[chave];}
+  });
+  const itens=Object.values(G).map(g=>{
+    const vs=Object.entries(g.vars).sort((a,b)=>b[1]-a[1]);
+    const nome=vs[0][0];const k=fornKey(nome);
+    const ex=fornecedores.find(f=>fornMesmo(fornKey(f.razao_social),k)||(f.nome_fantasia&&fornMesmo(fornKey(f.nome_fantasia),k)));
+    const jaObras=ex?new Set([String(ex.obra_id||''),...fornObras.filter(l=>String(l.fornecedor_id)===String(ex.id)).map(l=>String(l.obra_id)),...fornecedorObrasExtra(ex).map(o=>String(o.id))]):new Set();
+    const obras=[...g.obras].filter(id=>!jaObras.has(id));
+    return{nome,vars:vs.map(v=>v[0]),qtd:g.qtd,valor:g.valor,obrasTodas:[...g.obras],obras,ex,marcado:ex?obras.length>0:true};
+  }).filter(i=>!i.ex||i.obras.length>0).sort((a,b)=>b.qtd-a.qtd);
+  window._fornGrd=itens;
+  if(!itens.length){showToast('Todos os fornecedores das GRDs já estão cadastrados e ligados às suas obras.');return;}
+  document.getElementById('modal-forn-grd')?.remove();
+  document.body.insertAdjacentHTML('beforeend',`<div class="modal-overlay" id="modal-forn-grd" onclick="if(event.target===this)closeModal('modal-forn-grd')"><div class="modal" style="max-width:980px">
+    <div class="modal-header"><span class="modal-title"><i class="ti ti-file-import"></i> Fornecedores a partir das GRDs</span><button class="btn btn-sm" onclick="closeModal('modal-forn-grd')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body"><div id="forn-grd-corpo"></div></div></div></div>`);
+  fornGrdRender();
+}
+function fornGrdRender(){
+  const it=window._fornGrd||[],box=document.getElementById('forn-grd-corpo');if(!box)return;
+  const marc=it.filter(i=>i.marcado);
+  const novos=marc.filter(i=>!i.ex).length,lig=marc.reduce((s,i)=>s+i.obras.length,0);
+  const brl=v=>'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  box.innerHTML=`<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px">Cada fornecedor vira <strong>um único cadastro</strong> ligado a todas as obras em que aparece nas GRDs. Nomes parecidos já foram agrupados; corrija o nome se precisar. Telefone, endereço e CNPJ ficam para completar depois (etiqueta "completar cadastro").</div>
+  <div class="table-container" style="max-height:52vh;overflow:auto"><table><thead><tr><th style="width:34px"></th><th>Fornecedor</th><th>Obras (nas GRDs)</th><th style="text-align:right">GRDs</th><th style="text-align:right">Valor</th><th>Situação</th></tr></thead><tbody>
+  ${it.map((i,n)=>`<tr style="${i.marcado?'':'opacity:.5'}"><td><input type="checkbox" ${i.marcado?'checked':''} onchange="_fornGrd[${n}].marcado=this.checked;fornGrdRender()"></td>
+   <td>${i.ex?`<b>${escHtml(i.ex.razao_social)}</b>`:`<input value="${escHtml(i.nome)}" style="width:100%;min-width:220px" onchange="_fornGrd[${n}].nome=this.value">`}${i.vars.length>1?`<div style="font-size:11px;color:var(--text-muted)">agrupou: ${i.vars.map(escHtml).join(' · ')}</div>`:''}</td>
+   <td style="font-size:12px">${i.obras.map(id=>`<span class="badge">${escHtml(grdObraCodigo(id))}</span>`).join(' ')}</td>
+   <td style="text-align:right">${i.qtd}</td><td style="text-align:right;white-space:nowrap">${brl(i.valor)}</td>
+   <td style="font-size:12px">${i.ex?'<span class="badge badge-green">já cadastrado — só liga as obras</span>':'<span class="badge" style="background:var(--warning-light);color:#7A4A0E">novo</span>'}</td></tr>`).join('')}
+  </tbody></table></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:12px;margin-top:10px;border-top:1px solid var(--border);flex-wrap:wrap">
+    <div style="font-size:12.5px"><b>${novos}</b> fornecedor(es) novo(s) · <b>${lig}</b> ligação(ões) com obras</div>
+    <div style="display:flex;gap:8px"><button class="btn" onclick="closeModal('modal-forn-grd')">Cancelar</button><button class="btn btn-primary" id="forn-grd-btn" ${marc.length?'':'disabled'} onclick="fornGrdGravar()"><i class="ti ti-check"></i> Criar e ligar</button></div>
+  </div>`;
+}
+async function fornGrdGravar(){
+  const it=(window._fornGrd||[]).filter(i=>i.marcado);if(!it.length)return;
+  const btn=document.getElementById('forn-grd-btn');btn.disabled=true;btn.innerHTML='<i class="ti ti-loader ti-spin"></i> Gravando...';
+  const quem=currentUser?.nome||currentUser?.usuario||'';
+  let criados=0,ligacoes=0;
+  try{
+    for(const i of it){
+      let fid=i.ex?i.ex.id:null;
+      if(!fid){
+        const nome=String(i.nome||'').trim();if(!nome)continue;
+        const base={razao_social:nome,situacao:'ativo',obra_id:null,observacoes:'Criado a partir das GRDs — completar telefone, endereço e CNPJ.'};
+        let r=await sb.from('fornecedores').insert({...base,completar_cadastro:true}).select('id').single();
+        if(r.error&&/completar_cadastro/i.test(r.error.message||''))r=await sb.from('fornecedores').insert(base).select('id').single();
+        if(r.error)throw r.error;
+        fid=r.data.id;criados++;
+      }
+      const rows=i.obras.map(o=>({fornecedor_id:String(fid),obra_id:String(o)}));
+      if(rows.length){const r=await sb.from('fornecedor_obras').upsert(rows,{onConflict:'fornecedor_id,obra_id'});if(r.error)throw r.error;ligacoes+=rows.length;}
+    }
+    closeModal('modal-forn-grd');
+    showToast(`${criados} fornecedor(es) criado(s) e ${ligacoes} ligação(ões) com obras.`);
+    await loadFornecedores();renderFornecedores();
+  }catch(e){
+    console.error('[Fornecedores/GRD]',e);
+    showToast('Erro: '+(e.message||e),'error');
+    btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Tentar novamente';
+  }
 }
 function fornecedorEditavel(f){return !obrasPermitidasIds||!f.obra_id||obrasPermitidasIds.has(String(f.obra_id));}
 function renderFornecedores(){
   const lista=fornecedores.filter(f=>{
     if(fornecedoresFiltroSit&&f.situacao!==fornecedoresFiltroSit)return false;
+    if(fornecedoresFiltroFalta&&!fornFalta(f))return false;
     if(fornecedoresFiltroTipo&&!(f.tipo_fornecimento||'').toLowerCase().includes(fornecedoresFiltroTipo.toLowerCase()))return false;
     if(fornecedoresFiltroObra&&String(f.obra_id)!==String(fornecedoresFiltroObra)&&!fornecedorObrasExtra(f).some(o=>String(o.id)===String(fornecedoresFiltroObra)))return false;
     if(fornecedoresBusca){
@@ -10736,7 +10822,7 @@ function renderFornecedores(){
     const nOrc=fornecedorOrcamentos.filter(o=>String(o.fornecedor_id)===String(f.id)).length;
     return`<tr>
       <td>
-        <div style="font-weight:500">${f.razao_social||'—'}</div>
+        <div style="font-weight:500">${f.razao_social||'—'}${fornFalta(f)?' <span class="badge" style="background:var(--warning-light);color:#7A4A0E;font-size:10px">completar cadastro</span>':''}</div>
         ${f.nome_fantasia?`<div style="font-size:11px;color:var(--text-muted)">${f.nome_fantasia}</div>`:''}
         ${f.cnpj?`<div style="font-size:11px;color:var(--text-muted);font-family:monospace">${f.cnpj}</div>`:''}
       </td>
@@ -10766,7 +10852,7 @@ function renderFornecedores(){
   document.getElementById('main-content').innerHTML=`
     <div class="page-header">
       <div><div class="page-title">Fornecedores</div><div class="page-subtitle">${ativos} ativos · ${inativos} inativos${obrasPermitidasIds?' · você vê os fornecedores de todas as obras e edita só os das suas':''}</div></div>
-      <button class="btn btn-primary" onclick="openModalFornecedor()"><i class="ti ti-plus"></i> Novo fornecedor</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${!obrasPermitidasIds?'<button class="btn" onclick="fornGrdAbrir()"><i class="ti ti-file-import"></i> Criar a partir das GRDs</button>':''}<button class="btn btn-primary" onclick="openModalFornecedor()"><i class="ti ti-plus"></i> Novo fornecedor</button></div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
       <div class="metric-card" onclick="fornecedoresFiltroSit='';renderFornecedores()" style="cursor:pointer;border-color:${!fornecedoresFiltroSit?'var(--primary)':'var(--border)'}">
@@ -10787,7 +10873,8 @@ function renderFornecedores(){
       <select class="filter-select" onchange="fornecedoresFiltroObra=this.value;renderFornecedores()">
         <option value="">Todas as obras</option>${obrasOpts}
       </select>
-      <button class="btn btn-sm" onclick="fornecedoresBusca='';fornecedoresFiltroSit='ativo';fornecedoresFiltroTipo='';fornecedoresFiltroObra='';renderFornecedores()"><i class="ti ti-x"></i> Limpar</button>
+      <button class="btn btn-sm ${fornecedoresFiltroFalta?'btn-primary':''}" onclick="fornecedoresFiltroFalta=!fornecedoresFiltroFalta;renderFornecedores()"><i class="ti ti-pencil-exclamation"></i> Completar cadastro (${fornecedores.filter(fornFalta).length})</button>
+      <button class="btn btn-sm" onclick="fornecedoresBusca='';fornecedoresFiltroSit='ativo';fornecedoresFiltroTipo='';fornecedoresFiltroObra='';fornecedoresFiltroFalta=false;renderFornecedores()"><i class="ti ti-x"></i> Limpar</button>
     </div>
     <div class="table-container"><table>
       <thead><tr>
@@ -10950,6 +11037,7 @@ async function saveFornecedor(id){
     inscricao_estadual:document.getElementById('forn-ie').value.trim()||null,
     obra_id:document.getElementById('forn-obra').value||null,
     situacao:document.getElementById('forn-situacao').value,
+    ...(id&&(fornecedores.find(x=>String(x.id)===String(id))||{}).completar_cadastro&&(document.getElementById('forn-telefone').value.trim()||document.getElementById('forn-cnpj').value.trim()||document.getElementById('forn-email').value.trim())?{completar_cadastro:false}:{}),
     endereco:document.getElementById('forn-endereco').value.trim()||null,
     cidade:document.getElementById('forn-cidade').value.trim()||null,
     estado:document.getElementById('forn-estado').value.trim().toUpperCase()||null,
