@@ -554,6 +554,15 @@ function trocaSenhaMostrar(){
 }
 
 function entrarNoApp(){
+  // confere no banco se este usuário deve trocar a senha (não depende do formato devolvido pelo login)
+  if(currentUser&&currentUser.token&&!currentUser._tsChecado){
+    sb.rpc('precisa_trocar_senha').then(({data})=>{
+      currentUser._tsChecado=true;
+      if(data===true)currentUser.trocar_senha=true;
+      entrarNoApp();
+    },()=>{currentUser._tsChecado=true;entrarNoApp();});
+    return;
+  }
   if(currentUser&&currentUser.trocar_senha===true&&currentUser.token){
     document.getElementById('login-screen').style.display='none';
     trocaSenhaMostrar();
